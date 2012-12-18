@@ -60,7 +60,7 @@ def test_tree(ctx_getter, do_plot=False):
         all_good_so_far = True
 
         if do_plot:
-            tree.plot()
+            tree.plot(zorder=10)
 
         for ibox in xrange(tree.nboxes):
             lev = int(levels[ibox])
@@ -97,6 +97,42 @@ def test_tree(ctx_getter, do_plot=False):
 
         print "done"
 
+@pytools.test.mark_test.opencl
+def test_tree_connectivity(ctx_getter, do_plot=False):
+    ctx = ctx_getter()
+    queue = cl.CommandQueue(ctx)
+
+    for dims in [2]:
+        nparticles = 10**3
+        dtype = np.float64
+
+        from pyopencl.clrandom import RanluxGenerator
+        rng = RanluxGenerator(queue, seed=15)
+
+        from pytools.obj_array import make_obj_array
+        particles = make_obj_array([
+            rng.normal(queue, nparticles, dtype=dtype)
+            for i in range(dims)])
+
+        if do_plot:
+            pt.plot(particles[0].get(), particles[1].get(), "x")
+
+        from htree import TreeBuilder
+        tb = TreeBuilder(ctx)
+
+        tree = tb(queue, particles, max_particles_in_box=30, debug=True)
+
+
+        levels = tree.box_levels.get()
+        parents = tree.box_parent_ids.get().T
+        children = tree.box_child_ids.get().T
+
+        for ibox in xrange(1, tree.nboxes):
+            parent = parents[ibox]
+
+            assert levels[parent] + 1 == levels[ibox]
+            assert ibox in children[parent], ibox
+
 
 
 
@@ -107,7 +143,7 @@ def test_traversal(ctx_getter, do_plot=False):
 
     #for dims in [2, 3]:
     for dims in [2]:
-        nparticles = 10**5
+        nparticles = 10**4
         dtype = np.float64
 
         from pyopencl.clrandom import RanluxGenerator
@@ -129,13 +165,64 @@ def test_traversal(ctx_getter, do_plot=False):
         tree = tb(queue, particles, max_particles_in_box=30, debug=True)
         print "done"
 
-        if do_plot:
-            tree.plot()
-
         from htree.traversal import FMMTraversalGenerator
         tg = FMMTraversalGenerator(ctx)
+        traversal = tg(queue, tree)
 
-        tg(queue, tree)
+        coll_starts = traversal.colleagues_starts.get()
+        coll_list = traversal.colleagues_list.get()
+        neigh_starts = traversal.neighbor_leaves_starts.get()
+        neigh_list = traversal.neighbor_leaves_list.get()
+        wss_starts = traversal.well_sep_siblings_starts.get()
+        wss_list = traversal.well_sep_siblings_list.get()
+        leaves = traversal.leaf_boxes.get()
+
+        from htree import TreePlotter
+        plotter = TreePlotter(tree)
+        plotter.draw_tree(fill=False, edgecolor="black")
+        plotter.draw_box_numbers()
+
+        from random import randrange, seed
+        seed(5)
+
+        if 0:
+            # colleagues
+
+            for i in xrange(5):
+                ibox = randrange(tree.nboxes)
+                plotter.draw_box(ibox, facecolor='red')
+
+                start, end = coll_starts[ibox:ibox+2]
+
+                for jbox in coll_list[start:end]:
+                    plotter.draw_box(jbox, facecolor='yellow')
+        elif 1:
+            # near neighbors ("list 1")
+
+            for i in xrange(20):
+                ileaf = randrange(len(leaves))
+                ibox = leaves[ileaf]
+                plotter.draw_box(ibox, facecolor='red')
+
+                start, end = neigh_starts[ileaf:ileaf+2]
+
+                for jbox in neigh_list[start:end]:
+                    plotter.draw_box(jbox, facecolor='yellow')
+        else:
+            # well-separated siblings (list 2)
+
+            for i in xrange(1):
+                ibox = randrange(tree.nboxes)
+                plotter.draw_box(ibox, facecolor='red')
+
+                start, end = wss_starts[ibox:ibox+2]
+                print start, end
+
+                for jbox in wss_list[start:end]:
+                    plotter.draw_box(jbox, facecolor='yellow')
+        pt.show()
+
+
 
 
 

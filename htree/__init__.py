@@ -241,8 +241,8 @@ class box_type_enum:
         return "\n".join(
                 "#define BOX_%s %d"
                 % (name, getattr(cls, name))
-                for name in dir(box_type_enum)
-                if name[0].isupper())
+                for name in sorted(dir(box_type_enum))
+                if name[0].isupper()) + "\n\n"
 
 
 # {{{ preamble
@@ -544,9 +544,28 @@ BOX_INFO_KERNEL_TPL =  ElementwiseTemplate(
         """,
     operation=r"""//CL:mako//
         box_id_t box_id = i;
+
+        particle_id_t p_count = box_particle_counts[box_id];
+        if (p_count == 0)
+        {
+            // Lots of stuff uninitialized for these guys, prevent
+            // damage by quitting now.
+
+            // Also, those should have gotten pruned by this point.
+
+            box_types[box_id] = BOX_EMPTY_LEAF;
+            return;
+        }
+        else if (p_count > max_particles_in_box)
+        {
+            box_types[box_id] = BOX_BRANCH;
+            box_particle_counts[box_id] = 0;
+        }
+        else
+            box_types[box_id] = BOX_LEAF;
+
         box_id_t parent_id = box_parent_ids[box_id];
         morton_nr_t morton_nr = box_morton_nrs[box_id];
-
         box_child_ids[parent_id + aligned_nboxes*morton_nr] = box_id;
 
         /* walk up to root to find center and level */
@@ -588,16 +607,6 @@ BOX_INFO_KERNEL_TPL =  ElementwiseTemplate(
          * work done.
          */
 
-        particle_id_t p_count = box_particle_counts[box_id];
-        if (p_count == 0)
-            box_types[box_id] = BOX_EMPTY_LEAF;
-        else if (p_count > max_particles_in_box)
-        {
-            box_types[box_id] = BOX_BRANCH;
-            box_particle_counts[box_id] = 0;
-        }
-        else
-            box_types[box_id] = BOX_LEAF;
     """)
 
 # }}}
@@ -608,35 +617,22 @@ BOX_INFO_KERNEL_TPL =  ElementwiseTemplate(
 # pruning.
 
 GAPPY_COPY_TPL =  Template(r"""//CL//
+
     typedef ${dtype_to_ctype(dtype)} value_t;
 
-    %if dim_2_length is None:
-        value_t val = input_ary[from_indices[i]];
+    value_t val = input_ary[from_indices[i]];
 
-        %if map_values:
-            val = value_map[val];
-        %endif
-
-        output_ary[i] = val;
-    %else:
-        for (int j = 0; j < ${dim_2_length}; ++j)
-        {
-            value_t val = input_ary[from_indices[i] + lda_in*j];
-
-            %if map_values:
-                val = value_map[val];
-            %endif
-
-            output_ary[i + lda_out*j] = val;
-        }
+    %if map_values:
+        val = value_map[val];
     %endif
+
+    output_ary[i] = val;
 
 """, strict_undefined=True)
 
 # }}}
 
-
-
+# {{{ tree data structure (output)
 
 class Tree(Record):
     """
@@ -681,27 +677,65 @@ class Tree(Record):
     def aligned_nboxes(self):
         return self.box_child_ids.shape[-1]
 
-    def plot(self):
-        if self.dimensions != 2:
+    def plot(self, **kwargs):
+        plotter = TreePlotter(self)
+        plotter.draw_tree(fill=False, edgecolor="black", **kwargs)
+
+# }}}
+
+class TreePlotter:
+    def __init__(self, tree):
+        self.tree = tree
+        self.centers = tree.box_centers.get()
+        self.levels = tree.box_levels.get()
+        self.root_extent = tree.root_extent
+
+    def draw_tree(self, **kwargs):
+        if self.tree.dimensions != 2:
             raise NotImplementedError("can only plot 2D trees for now")
 
+        for ibox in xrange(self.tree.nboxes):
+            self.draw_box(ibox, **kwargs)
+
+    def draw_box(self, ibox, **kwargs):
+        """
+        :arg kwargs: keyword arguments to pass on to :class:`matplotlib.patches.PathPatch`,
+            e.g. `facecolor='red', edgecolor='yellow', alpha=0.5`
+        """
+
+        lev = int(self.levels[ibox])
+        box_size = self.root_extent / (1 << lev)
+        el = self.centers[:, ibox] - 0.5*box_size
+        eh = el + box_size
+
         import matplotlib.pyplot as pt
+        import matplotlib.patches as mpatches
+        from matplotlib.path import Path
 
-        centers = self.box_centers.get()
-        levels = self.box_levels.get()
-        root_extent = self.root_extent
+        pathdata = [
+            (Path.MOVETO, (el[0], el[1])),
+            (Path.LINETO, (eh[0], el[1])),
+            (Path.LINETO, (eh[0], eh[1])),
+            (Path.LINETO, (el[0], eh[1])),
+            (Path.CLOSEPOLY, (el[0], el[1])),
+            ]
 
-        for ibox in xrange(self.nboxes):
-            lev = int(levels[ibox])
-            box_size = root_extent / (1 << lev)
-            el = centers[:, ibox] - 0.5*box_size
-            eh = el + box_size
+        codes, verts = zip(*pathdata)
+        path = Path(verts, codes)
+        patch = mpatches.PathPatch(path, **kwargs)
+        pt.gca().add_patch(patch)
 
-            pt.plot([el[0], eh[0], eh[0], el[0], el[0]],
-                    [el[1], el[1], eh[1], eh[1], el[1]], "k-")
+    def draw_box_numbers(self):
+        import matplotlib.pyplot as pt
+        for ibox in xrange(self.tree.nboxes):
+            x, y = self.centers[:, ibox]
+            lev = int(self.levels[ibox])
+            pt.text(x, y, str(ibox), fontsize=20*1.15**(-lev),
+                    ha="center", va="center",
+                    bbox=dict(facecolor='white', alpha=0.5, lw=0))
 
 
-
+# }}}
 
 # {{{ driver
 
@@ -715,8 +749,7 @@ class TreeBuilder(object):
         return BoundingBoxFinder(self.context)
 
     @memoize_method
-    def get_gappy_copy_and_map_kernel(self, dtype, src_index_dtype,
-            dim_2_length=None, map_values=False):
+    def get_gappy_copy_and_map_kernel(self, dtype, src_index_dtype, map_values=False):
         from pyopencl.tools import VectorArg, ScalarArg
         from pyopencl.elementwise import ElementwiseKernel
 
@@ -729,21 +762,16 @@ class TreeBuilder(object):
         if map_values:
             args.append(VectorArg(dtype, "value_map"))
 
-        if dim_2_length:
-            args.extend([
-                ScalarArg(np.intp, "lda_in"),
-                ScalarArg(np.intp, "lda_out"),
-                ])
-
         from pyopencl.tools import dtype_to_ctype
         src = GAPPY_COPY_TPL.render(
                 dtype=dtype,
                 dtype_to_ctype=dtype_to_ctype,
-                dim_2_length=dim_2_length,
                 map_values=map_values)
 
         return ElementwiseKernel(self.context,
                 args, str(src), name="gappy_copy_and_map")
+
+    morton_nr_dtype = np.dtype(np.uint8)
 
     @memoize_method
     def get_kernel_info(self, dimensions, coord_dtype,
@@ -759,8 +787,7 @@ class TreeBuilder(object):
         box_id_dtype = np.dtype(box_id_dtype)
         box_id_ctype = dtype_to_ctype(box_id_dtype)
 
-        morton_nr_dtype = np.dtype(np.uint8)
-        morton_nr_ctype = dtype_to_ctype(morton_nr_dtype)
+        morton_nr_ctype = dtype_to_ctype(self.morton_nr_dtype)
 
         dev = self.context.devices[0]
         scan_dtype, scan_type_decl = make_scan_type(dev,
@@ -826,7 +853,7 @@ class TreeBuilder(object):
                     VectorArg(box_id_dtype, "box_parent_ids"), # [nboxes]
 
                     # morton nr identifier {quadr,oct}ant of parent in which this box was created
-                    VectorArg(morton_nr_dtype, "box_morton_nrs"), # [nboxes]
+                    VectorArg(self.morton_nr_dtype, "box_morton_nrs"), # [nboxes]
 
                     # number of boxes total
                     VectorArg(box_id_dtype, "box_count"), # [1]
@@ -885,7 +912,7 @@ class TreeBuilder(object):
                 ("particle_id_t", particle_id_dtype),
                 ("bbox_t", bbox_dtype),
                 ("coord_t", coord_dtype),
-                ("morton_nr_t", morton_nr_dtype),
+                ("morton_nr_t", self.morton_nr_dtype),
                 ("coord_vec_t", coord_vec_dtype),
                 )
         codegen_args_tuples = tuple(codegen_args.iteritems())
@@ -904,13 +931,13 @@ class TreeBuilder(object):
                 self.context, box_id_dtype,
                 arguments=[
                     # input
-                    VectorArg(np.uint8, "box_types"),
+                    VectorArg(particle_id_dtype, "box_particle_counts"),
                     # output
                     VectorArg(box_id_dtype, "to_box_id"),
                     VectorArg(box_id_dtype, "from_box_id"),
                     VectorArg(box_id_dtype, "nboxes_post_prune"),
                     ],
-                input_expr="box_types[i] == BOX_EMPTY_LEAF ? 1 : 0",
+                input_expr="box_particle_counts[i] == 0 ? 1 : 0",
                 preamble=box_type_enum.get_c_defines(),
                 scan_expr="a+b", neutral="0",
                 output_statement="""
@@ -933,36 +960,23 @@ class TreeBuilder(object):
 
     # }}}
 
-    def gappy_copy_and_map(self, queue, allocator, new_size, new_size_aligned,
+    def gappy_copy_and_map(self, queue, allocator, new_size,
             src_indices, ary, map_values=None):
         """Compresses box info arrays after empty leaf pruning and, optionally,
         maps old box IDs to new box IDs (if the array being operated on contains
         box IDs).
         """
-        if len(ary.shape) == 2:
-            dim_2_length, old_size = ary.shape
-            assert old_size >= new_size
 
-            kernel = self.get_gappy_copy_and_map_kernel(ary.dtype, src_indices.dtype,
-                    map_values=map_values is not None, dim_2_length=dim_2_length)
+        assert len(ary) >= new_size
 
-            result = cl.array.empty(queue, (dim_2_length, new_size_aligned), ary.dtype,
-                    allocator=allocator)
-        else:
-            dim_2_length = None
-            assert len(ary) >= new_size
+        result = cl.array.empty(queue, new_size, ary.dtype, allocator=allocator)
 
-            result = cl.array.empty(queue, new_size, ary.dtype, allocator=allocator)
-
-            kernel = self.get_gappy_copy_and_map_kernel(ary.dtype, src_indices.dtype,
-                    map_values=map_values is not None)
+        kernel = self.get_gappy_copy_and_map_kernel(ary.dtype, src_indices.dtype,
+                map_values=map_values is not None)
 
         args = (ary, result, src_indices)
         if map_values is not None:
             args += (map_values,)
-
-        if len(ary.shape) == 2:
-            args += (old_size, new_size_aligned)
 
         kernel(*args, queue=queue, range=slice(new_size))
 
@@ -1017,7 +1031,7 @@ class TreeBuilder(object):
                 dtype=knl_info.morton_bin_count_dtype)
         box_starts = zeros(nboxes_guess, dtype=particle_id_dtype)
         box_parent_ids = zeros(nboxes_guess, dtype=box_id_dtype)
-        box_morton_nrs = zeros(nboxes_guess, dtype=np.uint8)
+        box_morton_nrs = zeros(nboxes_guess, dtype=self.morton_nr_dtype)
         box_particle_counts = zeros(nboxes_guess, dtype=particle_id_dtype)
 
         original_particle_ids = cl.array.arange(queue, nparticles, dtype=particle_id_dtype,
@@ -1098,24 +1112,6 @@ class TreeBuilder(object):
 
         nboxes = int(nboxes)
 
-        # A number of arrays below are stored as
-        aligned_nboxes = div_ceil(nboxes, 32)*32
-
-        box_child_ids = zeros((2**dimensions, aligned_nboxes), box_id_dtype)
-        box_centers = empty((dimensions, aligned_nboxes), coord_dtype)
-        box_levels = empty(nboxes, np.uint8)
-        box_types = empty(nboxes, np.uint8)
-
-        knl_info.box_info_kernel(
-                # input:
-                box_parent_ids, box_morton_nrs, bbox, aligned_nboxes,
-                box_particle_counts, max_particles_in_box,
-
-                # output:
-                box_child_ids, box_centers, box_levels, box_types,
-
-                range=slice(nboxes))
-
         # {{{ prune empty leaf boxes
 
         # What is the original index of this box?
@@ -1126,27 +1122,47 @@ class TreeBuilder(object):
 
         nboxes_post_prune_dev = empty((), dtype=box_id_dtype)
         knl_info.find_prune_indices_kernel(
-                box_types, to_box_id, from_box_id, nboxes_post_prune_dev)
+                box_particle_counts, to_box_id, from_box_id, nboxes_post_prune_dev,
+                size=nboxes)
 
         nboxes_post_prune = int(nboxes_post_prune_dev.get())
-        aligned_nboxes_post_prune = div_ceil(nboxes_post_prune, 32)*32
 
         print "%d empty leaves" % (nboxes-nboxes_post_prune)
 
         from functools import partial
         prune_empty = partial(self.gappy_copy_and_map,
-                queue, allocator,
-                nboxes_post_prune, aligned_nboxes_post_prune,
-                from_box_id)
+                queue, allocator, nboxes_post_prune, from_box_id)
 
-        if 1:
-            box_starts = prune_empty(box_starts)
-            box_particle_counts = prune_empty(box_particle_counts)
-            box_parent_ids = prune_empty(box_parent_ids, map_values=to_box_id)
-            box_child_ids = prune_empty(box_child_ids, map_values=to_box_id)
-            box_centers = prune_empty(box_centers)
-            box_levels = prune_empty(box_levels)
-            box_types = prune_empty(box_types)
+        box_starts = prune_empty(box_starts)
+        box_particle_counts = prune_empty(box_particle_counts)
+        box_parent_ids = prune_empty(box_parent_ids, map_values=to_box_id)
+        box_morton_nrs = prune_empty(box_morton_nrs)
+
+        # }}}
+
+        del nboxes
+
+        # {{{ compute box info
+
+        # A number of arrays below are nominally 2-dimensional and stored with
+        # the box index as the fastest-moving index. To make sure that accesses
+        # remain aligned, we round up the number of boxes used for indexing.
+        aligned_nboxes = div_ceil(nboxes_post_prune, 32)*32
+
+        box_child_ids = zeros((2**dimensions, aligned_nboxes), box_id_dtype)
+        box_centers = empty((dimensions, aligned_nboxes), coord_dtype)
+        box_levels = empty(nboxes_post_prune, np.uint8)
+        box_types = empty(nboxes_post_prune, np.uint8)
+
+        knl_info.box_info_kernel(
+                # input:
+                box_parent_ids, box_morton_nrs, bbox, aligned_nboxes,
+                box_particle_counts, max_particles_in_box,
+
+                # output:
+                box_child_ids, box_centers, box_levels, box_types,
+
+                range=slice(nboxes_post_prune))
 
         # }}}
 
