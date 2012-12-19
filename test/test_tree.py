@@ -175,6 +175,8 @@ def test_traversal(ctx_getter, do_plot=False):
         neigh_list = traversal.neighbor_leaves_list.get()
         wss_starts = traversal.well_sep_siblings_starts.get()
         wss_list = traversal.well_sep_siblings_list.get()
+        ssn_starts = traversal.sep_smaller_nonsiblings_starts.get()
+        ssn_list = traversal.sep_smaller_nonsiblings_list.get()
         leaves = traversal.leaf_boxes.get()
 
         from htree import TreePlotter
@@ -196,7 +198,7 @@ def test_traversal(ctx_getter, do_plot=False):
 
                 for jbox in coll_list[start:end]:
                     plotter.draw_box(jbox, facecolor='yellow')
-        elif 1:
+        elif 0:
             # near neighbors ("list 1")
 
             for i in xrange(20):
@@ -208,7 +210,7 @@ def test_traversal(ctx_getter, do_plot=False):
 
                 for jbox in neigh_list[start:end]:
                     plotter.draw_box(jbox, facecolor='yellow')
-        else:
+        elif 0:
             # well-separated siblings (list 2)
 
             for i in xrange(1):
@@ -216,10 +218,29 @@ def test_traversal(ctx_getter, do_plot=False):
                 plotter.draw_box(ibox, facecolor='red')
 
                 start, end = wss_starts[ibox:ibox+2]
-                print start, end
+                print ibox, start, end, wss_list[start:end]
 
                 for jbox in wss_list[start:end]:
                     plotter.draw_box(jbox, facecolor='yellow')
+        elif 1:
+            # separated smaller non-siblings (list 3)
+
+            count = 0
+            while count < 5:
+                ileaf = randrange(len(leaves))
+                ibox = leaves[ileaf]
+
+                start, end = ssn_starts[ileaf:ileaf+2]
+                if start == end:
+                    continue
+
+                plotter.draw_box(ibox, facecolor='red')
+
+                for jbox in ssn_list[start:end]:
+                    plotter.draw_box(jbox, facecolor='yellow')
+
+                count += 1
+
         pt.show()
 
 
