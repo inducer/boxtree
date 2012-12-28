@@ -14,6 +14,7 @@ from pyopencl.tools import pytest_generate_tests_for_pyopencl \
 
 
 
+# {{{ basic tree build test
 
 @pytools.test.mark_test.opencl
 def test_tree(ctx_getter, do_plot=False):
@@ -98,13 +99,126 @@ def test_tree(ctx_getter, do_plot=False):
 
         print "done"
 
+# }}}
+
+# {{{ connectivity test
+
 @pytools.test.mark_test.opencl
 def test_tree_connectivity(ctx_getter, do_plot=False):
     ctx = ctx_getter()
     queue = cl.CommandQueue(ctx)
 
     for dims in [2]:
-        nparticles = 10**3
+        nparticles = 10**5
+        dtype = np.float64
+
+        from pyopencl.clrandom import RanluxGenerator
+        rng = RanluxGenerator(queue, seed=15)
+
+        from pytools.obj_array import make_obj_array
+        particles = make_obj_array([
+            rng.normal(queue, nparticles, dtype=dtype)
+            for i in range(dims)])
+
+        from htree import TreeBuilder
+        tb = TreeBuilder(ctx)
+
+        tree = tb(queue, particles, max_particles_in_box=30, debug=True)
+        print "tree built"
+
+        from htree.traversal import FMMTraversalGenerator
+        tg = FMMTraversalGenerator(ctx)
+        trav = tg(queue, tree).get()
+
+        print "traversal built"
+
+        levels = tree.box_levels.get()
+        parents = tree.box_parent_ids.get().T
+        children = tree.box_child_ids.get().T
+        centers = tree.box_centers.get().T
+
+        # {{{ parent and child relations, levels match up
+
+        for ibox in xrange(1, tree.nboxes):
+            # /!\ Not testing box 0, has no parents
+            parent = parents[ibox]
+
+            assert levels[parent] + 1 == levels[ibox]
+            assert ibox in children[parent], ibox
+
+        # }}}
+
+        if 0:
+            from htree import TreePlotter
+            plotter = TreePlotter(tree)
+            plotter.draw_tree(fill=False, edgecolor="black")
+            plotter.draw_box_numbers()
+            plotter.set_bounding_box()
+            pt.show()
+
+        # {{{ neighbor_leaves (list 1) consists of leaves
+
+        for ileaf, ibox in enumerate(trav.leaf_boxes):
+            start, end = trav.neighbor_leaves_starts[ileaf:ileaf+2]
+            nbl = trav.neighbor_leaves_lists[start:end]
+            assert ibox in nbl
+            for jbox in nbl:
+                assert (0 == children[jbox]).all()
+
+        print "list 1 tested"
+
+        # }}}
+
+        # {{{ separated siblings (list 2) are actually separated
+
+        for ibox in xrange(tree.nboxes):
+            start, end = trav.sep_siblings_starts[ibox:ibox+2]
+            seps = trav.sep_siblings_lists[start:end]
+
+            assert (levels[seps] == levels[ibox]).all()
+
+            # three-ish box radii (half of size)
+            mindist = 2.5 * 0.5 * 2**-int(levels[ibox]) * tree.root_extent
+
+            icenter = centers[ibox]
+            for jbox in seps:
+                dist = la.norm(centers[jbox]-icenter)
+                assert dist > mindist, (dist, mindist)
+
+        # }}}
+
+        # {{{ sep_{smaller,bigger}_nonsiblings are duals of each other
+
+        # (technically, we only test one half of that)
+
+        for ileaf, ibox in enumerate(trav.leaf_boxes):
+            start, end = trav.sep_smaller_nonsiblings_starts[ileaf:ileaf+2]
+
+            for jbox in trav.sep_smaller_nonsiblings_lists[start:end]:
+                assert levels[jbox] > levels[ibox]
+
+                rstart, rend = trav.sep_bigger_nonsiblings_starts[jbox:jbox+2]
+
+                assert ibox in trav.sep_bigger_nonsiblings_lists[rstart:rend], (ibox, jbox)
+
+        print "list 3, 4 tested"
+
+        # }}}
+
+# }}}
+
+# {{{ connectivity test
+
+@pytools.test.mark_test.opencl
+def test_tree_completeness(ctx_getter, do_plot=False):
+    """Tests whether the built FMM traversal structures completely capture
+    all interactions. May serve as the blueprint of a mini-FMM.
+    """
+    ctx = ctx_getter()
+    queue = cl.CommandQueue(ctx)
+
+    for dims in [2]:
+        nparticles = 10**5
         dtype = np.float64
 
         from pyopencl.clrandom import RanluxGenerator
@@ -125,73 +239,21 @@ def test_tree_connectivity(ctx_getter, do_plot=False):
 
         print "tree built"
 
-        levels = tree.box_levels.get()
-        parents = tree.box_parent_ids.get().T
-        children = tree.box_child_ids.get().T
-        centers = tree.box_centers.get().T
-
-        # parent and child relations, levels match up
-        for ibox in xrange(1, tree.nboxes):
-            # /!\ Not testing box 0, has no parents
-            parent = parents[ibox]
-
-            assert levels[parent] + 1 == levels[ibox]
-            assert ibox in children[parent], ibox
-
         from htree.traversal import FMMTraversalGenerator
         tg = FMMTraversalGenerator(ctx)
         trav = tg(queue, tree).get()
 
         print "traversal built"
 
-        if 0:
-            from htree import TreePlotter
-            plotter = TreePlotter(tree)
-            plotter.draw_tree(fill=False, edgecolor="black")
-            plotter.draw_box_numbers()
-            plotter.set_bounding_box()
-            pt.show()
-
-        # neighbor_leaves are actually leaves
-        for ileaf, ibox in enumerate(trav.leaf_boxes):
-            start, end = trav.neighbor_leaves_starts[ileaf:ileaf+2]
-            nbl = trav.neighbor_leaves_lists[start:end]
-            assert ibox in nbl
-            for jbox in nbl:
-                assert (0 == children[jbox]).all()
-
-        print "list 1 tested"
-
-        for ibox in xrange(tree.nboxes):
-            start, end = trav.sep_siblings_starts[ibox:ibox+2]
-            seps = trav.sep_siblings_lists[start:end]
-
-            assert (levels[seps] == levels[ibox]).all()
-
-            # three-ish box radii (half of size)
-            mindist = 2.5 * 0.5 * 2**-int(levels[ibox]) * tree.root_extent
-
-            icenter = centers[ibox]
-            for jbox in seps:
-                dist = la.norm(centers[jbox]-icenter)
-                assert dist > mindist, (dist, mindist)
-
-        # sep_{smaller,bigger}_nonsiblings are duals of each other
-        for ileaf, ibox in enumerate(trav.leaf_boxes):
-            start, end = trav.sep_smaller_nonsiblings_starts[ileaf:ileaf+2]
-
-            for jbox in trav.sep_smaller_nonsiblings_lists[start:end]:
-                assert levels[jbox] > levels[ibox]
-
-                rstart, rend = trav.sep_bigger_nonsiblings_starts[jbox:jbox+2]
-
-                assert ibox in trav.sep_bigger_nonsiblings_lists[rstart:rend], (ibox, jbox)
-
-        print "list 3, 4 tested"
+        levels = tree.box_levels.get()
+        parents = tree.box_parent_ids.get().T
+        children = tree.box_child_ids.get().T
+        centers = tree.box_centers.get().T
 
 
+# }}}
 
-
+# {{{ visualization helper (not a test)
 
 def plot_traversal(ctx_getter, do_plot=False):
     ctx = ctx_getter()

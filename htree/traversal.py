@@ -468,7 +468,8 @@ class ListInverter:
 
                 if (my_tgt_box != prev_tgt_box)
                     tgt_group_starts[my_tgt_box] = i;
-                """).build(self.context,
+                """,
+                name="find_starts").build(self.context,
                         type_values=(("box_id_t", box_id_dtype),),
                         var_values=())
 
@@ -573,6 +574,32 @@ class FMMTraversalGenerator:
                     VectorArg(np.uint8, "box_types"),
                     ], debug=debug, name_prefix="leaves_and_branches")
 
+        from pyopencl.elementwise import ElementwiseTemplate
+        level_starts_extractor = ElementwiseTemplate(
+                arguments="""//CL//
+                box_id_t *level_starts,
+                unsigned char *box_levels,
+                box_id_t *box_list,
+                box_id_t *list_level_starts,
+                """,
+
+                operation=r"""//CL//
+                    // Kernel is ranged so that this is true:
+                    // assert(i > 0);
+
+                    box_id_t my_box_id = box_list[i];
+                    box_id_t prev_box_id = box_list[i-1];
+
+                    int my_level = box_levels[my_box_id];
+                    box_id_t my_level_start = level_starts[my_level];
+
+                    if (prev_box_id < my_level_start && my_level_start <= my_box_id)
+                        list_level_starts[my_level] = i;
+                """,
+                name="extract_level_starts").build(self.context,
+                        type_values=(("box_id_t", box_id_dtype),),
+                        var_values=())
+
         # }}}
 
         # {{{ colleagues, neighbors (list 1), well-sep siblings (list 2)
@@ -646,6 +673,7 @@ class FMMTraversalGenerator:
 
         return _KernelInfo(
                 leaves_and_branches_builder=leaves_and_branches_builder,
+                level_starts_extractor=level_starts_extractor,
                 **builders)
 
     # }}}
@@ -660,13 +688,46 @@ class FMMTraversalGenerator:
                 tree.dimensions, tree.particle_id_dtype, tree.box_id_dtype,
                 tree.coord_dtype, max_levels)
 
+        # {{{ leaves and branches
+
         result = knl_info.leaves_and_branches_builder(
                 queue, tree.nboxes, tree.box_types.data)
 
-        leaf_box_count = result["leaves"].count
         leaf_boxes = result["leaves"].lists
-        branch_box_count = result["leaves"].count
-        branch_boxes = result["leaves"].lists
+        assert len(leaf_boxes) == result["leaves"].count
+        branch_boxes = result["branches"].lists
+        assert len(branch_boxes) == result["branches"].count
+
+        # }}}
+
+        # {{{ figure out level starts in branch_boxes
+
+        branch_box_level_starts = cl.array.empty(queue,
+                tree.nlevels+1, tree.box_id_dtype) \
+                        .fill(len(branch_boxes))
+        knl_info.level_starts_extractor(
+                tree.level_starts_dev,
+                tree.box_levels,
+                branch_boxes,
+                branch_box_level_starts,
+                range=slice(1, len(branch_boxes)),
+                queue=queue)
+
+        branch_box_level_starts = branch_box_level_starts.get()
+
+        # We skipped box 0 above. This is always true, whether
+        # box 0 (=level 0) is a leaf or a branch.
+        branch_box_level_starts[0] = 0
+
+        # Postprocess branch_box_level_starts for unoccupied levels
+        prev_start = len(branch_boxes)
+        for ilev in xrange(tree.nlevels-1, -1, -1):
+            branch_box_level_starts[ilev] = prev_start = \
+                    min(branch_box_level_starts[ilev], prev_start)
+
+        # }}}
+
+        # {{{ colleagues
 
         colleagues = knl_info.colleagues_builder(
                 queue, tree.nboxes,
@@ -674,10 +735,12 @@ class FMMTraversalGenerator:
                 tree.aligned_nboxes, tree.box_child_ids.data, tree.box_types.data) \
                         ["colleagues"]
 
+        # }}}
+
         # {{{ neighbor leaves ("list 1")
 
         neighbor_leaves = knl_info.neighbor_leaves_builder(
-                queue, leaf_box_count,
+                queue, len(leaf_boxes),
                 tree.box_centers.data, tree.root_extent, tree.box_levels.data,
                 tree.aligned_nboxes, tree.box_child_ids.data, tree.box_types.data,
                 leaf_boxes.data)["neighbor_leaves"]
@@ -698,7 +761,7 @@ class FMMTraversalGenerator:
         # {{{ separated smaller non-siblings ("list 3")
 
         result = knl_info.sep_smaller_nonsiblings_builder(
-                queue, leaf_box_count,
+                queue, len(leaf_boxes),
                 tree.box_centers.data, tree.root_extent, tree.box_levels.data,
                 tree.aligned_nboxes, tree.box_child_ids.data, tree.box_types.data,
                 leaf_boxes.data,
@@ -720,10 +783,9 @@ class FMMTraversalGenerator:
         # }}}
 
         return TraversalInfo(
-                leaf_box_count=leaf_box_count,
                 leaf_boxes=leaf_boxes,
-                branch_box_count=branch_box_count,
                 branch_boxes=branch_boxes,
+                branch_box_level_starts=branch_box_level_starts,
 
                 colleagues_starts=colleagues.starts,
                 colleagues_lists=colleagues.lists,

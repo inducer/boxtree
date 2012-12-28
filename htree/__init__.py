@@ -162,7 +162,8 @@ class BoundingBoxFinder:
                     "%s[i]" % ax for ax in axis_names),
                 arguments=", ".join(
                     "__global %s *%s" % (coord_ctype, ax) for ax in axis_names),
-                preamble=preamble)
+                preamble=preamble,
+                name="bounding_box")
 
     def __call__(self, particles):
         dimensions = len(particles)
@@ -650,6 +651,14 @@ class Tree(Record):
         :mod:`numpy` vectors giving the (built) extent
         of the tree. Note that this may be slightly larger
         than what is required to contain all particles.
+    :ivar level_starts: [nlevels+1] A numpy array of box ids
+        indicating the ID at which each level starts. Levels
+        are contiguous in box ID space. To determine
+        how many boxes there are in each level, check
+        access the start of the next level. This array is
+        built so that this works even for the last level.
+    :ivar level_starts: The same array as :attr:`level_starts`
+        as a :class:`pyopencl.array.Array`.
 
     Per-particle arrays:
 
@@ -676,6 +685,10 @@ class Tree(Record):
     @property
     def nboxes(self):
         return self.box_levels.shape[0]
+
+    @property
+    def nlevels(self):
+        return len(self.level_starts)-1
 
     @property
     def aligned_nboxes(self):
@@ -1071,6 +1084,10 @@ class TreeBuilder(object):
 
         have_oversize_box = zeros((), np.int32)
 
+        # Level 0 starts at 0 and always contains box 0 and nothing else.
+        # Level 1 therefore starts at 1.
+        level_starts = [0, 1]
+
         from time import time
         start_time = time()
         level = 0
@@ -1088,6 +1105,8 @@ class TreeBuilder(object):
             knl_info.scan_kernel(*args)
 
             nboxes = nboxes_dev.get()
+            level_starts.append(int(nboxes))
+
             if nboxes > nboxes_guess:
                 # FIXME
                 raise NotImplementedError("Initial guess for box count was "
@@ -1158,6 +1177,10 @@ class TreeBuilder(object):
         box_parent_ids = prune_empty(box_parent_ids, map_values=to_box_id)
         box_morton_nrs = prune_empty(box_morton_nrs)
 
+        # FIXME: It would be better to do this on the device.
+        level_starts = list(to_box_id.get()[np.array(level_starts[:-1], box_id_dtype)])
+        level_starts = np.array(level_starts + [nboxes_post_prune], box_id_dtype)
+
         # }}}
 
         del nboxes
@@ -1186,6 +1209,8 @@ class TreeBuilder(object):
 
         # }}}
 
+        assert level + 2 == len(level_starts) - 1 # == number of levels
+
         return Tree(
                 # If you change this, also change the documentation
                 # of what's in the tree, above.
@@ -1195,8 +1220,13 @@ class TreeBuilder(object):
                 coord_dtype=coord_dtype,
 
                 root_extent=root_extent,
-                nlevels=level+2,
+
+                # +2 because we stop one level before the end and we
+                # did not count level 0.
                 bounding_box=(bbox_min, bbox_max),
+                level_starts=level_starts,
+                level_starts_dev=cl.array.to_device(queue, level_starts,
+                    allocator=allocator),
 
                 particles=particles,
                 box_starts=box_starts,
