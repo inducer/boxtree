@@ -391,7 +391,42 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t leaf_number)
 
 
 class TraversalInfo(Record):
-    # FIXME: document
+    """
+    :ivar tree: An instance of :class:`htree.Tree`.
+
+    :ivar leaf_boxes: `box_id_t [*]`
+    :ivar branch_boxes: `box_id_t [*]`
+    :ivar branch_box_level_starts: `box_id_t [nlevels+1]`
+        Indices into :attr:`branch_boxes` indicating where
+        each level starts and ends.
+
+    For each of the following data structures, the `starts` part
+    contains indices into the `lists` part.
+
+    :ivar colleagues_starts: `box_id_t [nboxes+1]`
+    :ivar colleagues_lists: `box_id_t [*]`
+
+    "List 1":
+
+    :ivar neighbor_leaves_starts: `box_id_t [nleaves+1]`
+    :ivar neighbor_leaves_lists: `box_id_t [*]`
+
+    "List 2":
+
+    :ivar sep_siblings_starts: `box_id_t [nboxes+1]`
+    :ivar sep_siblings_lists: `box_id_t [*]`
+
+    "List 3":
+
+    :ivar sep_smaller_nonsiblings_starts: `box_id_t [nleaves+1]`
+    :ivar sep_smaller_nonsiblings_lists: `box_id_t [*]`
+
+    "List 4":
+
+    :ivar sep_bigger_nonsiblings_starts: `box_id_t [nboxes+1]`
+    :ivar sep_bigger_nonsiblings_lists: `box_id_t [*]`
+    """
+
     def get(self):
         """Return a copy of self where all traversal list arrays
         live on the host.

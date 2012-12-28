@@ -651,7 +651,8 @@ class Tree(Record):
         :mod:`numpy` vectors giving the (built) extent
         of the tree. Note that this may be slightly larger
         than what is required to contain all particles.
-    :ivar level_starts: [nlevels+1] A numpy array of box ids
+    :ivar level_starts: `box_id_t [nlevels+1]`
+        A :class:`numpy.ndarray` of box ids
         indicating the ID at which each level starts. Levels
         are contiguous in box ID space. To determine
         how many boxes there are in each level, check
@@ -662,20 +663,22 @@ class Tree(Record):
 
     Per-particle arrays:
 
-    :ivar particles: [nparticles, dimensions] (C order)
-    :ivar original_particle_ids: [nparticles]
+    :ivar particles: `coord_t [nparticles, dimensions]` (C order)
+    :ivar original_particle_ids: `particle_id_t [nparticles]`
 
     Per-box arrays:
 
-    :ivar box_starts: [nboxes]
-    :ivar box_particle_counts: [nboxes]
-    :ivar box_parent_ids: [nboxes] Box 0 (the root) has 0 as its parent.
-    :ivar box_child_ids: [2**dimensions, aligned_nboxes] (C order)
+    :ivar box_starts: `particle_id_t [nboxes]`
+    :ivar box_particle_counts: `particle_id_t [nboxes]`
+    :ivar box_parent_ids: `box_id_t [nboxes]`
+        Box 0 (the root) has 0 as its parent.
+    :ivar box_child_ids: `box_id_t [2**dimensions, aligned_nboxes]` (C order)
         "0" is used as a 'no child' marker, as the root box can never
         occur as any box's child.
-    :ivar box_centers: [dimensions, aligned_nboxes] (C order)
-    :ivar box_levels: [nboxes]
-    :ivar box_types: [nboxes], One of the :class:`box_type` constants.
+    :ivar box_centers: `coord_t` [dimensions, aligned_nboxes] (C order)
+    :ivar box_levels: `uint8 [nboxes]`
+    :ivar box_types: `uint 8[nboxes]`
+        One of the :class:`box_type` constants.
     """
 
     @property
