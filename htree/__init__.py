@@ -646,6 +646,10 @@ class Tree(Record):
 
     :ivar root_extent: the root box size, a scalar
     :ivar nlevels: the number of levels
+    :ivar bounding_box: a tuple *(bbox_min, bbox_max)* of
+        :mod:`numpy` vectors giving the (built) extent
+        of the tree. Note that this may be slightly larger
+        than what is required to contain all particles.
 
     Per-particle arrays:
 
@@ -683,6 +687,8 @@ class Tree(Record):
 
 # }}}
 
+# {{{ visualization
+
 class TreePlotter:
     def __init__(self, tree):
         self.tree = tree
@@ -696,6 +702,12 @@ class TreePlotter:
 
         for ibox in xrange(self.tree.nboxes):
             self.draw_box(ibox, **kwargs)
+
+    def set_bounding_box(self):
+        import matplotlib.pyplot as pt
+        bbox_min, bbox_max = self.tree.bounding_box
+        pt.xlim(bbox_min[0], bbox_max[0])
+        pt.ylim(bbox_min[1], bbox_max[1])
 
     def draw_box(self, ibox, **kwargs):
         """
@@ -750,7 +762,7 @@ class TreeBuilder(object):
 
     @memoize_method
     def get_gappy_copy_and_map_kernel(self, dtype, src_index_dtype, map_values=False):
-        from pyopencl.tools import VectorArg, ScalarArg
+        from pyopencl.tools import VectorArg
         from pyopencl.elementwise import ElementwiseKernel
 
         args = [
@@ -775,7 +787,12 @@ class TreeBuilder(object):
 
     @memoize_method
     def get_kernel_info(self, dimensions, coord_dtype,
-            particle_id_dtype=np.uint32, box_id_dtype=np.uint32):
+            particle_id_dtype, box_id_dtype):
+        if np.iinfo(box_id_dtype).min == 0:
+            from warnings import warn
+            warn("Careful with signed types for box_id_dtype. Some CL implementations "
+                    "(notably Intel 2012) mis-implemnet signed operations, leading to "
+                    "incorrect results.", stacklevel=4)
 
         from pyopencl.tools import dtype_to_c_struct, dtype_to_ctype
         coord_ctype = dtype_to_ctype(coord_dtype)
@@ -992,24 +1009,27 @@ class TreeBuilder(object):
 
         axis_names = AXIS_NAMES[:dimensions]
 
+        # {{{ get kernel info
+
+        from pytools import single_valued
+        coord_dtype = single_valued(coord.dtype for coord in particles)
+        particle_id_dtype = np.uint32
+        box_id_dtype = np.int32
+        knl_info = self.get_kernel_info(dimensions, coord_dtype, particle_id_dtype, box_id_dtype)
+
+        # }}}
+
         root_extent = max(
                 bbox["max_"+ax] - bbox["min_"+ax]
                 for ax in axis_names) * (1+1e-4)
 
         # make bbox square and slightly larger at the top, to ensure scaled
         # coordinates are alwyas < 1
-        for ax in axis_names:
+        bbox_min = np.empty(dimensions, coord_dtype)
+        for i, ax in enumerate(axis_names):
+            bbox_min[i] = bbox["min_"+ax]
             bbox["max_"+ax] = bbox["min_"+ax] + root_extent
-
-        # {{{ get kernel info
-
-        from pytools import single_valued
-        coord_dtype = single_valued(coord.dtype for coord in particles)
-        particle_id_dtype = np.uint32
-        box_id_dtype = np.uint32
-        knl_info = self.get_kernel_info(dimensions, coord_dtype, particle_id_dtype, box_id_dtype)
-
-        # }}}
+        bbox_max = bbox_min + root_extent
 
         nparticles = single_valued(len(coord) for coord in particles)
 
@@ -1176,6 +1196,7 @@ class TreeBuilder(object):
 
                 root_extent=root_extent,
                 nlevels=level+2,
+                bounding_box=(bbox_min, bbox_max),
 
                 particles=particles,
                 box_starts=box_starts,

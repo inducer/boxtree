@@ -118,25 +118,6 @@ bool is_adjacent_or_overlapping(
     return max_dist <= slack;
 }
 
-bool is_well_separated(
-    USER_ARG_DECL coord_vec_t center, int level, box_id_t other_box_id)
-{
-    ${load_center("other_center", "other_box_id")}
-    int other_level = box_levels[other_box_id];
-
-    coord_t max_half_box = 0.5 * LEVEL_TO_SIZE(min(level, other_level));
-    coord_t max_diag = sqrt(${dimensions}) * max_half_box;
-
-    coord_t required_dist = 3 * max_diag;
-
-    coord_t l_inf_dist = 0;
-    %for i in range(dimensions):
-        l_inf_dist = fmax(l_inf_dist, fabs(center.s${i} - other_center.s${i}));
-    %endfor
-
-    return l_inf_dist >= required_dist;
-}
-
 """
 
 # }}}
@@ -259,9 +240,11 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t leaf_number)
 
             if (a_or_o)
             {
-                if (box_types[child_box_id] == BOX_LEAF && child_box_id != box_id)
+                /* child_box_id == box_id is ok */
+                if (box_types[child_box_id] == BOX_LEAF)
                 {
                     dbg_printf(("    neighbor leaf\n"));
+
                     APPEND_neighbor_leaves(child_box_id);
                 }
                 else
@@ -293,7 +276,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t leaf_number)
 
 # {{{ well-separated siblings ("list 2")
 
-WELL_SEP_SIBLINGS_TEMPLATE = r"""//CL//
+SEP_SIBLINGS_TEMPLATE = r"""//CL//
 
 void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t box_id)
 {
@@ -318,12 +301,12 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t box_id)
             box_id_t sib_box_id = box_child_ids[
                     morton_nr * aligned_nboxes + parent_colleague];
 
-            bool ws = is_well_separated(
+            bool sep = !is_adjacent_or_overlapping(
                 USER_ARGS center, level, sib_box_id);
 
-            if (ws)
+            if (sep)
             {
-                APPEND_well_sep_siblings(sib_box_id);
+                APPEND_sep_siblings(sib_box_id);
             }
         }
     }
@@ -390,7 +373,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t leaf_number)
                 }
                 else
                 {
-                    APPEND_origin_box(box_id);
+                    APPEND_sep_smaller_nonsiblings_origins(box_id);
                     APPEND_sep_smaller_nonsiblings(child_box_id);
                 }
             }
@@ -408,18 +391,147 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t leaf_number)
 
 
 class TraversalInfo(Record):
-    pass
+    # FIXME: document
+    def get(self):
+        """Return a copy of self where all traversal list arrays
+        live on the host.
+        """
+        result = {}
+        for field_name in self.__class__.fields:
+            try:
+                attr = getattr(self, field_name)
+            except AttributeError:
+                pass
+            else:
+                if isinstance(attr, cl.array.Array):
+                    result[field_name] = attr.get()
+
+        return self.copy(**result)
 
 
-
-# {{{ driver
 
 class _KernelInfo(Record):
     pass
 
+# {{{ list inversion
+
+class ListInverter:
+    """Given arrays *src_boxes* and *target_boxes* of equal length
+    and a number *nboxes* of boxes, returns a tuple `(starts,
+    lists)`, as follows: *src_boxes* and *target_boxes* are sorted
+    by *target_boxes*, and the sorted *src_boxes* is returned as
+    *lists*. Then for each index *i* in `range(nboxes)`,
+    an entry is written into *starts* indicating where the
+    group of *src_boxes* belonging to the target box with index
+    *i* begins.
+
+    `starts` is built so that it has n+1 entries, so that
+    the *i*'th entry is the start of the *i*'th list, and the
+    *i*'th entry is the index one past the *i*'th list's end,
+    even for the last list.
+
+    This implies that all lists are contiguous.
+    """
+
+    def __init__(self, context):
+        self.context = context
+
+    @memoize_method
+    def get_kernels(self, box_id_dtype):
+        from pyopencl.algorithm import RadixSort
+        from pyopencl.tools import VectorArg, ScalarArg
+
+        by_target_sorter = RadixSort(
+                self.context, [
+                    VectorArg(box_id_dtype, "src_boxes"),
+                    VectorArg(box_id_dtype, "tgt_boxes"),
+                    ],
+                key_expr="tgt_boxes[i]",
+                sort_arg_names=[
+                    "src_boxes",
+                    "tgt_boxes"
+                    ])
+
+        from pyopencl.elementwise import ElementwiseTemplate
+        start_finder = ElementwiseTemplate(
+                arguments="""//CL//
+                box_id_t *tgt_group_starts,
+                box_id_t *src_boxes_sorted_by_tgt,
+                box_id_t *tgt_boxes_sorted_by_tgt,
+                """,
+
+                operation=r"""//CL//
+                box_id_t my_tgt_box = tgt_boxes_sorted_by_tgt[i];
+                box_id_t prev_tgt_box = -1;
+                if (i > 0)
+                    prev_tgt_box = tgt_boxes_sorted_by_tgt[i-1];
+
+                if (my_tgt_box != prev_tgt_box)
+                    tgt_group_starts[my_tgt_box] = i;
+                """).build(self.context,
+                        type_values=(("box_id_t", box_id_dtype),),
+                        var_values=())
+
+        # produce max box id literal
+        box_id_iinfo = np.iinfo(box_id_dtype)
+        bp_scan_neutral_literal = str(box_id_iinfo.max)
+        if box_id_dtype.itemsize == 8:
+            bp_scan_neutral_literal += "l"
+        if int(box_id_iinfo.min) < 0:
+            bp_scan_neutral_literal += "u"
+
+        from pyopencl.scan import GenericScanKernel
+        bound_propagation_scan = GenericScanKernel(
+                self.context, np.int32,
+                arguments=[
+                    VectorArg(box_id_dtype, "starts"),
+                    # starts has length n+1
+                    ScalarArg(box_id_dtype, "nboxes"),
+                    ],
+                input_expr="starts[nboxes-i]",
+                scan_expr="min(a, b)", neutral=bp_scan_neutral_literal,
+                output_statement="starts[nboxes-i] = item;")
+
+        return _KernelInfo(
+                by_target_sorter=by_target_sorter,
+                start_finder=start_finder,
+                bound_propagation_scan=bound_propagation_scan)
+
+    def __call__(self, queue, src_boxes, target_boxes, nboxes,
+            allocator=None):
+        box_id_dtype = src_boxes.dtype
+        if allocator is None:
+            allocator = src_boxes.allocator
+
+        knl_info = self.get_kernels(box_id_dtype)
+
+        (src_boxes_sorted_by_tgt, tgt_boxes_sorted_by_tgt
+                ) = knl_info.by_target_sorter(
+                src_boxes, target_boxes, queue=queue)
+
+        starts = cl.array.empty(queue, (nboxes+1), box_id_dtype,
+                allocator=allocator) \
+                        .fill(len(src_boxes_sorted_by_tgt))
+
+        knl_info.start_finder(starts,
+                src_boxes_sorted_by_tgt,
+                tgt_boxes_sorted_by_tgt,
+                range=slice(len(tgt_boxes_sorted_by_tgt)))
+
+        knl_info.bound_propagation_scan(starts, nboxes, queue=queue)
+
+        return starts, src_boxes_sorted_by_tgt
+
+# }}}
+
+# {{{ top-level
+
 class FMMTraversalGenerator:
     def __init__(self, context):
         self.context = context
+        self.list_inverter = ListInverter(context)
+
+    # {{{ kernel builder
 
     @memoize_method
     def get_kernel_info(self, dimensions, particle_id_dtype, box_id_dtype,
@@ -463,7 +575,7 @@ class FMMTraversalGenerator:
 
         # }}}
 
-        # {{{ complex lists
+        # {{{ colleagues, neighbors (list 1), well-sep siblings (list 2)
 
         base_args = [
                 VectorArg(coord_dtype, "box_centers"),
@@ -479,7 +591,7 @@ class FMMTraversalGenerator:
                 ("colleagues", COLLEAGUES_TEMPLATE, []),
                 ("neighbor_leaves", NEIGBHOR_LEAVES_TEMPLATE,
                         [VectorArg(box_id_dtype, "leaf_boxes")]),
-                ("well_sep_siblings", WELL_SEP_SIBLINGS_TEMPLATE,
+                ("sep_siblings", SEP_SIBLINGS_TEMPLATE,
                         [
                             VectorArg(box_id_dtype, "box_parent_ids"),
                             VectorArg(box_id_dtype, "colleagues_starts"),
@@ -502,7 +614,7 @@ class FMMTraversalGenerator:
 
         # }}}
 
-        # {{{ separated smaller non-siblings
+        # {{{ separated smaller non-siblings ("list 3")
 
         src = Template(
                 box_type_enum.get_c_defines()
@@ -513,8 +625,8 @@ class FMMTraversalGenerator:
 
         builders["sep_smaller_nonsiblings_builder"] = ListOfListsBuilder(self.context,
                 [
+                    ("sep_smaller_nonsiblings_origins", box_id_dtype),
                     ("sep_smaller_nonsiblings", box_id_dtype),
-                    ("origin_box", box_id_dtype)
                     ],
                 str(src),
                 arg_decls=base_args + [
@@ -527,7 +639,7 @@ class FMMTraversalGenerator:
                 count_sharing={
                     # /!\ This makes a promise that APPEND_origin_box will
                     # always occur *before* APPEND_sep_smaller_nonsiblings.
-                    "sep_smaller_nonsiblings": "origin_box"
+                    "sep_smaller_nonsiblings": "sep_smaller_nonsiblings_origins"
                     })
 
         # }}}
@@ -535,6 +647,10 @@ class FMMTraversalGenerator:
         return _KernelInfo(
                 leaves_and_branches_builder=leaves_and_branches_builder,
                 **builders)
+
+    # }}}
+
+    # {{{ driver
 
     def __call__(self, queue, tree):
         from pytools import div_ceil
@@ -548,9 +664,9 @@ class FMMTraversalGenerator:
                 queue, tree.nboxes, tree.box_types.data)
 
         leaf_box_count = result["leaves"].count
-        leaf_boxes = result["leaves"].list
+        leaf_boxes = result["leaves"].lists
         branch_box_count = result["leaves"].count
-        branch_boxes = result["leaves"].list
+        branch_boxes = result["leaves"].lists
 
         colleagues = knl_info.colleagues_builder(
                 queue, tree.nboxes,
@@ -558,32 +674,50 @@ class FMMTraversalGenerator:
                 tree.aligned_nboxes, tree.box_child_ids.data, tree.box_types.data) \
                         ["colleagues"]
 
-        # "list 1"
+        # {{{ neighbor leaves ("list 1")
+
         neighbor_leaves = knl_info.neighbor_leaves_builder(
                 queue, leaf_box_count,
                 tree.box_centers.data, tree.root_extent, tree.box_levels.data,
                 tree.aligned_nboxes, tree.box_child_ids.data, tree.box_types.data,
                 leaf_boxes.data)["neighbor_leaves"]
 
-        # "list 2"
-        well_sep_siblings = knl_info.well_sep_siblings_builder(
+        # }}}
+
+        # {{{ well-separated siblings ("list 2")
+
+        sep_siblings = knl_info.sep_siblings_builder(
                 queue, tree.nboxes,
                 tree.box_centers.data, tree.root_extent, tree.box_levels.data,
                 tree.aligned_nboxes, tree.box_child_ids.data, tree.box_types.data,
                 tree.box_parent_ids.data,
-                colleagues.starts.data, colleagues.list.data)["well_sep_siblings"]
+                colleagues.starts.data, colleagues.lists.data)["sep_siblings"]
 
-        # "list 3"
+        # }}}
+
+        # {{{ separated smaller non-siblings ("list 3")
+
         result = knl_info.sep_smaller_nonsiblings_builder(
                 queue, leaf_box_count,
                 tree.box_centers.data, tree.root_extent, tree.box_levels.data,
                 tree.aligned_nboxes, tree.box_child_ids.data, tree.box_types.data,
                 leaf_boxes.data,
-                colleagues.starts.data, colleagues.list.data)
+                colleagues.starts.data, colleagues.lists.data)
 
         sep_smaller_nonsiblings = result["sep_smaller_nonsiblings"]
 
-        # TODO: "list 4"
+        # }}}
+
+        # {{{ separated bigger non-siblings ("list 4")
+
+        sep_bigger_nonsiblings_starts, sep_bigger_nonsiblings_list \
+                = self.list_inverter(
+                        queue,
+                        result["sep_smaller_nonsiblings_origins"].lists,
+                        result["sep_smaller_nonsiblings"].lists,
+                        tree.nboxes+1)
+
+        # }}}
 
         return TraversalInfo(
                 leaf_box_count=leaf_box_count,
@@ -592,17 +726,22 @@ class FMMTraversalGenerator:
                 branch_boxes=branch_boxes,
 
                 colleagues_starts=colleagues.starts,
-                colleagues_list=colleagues.list,
+                colleagues_lists=colleagues.lists,
 
                 neighbor_leaves_starts=neighbor_leaves.starts,
-                neighbor_leaves_list=neighbor_leaves.list,
+                neighbor_leaves_lists=neighbor_leaves.lists,
 
-                well_sep_siblings_starts=well_sep_siblings.starts,
-                well_sep_siblings_list=well_sep_siblings.list,
+                sep_siblings_starts=sep_siblings.starts,
+                sep_siblings_lists=sep_siblings.lists,
 
                 sep_smaller_nonsiblings_starts=sep_smaller_nonsiblings.starts,
-                sep_smaller_nonsiblings_list=sep_smaller_nonsiblings.list,
+                sep_smaller_nonsiblings_lists=sep_smaller_nonsiblings.lists,
+
+                sep_bigger_nonsiblings_starts=sep_bigger_nonsiblings_starts,
+                sep_bigger_nonsiblings_lists=sep_bigger_nonsiblings_list,
                 )
+
+    # }}}
 
 # }}}
 

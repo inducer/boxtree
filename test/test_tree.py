@@ -1,6 +1,7 @@
 from __future__ import division
 
 import numpy as np
+import numpy.linalg as la
 import sys
 import pytools.test
 
@@ -122,28 +123,83 @@ def test_tree_connectivity(ctx_getter, do_plot=False):
 
         tree = tb(queue, particles, max_particles_in_box=30, debug=True)
 
+        print "tree built"
 
         levels = tree.box_levels.get()
         parents = tree.box_parent_ids.get().T
         children = tree.box_child_ids.get().T
+        centers = tree.box_centers.get().T
 
+        # parent and child relations, levels match up
         for ibox in xrange(1, tree.nboxes):
+            # /!\ Not testing box 0, has no parents
             parent = parents[ibox]
 
             assert levels[parent] + 1 == levels[ibox]
             assert ibox in children[parent], ibox
 
+        from htree.traversal import FMMTraversalGenerator
+        tg = FMMTraversalGenerator(ctx)
+        trav = tg(queue, tree).get()
+
+        print "traversal built"
+
+        if 0:
+            from htree import TreePlotter
+            plotter = TreePlotter(tree)
+            plotter.draw_tree(fill=False, edgecolor="black")
+            plotter.draw_box_numbers()
+            plotter.set_bounding_box()
+            pt.show()
+
+        # neighbor_leaves are actually leaves
+        for ileaf, ibox in enumerate(trav.leaf_boxes):
+            start, end = trav.neighbor_leaves_starts[ileaf:ileaf+2]
+            nbl = trav.neighbor_leaves_lists[start:end]
+            assert ibox in nbl
+            for jbox in nbl:
+                assert (0 == children[jbox]).all()
+
+        print "list 1 tested"
+
+        for ibox in xrange(tree.nboxes):
+            start, end = trav.sep_siblings_starts[ibox:ibox+2]
+            seps = trav.sep_siblings_lists[start:end]
+
+            assert (levels[seps] == levels[ibox]).all()
+
+            # three-ish box radii (half of size)
+            mindist = 2.5 * 0.5 * 2**-int(levels[ibox]) * tree.root_extent
+
+            icenter = centers[ibox]
+            for jbox in seps:
+                dist = la.norm(centers[jbox]-icenter)
+                assert dist > mindist, (dist, mindist)
+
+        # sep_{smaller,bigger}_nonsiblings are duals of each other
+        for ileaf, ibox in enumerate(trav.leaf_boxes):
+            start, end = trav.sep_smaller_nonsiblings_starts[ileaf:ileaf+2]
+
+            for jbox in trav.sep_smaller_nonsiblings_lists[start:end]:
+                assert levels[jbox] > levels[ibox]
+
+                rstart, rend = trav.sep_bigger_nonsiblings_starts[jbox:jbox+2]
+
+                assert ibox in trav.sep_bigger_nonsiblings_lists[rstart:rend], (ibox, jbox)
+
+        print "list 3, 4 tested"
 
 
 
-@pytools.test.mark_test.opencl
-def test_traversal(ctx_getter, do_plot=False):
+
+
+def plot_traversal(ctx_getter, do_plot=False):
     ctx = ctx_getter()
     queue = cl.CommandQueue(ctx)
 
     #for dims in [2, 3]:
     for dims in [2]:
-        nparticles = 10**4
+        nparticles = 10**5
         dtype = np.float64
 
         from pyopencl.clrandom import RanluxGenerator
@@ -154,8 +210,8 @@ def test_traversal(ctx_getter, do_plot=False):
             rng.normal(queue, nparticles, dtype=dtype)
             for i in range(dims)])
 
-        if do_plot:
-            pt.plot(particles[0].get(), particles[1].get(), "x")
+        #if do_plot:
+            #pt.plot(particles[0].get(), particles[1].get(), "x")
 
         from htree import TreeBuilder
         tb = TreeBuilder(ctx)
@@ -167,79 +223,70 @@ def test_traversal(ctx_getter, do_plot=False):
 
         from htree.traversal import FMMTraversalGenerator
         tg = FMMTraversalGenerator(ctx)
-        traversal = tg(queue, tree)
-
-        coll_starts = traversal.colleagues_starts.get()
-        coll_list = traversal.colleagues_list.get()
-        neigh_starts = traversal.neighbor_leaves_starts.get()
-        neigh_list = traversal.neighbor_leaves_list.get()
-        wss_starts = traversal.well_sep_siblings_starts.get()
-        wss_list = traversal.well_sep_siblings_list.get()
-        ssn_starts = traversal.sep_smaller_nonsiblings_starts.get()
-        ssn_list = traversal.sep_smaller_nonsiblings_list.get()
-        leaves = traversal.leaf_boxes.get()
+        trav = tg(queue, tree).get()
 
         from htree import TreePlotter
         plotter = TreePlotter(tree)
         plotter.draw_tree(fill=False, edgecolor="black")
-        plotter.draw_box_numbers()
+        #plotter.draw_box_numbers()
+        plotter.set_bounding_box()
 
         from random import randrange, seed
-        seed(5)
+        seed(7)
 
-        if 0:
-            # colleagues
+        # {{{ generic box drawing helper
 
-            for i in xrange(5):
-                ibox = randrange(tree.nboxes)
-                plotter.draw_box(ibox, facecolor='red')
+        def draw_some_box_lists(starts, lists, key_to_box=None,
+                count=5):
+            actual_count = 0
+            while actual_count < count:
+                if key_to_box is not None:
+                    key = randrange(len(key_to_box))
+                    ibox = key_to_box[key]
+                else:
+                    key = ibox = randrange(tree.nboxes)
 
-                start, end = coll_starts[ibox:ibox+2]
-
-                for jbox in coll_list[start:end]:
-                    plotter.draw_box(jbox, facecolor='yellow')
-        elif 0:
-            # near neighbors ("list 1")
-
-            for i in xrange(20):
-                ileaf = randrange(len(leaves))
-                ibox = leaves[ileaf]
-                plotter.draw_box(ibox, facecolor='red')
-
-                start, end = neigh_starts[ileaf:ileaf+2]
-
-                for jbox in neigh_list[start:end]:
-                    plotter.draw_box(jbox, facecolor='yellow')
-        elif 0:
-            # well-separated siblings (list 2)
-
-            for i in xrange(1):
-                ibox = randrange(tree.nboxes)
-                plotter.draw_box(ibox, facecolor='red')
-
-                start, end = wss_starts[ibox:ibox+2]
-                print ibox, start, end, wss_list[start:end]
-
-                for jbox in wss_list[start:end]:
-                    plotter.draw_box(jbox, facecolor='yellow')
-        elif 1:
-            # separated smaller non-siblings (list 3)
-
-            count = 0
-            while count < 5:
-                ileaf = randrange(len(leaves))
-                ibox = leaves[ileaf]
-
-                start, end = ssn_starts[ileaf:ileaf+2]
+                start, end = starts[key:key+2]
                 if start == end:
                     continue
 
                 plotter.draw_box(ibox, facecolor='red')
 
-                for jbox in ssn_list[start:end]:
+                #print ibox, start, end, lists[start:end]
+                for jbox in lists[start:end]:
                     plotter.draw_box(jbox, facecolor='yellow')
 
-                count += 1
+                actual_count += 1
+
+        # }}}
+
+        if 0:
+            # colleagues
+            draw_some_box_lists(
+                    trav.colleagues_starts,
+                    trav.colleagues_lists)
+        elif 0:
+            # near neighbors ("list 1")
+            draw_some_box_lists(
+                    trav.neighbor_leaves_starts,
+                    trav.neighbor_leaves_lists,
+                    key_to_box=trav.leaf_boxes)
+        elif 0:
+            # well-separated siblings (list 2)
+            draw_some_box_lists(
+                    trav.sep_siblings_starts,
+                    trav.sep_siblings_lists)
+        elif 0:
+            # separated smaller non-siblings (list 3)
+            draw_some_box_lists(
+                    trav.sep_smaller_nonsiblings_starts,
+                    trav.sep_smaller_nonsiblings_lists,
+                    key_to_box=trav.leaf_boxes)
+        elif 1:
+            # separated bigger non-siblings (list 4)
+            draw_some_box_lists(
+                    trav.sep_bigger_nonsiblings_starts,
+                    trav.sep_bigger_nonsiblings_lists)
 
         pt.show()
 
