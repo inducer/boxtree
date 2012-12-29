@@ -387,8 +387,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t leaf_number)
 
 # }}}
 
-
-
+# {{{ traversal info (output)
 
 class TraversalInfo(Record):
     """
@@ -443,7 +442,7 @@ class TraversalInfo(Record):
 
         return self.copy(**result)
 
-
+# }}}
 
 class _KernelInfo(Record):
     pass
