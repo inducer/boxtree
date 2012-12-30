@@ -6,15 +6,31 @@ import pyopencl.array
 from pyopencl.elementwise import ElementwiseTemplate
 from mako.template import Template
 
+"""
+Terminology: Sources/targets vs particles
+-----------------------------------------
+
+If no 'targets' is not specified, 'particles' are both sources and
+targets.
+
+Orderings
+---------
+
+If there are only particles, then there are two particle orderings:
+'user order', and 'tree order'. :attr:`Tree.
+"""
+
+
 # TODO:
 # - Distinguish sources and targets
 # - Allow for (groups of?) sources stuck in tree
 # - Add *restrict where applicable.
 
 # -----------------------------------------------------------------------------
-# CONTROL FLOW:
+# CONTROL FLOW
+# ------------
 #
-# Since this file mostly just fills in the blanks in the outer parallel 'scan'
+# Since this file mostly fills in the blanks in the outer parallel 'scan'
 # implementation, control flow here can be a bit hard to see.
 #
 # - Everything starts and ends in the 'driver' bit at the end.
@@ -37,7 +53,10 @@ from mako.template import Template
 #   scan kernel that computes indices, and by an elementwise kernel
 #   that compresses arrays and maps them to new box IDs, if applicable.
 #
+# -----------------------------------------------------------------------------
+#
 # HOW DOES THE PRIMARY SCAN WORK?
+# -------------------------------
 #
 # This code sorts particles into an nD-tree of boxes. It does this by doing a
 # (parallel) scan over particles and a (local, i.e. independent for each particle)
@@ -61,6 +80,7 @@ from mako.template import Template
 #   the post-processing step.
 #
 # -----------------------------------------------------------------------------
+#
 
 
 
@@ -1047,7 +1067,14 @@ class TreeBuilder(object):
     # {{{ run control
 
     def __call__(self, queue, particles, max_particles_in_box, nboxes_guess=None,
-            allocator=None, debug=False):
+            allocator=None, debug=False, targets=None):
+        """If *targets* is unspecified, *particles* is assumed to specify both
+        sources and targets. If *targets* is specified, *particles* denotes the
+        array of sources and *targets* the array of targets.
+
+        :arg particles: an object array of (XYZ) point coordinate arrays.
+        :arg targets: an object array of (XYZ) point coordinate arrays.
+        """
         dimensions = len(particles)
 
         bbox = self.get_bbox_finder()(particles).get()

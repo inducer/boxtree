@@ -10,5 +10,6 @@ and related algorithms.
 
 Resources:
 
+* `documentation <http://documen.tician.de/boxtree>`_
 * `wiki home page <http://wiki.tiker.net/BoxTree>`_
 * `source code via git <http://github.com/inducer/boxtree>`_

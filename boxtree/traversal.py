@@ -389,7 +389,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t leaf_number)
 
 # {{{ traversal info (output)
 
-class TraversalInfo(Record):
+class FMMTraversalInfo(Record):
     """
     :ivar tree: An instance of :class:`boxtree.Tree`.
 
@@ -564,7 +564,7 @@ class ListInverter:
 
 # {{{ top-level
 
-class FMMTraversalGenerator:
+class FMMTraversalBuilder:
     def __init__(self, context):
         self.context = context
         self.list_inverter = ListInverter(context)
@@ -718,6 +718,11 @@ class FMMTraversalGenerator:
     # {{{ driver
 
     def __call__(self, queue, tree):
+        """
+        :arg queue: A :class:`pyopencl.CommandQueue` instance.
+        :arg tree: A :class:`boxtree.Tree` instance.
+        :return: A new :class:`FMMTraversalInfo`.
+        """
         from pytools import div_ceil
         max_levels = div_ceil(tree.nlevels, 10) * 10
 
@@ -819,7 +824,7 @@ class FMMTraversalGenerator:
 
         # }}}
 
-        return TraversalInfo(
+        return FMMTraversalInfo(
                 tree=tree,
 
                 leaf_boxes=leaf_boxes,
