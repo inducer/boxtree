@@ -35,7 +35,7 @@ from mako.template import Template
 #
 # - As a last step, empty leaf boxes are eliminated. This is done by a
 #   scan kernel that computes indices, and by an elementwise kernel
-#   that doe
+#   that compresses arrays and maps them to new box IDs, if applicable.
 #
 # HOW DOES THE PRIMARY SCAN WORK?
 #
@@ -78,7 +78,7 @@ def make_bounding_box_dtype(device, dimensions, coord_dtype):
 
     dtype = np.dtype(fields)
 
-    name = "htree_bbox_%dd_t" % dimensions
+    name = "boxtree_bbox_%dd_t" % dimensions
 
     from pyopencl.tools import get_or_register_dtype, match_dtype_to_c_struct
     dtype, c_decl = match_dtype_to_c_struct(device, name, dtype)
@@ -92,7 +92,7 @@ def make_bounding_box_dtype(device, dimensions, coord_dtype):
 BBOX_CODE_TEMPLATE = Template(r"""//CL//
     ${bbox_struct_decl}
 
-    typedef htree_bbox_${dimensions}d_t bbox_t;
+    typedef boxtree_bbox_${dimensions}d_t bbox_t;
     typedef ${coord_ctype} coord_t;
 
     bbox_t bbox_neutral()
@@ -194,7 +194,7 @@ def make_morton_bin_count_type(device, dimensions, particle_id_dtype):
 
     dtype = np.dtype(fields)
 
-    name = "htree_morton_bin_count_%dd_t" % dimensions
+    name = "boxtree_morton_bin_count_%dd_t" % dimensions
     from pyopencl.tools import get_or_register_dtype, match_dtype_to_c_struct
     dtype, c_decl = match_dtype_to_c_struct(device, name, dtype)
 
@@ -212,7 +212,7 @@ def make_scan_type(device, dimensions, particle_id_dtype, box_id_dtype):
             ('morton_nr', np.uint8),
             ])
 
-    name = "htree_tree_scan_%dd_t" % dimensions
+    name = "boxtree_tree_scan_%dd_t" % dimensions
     from pyopencl.tools import get_or_register_dtype, match_dtype_to_c_struct
     dtype, c_decl = match_dtype_to_c_struct(device, name, dtype)
 
@@ -253,9 +253,9 @@ PREAMBLE_TPL = Template(r"""//CL//
     ${morton_bin_count_type_decl}
     ${tree_scan_type_decl}
 
-    typedef htree_morton_bin_count_${dimensions}d_t morton_t;
-    typedef htree_tree_scan_${dimensions}d_t scan_t;
-    typedef htree_bbox_${dimensions}d_t bbox_t;
+    typedef boxtree_morton_bin_count_${dimensions}d_t morton_t;
+    typedef boxtree_tree_scan_${dimensions}d_t scan_t;
+    typedef boxtree_bbox_${dimensions}d_t bbox_t;
     typedef ${coord_ctype} coord_t;
     typedef ${coord_ctype}${dimensions} coord_vec_t;
     typedef ${box_id_ctype} box_id_t;

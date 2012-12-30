@@ -4,7 +4,7 @@ from pytools import memoize, memoize_method, Record
 import pyopencl as cl
 import pyopencl.array
 from mako.template import Template
-from htree import AXIS_NAMES
+from boxtree import AXIS_NAMES
 
 
 
@@ -391,7 +391,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t leaf_number)
 
 class TraversalInfo(Record):
     """
-    :ivar tree: An instance of :class:`htree.Tree`.
+    :ivar tree: An instance of :class:`boxtree.Tree`.
 
     :ivar leaf_boxes: `box_id_t [*]`
     :ivar branch_boxes: `box_id_t [*]`
@@ -431,7 +431,7 @@ class TraversalInfo(Record):
         live on the host.
         """
 
-        from htree import Tree
+        from boxtree import Tree
 
         result = {}
         for field_name in self.__class__.fields:
@@ -591,7 +591,7 @@ class FMMTraversalGenerator:
                 )
         from pyopencl.algorithm import ListOfListsBuilder
         from pyopencl.tools import VectorArg, ScalarArg
-        from htree import box_type_enum
+        from boxtree import box_type_enum
 
         # {{{ leaves and branches
 

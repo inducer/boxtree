@@ -12,14 +12,14 @@ except ImportError:
     # 2.x
     from distutils.command.build_py import build_py
 
-setup(name="htree",
+setup(name="boxtree",
       version="2013.1",
-      description="Hierarchical tree building in Python",
+      description="Quadtree/octree building in Python and OpenCL",
       long_description=open("README.rst", "rt").read(),
       author="Andreas Kloeckner",
       author_email="inform@tiker.net",
       license = "MIT",
-      url="http://wiki.tiker.net/HTree",
+      url="http://wiki.tiker.net/boxtree",
       classifiers=[
         'Development Status :: 3 - Alpha',
         'Intended Audience :: Developers',
@@ -36,7 +36,7 @@ setup(name="htree",
         'Topic :: Utilities',
         ],
 
-      packages=["htree"],
+      packages=["boxtree"],
       install_requires=[
           "pyopencl>=2012.2",
           "Mako>=0.7",

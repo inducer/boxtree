@@ -37,7 +37,7 @@ def test_tree(ctx_getter, do_plot=False):
         if do_plot:
             pt.plot(particles[0].get(), particles[1].get(), "x")
 
-        from htree import TreeBuilder
+        from boxtree import TreeBuilder
         tb = TreeBuilder(ctx)
 
         queue.finish()
@@ -120,13 +120,13 @@ def test_tree_connectivity(ctx_getter, do_plot=False):
             rng.normal(queue, nparticles, dtype=dtype)
             for i in range(dims)])
 
-        from htree import TreeBuilder
+        from boxtree import TreeBuilder
         tb = TreeBuilder(ctx)
 
         tree = tb(queue, particles, max_particles_in_box=30, debug=True)
         print "tree built"
 
-        from htree.traversal import FMMTraversalGenerator
+        from boxtree.traversal import FMMTraversalGenerator
         tg = FMMTraversalGenerator(ctx)
         trav = tg(queue, tree).get()
 
@@ -149,7 +149,7 @@ def test_tree_connectivity(ctx_getter, do_plot=False):
         # }}}
 
         if 0:
-            from htree import TreePlotter
+            from boxtree import TreePlotter
             plotter = TreePlotter(tree)
             plotter.draw_tree(fill=False, edgecolor="black")
             plotter.draw_box_numbers()
@@ -367,14 +367,14 @@ def test_fmm_completeness(ctx_getter, do_plot=False):
         if do_plot:
             pt.plot(particles[0].get(), particles[1].get(), "x")
 
-        from htree import TreeBuilder
+        from boxtree import TreeBuilder
         tb = TreeBuilder(ctx)
 
         tree = tb(queue, particles, max_particles_in_box=30, debug=True)
 
         print "tree built"
 
-        from htree.traversal import FMMTraversalGenerator
+        from boxtree.traversal import FMMTraversalGenerator
         tg = FMMTraversalGenerator(ctx)
         trav = tg(queue, tree).get()
 
@@ -384,7 +384,7 @@ def test_fmm_completeness(ctx_getter, do_plot=False):
         #weights = np.ones(nparticles)
         weights_sum = np.sum(weights)
 
-        from htree.fmm import  drive_fmm
+        from boxtree.fmm import  drive_fmm
         wrangler = ConstantOneExpansionWrangler(trav.tree)
 
         assert (wrangler.reorder_potentials(
@@ -410,7 +410,7 @@ def test_fmm_completeness(ctx_getter, do_plot=False):
             if len(missing_tgts):
                 import matplotlib.pyplot as pt
 
-                from htree import TreePlotter
+                from boxtree import TreePlotter
                 plotter = TreePlotter(tree)
                 plotter.draw_tree(fill=False, edgecolor="black")
                 plotter.draw_box_numbers()
@@ -459,7 +459,7 @@ def plot_traversal(ctx_getter, do_plot=False):
         #if do_plot:
             #pt.plot(particles[0].get(), particles[1].get(), "x")
 
-        from htree import TreeBuilder
+        from boxtree import TreeBuilder
         tb = TreeBuilder(ctx)
 
         queue.finish()
@@ -467,11 +467,11 @@ def plot_traversal(ctx_getter, do_plot=False):
         tree = tb(queue, particles, max_particles_in_box=30, debug=True)
         print "done"
 
-        from htree.traversal import FMMTraversalGenerator
+        from boxtree.traversal import FMMTraversalGenerator
         tg = FMMTraversalGenerator(ctx)
         trav = tg(queue, tree).get()
 
-        from htree import TreePlotter
+        from boxtree import TreePlotter
         plotter = TreePlotter(tree)
         plotter.draw_tree(fill=False, edgecolor="black")
         #plotter.draw_box_numbers()
