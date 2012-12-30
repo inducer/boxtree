@@ -26,8 +26,8 @@ from boxtree import TreeBuilder
 tb = TreeBuilder(ctx)
 tree = tb(queue, particles, max_particles_in_box=30)
 
-from boxtree.traversal import FMMTraversalGenerator
-tg = FMMTraversalGenerator(ctx)
+from boxtree.traversal import FMMTraversalBuilder
+tg = FMMTraversalBuilder(ctx)
 trav = tg(queue, tree)
 
 # ENDEXAMPLE

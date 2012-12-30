@@ -126,8 +126,8 @@ def test_tree_connectivity(ctx_getter, do_plot=False):
         tree = tb(queue, particles, max_particles_in_box=30, debug=True)
         print "tree built"
 
-        from boxtree.traversal import FMMTraversalGenerator
-        tg = FMMTraversalGenerator(ctx)
+        from boxtree.traversal import FMMTraversalBuilder
+        tg = FMMTraversalBuilder(ctx)
         trav = tg(queue, tree).get()
 
         print "traversal built"
@@ -245,7 +245,7 @@ class ConstantOneExpansionWrangler:
         return np.zeros(self.tree.nboxes, dtype=np.float64)
 
     def potential_zeros(self):
-        return np.zeros(self.tree.nparticles, dtype=np.float64)
+        return np.zeros(self.tree.ntargets, dtype=np.float64)
 
     def _get_particle_slice(self, ibox):
         pstart = self.tree.box_particle_starts[ibox]
@@ -253,10 +253,10 @@ class ConstantOneExpansionWrangler:
                 pstart, pstart + self.tree.box_particle_counts[ibox])
 
     def reorder_src_weights(self, src_weights):
-        return src_weights[self.tree.original_particle_ids]
+        return src_weights[self.tree.user_source_ids]
 
     def reorder_potentials(self, potentials):
-        return potentials[self.tree.reordered_particle_ids]
+        return potentials[self.tree.sorted_target_ids]
 
     def form_multipoles(self, leaf_boxes, src_weights):
         mpoles = self.expansion_zeros()
@@ -374,8 +374,8 @@ def test_fmm_completeness(ctx_getter, do_plot=False):
 
         print "tree built"
 
-        from boxtree.traversal import FMMTraversalGenerator
-        tg = FMMTraversalGenerator(ctx)
+        from boxtree.traversal import FMMTraversalBuilder
+        tg = FMMTraversalBuilder(ctx)
         trav = tg(queue, tree).get()
 
         print "traversal built"
@@ -467,8 +467,8 @@ def plot_traversal(ctx_getter, do_plot=False):
         tree = tb(queue, particles, max_particles_in_box=30, debug=True)
         print "done"
 
-        from boxtree.traversal import FMMTraversalGenerator
-        tg = FMMTraversalGenerator(ctx)
+        from boxtree.traversal import FMMTraversalBuilder
+        tg = FMMTraversalBuilder(ctx)
         trav = tg(queue, tree).get()
 
         from boxtree import TreePlotter
