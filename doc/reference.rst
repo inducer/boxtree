@@ -1,16 +1,19 @@
 Tree building
 =============
 
-.. module:: boxtree
+.. automodule:: boxtree
 .. moduleauthor:: Andreas Kloeckner <inform@tiker.net>
 
 Output
 ------
 
-.. autoclass:: Tree
+.. autoclass:: box_type_enum
+    :members:
+    :undoc-members:
 
-Entrypoint
-----------
+.. autoclass:: Tree()
+
+    .. automethod:: get
 
 Entrypoint
 ----------
@@ -22,12 +25,14 @@ Entrypoint
 Traversal building
 ==================
 
-.. module:: boxtree.traversal
+.. automodule:: boxtree.traversal
 
 Output
 ------
 
-.. autoclass:: FMMTraversalInfo
+.. autoclass:: FMMTraversalInfo()
+
+    .. automethod:: get
 
 Entrypoint
 ----------

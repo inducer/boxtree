@@ -1,4 +1,27 @@
 from __future__ import division
+
+__copyright__ = "Copyright (C) 2012 Andreas Kloeckner"
+
+__license__ = """
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+"""
+
 import numpy as np
 from pytools import memoize, memoize_method, Record
 import pyopencl as cl
@@ -6,18 +29,20 @@ import pyopencl.array
 from pyopencl.elementwise import ElementwiseTemplate
 from mako.template import Template
 
-"""
+__doc__ = """
 Terminology: Sources/targets vs particles
 -----------------------------------------
 
-If no 'targets' is not specified, 'particles' are both sources and
+If 'targets' is not specified, 'particles' are both sources and
 targets.
 
 Orderings
 ---------
 
 If there are only particles, then there are two particle orderings:
-'user order', and 'tree order'. :attr:`Tree.
+'user order', and 'tree order'. :attr:`Tree.original_particle_ids`
+and :attr:`Tree.reordered_particle_ids` allow conversion between
+the two.
 """
 
 
@@ -657,53 +682,97 @@ GAPPY_COPY_TPL =  Template(r"""//CL//
 
 class Tree(Record):
     """
-    Data types:
+    **Data types**
 
-    :ivar particle_id_dtype:
-    :ivar box_id_dtype:
-    :ivar coord_dtype:
+    .. attribute:: particle_id_dtype
+    .. attribute:: box_id_dtype
+    .. attribute:: coord_dtype
 
-    Counts and sizes:
+    **Counts and sizes**
 
-    :ivar root_extent: the root box size, a scalar
-    :ivar nlevels: the number of levels
-    :ivar bounding_box: a tuple *(bbox_min, bbox_max)* of
+    .. attribute:: root_extent
+
+        the root box size, a scalar
+
+    .. attribute:: nlevels
+
+        the number of levels
+
+    .. attribute:: bounding_box
+
+        a tuple *(bbox_min, bbox_max)* of
         :mod:`numpy` vectors giving the (built) extent
         of the tree. Note that this may be slightly larger
         than what is required to contain all particles.
-    :ivar level_starts: `box_id_t [nlevels+1]`
+
+    .. attribute:: level_starts
+
+        `box_id_t [nlevels+1]`
         A :class:`numpy.ndarray` of box ids
         indicating the ID at which each level starts. Levels
         are contiguous in box ID space. To determine
         how many boxes there are in each level, check
         access the start of the next level. This array is
         built so that this works even for the last level.
-    :ivar level_starts: The same array as :attr:`level_starts`
+
+    .. attribute:: level_starts_dev
+
+        `particle_id_t [nlevels+1`
+        The same array as :attr:`level_starts`
         as a :class:`pyopencl.array.Array`.
 
-    Per-particle arrays:
+    **Per-particle arrays**
 
-    :ivar particles: `coord_t [dimensions][nparticles]` (C order)
-    :ivar original_particle_ids: `particle_id_t [nparticles]`
+    .. attribute:: particles
+
+        `coord_t [dimensions][nparticles]`
+        (an object array of coordinate arrays)
+        Stored in tree order.
+
+    .. attribute:: original_particle_ids
+
+        `particle_id_t [nparticles]`
         Fetching *from* these indices will reorder the particles
         from user order into tree order.
-    :ivar reordered_particle_ids: `particle_id_t [nparticles]`
+
+    .. attribute:: reordered_particle_ids
+
+        `particle_id_t [nparticles]`
         Fetching *from* these indices will reorder the particles
         from tree order into user order.
 
-    Per-box arrays:
+    **Per-box arrays**
 
-    :ivar box_particle_starts: `particle_id_t [nboxes]`
-    :ivar box_particle_counts: `particle_id_t [nboxes]`
-    :ivar box_parent_ids: `box_id_t [nboxes]`
+    .. attribute:: box_particle_starts
+
+        `particle_id_t [nboxes]`
+
+    .. attribute:: box_particle_counts
+
+        `particle_id_t [nboxes]`
+
+    .. attribute:: box_parent_ids
+
+        `box_id_t [nboxes]`
         Box 0 (the root) has 0 as its parent.
-    :ivar box_child_ids: `box_id_t [2**dimensions, aligned_nboxes]` (C order)
+
+    .. attribute:: box_child_ids
+
+        `box_id_t [2**dimensions, aligned_nboxes]` (C order)
         "0" is used as a 'no child' marker, as the root box can never
         occur as any box's child.
-    :ivar box_centers: `coord_t` [dimensions, aligned_nboxes] (C order)
-    :ivar box_levels: `uint8 [nboxes]`
-    :ivar box_types: `uint 8[nboxes]`
-        One of the :class:`box_type` constants.
+
+    .. attribute:: box_centers
+
+        `coord_t` [dimensions, aligned_nboxes] (C order)
+
+    .. attribute:: box_levels
+
+        `uint8 [nboxes]`
+    .. attribute:: box_types
+
+        `uint 8[nboxes]`
+        One of the :class:`box_type_enum` constants.
     """
 
     @property
@@ -731,7 +800,7 @@ class Tree(Record):
         plotter.draw_tree(fill=False, edgecolor="black", **kwargs)
 
     def get(self):
-        """Return a copy of self where all data lives on the host."""
+        """Return a copy of `self` in which all data lives on the host."""
 
         result = {}
         for field_name in self.__class__.fields:
@@ -1068,12 +1137,11 @@ class TreeBuilder(object):
 
     def __call__(self, queue, particles, max_particles_in_box, nboxes_guess=None,
             allocator=None, debug=False, targets=None):
-        """If *targets* is unspecified, *particles* is assumed to specify both
-        sources and targets. If *targets* is specified, *particles* denotes the
-        array of sources and *targets* the array of targets.
-
+        """
+        :arg queue: a :class:`pyopencl.CommandQueue` instance
         :arg particles: an object array of (XYZ) point coordinate arrays.
-        :arg targets: an object array of (XYZ) point coordinate arrays.
+        :arg targets: an object array of (XYZ) point coordinate arrays or `None`.
+        :returns: an instance of :class:`Tree`
         """
         dimensions = len(particles)
 

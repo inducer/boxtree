@@ -1,4 +1,27 @@
 from __future__ import division
+
+__copyright__ = "Copyright (C) 2012 Andreas Kloeckner"
+
+__license__ = """
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+"""
+
 import numpy as np
 from pytools import memoize, memoize_method, Record
 import pyopencl as cl
@@ -391,45 +414,63 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t leaf_number)
 
 class FMMTraversalInfo(Record):
     """
-    :ivar tree: An instance of :class:`boxtree.Tree`.
+    .. attribute:: tree
 
-    :ivar leaf_boxes: `box_id_t [*]`
-    :ivar branch_boxes: `box_id_t [*]`
-    :ivar branch_box_level_starts: `box_id_t [nlevels+1]`
+        An instance of :class:`boxtree.Tree`.
+
+    .. attribute:: leaf_boxes
+
+        `box_id_t [*]`
+
+    .. attribute:: branch_boxes
+
+        `box_id_t [*]`
+    .. attribute:: branch_box_level_starts
+
+        `box_id_t [nlevels+1]`
         Indices into :attr:`branch_boxes` indicating where
         each level starts and ends.
 
     For each of the following data structures, the `starts` part
     contains indices into the `lists` part.
 
-    :ivar colleagues_starts: `box_id_t [nboxes+1]`
-    :ivar colleagues_lists: `box_id_t [*]`
+    .. attribute:: colleagues_starts
 
-    "List 1":
+        `box_id_t [nboxes+1]`
+    .. attribute:: colleagues_lists
+
+        `box_id_t [*]`
+
+    **"List 1"**
 
     :ivar neighbor_leaves_starts: `box_id_t [nleaves+1]`
     :ivar neighbor_leaves_lists: `box_id_t [*]`
 
-    "List 2":
+    **"List 2"**
 
     :ivar sep_siblings_starts: `box_id_t [nboxes+1]`
     :ivar sep_siblings_lists: `box_id_t [*]`
 
-    "List 3":
+    **"List 3"**
 
     :ivar sep_smaller_nonsiblings_starts: `box_id_t [nleaves+1]`
     :ivar sep_smaller_nonsiblings_lists: `box_id_t [*]`
 
-    "List 4":
+    **"List 4"**
 
     :ivar sep_bigger_nonsiblings_starts: `box_id_t [nboxes+1]`
     :ivar sep_bigger_nonsiblings_lists: `box_id_t [*]`
+
+    Terminology follows this article:
+
+    Carrier, J., Leslie Greengard, and Vladimir Rokhlin. "A Fast
+    Adaptive Multipole Algorithm for Particle Simulations." SIAM Journal on
+    Scientific and Statistical Computing 9, no. 4 (July 1988): 669-686.
+    `DOI: 10.1137/0909044 <http://dx.doi.org/10.1137/0909044>`_.
     """
 
     def get(self):
-        """Return a copy of self where all traversal list arrays
-        live on the host.
-        """
+        """Return a copy of `self` in which all data lives on the host."""
 
         from boxtree import Tree
 
@@ -721,7 +762,7 @@ class FMMTraversalBuilder:
         """
         :arg queue: A :class:`pyopencl.CommandQueue` instance.
         :arg tree: A :class:`boxtree.Tree` instance.
-        :return: A new :class:`FMMTraversalInfo`.
+        :return: A new instance of :class:`FMMTraversalInfo`.
         """
         from pytools import div_ceil
         max_levels = div_ceil(tree.nlevels, 10) * 10
