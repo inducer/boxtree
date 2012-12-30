@@ -45,7 +45,7 @@ def test_tree(ctx_getter, do_plot=False):
         tree = tb(queue, particles, max_particles_in_box=30, debug=True)
         print "%d boxes, testing..." % tree.nboxes
 
-        starts = tree.box_starts.get()
+        starts = tree.box_particle_starts.get()
         pcounts = tree.box_particle_counts.get()
         sorted_particles = np.array([pi.get() for pi in tree.particles])
         centers = tree.box_centers.get()
@@ -195,30 +195,162 @@ def test_tree_connectivity(ctx_getter, do_plot=False):
             start, end = trav.sep_smaller_nonsiblings_starts[ileaf:ileaf+2]
 
             for jbox in trav.sep_smaller_nonsiblings_lists[start:end]:
-                assert levels[jbox] > levels[ibox]
-
                 rstart, rend = trav.sep_bigger_nonsiblings_starts[jbox:jbox+2]
 
                 assert ibox in trav.sep_bigger_nonsiblings_lists[rstart:rend], (ibox, jbox)
 
-        print "list 3, 4 tested"
+        print "list 3, 4 are duals"
 
         # }}}
 
+        # {{{ sep_smaller_nonsiblings satisfies size assumption
+
+        for ileaf, ibox in enumerate(trav.leaf_boxes):
+            start, end = trav.sep_smaller_nonsiblings_starts[ileaf:ileaf+2]
+
+            for jbox in trav.sep_smaller_nonsiblings_lists[start:end]:
+                assert levels[ibox] < levels[jbox]
+
+        print "list 3 satisfies size assumption"
+
+        # }}}
+
+        # {{{ sep_smaller_nonsiblings satisfies size assumption
+
+        for  ibox in xrange(tree.nboxes):
+            start, end = trav.sep_bigger_nonsiblings_starts[ibox:ibox+2]
+
+            for jbox in trav.sep_bigger_nonsiblings_lists[start:end]:
+                assert levels[ibox] > levels[jbox]
+
+        print "list 4 satisfies size assumption"
+
+        # }}}
+
+
 # }}}
 
-# {{{ connectivity test
+# {{{ fmm interaction completeness test
+
+class ConstantOneExpansionWrangler:
+    """This implements the 'analytical routines' for a Green's function that is
+    constant 1 everywhere. For 'charges' of 'ones', this should get every particle
+    a copy of the particle count.
+    """
+
+    def __init__(self, tree):
+        self.tree = tree
+
+    def expansion_zeros(self):
+        return np.zeros(self.tree.nboxes, dtype=np.float64)
+
+    def potential_zeros(self):
+        return np.zeros(self.tree.nparticles, dtype=np.float64)
+
+    def _get_particle_slice(self, ibox):
+        pstart = self.tree.box_particle_starts[ibox]
+        return slice(
+                pstart, pstart + self.tree.box_particle_counts[ibox])
+
+    def reorder_src_weights(self, src_weights):
+        return src_weights[self.tree.original_particle_ids]
+
+    def form_multipoles(self, leaf_boxes, src_weights):
+        mpoles = self.expansion_zeros()
+        for ibox in leaf_boxes:
+            pslice = self._get_particle_slice(ibox)
+            mpoles[ibox] += np.sum(src_weights[pslice])
+
+        return mpoles
+
+    def coarsen_multipoles(self, branch_boxes, start_branch_box, end_branch_box,
+            mpoles):
+        tree = self.tree
+
+        for ibox in branch_boxes[start_branch_box:end_branch_box]:
+            for child in tree.box_child_ids[:, ibox]:
+                if child:
+                    mpoles[ibox] += mpoles[child]
+
+    def do_direct_eval(self, leaf_boxes, neighbor_leaves_starts, neighbor_leaves_lists,
+            src_weights):
+        pot = self.potential_zeros()
+
+        for itgt_leaf, itgt_box in enumerate(leaf_boxes):
+            tgt_pslice = self._get_particle_slice(itgt_box)
+
+            src_sum = 0
+            start, end = neighbor_leaves_starts[itgt_leaf:itgt_leaf+2]
+            for isrc_box in neighbor_leaves_lists[start:end]:
+                src_pslice = self._get_particle_slice(isrc_box)
+
+                src_sum += np.sum(src_weights[src_pslice])
+
+            pot[tgt_pslice] = src_sum
+
+        return pot
+
+
+    def multipole_to_local(self, starts, lists, mpole_exps):
+        local_exps = self.expansion_zeros()
+
+        for itgt_box in xrange(self.tree.nboxes):
+            start, end = starts[itgt_box:itgt_box+2]
+
+            contrib = 0
+            #print itgt_box, "<-", lists[start:end]
+            for isrc_box in lists[start:end]:
+                contrib += mpole_exps[isrc_box]
+
+            local_exps[itgt_box] += contrib
+
+        return local_exps
+
+    def eval_multipoles(self, leaf_boxes, sep_smaller_nonsiblings_starts,
+            sep_smaller_nonsiblings_lists, mpole_exps):
+        pot = self.potential_zeros()
+
+        for itgt_leaf, itgt_box in enumerate(leaf_boxes):
+            tgt_pslice = self._get_particle_slice(itgt_box)
+
+            contrib = 0
+            start, end = sep_smaller_nonsiblings_starts[itgt_leaf:itgt_leaf+2]
+            for isrc_box in sep_smaller_nonsiblings_lists[start:end]:
+                contrib += mpole_exps[isrc_box]
+
+            pot[tgt_pslice] += contrib
+
+        return pot
+
+    def refine_locals(self, start_box, end_box, local_exps):
+        for ibox in xrange(start_box, end_box):
+            local_exps[ibox] += local_exps[self.tree.box_parent_ids[ibox]]
+
+        return local_exps
+
+    def eval_locals(self, leaf_boxes, local_exps):
+        pot = self.potential_zeros()
+
+        for ibox in leaf_boxes:
+            tgt_pslice = self._get_particle_slice(ibox)
+            pot[tgt_pslice] += local_exps[ibox]
+
+        return pot
+
+
+
 
 @pytools.test.mark_test.opencl
-def test_tree_completeness(ctx_getter, do_plot=False):
-    """Tests whether the built FMM traversal structures completely capture
-    all interactions. May serve as the blueprint of a mini-FMM.
+def test_fmm_completeness(ctx_getter, do_plot=False):
+    """Tests whether the built FMM traversal structures and driver completely
+    capture all interactions.
     """
+
     ctx = ctx_getter()
     queue = cl.CommandQueue(ctx)
 
     for dims in [2]:
-        nparticles = 10**5
+        nparticles = 10**6
         dtype = np.float64
 
         from pyopencl.clrandom import RanluxGenerator
@@ -245,11 +377,56 @@ def test_tree_completeness(ctx_getter, do_plot=False):
 
         print "traversal built"
 
-        levels = tree.box_levels.get()
-        parents = tree.box_parent_ids.get().T
-        children = tree.box_child_ids.get().T
-        centers = tree.box_centers.get().T
+        weights = np.random.randn(nparticles)
+        #weights = np.ones(nparticles)
+        weights_sum = np.sum(weights)
 
+        from htree.fmm import  drive_fmm
+        wrangler = ConstantOneExpansionWrangler(trav.tree)
+        pot = drive_fmm(trav, wrangler, weights)
+
+        # {{{ build, evaluate matrix (and identify missing interactions)
+
+        if 0:
+            mat = np.zeros((nparticles, nparticles), dtype)
+            from pytools import ProgressBar
+            pb = ProgressBar("matrix", nparticles)
+            for i in xrange(nparticles):
+                unit_vec = np.zeros(nparticles, dtype=dtype)
+                unit_vec[i] = 1
+                mat[:,i] = drive_fmm(trav, wrangler, unit_vec)
+                pb.progress()
+            pb.finished()
+
+            missing_tgts, missing_srcs = np.where(mat == 0)
+
+            if len(missing_tgts):
+                import matplotlib.pyplot as pt
+
+                from htree import TreePlotter
+                plotter = TreePlotter(tree)
+                plotter.draw_tree(fill=False, edgecolor="black")
+                plotter.draw_box_numbers()
+                plotter.set_bounding_box()
+
+                for tgt, src in zip(missing_tgts, missing_srcs):
+                    pt.plot(
+                            trav.tree.particles[0][tgt],
+                            trav.tree.particles[1][tgt],
+                            "ro")
+                    pt.plot(
+                            trav.tree.particles[0][src],
+                            trav.tree.particles[1][src],
+                            "go")
+
+                pt.show()
+
+            #pt.spy(mat)
+            #pt.show()
+
+        # }}}
+
+        assert la.norm((pot - weights_sum) / nparticles) < 1e-8
 
 # }}}
 

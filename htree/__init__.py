@@ -463,7 +463,7 @@ SPLIT_AND_SORT_KERNEL_TPL =  Template(r"""//CL//
 
         particle_id_t my_count = get_count(my_morton_bin_counts, my_morton_nr);
 
-        particle_id_t my_box_start = box_starts[my_box_id];
+        particle_id_t my_box_start = box_particle_starts[my_box_id];
         particle_id_t tgt_particle_idx = my_box_start + my_count-1;
         %for mnr in range(2**dimensions):
             <% bin_nmr = padded_bin(mnr, dimensions) %>
@@ -500,7 +500,7 @@ SPLIT_AND_SORT_KERNEL_TPL =  Template(r"""//CL//
                 dbg_printf(("   new_box_start: %d\n", new_box_start));
 
                 box_start_flags[new_box_start] = 1;
-                box_starts[new_box_id] = new_box_start;
+                box_particle_starts[new_box_id] = new_box_start;
                 box_parent_ids[new_box_id] = my_box_id;
                 box_morton_nrs[new_box_id] = my_morton_nr;
 
@@ -663,12 +663,12 @@ class Tree(Record):
 
     Per-particle arrays:
 
-    :ivar particles: `coord_t [nparticles, dimensions]` (C order)
+    :ivar particles: `coord_t [dimensions][nparticles]` (C order)
     :ivar original_particle_ids: `particle_id_t [nparticles]`
 
     Per-box arrays:
 
-    :ivar box_starts: `particle_id_t [nboxes]`
+    :ivar box_particle_starts: `particle_id_t [nboxes]`
     :ivar box_particle_counts: `particle_id_t [nboxes]`
     :ivar box_parent_ids: `box_id_t [nboxes]`
         Box 0 (the root) has 0 as its parent.
@@ -683,15 +683,19 @@ class Tree(Record):
 
     @property
     def dimensions(self):
-        return self.particles.shape[-1]
+        return len(self.particles)
 
     @property
     def nboxes(self):
         return self.box_levels.shape[0]
 
     @property
+    def nparticles(self):
+        return len(self.original_particle_ids)
+
+    @property
     def nlevels(self):
-        return len(self.level_starts)-1
+        return len(self.level_starts) - 1
 
     @property
     def aligned_nboxes(self):
@@ -700,6 +704,26 @@ class Tree(Record):
     def plot(self, **kwargs):
         plotter = TreePlotter(self)
         plotter.draw_tree(fill=False, edgecolor="black", **kwargs)
+
+    def get(self):
+        """Return a copy of self where all data lives on the host."""
+
+        result = {}
+        for field_name in self.__class__.fields:
+            try:
+                attr = getattr(self, field_name)
+            except AttributeError:
+                pass
+            else:
+                if isinstance(attr, cl.array.Array):
+                    result[field_name] = attr.get()
+                elif isinstance(attr, np.ndarray) and attr.dtype == object:
+                    from pytools.obj_array import with_object_array_or_scalar
+                    result[field_name] = with_object_array_or_scalar(
+                            lambda x: x.get(), attr)
+
+        return self.copy(**result)
+
 
 # }}}
 
@@ -877,7 +901,7 @@ class TreeBuilder(object):
                     VectorArg(morton_bin_count_dtype, "box_morton_bin_counts"), # [nparticles]
 
                     # particle# at which each box starts
-                    VectorArg(particle_id_dtype, "box_starts"), # [nboxes]
+                    VectorArg(particle_id_dtype, "box_particle_starts"), # [nboxes]
 
                     # number of particles in each box
                     VectorArg(particle_id_dtype,"box_particle_counts"), # [nboxes]
@@ -905,7 +929,7 @@ class TreeBuilder(object):
                 input_expr="scan_t_from_particle(%s)"
                     % ", ".join([
                         "i", "level", "box_ids[i]", "*box_count",
-                        "box_starts[box_ids[i]]",
+                        "box_particle_starts[box_ids[i]]",
                         "box_particle_counts[box_ids[i]]",
                         "max_particles_in_box",
                         "&bbox"
@@ -1065,7 +1089,7 @@ class TreeBuilder(object):
 
         box_morton_bin_counts = empty(nboxes_guess,
                 dtype=knl_info.morton_bin_count_dtype)
-        box_starts = zeros(nboxes_guess, dtype=particle_id_dtype)
+        box_particle_starts = zeros(nboxes_guess, dtype=particle_id_dtype)
         box_parent_ids = zeros(nboxes_guess, dtype=box_id_dtype)
         box_morton_nrs = zeros(nboxes_guess, dtype=self.morton_nr_dtype)
         box_particle_counts = zeros(nboxes_guess, dtype=particle_id_dtype)
@@ -1100,7 +1124,7 @@ class TreeBuilder(object):
             args = ((morton_bin_counts, morton_nrs,
                     box_start_flags, box_ids, unsplit_box_ids, split_box_ids,
                     box_morton_bin_counts,
-                    box_starts, box_particle_counts,
+                    box_particle_starts, box_particle_counts,
                     box_parent_ids, box_morton_nrs,
                     nboxes_dev,
                     level, max_particles_in_box, bbox)
@@ -1132,7 +1156,7 @@ class TreeBuilder(object):
                 print "--------------LEVL"
                 print "nboxes_dev", nboxes_dev.get()
                 print "box_ids", box_ids.get()[:nparticles]
-                print "starts", box_starts.get()[:nboxes]
+                print "starts", box_particle_starts.get()[:nboxes]
                 print "counts", box_particle_counts.get()[:nboxes]
 
             original_particle_ids = new_original_particle_ids
@@ -1175,7 +1199,7 @@ class TreeBuilder(object):
         prune_empty = partial(self.gappy_copy_and_map,
                 queue, allocator, nboxes_post_prune, from_box_id)
 
-        box_starts = prune_empty(box_starts)
+        box_particle_starts = prune_empty(box_particle_starts)
         box_particle_counts = prune_empty(box_particle_counts)
         box_parent_ids = prune_empty(box_parent_ids, map_values=to_box_id)
         box_morton_nrs = prune_empty(box_morton_nrs)
@@ -1232,7 +1256,7 @@ class TreeBuilder(object):
                     allocator=allocator),
 
                 particles=particles,
-                box_starts=box_starts,
+                box_particle_starts=box_particle_starts,
                 box_particle_counts=box_particle_counts,
                 box_parent_ids=box_parent_ids,
                 box_child_ids=box_child_ids,

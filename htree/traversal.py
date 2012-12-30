@@ -430,6 +430,9 @@ class TraversalInfo(Record):
         """Return a copy of self where all traversal list arrays
         live on the host.
         """
+
+        from htree import Tree
+
         result = {}
         for field_name in self.__class__.fields:
             try:
@@ -437,7 +440,7 @@ class TraversalInfo(Record):
             except AttributeError:
                 pass
             else:
-                if isinstance(attr, cl.array.Array):
+                if isinstance(attr, (cl.array.Array, Tree)):
                     result[field_name] = attr.get()
 
         return self.copy(**result)
@@ -817,6 +820,8 @@ class FMMTraversalGenerator:
         # }}}
 
         return TraversalInfo(
+                tree=tree,
+
                 leaf_boxes=leaf_boxes,
                 branch_boxes=branch_boxes,
                 branch_box_level_starts=branch_box_level_starts,
