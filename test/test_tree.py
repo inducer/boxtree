@@ -255,6 +255,9 @@ class ConstantOneExpansionWrangler:
     def reorder_src_weights(self, src_weights):
         return src_weights[self.tree.original_particle_ids]
 
+    def reorder_potentials(self, potentials):
+        return potentials[self.tree.reordered_particle_ids]
+
     def form_multipoles(self, leaf_boxes, src_weights):
         mpoles = self.expansion_zeros()
         for ibox in leaf_boxes:
@@ -383,6 +386,10 @@ def test_fmm_completeness(ctx_getter, do_plot=False):
 
         from htree.fmm import  drive_fmm
         wrangler = ConstantOneExpansionWrangler(trav.tree)
+
+        assert (wrangler.reorder_potentials(
+                wrangler.reorder_src_weights(weights)) == weights).all()
+
         pot = drive_fmm(trav, wrangler, weights)
 
         # {{{ build, evaluate matrix (and identify missing interactions)

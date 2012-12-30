@@ -20,9 +20,7 @@ def drive_fmm(traversal, expansion_wrangler, src_weights):
     # Interface guidelines: Attributes of the tree are assumed to be known
     # to the expansion wrangler and should not be passed.
 
-    # FIXME!!! uncomment
-    #src_weights = wrangler.reorder_src_weights(src_weights)
-    # FIXME!!! reverse permutation on exit
+    src_weights = wrangler.reorder_src_weights(src_weights)
 
     # {{{ "Step 2.1:" Construct local multipoles
 
@@ -106,7 +104,7 @@ def drive_fmm(traversal, expansion_wrangler, src_weights):
 
     # }}}
 
-    return potentials
+    return wrangler.reorder_potentials(potentials)
 
 
 

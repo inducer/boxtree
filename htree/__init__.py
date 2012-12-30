@@ -665,6 +665,11 @@ class Tree(Record):
 
     :ivar particles: `coord_t [dimensions][nparticles]` (C order)
     :ivar original_particle_ids: `particle_id_t [nparticles]`
+        Fetching *from* these indices will reorder the particles
+        from user order into tree order.
+    :ivar reordered_particle_ids: `particle_id_t [nparticles]`
+        Fetching *from* these indices will reorder the particles
+        from tree order into user order.
 
     Per-box arrays:
 
@@ -1238,6 +1243,18 @@ class TreeBuilder(object):
 
         assert level + 2 == len(level_starts) - 1 # == number of levels
 
+        # {{{ compute reordered particle ids
+
+        reordered_particle_ids = empty(nparticles, particle_id_dtype)
+        cl.array.multi_put(
+                [cl.array.arange(queue, nparticles, dtype=particle_id_dtype,
+                    allocator=allocator)],
+                original_particle_ids,
+                out=[reordered_particle_ids],
+                queue=queue)
+
+        # }}}
+
         return Tree(
                 # If you change this, also change the documentation
                 # of what's in the tree, above.
@@ -1265,6 +1282,7 @@ class TreeBuilder(object):
                 box_types=box_types,
 
                 original_particle_ids=original_particle_ids,
+                reordered_particle_ids=reordered_particle_ids,
                 )
 
     # }}}
