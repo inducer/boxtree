@@ -1125,6 +1125,7 @@ class TreeBuilder(object):
                     box_id_t *srcntgt_box_ids,
 
                     particle_id_t *box_srcntgt_starts,
+                    particle_id_t *box_srcntgt_starts,
                     particle_id_t *source_numbers,
                     particle_id_t *user_srcntgt_ids,
 
@@ -1144,6 +1145,7 @@ class TreeBuilder(object):
                     box_id_t box_id = srcntgt_box_ids[my_sorted_srcntgt_id];
 
                     particle_id_t box_start = box_srcntgt_starts[box_id];
+                    particle_id_t box_count = box_srcntgt_counts[box_id];
 
                     int srcntgt_id_in_box = i - my_box_srcntgt_start;
 
@@ -1159,8 +1161,8 @@ class TreeBuilder(object):
                     }
 
                     // last particle?
-                    if (my_sorted_srcntgt_id
-                            == box_srcntgt_start + box_srcntgt_count - 1)
+                    if (my_sorted_srcntgt_id + 1
+                            == box_srcntgt_start + box_srcntgt_count)
                     {
                         particle_id_t box_start_source_nr = source_numbers[box_start];
                         particle_id_t box_start_target_nr = box_start - box_start_source_nr;
