@@ -800,7 +800,7 @@ class Tree(Record):
 
     @property
     def nsources(self):
-        return len(self.user_sources_ids)
+        return len(self.user_source_ids)
 
     @property
     def ntargets(self):
@@ -1117,15 +1117,14 @@ class TreeBuilder(object):
                 name_prefix="source_counter")
 
         from pyopencl.elementwise import ElementwiseTemplate
-        source_and_target_splitter = ElementwiseTemplate(
+        source_and_target_index_finder = ElementwiseTemplate(
                 arguments="""//CL//
                     particle_id_t *user_srcntgt_ids,
                     particle_id_t nsources,
                     particle_id_t ntargets,
-                    box_id_t *particle_box_ids,
+                    box_id_t *srcntgt_box_ids,
 
                     particle_id_t *box_srcntgt_starts,
-                    particle_id_t *box_srcntgt_counts,
                     particle_id_t *source_numbers,
                     particle_id_t *user_srcntgt_ids,
 
@@ -1142,33 +1141,43 @@ class TreeBuilder(object):
                     particle_id_t source_nr = source_numbers[i];
                     particle_id_t target_nr = i - source_nr;
 
-                    box_id_t box_id = particle_box_ids[my_sorted_srcntgt_id];
+                    box_id_t box_id = srcntgt_box_ids[my_sorted_srcntgt_id];
 
                     particle_id_t box_start = box_srcntgt_starts[box_id];
-                    particle_id_t box_count = box_srcntgt_counts[box_id];
 
                     int srcntgt_id_in_box = i - my_box_srcntgt_start;
-
-                    particle_id_t user_srcntgt_id
-                        = user_srcntgt_ids[my_sorted_srcntgt_id];
 
                     bool is_source = sorted_srcntgt_id < nsources;
 
                     // {{{ write start and end of box in terms of sources and targets
 
+                    // first particle?
                     if (my_sorted_srcntgt_id == box_srcntgt_start)
                     {
                         box_source_starts[box_id] = source_nr;
                         box_target_starts[box_id] = target_nr;
                     }
 
+                    // last particle?
                     if (my_sorted_srcntgt_id
                             == box_srcntgt_start + box_srcntgt_count - 1)
                     {
+                        particle_id_t box_start_source_nr = source_numbers[box_start];
+                        particle_id_t box_start_target_nr = box_start - box_start_source_nr;
 
+                        box_source_counts[box_id] =
+                            source_nr + (particle_id_t) is_source
+                            - box_start_source_nr;
+
+                        box_target_counts[box_id] =
+                            target_nr + 1 - (particle_id_t) is_source
+                            - box_start_target_nr;
                     }
 
                     // }}}
+
+                    particle_id_t user_srcntgt_id
+                        = user_srcntgt_ids[my_sorted_srcntgt_id];
 
                     if (is_source)
                     {
@@ -1256,7 +1265,7 @@ class TreeBuilder(object):
                 box_info_kernel=box_info_kernel,
                 find_prune_indices_kernel=find_prune_indices_kernel,
                 source_counter=source_counter,
-                source_and_target_splitter=source_and_target_splitter,
+                source_and_target_index_finder=source_and_target_index_finder,
                 srcntgt_permuter=srcntgt_permuter,
                 )
 
@@ -1501,14 +1510,22 @@ class TreeBuilder(object):
             box_source_starts = box_target_starts = box_srcntgt_starts
             box_source_counts = box_target_counts = box_srcntgt_counts
         else:
-            srcntgt_splitter = self.get_source_and_target_splitter()
+            source_numbers = empty(nsrcntgts, particle_id_dtype)
+            knl_info.source_counter(user_srcntgt_ids, nsources,
+                    source_numbers, queue=queue, allocator=allocator)
+
+            user_source_ids = empty(nsrcntgts, particle_id_dtype)
+            sorted_target_ids = empty(nsrcntgts, particle_id_dtype)
+
+            box_source_starts = empty(nboxes_post_prune, particle_id_dtype)
+            box_source_counts = empty(nboxes_post_prune, particle_id_dtype)
+
+            del source_numbers
             # FIXME
             raise NotImplementedError
 
 
         # }}}
-
-        # Ordering restriction:
 
         # {{{ permute and s/t-split (if necessary) particle array
 
