@@ -443,23 +443,42 @@ class FMMTraversalInfo(Record):
 
     **"List 1"**
 
-    :ivar neighbor_leaves_starts: `box_id_t [nleaves+1]`
-    :ivar neighbor_leaves_lists: `box_id_t [*]`
+    .. attribute:: neighbor_leaves_starts
+
+        `box_id_t [nleaves+1]`
+    .. attribute:: neighbor_leaves_lists
+
+        `box_id_t [*]`
 
     **"List 2"**
 
-    :ivar sep_siblings_starts: `box_id_t [nboxes+1]`
-    :ivar sep_siblings_lists: `box_id_t [*]`
+    .. attribute:: sep_siblings_starts
+
+        `box_id_t [nboxes+1]`
+
+    .. attribute:: sep_siblings_lists
+
+        `box_id_t [*]`
 
     **"List 3"**
 
-    :ivar sep_smaller_nonsiblings_starts: `box_id_t [nleaves+1]`
-    :ivar sep_smaller_nonsiblings_lists: `box_id_t [*]`
+    .. attribute:: sep_smaller_nonsiblings_starts
+
+        `box_id_t [nleaves+1]`
+
+    .. attribute:: sep_smaller_nonsiblings_lists
+
+        `box_id_t [*]`
 
     **"List 4"**
 
-    :ivar sep_bigger_nonsiblings_starts: `box_id_t [nboxes+1]`
-    :ivar sep_bigger_nonsiblings_lists: `box_id_t [*]`
+    .. attribute:: sep_bigger_nonsiblings_starts
+
+        `box_id_t [nboxes+1]`
+
+    .. attribute:: sep_bigger_nonsiblings_lists
+
+        `box_id_t [*]`
 
     Terminology follows this article:
 
@@ -561,7 +580,7 @@ class ListInverter:
 
         from pyopencl.scan import GenericScanKernel
         bound_propagation_scan = GenericScanKernel(
-                self.context, np.int32,
+                self.context, box_id_dtype,
                 arguments=[
                     VectorArg(box_id_dtype, "starts"),
                     # starts has length n+1

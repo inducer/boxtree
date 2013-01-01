@@ -45,30 +45,38 @@ def test_tree(ctx_getter, do_plot=False):
         tree = tb(queue, particles, max_particles_in_box=30, debug=True)
         print "%d boxes, testing..." % tree.nboxes
 
-        starts = tree.box_particle_starts.get()
-        pcounts = tree.box_particle_counts.get()
-        sorted_particles = np.array([pi.get() for pi in tree.particles])
+        starts = tree.box_source_starts.get()
+        pcounts = tree.box_source_counts.get()
+        sorted_particles = np.array([pi.get() for pi in tree.sources])
         centers = tree.box_centers.get()
         levels = tree.box_levels.get()
 
         unsorted_particles = np.array([pi.get() for pi in particles])
         assert (sorted_particles
-                == unsorted_particles[:, tree.original_particle_ids.get()]).all()
+                == unsorted_particles[:, tree.user_source_ids.get()]).all()
 
-        assert np.max(levels) + 1 == tree.nlevels
+        assert np.max(levels) + 1 == tree.nlevels, (np.max(levels), tree.nlevels)
 
         root_extent = tree.root_extent
 
         all_good_so_far = True
 
         if do_plot:
-            tree.plot(zorder=10)
+            from boxtree import TreePlotter
+            plotter = TreePlotter(tree)
+            plotter.draw_tree(fill=False, edgecolor="black", zorder=10)
+            #plotter.draw_box_numbers()
+            #plotter.set_bounding_box()
+            #pt.show()
 
         for ibox in xrange(tree.nboxes):
             lev = int(levels[ibox])
             box_size = root_extent / (1 << lev)
             el = extent_low = centers[:, ibox] - 0.5*box_size
             eh = extent_high = extent_low + box_size
+
+            assert (el >= tree.bounding_box[0] - 1e-12*tree.root_extent).all(), ibox
+            assert (eh <= tree.bounding_box[1] + 1e-12*tree.root_extent).all(), ibox
 
             box_particle_nrs = np.arange(starts[ibox], starts[ibox]+pcounts[ibox],
                     dtype=np.intp)
@@ -89,6 +97,9 @@ def test_tree(ctx_getter, do_plot=False):
                 pt.plot([el[0], eh[0], eh[0], el[0], el[0]],
                         [el[1], el[1], eh[1], eh[1], el[1]], "r-", lw=1)
 
+            if not all_good_here:
+                print "BAD BOX", ibox
+
             all_good_so_far = all_good_so_far and all_good_here
 
         if do_plot:
@@ -104,7 +115,7 @@ def test_tree(ctx_getter, do_plot=False):
 # {{{ connectivity test
 
 @pytools.test.mark_test.opencl
-def test_tree_connectivity(ctx_getter, do_plot=False):
+def test_tree_connectivity(ctx_getter):
     ctx = ctx_getter()
     queue = cl.CommandQueue(ctx)
 
@@ -247,10 +258,15 @@ class ConstantOneExpansionWrangler:
     def potential_zeros(self):
         return np.zeros(self.tree.ntargets, dtype=np.float64)
 
-    def _get_particle_slice(self, ibox):
-        pstart = self.tree.box_particle_starts[ibox]
+    def _get_source_slice(self, ibox):
+        pstart = self.tree.box_source_starts[ibox]
         return slice(
-                pstart, pstart + self.tree.box_particle_counts[ibox])
+                pstart, pstart + self.tree.box_source_counts[ibox])
+
+    def _get_target_slice(self, ibox):
+        pstart = self.tree.box_target_starts[ibox]
+        return slice(
+                pstart, pstart + self.tree.box_target_counts[ibox])
 
     def reorder_src_weights(self, src_weights):
         return src_weights[self.tree.user_source_ids]
@@ -261,7 +277,7 @@ class ConstantOneExpansionWrangler:
     def form_multipoles(self, leaf_boxes, src_weights):
         mpoles = self.expansion_zeros()
         for ibox in leaf_boxes:
-            pslice = self._get_particle_slice(ibox)
+            pslice = self._get_source_slice(ibox)
             mpoles[ibox] += np.sum(src_weights[pslice])
 
         return mpoles
@@ -280,12 +296,12 @@ class ConstantOneExpansionWrangler:
         pot = self.potential_zeros()
 
         for itgt_leaf, itgt_box in enumerate(leaf_boxes):
-            tgt_pslice = self._get_particle_slice(itgt_box)
+            tgt_pslice = self._get_target_slice(itgt_box)
 
             src_sum = 0
             start, end = neighbor_leaves_starts[itgt_leaf:itgt_leaf+2]
             for isrc_box in neighbor_leaves_lists[start:end]:
-                src_pslice = self._get_particle_slice(isrc_box)
+                src_pslice = self._get_source_slice(isrc_box)
 
                 src_sum += np.sum(src_weights[src_pslice])
 
@@ -314,7 +330,7 @@ class ConstantOneExpansionWrangler:
         pot = self.potential_zeros()
 
         for itgt_leaf, itgt_box in enumerate(leaf_boxes):
-            tgt_pslice = self._get_particle_slice(itgt_box)
+            tgt_pslice = self._get_target_slice(itgt_box)
 
             contrib = 0
             start, end = sep_smaller_nonsiblings_starts[itgt_leaf:itgt_leaf+2]
@@ -335,7 +351,7 @@ class ConstantOneExpansionWrangler:
         pot = self.potential_zeros()
 
         for ibox in leaf_boxes:
-            tgt_pslice = self._get_particle_slice(ibox)
+            tgt_pslice = self._get_target_slice(ibox)
             pot[tgt_pslice] += local_exps[ibox]
 
         return pot
@@ -344,7 +360,7 @@ class ConstantOneExpansionWrangler:
 
 
 @pytools.test.mark_test.opencl
-def test_fmm_completeness(ctx_getter, do_plot=False):
+def test_fmm_completeness(ctx_getter):
     """Tests whether the built FMM traversal structures and driver completely
     capture all interactions.
     """
@@ -363,9 +379,6 @@ def test_fmm_completeness(ctx_getter, do_plot=False):
         particles = make_obj_array([
             rng.normal(queue, nparticles, dtype=dtype)
             for i in range(dims)])
-
-        if do_plot:
-            pt.plot(particles[0].get(), particles[1].get(), "x")
 
         from boxtree import TreeBuilder
         tb = TreeBuilder(ctx)
@@ -445,7 +458,7 @@ def plot_traversal(ctx_getter, do_plot=False):
 
     #for dims in [2, 3]:
     for dims in [2]:
-        nparticles = 10**5
+        nparticles = 10**4
         dtype = np.float64
 
         from pyopencl.clrandom import RanluxGenerator
@@ -496,11 +509,11 @@ def plot_traversal(ctx_getter, do_plot=False):
                 if start == end:
                     continue
 
-                plotter.draw_box(ibox, facecolor='red')
-
                 #print ibox, start, end, lists[start:end]
                 for jbox in lists[start:end]:
                     plotter.draw_box(jbox, facecolor='yellow')
+
+                plotter.draw_box(ibox, facecolor='red')
 
                 actual_count += 1
 
@@ -522,7 +535,7 @@ def plot_traversal(ctx_getter, do_plot=False):
             draw_some_box_lists(
                     trav.sep_siblings_starts,
                     trav.sep_siblings_lists)
-        elif 0:
+        elif 1:
             # separated smaller non-siblings (list 3)
             draw_some_box_lists(
                     trav.sep_smaller_nonsiblings_starts,
