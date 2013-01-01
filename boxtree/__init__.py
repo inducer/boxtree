@@ -451,7 +451,6 @@ SCAN_OUTPUT_STMT_TPL = Template(r"""//CL//
         box_id_t current_box_id = srcntgt_box_ids[i];
         particle_id_t box_srcntgt_count = box_srcntgt_counts[current_box_id];
 
-        unsplit_box_ids[i] = current_box_id;
         split_box_ids[i] = item.split_box_id;
 
         // Am I the last particle in my current box?
@@ -476,7 +475,7 @@ SCAN_OUTPUT_STMT_TPL = Template(r"""//CL//
 
 SPLIT_AND_SORT_KERNEL_TPL =  Template(r"""//CL//
     morton_t my_morton_bin_counts = morton_bin_counts[i];
-    box_id_t my_box_id = unsplit_box_ids[i];
+    box_id_t my_box_id = srcntgt_box_ids[i];
 
     dbg_printf(("postproc %d:\n", i));
     dbg_printf(("   my_sums: %d %d %d %d\n",
@@ -513,9 +512,9 @@ SPLIT_AND_SORT_KERNEL_TPL =  Template(r"""//CL//
         %endfor
 
         dbg_printf(("   moving %d -> %d\n", i, tgt_particle_idx));
-        new_user_particle_ids[tgt_particle_idx] = user_particle_ids[i];
 
-        srcntgt_box_ids[tgt_particle_idx] = new_box_id;
+        new_user_srcntgt_ids[tgt_particle_idx] = user_srcntgt_ids[i];
+        new_srcntgt_box_ids[tgt_particle_idx] = new_box_id;
 
         %for mnr in range(2**dimensions):
           /* Am I the last particle in my Morton bin? */
@@ -553,7 +552,8 @@ SPLIT_AND_SORT_KERNEL_TPL =  Template(r"""//CL//
     else
     {
         // Not splitting? Copy over existing particle info.
-        new_user_particle_ids[i] = user_particle_ids[i];
+        new_user_srcntgt_ids[i] = user_srcntgt_ids[i];
+        new_srcntgt_box_ids[i] = my_box_id;
     }
 """, strict_undefined=True)
 
@@ -994,7 +994,6 @@ class TreeBuilder(object):
                     VectorArg(np.uint8, "box_start_flags"), # [nsrcntgts]
 
                     VectorArg(box_id_dtype, "srcntgt_box_ids"), # [nsrcntgts]
-                    VectorArg(box_id_dtype, "unsplit_box_ids"), # [nsrcntgts]
                     VectorArg(box_id_dtype, "split_box_ids"), # [nsrcntgts]
 
                     # per-box morton bin counts
@@ -1054,9 +1053,9 @@ class TreeBuilder(object):
                 self.context,
                 scan_knl_arguments
                 + [
-                    VectorArg(particle_id_dtype, "user_particle_ids"),
-                    VectorArg(particle_id_dtype, "new_user_particle_ids"),
+                    VectorArg(particle_id_dtype, "new_user_srcntgt_ids"),
                     VectorArg(np.int32, "have_oversize_box"),
+                    VectorArg(box_id_dtype, "new_srcntgt_box_ids"),
                     ],
                 str(split_and_sort_kernel_source), name="split_and_sort",
                 preamble=str(preamble))
@@ -1380,7 +1379,6 @@ class TreeBuilder(object):
         morton_nrs = empty(nsrcntgts, dtype=np.uint8)
         box_start_flags = zeros(nsrcntgts, dtype=np.int8)
         srcntgt_box_ids = zeros(nsrcntgts, dtype=box_id_dtype)
-        unsplit_box_ids = zeros(nsrcntgts, dtype=box_id_dtype)
         split_box_ids = zeros(nsrcntgts, dtype=box_id_dtype)
 
         from pytools import div_ceil
@@ -1421,7 +1419,7 @@ class TreeBuilder(object):
             if debug:
                 print "LEV"
             args = ((morton_bin_counts, morton_nrs,
-                    box_start_flags, srcntgt_box_ids, unsplit_box_ids, split_box_ids,
+                    box_start_flags, srcntgt_box_ids, split_box_ids,
                     box_morton_bin_counts,
                     box_srcntgt_starts, box_srcntgt_counts,
                     box_parent_ids, box_morton_nrs,
@@ -1440,10 +1438,11 @@ class TreeBuilder(object):
                         "too low. Should resize temp arrays.")
 
             new_user_srcntgt_ids = cl.array.empty_like(user_srcntgt_ids)
+            new_srcntgt_box_ids = cl.array.empty_like(srcntgt_box_ids)
             split_and_sort_args = (
                     args
-                    + (user_srcntgt_ids, new_user_srcntgt_ids,
-                        have_oversize_box))
+                    + (new_user_srcntgt_ids,
+                        have_oversize_box, new_srcntgt_box_ids))
             knl_info.split_and_sort_kernel(*split_and_sort_args)
 
             if 0:
@@ -1454,6 +1453,9 @@ class TreeBuilder(object):
                 print "counts", box_srcntgt_counts.get()[:nboxes]
 
             user_srcntgt_ids = new_user_srcntgt_ids
+            del new_user_srcntgt_ids
+            srcntgt_box_ids = new_srcntgt_box_ids
+            del new_srcntgt_box_ids
 
             if not int(have_oversize_box.get()):
                 break
