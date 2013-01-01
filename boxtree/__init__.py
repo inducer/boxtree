@@ -528,7 +528,7 @@ SPLIT_AND_SORT_KERNEL_TPL =  Template(r"""//CL//
         dbg_printf(("   moving %d -> %d\n", i, tgt_particle_idx));
         new_user_particle_ids[tgt_particle_idx] = user_particle_ids[i];
 
-        box_ids[tgt_particle_idx] = new_box_id;
+        srcntgt_box_ids[tgt_particle_idx] = new_box_id;
 
         %for mnr in range(2**dimensions):
           /* Am I the last particle in my Morton bin? */
@@ -1006,7 +1006,7 @@ class TreeBuilder(object):
                     # (particles are only reordered within a box)
                     VectorArg(np.uint8, "box_start_flags"), # [nsrcntgts]
 
-                    VectorArg(box_id_dtype, "box_ids"), # [nsrcntgts]
+                    VectorArg(box_id_dtype, "srcntgt_box_ids"), # [nsrcntgts]
                     VectorArg(box_id_dtype, "unsplit_box_ids"), # [nsrcntgts]
                     VectorArg(box_id_dtype, "split_box_ids"), # [nsrcntgts]
 
@@ -1043,9 +1043,9 @@ class TreeBuilder(object):
                 arguments=scan_knl_arguments,
                 input_expr="scan_t_from_particle(%s)"
                     % ", ".join([
-                        "i", "level", "box_ids[i]", "*box_count",
-                        "box_srcntgt_starts[box_ids[i]]",
-                        "box_srcntgt_counts[box_ids[i]]",
+                        "i", "level", "srcntgt_box_ids[i]", "*box_count",
+                        "box_srcntgt_starts[srcntgt_box_ids[i]]",
+                        "box_srcntgt_counts[srcntgt_box_ids[i]]",
                         "max_particles_in_box",
                         "&bbox"
                         ]
@@ -1390,7 +1390,7 @@ class TreeBuilder(object):
         morton_bin_counts = empty(nsrcntgts, dtype=knl_info.morton_bin_count_dtype)
         morton_nrs = empty(nsrcntgts, dtype=np.uint8)
         box_start_flags = zeros(nsrcntgts, dtype=np.int8)
-        box_ids = zeros(nsrcntgts, dtype=box_id_dtype)
+        srcntgt_box_ids = zeros(nsrcntgts, dtype=box_id_dtype)
         unsplit_box_ids = zeros(nsrcntgts, dtype=box_id_dtype)
         split_box_ids = zeros(nsrcntgts, dtype=box_id_dtype)
 
@@ -1432,7 +1432,7 @@ class TreeBuilder(object):
             if debug:
                 print "LEV"
             args = ((morton_bin_counts, morton_nrs,
-                    box_start_flags, box_ids, unsplit_box_ids, split_box_ids,
+                    box_start_flags, srcntgt_box_ids, unsplit_box_ids, split_box_ids,
                     box_morton_bin_counts,
                     box_srcntgt_starts, box_srcntgt_counts,
                     box_parent_ids, box_morton_nrs,
@@ -1460,7 +1460,7 @@ class TreeBuilder(object):
             if 0:
                 print "--------------LEVL"
                 print "nboxes_dev", nboxes_dev.get()
-                print "box_ids", box_ids.get()[:nsrcntgts]
+                print "srcntgt_box_ids", srcntgt_box_ids.get()[:nsrcntgts]
                 print "starts", box_srcntgt_starts.get()[:nboxes]
                 print "counts", box_srcntgt_counts.get()[:nboxes]
 
