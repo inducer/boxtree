@@ -1475,6 +1475,45 @@ class TreeBuilder(object):
 
         # }}}
 
+        # {{{ prune empty leaf boxes
+
+        # What is the original index of this box?
+        from_box_id = empty(nboxes, box_id_dtype)
+
+        # Where should I put this box?
+        to_box_id = empty(nboxes, box_id_dtype)
+
+        nboxes_post_prune_dev = empty((), dtype=box_id_dtype)
+        knl_info.find_prune_indices_kernel(
+                box_srcntgt_counts, to_box_id, from_box_id, nboxes_post_prune_dev,
+                size=nboxes)
+
+        nboxes_post_prune = int(nboxes_post_prune_dev.get())
+
+        if debug:
+            print "%d empty leaves" % (nboxes-nboxes_post_prune)
+
+        from functools import partial
+        prune_empty = partial(self._gappy_copy_and_map,
+                queue, allocator, nboxes_post_prune, from_box_id)
+
+        box_srcntgt_starts = prune_empty(box_srcntgt_starts)
+        box_srcntgt_counts = prune_empty(box_srcntgt_counts)
+
+        srcntgt_box_ids = cl.array.take(to_box_id, srcntgt_box_ids)
+
+        box_parent_ids = prune_empty(box_parent_ids, map_values=to_box_id)
+        box_morton_nrs = prune_empty(box_morton_nrs)
+
+        # Remap level_starts to new box IDs.
+        # FIXME: It would be better to do this on the device.
+        level_starts = list(to_box_id.get()[np.array(level_starts[:-1], box_id_dtype)])
+        level_starts = np.array(level_starts + [nboxes_post_prune], box_id_dtype)
+
+        # }}}
+
+        del nboxes
+
         # {{{ update particle indices and box info for source/target split
 
         # {{{ compute sorted particle ids from user ids
@@ -1534,64 +1573,6 @@ class TreeBuilder(object):
 
         # }}}
 
-        # Ordering restriction: Must split sources and targets before pruning
-        # empty boxes because source/target splitter needs to be able to identify
-        # the number of each particle in its box, via the morton bin count.
-        # This is harder once boxes have been pruned.
-
-        # {{{ prune empty leaf boxes
-
-        # What is the original index of this box?
-        from_box_id = empty(nboxes, box_id_dtype)
-
-        # Where should I put this box?
-        to_box_id = empty(nboxes, box_id_dtype)
-
-        nboxes_post_prune_dev = empty((), dtype=box_id_dtype)
-        knl_info.find_prune_indices_kernel(
-                box_srcntgt_counts, to_box_id, from_box_id, nboxes_post_prune_dev,
-                size=nboxes)
-
-        nboxes_post_prune = int(nboxes_post_prune_dev.get())
-
-        if debug:
-            print "%d empty leaves" % (nboxes-nboxes_post_prune)
-
-        from functools import partial
-        prune_empty = partial(self._gappy_copy_and_map,
-                queue, allocator, nboxes_post_prune, from_box_id)
-
-        if box_source_starts is box_target_starts:
-            box_source_starts = box_target_starts = \
-                    prune_empty(box_source_starts)
-            assert box_source_counts is box_target_counts
-            box_source_counts = box_target_counts =  \
-                    prune_empty(box_source_counts)
-
-            # box_srcntgt_counts is needed by the box info
-            # computation below.
-            box_srcntgt_counts = box_source_counts
-        else:
-            box_source_starts = prune_empty(box_source_starts)
-            box_source_counts = prune_empty(box_source_counts)
-            box_target_starts = prune_empty(box_target_starts)
-            box_target_counts = prune_empty(box_target_counts)
-
-            # box_srcntgt_counts is needed by the box info
-            # computation below.
-            box_srcntgt_counts = prune_empty(box_srcntgt_counts)
-
-        box_parent_ids = prune_empty(box_parent_ids, map_values=to_box_id)
-        box_morton_nrs = prune_empty(box_morton_nrs)
-
-        # Remap level_starts to new box IDs.
-        # FIXME: It would be better to do this on the device.
-        level_starts = list(to_box_id.get()[np.array(level_starts[:-1], box_id_dtype)])
-        level_starts = np.array(level_starts + [nboxes_post_prune], box_id_dtype)
-
-        # }}}
-
-        del nboxes
 
         # {{{ compute box info
 
