@@ -100,12 +100,7 @@ helps translate potentials back into user target order for output.
 # - a cumulative count ("counts") of particles in each subbox ("morton_nr") at
 #   the current level, should the current box need to be subdivided.
 #
-# - the current box number. At the start of the scan, this is correct only
-#   for the first particle in each box. As the scan proceeds, this gets
-#   propagated throughout the rest of the box. (by "max" as the associative,
-#   commutative operator)
-#
-# - the "subdivided box number". The very first entry here gets intialized to
+# - the "split_box_id". The very first entry here gets intialized to
 #   the number of boxes present at the previous level. If a box knows it needs to
 #   be subdivided, its first particle asks for 2**d new boxes. This gets scanned
 #   over by summing globally (unsegmented-ly). The splits are then realized in
@@ -259,8 +254,7 @@ def make_scan_type(device, dimensions, particle_id_dtype, box_id_dtype):
     morton_dtype, _ = make_morton_bin_count_type(device, dimensions, particle_id_dtype)
     dtype = np.dtype([
             ('counts', morton_dtype),
-            ('current_box_id', box_id_dtype), # max-scanned
-            ('subdivided_box_id', box_id_dtype), # sum-scanned
+            ('split_box_id', box_id_dtype), # sum-scanned
             ('morton_nr', np.uint8),
             ])
 
@@ -352,8 +346,7 @@ SCAN_PREAMBLE_TPL = Template(r"""//CL//
         %for mnr in range(2**dimensions):
             result.counts.c${padded_bin(mnr, dimensions)} = 0;
         %endfor
-        result.current_box_id = 0;
-        result.subdivided_box_id = 0;
+        result.split_box_id = 0;
         return result;
     }
 
@@ -365,12 +358,11 @@ SCAN_PREAMBLE_TPL = Template(r"""//CL//
                 <% field = "counts.c"+padded_bin(mnr, dimensions) %>
                 b.${field} = a.${field} + b.${field};
             %endfor
-            b.current_box_id = max(a.current_box_id, b.current_box_id);
         }
 
-        // subdivided_box_id must use a non-segmented scan to globally
+        // split_box_id must use a non-segmented scan to globally
         // assign box numbers.
-        b.subdivided_box_id = a.subdivided_box_id + b.subdivided_box_id;
+        b.split_box_id = a.split_box_id + b.split_box_id;
 
         // b.morton_nr gets propagated
         return b;
@@ -413,23 +405,17 @@ SCAN_PREAMBLE_TPL = Template(r"""//CL//
         %endfor
         result.morton_nr = level_morton_number;
 
-        // current_box_id is only valid if the current box starts at this
-        // particle, but that's ok.  We'll max-scan it so that by output time
-        // every particle knows its (by then possibly former) box id.
-
-        result.current_box_id = box_id;
-
-        // subdivided_box_id is not very meaningful now, but when scanned over
+        // split_box_id is not very meaningful now, but when scanned over
         // by addition, will yield new, unused ids for boxes that are created by
         // subdividing the current box (if it is over-full).
 
-        result.subdivided_box_id = 0;
+        result.split_box_id = 0;
         if (i == 0)
         {
             // Particle number zero brings in the box count from the
             // previous level.
 
-            result.subdivided_box_id = box_count;
+            result.split_box_id = box_count;
         }
         if (i == box_start
             && box_srcntgt_count > max_particles_in_box)
@@ -439,7 +425,7 @@ SCAN_PREAMBLE_TPL = Template(r"""//CL//
             // their id. These requested box IDs are then scanned over by
             // a global sum.
 
-            result.subdivided_box_id += ${2**dimensions};
+            result.split_box_id += ${2**dimensions};
         }
 
         return result;
@@ -462,24 +448,25 @@ SCAN_OUTPUT_STMT_TPL = Template(r"""//CL//
         morton_bin_counts[i] = item.counts;
         morton_nrs[i] = item.morton_nr;
 
-        particle_id_t box_srcntgt_count = box_srcntgt_counts[item.current_box_id];
+        box_id_t current_box_id = srcntgt_box_ids[i];
+        particle_id_t box_srcntgt_count = box_srcntgt_counts[current_box_id];
 
-        unsplit_box_ids[i] = item.current_box_id;
-        split_box_ids[i] = item.subdivided_box_id;
+        unsplit_box_ids[i] = current_box_id;
+        split_box_ids[i] = item.split_box_id;
 
         // Am I the last particle in my current box?
         // If so, populate particle count.
 
         if (my_id_in_my_box+1 == box_srcntgt_count)
         {
-            dbg_printf(("store box %d cbi:%d\n", i, item.current_box_id));
+            dbg_printf(("store box %d cbi:%d\n", i, current_box_id));
             dbg_printf(("   store_sums: %d %d %d %d\n", item.counts.c00, item.counts.c01, item.counts.c10, item.counts.c11));
-            box_morton_bin_counts[item.current_box_id] = item.counts;
+            box_morton_bin_counts[current_box_id] = item.counts;
         }
 
         // Am I the last particle overall? If so, write box count
         if (i+1 == N)
-            *box_count = item.subdivided_box_id;
+            *box_count = item.split_box_id;
     }
 """, strict_undefined=True)
 
