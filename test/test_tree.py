@@ -14,25 +14,28 @@ from pyopencl.tools import pytest_generate_tests_for_pyopencl \
 
 
 
+def make_particle_array(queue, nparticles, dims, dtype, seed=15):
+    from pyopencl.clrandom import RanluxGenerator
+    rng = RanluxGenerator(queue, seed=seed)
+
+    from pytools.obj_array import make_obj_array
+    return make_obj_array([
+        rng.normal(queue, nparticles, dtype=dtype)
+        for i in range(dims)])
+
+
 # {{{ basic tree build test
 
 @pytools.test.mark_test.opencl
-def test_tree(ctx_getter, do_plot=False):
+def test_particle_tree(ctx_getter, do_plot=False):
     ctx = ctx_getter()
     queue = cl.CommandQueue(ctx)
 
-    #for dims in [2, 3]:
-    for dims in [2]:
+    for dims in [2, 3]:
         nparticles = 10**5
         dtype = np.float64
 
-        from pyopencl.clrandom import RanluxGenerator
-        rng = RanluxGenerator(queue, seed=15)
-
-        from pytools.obj_array import make_obj_array
-        particles = make_obj_array([
-            rng.normal(queue, nparticles, dtype=dtype)
-            for i in range(dims)])
+        particles = make_particle_array(queue, nparticles, dims, dtype)
 
         if do_plot:
             pt.plot(particles[0].get(), particles[1].get(), "x")
@@ -42,22 +45,14 @@ def test_tree(ctx_getter, do_plot=False):
 
         queue.finish()
         print "building..."
-        tree = tb(queue, particles, max_particles_in_box=30, debug=True)
+        tree = tb(queue, particles, max_particles_in_box=30, debug=True).get()
         print "%d boxes, testing..." % tree.nboxes
 
-        starts = tree.box_source_starts.get()
-        pcounts = tree.box_source_counts.get()
-        sorted_particles = np.array([pi.get() for pi in tree.sources])
-        centers = tree.box_centers.get()
-        levels = tree.box_levels.get()
+        sorted_particles = np.array(list(tree.sources))
 
         unsorted_particles = np.array([pi.get() for pi in particles])
         assert (sorted_particles
-                == unsorted_particles[:, tree.user_source_ids.get()]).all()
-
-        assert np.max(levels) + 1 == tree.nlevels, (np.max(levels), tree.nlevels)
-
-        root_extent = tree.root_extent
+                == unsorted_particles[:, tree.user_source_ids]).all()
 
         all_good_so_far = True
 
@@ -65,23 +60,17 @@ def test_tree(ctx_getter, do_plot=False):
             from boxtree import TreePlotter
             plotter = TreePlotter(tree)
             plotter.draw_tree(fill=False, edgecolor="black", zorder=10)
-            #plotter.draw_box_numbers()
-            #plotter.set_bounding_box()
-            #pt.show()
+            plotter.set_bounding_box()
 
         for ibox in xrange(tree.nboxes):
-            lev = int(levels[ibox])
-            box_size = root_extent / (1 << lev)
-            el = extent_low = centers[:, ibox] - 0.5*box_size
-            eh = extent_high = extent_low + box_size
+            extent_low, extent_high = tree.get_box_extent(ibox)
 
-            assert (el >= tree.bounding_box[0] - 1e-12*tree.root_extent).all(), ibox
-            assert (eh <= tree.bounding_box[1] + 1e-12*tree.root_extent).all(), ibox
+            assert (extent_low >= tree.bounding_box[0] - 1e-12*tree.root_extent).all(), ibox
+            assert (extent_high <= tree.bounding_box[1] + 1e-12*tree.root_extent).all(), ibox
 
-            box_particle_nrs = np.arange(starts[ibox], starts[ibox]+pcounts[ibox],
-                    dtype=np.intp)
+            start = tree.box_source_starts[ibox]
 
-            box_particles = sorted_particles[:,box_particle_nrs]
+            box_particles = sorted_particles[:,start:start+tree.box_source_counts[ibox]]
             good = (
                     (box_particles < extent_high[:, np.newaxis])
                     &
@@ -94,8 +83,7 @@ def test_tree(ctx_getter, do_plot=False):
                         box_particles[0, np.where(~good)[1]],
                         box_particles[1, np.where(~good)[1]], "ro")
 
-                pt.plot([el[0], eh[0], eh[0], el[0], el[0]],
-                        [el[1], el[1], eh[1], eh[1], el[1]], "r-", lw=1)
+                plotter.draw_box(ibox, edgecolor="red")
 
             if not all_good_here:
                 print "BAD BOX", ibox
@@ -109,6 +97,100 @@ def test_tree(ctx_getter, do_plot=False):
         assert all_good_so_far
 
         print "done"
+
+
+
+
+@pytools.test.mark_test.opencl
+def test_source_target_tree(ctx_getter, do_plot=False):
+    ctx = ctx_getter()
+    queue = cl.CommandQueue(ctx)
+
+    for dims in [2, 3]:
+        nsources = 2 * 10**5
+        ntargets = 3 * 10**5
+        dtype = np.float64
+
+        sources = make_particle_array(queue, nsources, dims, dtype,
+                seed=12)
+        targets = make_particle_array(queue, ntargets, dims, dtype,
+                seed=19)
+
+        if do_plot:
+            pt.plot(sources[0].get(), sources[1].get(), "rx")
+            pt.plot(targets[0].get(), targets[1].get(), "g+")
+
+        from boxtree import TreeBuilder
+        tb = TreeBuilder(ctx)
+
+        queue.finish()
+        print "building..."
+        tree = tb(queue, sources, targets=targets,
+                max_particles_in_box=10, debug=True).get()
+        print "%d boxes, testing..." % tree.nboxes
+
+        sorted_sources = np.array(list(tree.sources))
+        sorted_targets = np.array(list(tree.targets))
+
+        unsorted_sources = np.array([pi.get() for pi in sources])
+        unsorted_targets = np.array([pi.get() for pi in targets])
+        assert (sorted_sources
+                == unsorted_sources[:, tree.user_source_ids]).all()
+
+        user_target_ids = np.empty(tree.ntargets, dtype=np.intp)
+        user_target_ids[tree.sorted_target_ids] = np.arange(tree.ntargets, dtype=np.intp)
+        assert (sorted_targets
+                == unsorted_targets[:, user_target_ids]).all()
+
+        all_good_so_far = True
+
+        if do_plot:
+            from boxtree import TreePlotter
+            plotter = TreePlotter(tree)
+            plotter.draw_tree(fill=False, edgecolor="black", zorder=10)
+            plotter.set_bounding_box()
+
+        for ibox in xrange(tree.nboxes):
+            extent_low, extent_high = tree.get_box_extent(ibox)
+
+            assert (extent_low >= tree.bounding_box[0] - 1e-12*tree.root_extent).all(), ibox
+            assert (extent_high <= tree.bounding_box[1] + 1e-12*tree.root_extent).all(), ibox
+
+            src_start = tree.box_source_starts[ibox]
+            tgt_start = tree.box_target_starts[ibox]
+
+            for what, particles in [
+                    ("sources", sorted_sources[:,src_start:src_start+tree.box_source_counts[ibox]]),
+                    ("targets", sorted_targets[:,tgt_start:tgt_start+tree.box_target_counts[ibox]]),
+                    ]:
+                good = (
+                        (particles < extent_high[:, np.newaxis])
+                        &
+                        (extent_low[:, np.newaxis] <= particles)
+                        ).all(axis=0)
+
+                all_good_here = good.all()
+                if do_plot and not all_good_here:
+                    pt.plot(
+                            particles[0, np.where(~good)[0]],
+                            particles[1, np.where(~good)[0]], "ro")
+
+                    plotter.draw_box(ibox, edgecolor="red")
+                    pt.show()
+
+            if not all_good_here:
+                print "BAD BOX %s %d" % (what, ibox)
+
+            all_good_so_far = all_good_so_far and all_good_here
+
+        if do_plot:
+            pt.gca().set_aspect("equal", "datalim")
+            pt.show()
+
+        assert all_good_so_far
+
+        print "done"
+
 
 # }}}
 
@@ -282,11 +364,11 @@ class ConstantOneExpansionWrangler:
 
         return mpoles
 
-    def coarsen_multipoles(self, branch_boxes, start_branch_box, end_branch_box,
+    def coarsen_multipoles(self, parent_boxes, start_parent_box, end_parent_box,
             mpoles):
         tree = self.tree
 
-        for ibox in branch_boxes[start_branch_box:end_branch_box]:
+        for ibox in parent_boxes[start_parent_box:end_parent_box]:
             for child in tree.box_child_ids[:, ibox]:
                 if child:
                     mpoles[ibox] += mpoles[child]

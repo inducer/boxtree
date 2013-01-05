@@ -145,17 +145,17 @@ bool is_adjacent_or_overlapping(
 
 # }}}
 
-# {{{ leaves and branches
+# {{{ leaves and parents
 
-LEAVES_AND_BRANCHES_TEMPLATE = r"""//CL//
+LEAVES_AND_PARENTS_TEMPLATE = r"""//CL//
 
 void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t box_id)
 {
     unsigned char box_type = box_types[box_id];
     if (box_type == BOX_LEAF)
     { APPEND_leaves(box_id); }
-    else if (box_type == BOX_BRANCH)
-    { APPEND_branches(box_id); }
+    else if (box_type == BOX_PARENT)
+    { APPEND_parents(box_id); }
 }
 """
 
@@ -180,7 +180,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t box_id)
     dbg_printf(("box id: %d level: %d\n", box_id, level));
 
     // To find this box's colleagues, start at the top of the tree, descend
-    // into adjacent (or overlapping) branches.
+    // into adjacent (or overlapping) parents.
     ${walk_init(0)}
 
     while (continue_walk)
@@ -247,7 +247,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t leaf_number)
     dbg_printf(("box id: %d level: %d\n", box_id, level));
 
     // To find this box's colleagues, start at the top of the tree, descend
-    // into adjacent (or overlapping) branches.
+    // into adjacent (or overlapping) parents.
     ${walk_init(0)}
 
     while (continue_walk)
@@ -422,13 +422,13 @@ class FMMTraversalInfo(Record):
 
         `box_id_t [*]`
 
-    .. attribute:: branch_boxes
+    .. attribute:: parent_boxes
 
         `box_id_t [*]`
-    .. attribute:: branch_box_level_starts
+    .. attribute:: parent_box_level_starts
 
         `box_id_t [nlevels+1]`
-        Indices into :attr:`branch_boxes` indicating where
+        Indices into :attr:`parent_boxes` indicating where
         each level starts and ends.
 
     For each of the following data structures, the `starts` part
@@ -653,23 +653,23 @@ class FMMTraversalBuilder:
         from pyopencl.tools import VectorArg, ScalarArg
         from boxtree import box_type_enum
 
-        # {{{ leaves and branches
+        # {{{ leaves and parents
 
         src = Template(
                 box_type_enum.get_c_defines()
                 + PREAMBLE_TEMPLATE
-                + LEAVES_AND_BRANCHES_TEMPLATE,
+                + LEAVES_AND_PARENTS_TEMPLATE,
                 strict_undefined=True).render(**render_vars)
 
-        leaves_and_branches_builder = ListOfListsBuilder(self.context,
+        leaves_and_parents_builder = ListOfListsBuilder(self.context,
                 [
                     ("leaves", box_id_dtype),
-                    ("branches", box_id_dtype),
+                    ("parents", box_id_dtype),
                     ],
                 str(src),
                 arg_decls=[
                     VectorArg(np.uint8, "box_types"),
-                    ], debug=debug, name_prefix="leaves_and_branches")
+                    ], debug=debug, name_prefix="leaves_and_parents")
 
         from pyopencl.elementwise import ElementwiseTemplate
         level_starts_extractor = ElementwiseTemplate(
@@ -769,7 +769,7 @@ class FMMTraversalBuilder:
         # }}}
 
         return _KernelInfo(
-                leaves_and_branches_builder=leaves_and_branches_builder,
+                leaves_and_parents_builder=leaves_and_parents_builder,
                 level_starts_extractor=level_starts_extractor,
                 **builders)
 
@@ -790,42 +790,42 @@ class FMMTraversalBuilder:
                 tree.dimensions, tree.particle_id_dtype, tree.box_id_dtype,
                 tree.coord_dtype, max_levels)
 
-        # {{{ leaves and branches
+        # {{{ leaves and parents
 
-        result = knl_info.leaves_and_branches_builder(
+        result = knl_info.leaves_and_parents_builder(
                 queue, tree.nboxes, tree.box_types.data)
 
         leaf_boxes = result["leaves"].lists
         assert len(leaf_boxes) == result["leaves"].count
-        branch_boxes = result["branches"].lists
-        assert len(branch_boxes) == result["branches"].count
+        parent_boxes = result["parents"].lists
+        assert len(parent_boxes) == result["parents"].count
 
         # }}}
 
-        # {{{ figure out level starts in branch_boxes
+        # {{{ figure out level starts in parent_boxes
 
-        branch_box_level_starts = cl.array.empty(queue,
+        parent_box_level_starts = cl.array.empty(queue,
                 tree.nlevels+1, tree.box_id_dtype) \
-                        .fill(len(branch_boxes))
+                        .fill(len(parent_boxes))
         knl_info.level_starts_extractor(
                 tree.level_starts_dev,
                 tree.box_levels,
-                branch_boxes,
-                branch_box_level_starts,
-                range=slice(1, len(branch_boxes)),
+                parent_boxes,
+                parent_box_level_starts,
+                range=slice(1, len(parent_boxes)),
                 queue=queue)
 
-        branch_box_level_starts = branch_box_level_starts.get()
+        parent_box_level_starts = parent_box_level_starts.get()
 
         # We skipped box 0 above. This is always true, whether
-        # box 0 (=level 0) is a leaf or a branch.
-        branch_box_level_starts[0] = 0
+        # box 0 (=level 0) is a leaf or a parent.
+        parent_box_level_starts[0] = 0
 
-        # Postprocess branch_box_level_starts for unoccupied levels
-        prev_start = len(branch_boxes)
+        # Postprocess parent_box_level_starts for unoccupied levels
+        prev_start = len(parent_boxes)
         for ilev in xrange(tree.nlevels-1, -1, -1):
-            branch_box_level_starts[ilev] = prev_start = \
-                    min(branch_box_level_starts[ilev], prev_start)
+            parent_box_level_starts[ilev] = prev_start = \
+                    min(parent_box_level_starts[ilev], prev_start)
 
         # }}}
 
@@ -888,8 +888,8 @@ class FMMTraversalBuilder:
                 tree=tree,
 
                 leaf_boxes=leaf_boxes,
-                branch_boxes=branch_boxes,
-                branch_box_level_starts=branch_box_level_starts,
+                parent_boxes=parent_boxes,
+                parent_box_level_starts=parent_box_level_starts,
 
                 colleagues_starts=colleagues.starts,
                 colleagues_lists=colleagues.lists,

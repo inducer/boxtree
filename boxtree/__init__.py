@@ -28,6 +28,7 @@ import pyopencl as cl
 import pyopencl.array
 from pyopencl.elementwise import ElementwiseTemplate
 from mako.template import Template
+from functools import partial
 
 __doc__ = """
 This tree builder can be run in two modes:
@@ -271,10 +272,10 @@ def make_scan_type(device, dimensions, particle_id_dtype, box_id_dtype):
 class box_type_enum:
     """Constants for box types."""
 
-    BRANCH = 0
+    PARENT = 0
 
     # these only occur if particles have refinement restrictions
-    NONEMPTY_BRANCH = 1
+    NONEMPTY_PARENT = 1
 
     LEAF = 2
 
@@ -372,7 +373,7 @@ SCAN_PREAMBLE_TPL = Template(r"""//CL//
         int i,
         int level,
         box_id_t box_id,
-        box_id_t box_count,
+        box_id_t nboxes,
         particle_id_t box_start,
         particle_id_t box_srcntgt_count,
         particle_id_t max_particles_in_box,
@@ -415,7 +416,7 @@ SCAN_PREAMBLE_TPL = Template(r"""//CL//
             // Particle number zero brings in the box count from the
             // previous level.
 
-            result.split_box_id = box_count;
+            result.split_box_id = nboxes;
         }
         if (i == box_start
             && box_srcntgt_count > max_particles_in_box)
@@ -465,7 +466,7 @@ SCAN_OUTPUT_STMT_TPL = Template(r"""//CL//
 
         // Am I the last particle overall? If so, write box count
         if (i+1 == N)
-            *box_count = item.split_box_id;
+            *nboxes = item.split_box_id;
     }
 """, strict_undefined=True)
 
@@ -592,7 +593,7 @@ BOX_INFO_KERNEL_TPL =  ElementwiseTemplate(
         }
         else if (p_count > max_particles_in_box)
         {
-            box_types[box_id] = BOX_BRANCH;
+            box_types[box_id] = BOX_PARENT;
             box_srcntgt_counts[box_id] = 0;
         }
         else
@@ -824,17 +825,22 @@ class Tree(Record):
 
         return self.copy(**result)
 
+    def get_box_extent(self, ibox):
+        lev = int(self.box_levels[ibox])
+        box_size = self.root_extent / (1 << lev)
+        extent_low = self.box_centers[:, ibox] - 0.5*box_size
+        extent_high = extent_low + box_size
+        return extent_low, extent_high
+
 
 # }}}
 
 # {{{ visualization
 
 class TreePlotter:
+    """Assumes that the tree has data living on the host. See :meth:`Tree.get`."""
     def __init__(self, tree):
         self.tree = tree
-        self.centers = tree.box_centers.get()
-        self.levels = tree.box_levels.get()
-        self.root_extent = tree.root_extent
 
     def draw_tree(self, **kwargs):
         if self.tree.dimensions != 2:
@@ -855,10 +861,7 @@ class TreePlotter:
             e.g. `facecolor='red', edgecolor='yellow', alpha=0.5`
         """
 
-        lev = int(self.levels[ibox])
-        box_size = self.root_extent / (1 << lev)
-        el = self.centers[:, ibox] - 0.5*box_size
-        eh = el + box_size
+        el, eh = self.tree.get_box_extent(ibox)
 
         import matplotlib.pyplot as pt
         import matplotlib.patches as mpatches
@@ -891,12 +894,24 @@ class TreePlotter:
 
 # {{{ driver
 
+def _realloc_array(ary, new_shape, zero_fill):
+    new_ary = cl.array.empty(ary.queue, shape=new_shape, dtype=ary.dtype,
+            allocator=ary.allocator)
+    if zero_fill:
+        new_ary.fill(0)
+    cl.enqueue_copy(ary.queue, new_ary.data, ary.data, byte_count=ary.nbytes)
+    return new_ary
+
+
+
+
 class TreeBuilder(object):
     def __init__(self, context):
         self.context = context
 
     # {{{ kernel creation
 
+    @memoize_method
     def get_bbox_finder(self):
         return BoundingBoxFinder(self.context)
 
@@ -1012,7 +1027,7 @@ class TreeBuilder(object):
                     VectorArg(self.morton_nr_dtype, "box_morton_nrs"), # [nboxes]
 
                     # number of boxes total
-                    VectorArg(box_id_dtype, "box_count"), # [1]
+                    VectorArg(box_id_dtype, "nboxes"), # [1]
 
                     ScalarArg(np.int32, "level"),
                     ScalarArg(particle_id_dtype, "max_particles_in_box"),
@@ -1029,7 +1044,7 @@ class TreeBuilder(object):
                 arguments=scan_knl_arguments,
                 input_expr="scan_t_from_particle(%s)"
                     % ", ".join([
-                        "i", "level", "srcntgt_box_ids[i]", "*box_count",
+                        "i", "level", "srcntgt_box_ids[i]", "*nboxes",
                         "box_srcntgt_starts[srcntgt_box_ids[i]]",
                         "box_srcntgt_counts[srcntgt_box_ids[i]]",
                         "max_particles_in_box",
@@ -1099,7 +1114,7 @@ class TreeBuilder(object):
                     ],
                 input_expr="(user_srcntgt_ids[i] < nsources) ? 1 : 0",
                 scan_expr="a+b", neutral="0",
-                output_statement="source_numbers[i] = item;",
+                output_statement="source_numbers[i] = prev_item;",
                 name_prefix="source_counter")
 
         from pyopencl.elementwise import ElementwiseTemplate
@@ -1107,15 +1122,14 @@ class TreeBuilder(object):
                 arguments="""//CL//
                     particle_id_t *user_srcntgt_ids,
                     particle_id_t nsources,
-                    particle_id_t ntargets,
                     box_id_t *srcntgt_box_ids,
 
                     particle_id_t *box_srcntgt_starts,
-                    particle_id_t *box_srcntgt_starts,
+                    particle_id_t *box_srcntgt_counts,
                     particle_id_t *source_numbers,
-                    particle_id_t *user_srcntgt_ids,
 
                     particle_id_t *user_source_ids,
+                    particle_id_t *srcntgt_target_ids,
                     particle_id_t *sorted_target_ids,
 
                     particle_id_t *box_source_starts,
@@ -1124,31 +1138,33 @@ class TreeBuilder(object):
                     particle_id_t *box_target_counts,
                     """,
                 operation=r"""//CL//
-                    particle_id_t my_sorted_srcntgt_id = i;
+                    particle_id_t sorted_srcntgt_id = i;
                     particle_id_t source_nr = source_numbers[i];
                     particle_id_t target_nr = i - source_nr;
 
-                    box_id_t box_id = srcntgt_box_ids[my_sorted_srcntgt_id];
+                    box_id_t box_id = srcntgt_box_ids[sorted_srcntgt_id];
 
                     particle_id_t box_start = box_srcntgt_starts[box_id];
                     particle_id_t box_count = box_srcntgt_counts[box_id];
 
-                    int srcntgt_id_in_box = i - my_box_srcntgt_start;
+                    int srcntgt_id_in_box = i - box_start;
 
-                    bool is_source = sorted_srcntgt_id < nsources;
+                    particle_id_t user_srcntgt_id
+                        = user_srcntgt_ids[sorted_srcntgt_id];
+
+                    bool is_source = user_srcntgt_id < nsources;
 
                     // {{{ write start and end of box in terms of sources and targets
 
                     // first particle?
-                    if (my_sorted_srcntgt_id == box_srcntgt_start)
+                    if (sorted_srcntgt_id == box_start)
                     {
                         box_source_starts[box_id] = source_nr;
                         box_target_starts[box_id] = target_nr;
                     }
 
                     // last particle?
-                    if (my_sorted_srcntgt_id + 1
-                            == box_srcntgt_start + box_srcntgt_count)
+                    if (sorted_srcntgt_id + 1 == box_start + box_count)
                     {
                         particle_id_t box_start_source_nr = source_numbers[box_start];
                         particle_id_t box_start_target_nr = box_start - box_start_source_nr;
@@ -1164,13 +1180,11 @@ class TreeBuilder(object):
 
                     // }}}
 
-                    particle_id_t user_srcntgt_id
-                        = user_srcntgt_ids[my_sorted_srcntgt_id];
 
                     if (is_source)
                     {
                         particle_id_t my_box_source_start
-                            = source_numbers[my_box_srcntgt_start];
+                            = source_numbers[box_start];
                         int source_id_in_box
                             = source_nr - my_box_source_start;
 
@@ -1180,10 +1194,12 @@ class TreeBuilder(object):
                     {
                         particle_id_t user_target_id = user_srcntgt_id - nsources;
 
+                        srcntgt_target_ids[target_nr] = user_srcntgt_id;
                         sorted_target_ids[user_target_id] = target_nr;
                     }
+
                     """,
-                name="split_source_and_target_splitter").build(
+                name="find_source_and_target_indices").build(
                             self.context,
                             type_values=(
                                 ("particle_id_t", particle_id_dtype),
@@ -1198,12 +1214,12 @@ class TreeBuilder(object):
         # used if there is only one source/target array
         srcntgt_permuter = ElementwiseTemplate(
                 arguments=[
-                    VectorArg(particle_id_dtype, "user_srcntgt_ids")
+                    VectorArg(particle_id_dtype, "source_ids")
                     ]
                     + [VectorArg(coord_dtype, ax) for ax in axis_names]
                     + [VectorArg(coord_dtype, "sorted_"+ax) for ax in axis_names],
                 operation=r"""//CL:mako//
-                    particle_id_t src_idx = user_srcntgt_ids[i];
+                    particle_id_t src_idx = source_ids[i];
                     %for ax in axis_names:
                         sorted_${ax}[i] = ${ax}[src_idx];
                     %endfor
@@ -1296,7 +1312,6 @@ class TreeBuilder(object):
 
         axis_names = AXIS_NAMES[:dimensions]
 
-        from functools import partial
         empty = partial(cl.array.empty, queue, allocator=allocator)
         zeros = partial(cl.array.zeros, queue, allocator=allocator)
 
@@ -1416,8 +1431,6 @@ class TreeBuilder(object):
         start_time = time()
         level = 0
         while True:
-            if debug:
-                print "LEV"
             args = ((morton_bin_counts, morton_nrs,
                     box_start_flags, srcntgt_box_ids, split_box_ids,
                     box_morton_bin_counts,
@@ -1427,15 +1440,44 @@ class TreeBuilder(object):
                     level, max_particles_in_box, bbox,
                     user_srcntgt_ids)
                     + tuple(srcntgts))
+
+            # writes: nboxes_dev, box_morton_bin_counts, split_box_ids
             knl_info.scan_kernel(*args)
 
-            nboxes = nboxes_dev.get()
-            level_starts.append(int(nboxes))
+            nboxes_new = nboxes_dev.get()
 
-            if nboxes > nboxes_guess:
-                # FIXME
-                raise NotImplementedError("Initial guess for box count was "
-                        "too low. Should resize temp arrays.")
+            if nboxes_new > nboxes_guess:
+                while nboxes_guess < nboxes_new:
+                    nboxes_guess *= 2
+
+                my_realloc= partial(_realloc_array, new_shape=nboxes_guess,
+                        zero_fill=False)
+                my_realloc_zeros = partial(_realloc_array, new_shape=nboxes_guess,
+                        zero_fill=True)
+
+                box_morton_bin_counts = my_realloc(box_morton_bin_counts)
+                box_srcntgt_starts = my_realloc_zeros(box_srcntgt_starts)
+                box_parent_ids = my_realloc_zeros(box_parent_ids)
+                box_morton_nrs = my_realloc_zeros(box_morton_nrs)
+                box_srcntgt_counts = my_realloc_zeros(box_srcntgt_counts)
+
+                del my_realloc
+                del my_realloc_zeros
+
+                # resta
+                nboxes_dev.fill(level_starts[-1])
+
+                # retry
+                if debug:
+                    print "nboxes_guess exceeded: enlarged allocations, restarting level"
+
+                continue
+
+            level_starts.append(int(nboxes_new))
+            del nboxes_new
+
+            if debug:
+                print "LEVEL %d -> %d boxes" % (len(level_starts)-2, level_starts[-1])
 
             new_user_srcntgt_ids = cl.array.empty_like(user_srcntgt_ids)
             new_srcntgt_box_ids = cl.array.empty_like(srcntgt_box_ids)
@@ -1444,13 +1486,6 @@ class TreeBuilder(object):
                     + (new_user_srcntgt_ids,
                         have_oversize_box, new_srcntgt_box_ids))
             knl_info.split_and_sort_kernel(*split_and_sort_args)
-
-            if 0:
-                print "--------------LEVL"
-                print "nboxes_dev", nboxes_dev.get()
-                print "srcntgt_box_ids", srcntgt_box_ids.get()[:nsrcntgts]
-                print "starts", box_srcntgt_starts.get()[:nboxes]
-                print "counts", box_srcntgt_counts.get()[:nboxes]
 
             user_srcntgt_ids = new_user_srcntgt_ids
             del new_user_srcntgt_ids
@@ -1471,7 +1506,7 @@ class TreeBuilder(object):
             print "elapsed time: %g s (%g s/particle/pass)" % (
                     elapsed, elapsed/(npasses*nsrcntgts))
 
-        nboxes = int(nboxes)
+        nboxes = int(nboxes_dev.get())
 
         # }}}
 
@@ -1493,7 +1528,6 @@ class TreeBuilder(object):
         if debug:
             print "%d empty leaves" % (nboxes-nboxes_post_prune)
 
-        from functools import partial
         prune_empty = partial(self._gappy_copy_and_map,
                 queue, allocator, nboxes_post_prune, from_box_id)
 
@@ -1516,7 +1550,9 @@ class TreeBuilder(object):
 
         # {{{ update particle indices and box info for source/target split
 
-        # {{{ compute sorted particle ids from user ids
+        # {{{ turn a "to" index list into a "from" index list
+
+        # (= 'transpose/invert a permutation)
 
         def reverse_particle_index_array(orig_indices):
             n = len(orig_indices)
@@ -1544,35 +1580,81 @@ class TreeBuilder(object):
             knl_info.source_counter(user_srcntgt_ids, nsources,
                     source_numbers, queue=queue, allocator=allocator)
 
-            user_source_ids = empty(nsrcntgts, particle_id_dtype)
-            sorted_target_ids = empty(nsrcntgts, particle_id_dtype)
+            user_source_ids = empty(nsources, particle_id_dtype)
+            # srcntgt_target_ids is temporary until particle permutation is done
+            srcntgt_target_ids = empty(ntargets, particle_id_dtype)
+            sorted_target_ids = empty(ntargets, particle_id_dtype)
 
-            box_source_starts = empty(nboxes_post_prune, particle_id_dtype)
-            box_source_counts = empty(nboxes_post_prune, particle_id_dtype)
+            # need to use zeros because parent boxes won't be initialized
+            box_source_starts = zeros(nboxes_post_prune, particle_id_dtype)
+            box_source_counts = zeros(nboxes_post_prune, particle_id_dtype)
+            box_target_starts = zeros(nboxes_post_prune, particle_id_dtype)
+            box_target_counts = zeros(nboxes_post_prune, particle_id_dtype)
+
+            knl_info.source_and_target_index_finder(
+                    # input:
+                    user_srcntgt_ids, nsources, srcntgt_box_ids,
+                    box_srcntgt_starts, box_srcntgt_counts,
+                    source_numbers,
+
+                    # output:
+                    user_source_ids, srcntgt_target_ids, sorted_target_ids,
+                    box_source_starts, box_source_counts,
+                    box_target_starts, box_target_counts,
+                    queue=queue, range=slice(nsrcntgts))
+
+            if debug:
+                usi_host = user_source_ids.get()
+                assert (usi_host < nsources).all()
+                assert (0 <= usi_host).all()
+                del usi_host
+
+                sti_host = srcntgt_target_ids.get()
+                assert (sti_host < nsources+ntargets).all()
+                assert (nsources <= sti_host).all()
+                del sti_host
+
+                counts = box_srcntgt_counts.get()
+                is_leaf = counts <= max_particles_in_box
+                assert (box_source_counts.get()[is_leaf] + box_target_counts.get()[is_leaf]
+                        == box_srcntgt_counts.get()[is_leaf]).all()
+                del counts
+                del is_leaf
 
             del source_numbers
-            # FIXME
-            raise NotImplementedError
 
+        del box_srcntgt_starts
 
         # }}}
 
         # {{{ permute and s/t-split (if necessary) particle array
 
         if targets is None:
-            sorted_srcntgts = make_obj_array([
+            sources = targets = make_obj_array([
                 cl.array.empty_like(pt) for pt in srcntgts])
             knl_info.srcntgt_permuter(
                     user_srcntgt_ids,
-                    *(tuple(srcntgts) + tuple(sorted_srcntgts)))
-            sources = targets = sorted_srcntgts
-
+                    *(tuple(srcntgts) + tuple(sources)))
         else:
-            # FIXME
-            raise NotImplementedError
+            sources = make_obj_array([
+                empty(nsources, coord_dtype) for i in xrange(dimensions)])
+            knl_info.srcntgt_permuter(
+                    user_source_ids,
+                    *(tuple(srcntgts) + tuple(sources)),
+                    queue=queue, range=slice(nsources))
+
+            targets = make_obj_array([
+                empty(ntargets, coord_dtype) for i in xrange(dimensions)])
+            knl_info.srcntgt_permuter(
+                    srcntgt_target_ids,
+                    *(tuple(srcntgts) + tuple(targets)),
+                    queue=queue, range=slice(ntargets))
+
+            del srcntgt_target_ids
 
         # }}}
 
+        del srcntgts
 
         # {{{ compute box info
 
@@ -1598,7 +1680,12 @@ class TreeBuilder(object):
 
         # }}}
 
-        assert level + 2 == len(level_starts) - 1 # == number of levels
+        nlevels = len(level_starts) - 1
+        assert level + 2 == nlevels
+        if debug:
+            assert np.max(box_levels.get()) + 1 == nlevels
+
+        del nlevels
 
         return Tree(
                 # If you change this, also change the documentation

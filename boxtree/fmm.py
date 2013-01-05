@@ -47,9 +47,9 @@ def drive_fmm(traversal, expansion_wrangler, src_weights):
     # {{{ "Step 2.2:" Propagate multipoles upward
 
     for lev in xrange(tree.nlevels-1, -1, -1):
-        start_branch_box, end_branch_box = traversal.branch_box_level_starts[lev:lev+2]
+        start_parent_box, end_parent_box = traversal.parent_box_level_starts[lev:lev+2]
         wrangler.coarsen_multipoles(
-                traversal.branch_boxes, start_branch_box, end_branch_box,
+                traversal.parent_boxes, start_parent_box, end_parent_box,
                 mpole_exps)
 
     # mpole_exps is called Phi in [1]
