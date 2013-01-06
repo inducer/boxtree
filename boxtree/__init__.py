@@ -269,28 +269,32 @@ def make_scan_type(device, dimensions, particle_id_dtype, box_id_dtype):
 
 # }}}
 
-class box_type_enum:
+class box_flags_enum:
     """Constants for box types."""
 
-    PARENT = 0
+    dtype = np.dtype(np.uint8)
 
-    # these only occur if particles have refinement restrictions
-    NONEMPTY_PARENT = 1
-
-    LEAF = 2
-
-    # these are pruned and will not occur in output
-    EMPTY_LEAF = 3
+    HAS_SOURCES = 1
+    HAS_CHILDREN = 2
 
     @classmethod
     def get_c_defines(cls):
-        """Return a string with C defines corresponding to these constants."""
+        """Return a string with C defines corresponding to these constants.
+        """
 
         return "\n".join(
                 "#define BOX_%s %d"
                 % (name, getattr(cls, name))
-                for name in sorted(dir(box_type_enum))
+                for name in sorted(dir(box_flags_enum))
                 if name[0].isupper()) + "\n\n"
+
+
+    @classmethod
+    def get_c_typedef(cls):
+        """Returns a typedef to define box_flags_t."""
+
+        from pyopencl.tools import dtype_to_ctype
+        return "\n\ntypedef %s box_flags_t;\n\n" % dtype_to_ctype(cls.dtype)
 
 
 # {{{ preamble
@@ -575,7 +579,7 @@ BOX_INFO_KERNEL_TPL =  ElementwiseTemplate(
         box_id_t *box_child_ids, /* [2**dimensions, aligned_nboxes] */
         coord_t *box_centers, /* [dimensions, aligned_nboxes] */
         unsigned char *box_levels, /* [nboxes] */
-        unsigned char *box_types, /* [nboxes] */
+        box_flags_t *box_flags, /* [nboxes] */
         """,
     operation=r"""//CL:mako//
         box_id_t box_id = i;
@@ -588,16 +592,16 @@ BOX_INFO_KERNEL_TPL =  ElementwiseTemplate(
 
             // Also, those should have gotten pruned by this point.
 
-            box_types[box_id] = BOX_EMPTY_LEAF;
+            box_flags[box_id] = 0; // no children, no sources
             return;
         }
         else if (p_count > max_particles_in_box)
         {
-            box_types[box_id] = BOX_PARENT;
+            box_flags[box_id] = BOX_HAS_CHILDREN;
             box_srcntgt_counts[box_id] = 0;
         }
         else
-            box_types[box_id] = BOX_LEAF;
+            box_flags[box_id] = BOX_HAS_SOURCES;
 
         box_id_t parent_id = box_parent_ids[box_id];
         morton_nr_t morton_nr = box_morton_nrs[box_id];
@@ -772,10 +776,10 @@ class Tree(Record):
     .. attribute:: box_levels
 
         `uint8 [nboxes]`
-    .. attribute:: box_types
+    .. attribute:: box_flags
 
-        `uint 8[nboxes]`
-        One of the :class:`box_type_enum` constants.
+        :attr:`box_flags_enum.dtype` `[nboxes]`
+        A combination of the :class:`box_flags_enum` constants.
     """
 
     @property
@@ -983,7 +987,7 @@ class TreeBuilder(object):
                 morton_nr_ctype=morton_nr_ctype,
                 box_id_ctype=box_id_ctype,
                 AXIS_NAMES=AXIS_NAMES,
-                box_type_enum=box_type_enum
+                box_flags_enum=box_flags_enum
                 )
 
         preamble = PREAMBLE_TPL.render(**codegen_args)
@@ -1086,12 +1090,13 @@ class TreeBuilder(object):
                 ("coord_t", coord_dtype),
                 ("morton_nr_t", self.morton_nr_dtype),
                 ("coord_vec_t", coord_vec_dtype),
+                ("box_flags_t", box_flags_enum.dtype),
                 )
         codegen_args_tuples = tuple(codegen_args.iteritems())
         box_info_kernel = BOX_INFO_KERNEL_TPL.build(
                 self.context,
                 type_values, var_values=codegen_args_tuples,
-                more_preamble=box_type_enum.get_c_defines(),
+                more_preamble=box_flags_enum.get_c_defines(),
                 declare_types=("bbox_t",))
 
         # }}}
@@ -1250,7 +1255,7 @@ class TreeBuilder(object):
                     VectorArg(box_id_dtype, "nboxes_post_prune"),
                     ],
                 input_expr="box_srcntgt_counts[i] == 0 ? 1 : 0",
-                preamble=box_type_enum.get_c_defines(),
+                preamble=box_flags_enum.get_c_defines(),
                 scan_expr="a+b", neutral="0",
                 output_statement="""
                     to_box_id[i] = i-prev_item;
@@ -1666,7 +1671,7 @@ class TreeBuilder(object):
         box_child_ids = zeros((2**dimensions, aligned_nboxes), box_id_dtype)
         box_centers = empty((dimensions, aligned_nboxes), coord_dtype)
         box_levels = empty(nboxes_post_prune, np.uint8)
-        box_types = empty(nboxes_post_prune, np.uint8)
+        box_flags = empty(nboxes_post_prune, box_flags_enum.dtype)
 
         knl_info.box_info_kernel(
                 # input:
@@ -1674,7 +1679,7 @@ class TreeBuilder(object):
                 box_srcntgt_counts, max_particles_in_box,
 
                 # output:
-                box_child_ids, box_centers, box_levels, box_types,
+                box_child_ids, box_centers, box_levels, box_flags,
 
                 range=slice(nboxes_post_prune))
 
@@ -1716,7 +1721,7 @@ class TreeBuilder(object):
                 box_child_ids=box_child_ids,
                 box_centers=box_centers,
                 box_levels=box_levels,
-                box_types=box_types,
+                box_flags=box_flags,
 
                 user_source_ids=user_source_ids,
                 sorted_target_ids=sorted_target_ids,

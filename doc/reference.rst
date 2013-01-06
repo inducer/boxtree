@@ -7,7 +7,7 @@ Tree building
 Output
 ------
 
-.. autoclass:: box_type_enum
+.. autoclass:: box_flags_enum
     :members:
     :undoc-members:
 

@@ -151,11 +151,10 @@ LEAVES_AND_PARENTS_TEMPLATE = r"""//CL//
 
 void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t box_id)
 {
-    unsigned char box_type = box_types[box_id];
-    if (box_type == BOX_LEAF)
-    { APPEND_leaves(box_id); }
-    else if (box_type == BOX_PARENT)
+    if (box_flags[box_id] & BOX_HAS_CHILDREN)
     { APPEND_parents(box_id); }
+    else
+    { APPEND_leaves(box_id); }
 }
 """
 
@@ -263,14 +262,16 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t leaf_number)
 
             if (a_or_o)
             {
+                box_flags_t flags = box_flags[child_box_id];
                 /* child_box_id == box_id is ok */
-                if (box_types[child_box_id] == BOX_LEAF)
+                if (flags & BOX_HAS_SOURCES)
                 {
                     dbg_printf(("    neighbor leaf\n"));
 
                     APPEND_neighbor_leaves(child_box_id);
                 }
-                else
+
+                if (flags & BOX_HAS_CHILDREN)
                 {
                     // We want to descend into this box. Put the current state
                     // on the stack.
@@ -381,7 +382,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t leaf_number)
 
                 if (a_or_o)
                 {
-                    if (box_types[child_box_id] != BOX_LEAF)
+                    if (box_flags[child_box_id] & BOX_HAS_CHILDREN)
                     {
                         // We want to descend into this box. Put the current state
                         // on the stack.
@@ -540,12 +541,12 @@ class FMMTraversalBuilder:
                 )
         from pyopencl.algorithm import ListOfListsBuilder
         from pyopencl.tools import VectorArg, ScalarArg
-        from boxtree import box_type_enum
+        from boxtree import box_flags_enum
 
         # {{{ leaves and parents
 
         src = Template(
-                box_type_enum.get_c_defines()
+                box_flags_enum.get_c_defines()
                 + PREAMBLE_TEMPLATE
                 + LEAVES_AND_PARENTS_TEMPLATE,
                 strict_undefined=True).render(**render_vars)
@@ -557,7 +558,7 @@ class FMMTraversalBuilder:
                     ],
                 str(src),
                 arg_decls=[
-                    VectorArg(np.uint8, "box_types"),
+                    VectorArg(box_flags_enum.dtype, "box_flags"),
                     ], debug=debug, name_prefix="leaves_and_parents")
 
         from pyopencl.elementwise import ElementwiseTemplate
@@ -596,7 +597,7 @@ class FMMTraversalBuilder:
                 VectorArg(np.uint8, "box_levels"),
                 ScalarArg(box_id_dtype, "aligned_nboxes"),
                 VectorArg(box_id_dtype, "box_child_ids"),
-                VectorArg(np.uint8, "box_types"),
+                VectorArg(box_flags_enum.dtype, "box_flags"),
                 ]
 
         builders = {}
@@ -612,7 +613,8 @@ class FMMTraversalBuilder:
                             ]),
                 ]:
             src = Template(
-                    box_type_enum.get_c_defines()
+                    box_flags_enum.get_c_defines()
+                    + box_flags_enum.get_c_typedef()
                     + PREAMBLE_TEMPLATE
                     + ADJACENCY_TEST_TEMPLATE
                     + template,
@@ -630,7 +632,8 @@ class FMMTraversalBuilder:
         # {{{ separated smaller non-siblings ("list 3")
 
         src = Template(
-                box_type_enum.get_c_defines()
+                box_flags_enum.get_c_defines()
+                + box_flags_enum.get_c_typedef()
                 + PREAMBLE_TEMPLATE
                 + ADJACENCY_TEST_TEMPLATE
                 + SEP_SMALLER_NONSIBLINGS_TEMPLATE,
@@ -682,7 +685,7 @@ class FMMTraversalBuilder:
         # {{{ leaves and parents
 
         result = knl_info.leaves_and_parents_builder(
-                queue, tree.nboxes, tree.box_types.data)
+                queue, tree.nboxes, tree.box_flags.data)
 
         leaf_boxes = result["leaves"].lists
         assert len(leaf_boxes) == result["leaves"].count
@@ -723,7 +726,7 @@ class FMMTraversalBuilder:
         colleagues = knl_info.colleagues_builder(
                 queue, tree.nboxes,
                 tree.box_centers.data, tree.root_extent, tree.box_levels.data,
-                tree.aligned_nboxes, tree.box_child_ids.data, tree.box_types.data) \
+                tree.aligned_nboxes, tree.box_child_ids.data, tree.box_flags.data) \
                         ["colleagues"]
 
         # }}}
@@ -733,7 +736,7 @@ class FMMTraversalBuilder:
         neighbor_leaves = knl_info.neighbor_leaves_builder(
                 queue, len(leaf_boxes),
                 tree.box_centers.data, tree.root_extent, tree.box_levels.data,
-                tree.aligned_nboxes, tree.box_child_ids.data, tree.box_types.data,
+                tree.aligned_nboxes, tree.box_child_ids.data, tree.box_flags.data,
                 leaf_boxes.data)["neighbor_leaves"]
 
         # }}}
@@ -743,7 +746,7 @@ class FMMTraversalBuilder:
         sep_siblings = knl_info.sep_siblings_builder(
                 queue, tree.nboxes,
                 tree.box_centers.data, tree.root_extent, tree.box_levels.data,
-                tree.aligned_nboxes, tree.box_child_ids.data, tree.box_types.data,
+                tree.aligned_nboxes, tree.box_child_ids.data, tree.box_flags.data,
                 tree.box_parent_ids.data,
                 colleagues.starts.data, colleagues.lists.data)["sep_siblings"]
 
@@ -754,7 +757,7 @@ class FMMTraversalBuilder:
         result = knl_info.sep_smaller_nonsiblings_builder(
                 queue, len(leaf_boxes),
                 tree.box_centers.data, tree.root_extent, tree.box_levels.data,
-                tree.aligned_nboxes, tree.box_child_ids.data, tree.box_types.data,
+                tree.aligned_nboxes, tree.box_child_ids.data, tree.box_flags.data,
                 leaf_boxes.data,
                 colleagues.starts.data, colleagues.lists.data)
 
