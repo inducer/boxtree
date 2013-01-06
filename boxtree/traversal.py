@@ -23,7 +23,7 @@ THE SOFTWARE.
 """
 
 import numpy as np
-from pytools import memoize, memoize_method, Record
+from pytools import memoize_method, Record
 import pyopencl as cl
 import pyopencl.array
 from mako.template import Template
@@ -510,124 +510,13 @@ class FMMTraversalInfo(Record):
 class _KernelInfo(Record):
     pass
 
-# {{{ list inversion
-
-class ListInverter:
-    """Given arrays *src_boxes* and *target_boxes* of equal length
-    and a number *nboxes* of boxes, returns a tuple `(starts,
-    lists)`, as follows: *src_boxes* and *target_boxes* are sorted
-    by *target_boxes*, and the sorted *src_boxes* is returned as
-    *lists*. Then for each index *i* in `range(nboxes)`,
-    an entry is written into *starts* indicating where the
-    group of *src_boxes* belonging to the target box with index
-    *i* begins.
-
-    `starts` is built so that it has n+1 entries, so that
-    the *i*'th entry is the start of the *i*'th list, and the
-    *i*'th entry is the index one past the *i*'th list's end,
-    even for the last list.
-
-    This implies that all lists are contiguous.
-    """
-
-    def __init__(self, context):
-        self.context = context
-
-    @memoize_method
-    def get_kernels(self, box_id_dtype):
-        from pyopencl.algorithm import RadixSort
-        from pyopencl.tools import VectorArg, ScalarArg
-
-        by_target_sorter = RadixSort(
-                self.context, [
-                    VectorArg(box_id_dtype, "src_boxes"),
-                    VectorArg(box_id_dtype, "tgt_boxes"),
-                    ],
-                key_expr="tgt_boxes[i]",
-                sort_arg_names=[
-                    "src_boxes",
-                    "tgt_boxes"
-                    ])
-
-        from pyopencl.elementwise import ElementwiseTemplate
-        start_finder = ElementwiseTemplate(
-                arguments="""//CL//
-                box_id_t *tgt_group_starts,
-                box_id_t *src_boxes_sorted_by_tgt,
-                box_id_t *tgt_boxes_sorted_by_tgt,
-                """,
-
-                operation=r"""//CL//
-                box_id_t my_tgt_box = tgt_boxes_sorted_by_tgt[i];
-                box_id_t prev_tgt_box = -1;
-                if (i > 0)
-                    prev_tgt_box = tgt_boxes_sorted_by_tgt[i-1];
-
-                if (my_tgt_box != prev_tgt_box)
-                    tgt_group_starts[my_tgt_box] = i;
-                """,
-                name="find_starts").build(self.context,
-                        type_values=(("box_id_t", box_id_dtype),),
-                        var_values=())
-
-        # produce max box id literal
-        box_id_iinfo = np.iinfo(box_id_dtype)
-        bp_scan_neutral_literal = str(box_id_iinfo.max)
-        if box_id_dtype.itemsize == 8:
-            bp_scan_neutral_literal += "l"
-        if int(box_id_iinfo.min) < 0:
-            bp_scan_neutral_literal += "u"
-
-        from pyopencl.scan import GenericScanKernel
-        bound_propagation_scan = GenericScanKernel(
-                self.context, box_id_dtype,
-                arguments=[
-                    VectorArg(box_id_dtype, "starts"),
-                    # starts has length n+1
-                    ScalarArg(box_id_dtype, "nboxes"),
-                    ],
-                input_expr="starts[nboxes-i]",
-                scan_expr="min(a, b)", neutral=bp_scan_neutral_literal,
-                output_statement="starts[nboxes-i] = item;")
-
-        return _KernelInfo(
-                by_target_sorter=by_target_sorter,
-                start_finder=start_finder,
-                bound_propagation_scan=bound_propagation_scan)
-
-    def __call__(self, queue, src_boxes, target_boxes, nboxes,
-            allocator=None):
-        box_id_dtype = src_boxes.dtype
-        if allocator is None:
-            allocator = src_boxes.allocator
-
-        knl_info = self.get_kernels(box_id_dtype)
-
-        (src_boxes_sorted_by_tgt, tgt_boxes_sorted_by_tgt
-                ) = knl_info.by_target_sorter(
-                src_boxes, target_boxes, queue=queue)
-
-        starts = cl.array.empty(queue, (nboxes+1), box_id_dtype,
-                allocator=allocator) \
-                        .fill(len(src_boxes_sorted_by_tgt))
-
-        knl_info.start_finder(starts,
-                src_boxes_sorted_by_tgt,
-                tgt_boxes_sorted_by_tgt,
-                range=slice(len(tgt_boxes_sorted_by_tgt)))
-
-        knl_info.bound_propagation_scan(starts, nboxes, queue=queue)
-
-        return starts, src_boxes_sorted_by_tgt
-
-# }}}
-
 # {{{ top-level
 
 class FMMTraversalBuilder:
     def __init__(self, context):
         self.context = context
-        self.list_inverter = ListInverter(context)
+        from pyopencl.algorithm import KeyValueSorter
+        self.key_value_sorter = KeyValueSorter(context)
 
     # {{{ kernel builder
 
@@ -876,11 +765,13 @@ class FMMTraversalBuilder:
         # {{{ separated bigger non-siblings ("list 4")
 
         sep_bigger_nonsiblings_starts, sep_bigger_nonsiblings_list \
-                = self.list_inverter(
+                = self.key_value_sorter(
                         queue,
-                        result["sep_smaller_nonsiblings_origins"].lists,
+                        # keys
                         result["sep_smaller_nonsiblings"].lists,
-                        tree.nboxes+1)
+                        # values
+                        result["sep_smaller_nonsiblings_origins"].lists,
+                        tree.nboxes+1, starts_dtype=tree.box_id_dtype)
 
         # }}}
 
