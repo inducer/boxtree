@@ -3,10 +3,10 @@ boxtree
 
 boxtree is a package that, given some point locations in two or three
 dimensions, sorts them into an adaptive quad/octree of boxes, efficiently, in
-parallel, using OpenCL.
+parallel, using `PyOpenCL <http://mathema.tician.de/software/pyopencl>`_.
 
 It can also generate traversal lists needed for adaptive fast multipole methods
-and related algorithms.
+and related algorithms and tree-based look-up tables for geometric proximity.
 
 Resources:
 
