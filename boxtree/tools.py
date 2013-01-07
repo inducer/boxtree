@@ -57,3 +57,8 @@ class FromDeviceGettableRecord(Record):
 
         return self.copy(**result)
 
+
+
+
+def get_type_moniker(dtype):
+    return "%s%d" % (dtype.kind, dtype.itemsize)

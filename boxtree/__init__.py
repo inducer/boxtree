@@ -29,7 +29,7 @@ import pyopencl.array
 from pyopencl.elementwise import ElementwiseTemplate
 from mako.template import Template
 from functools import partial
-from boxtree.tools import FromDeviceGettableRecord
+from boxtree.tools import FromDeviceGettableRecord, get_type_moniker
 
 __doc__ = """
 This tree builder can be run in two modes:
@@ -56,7 +56,6 @@ helps translate potentials back into user target order for output.
 
 
 # TODO:
-# - Distinguish sources and targets
 # - Allow for (groups of?) sources stuck in tree
 # - Add *restrict where applicable.
 
@@ -109,7 +108,6 @@ helps translate potentials back into user target order for output.
 #   the post-processing step.
 #
 # -----------------------------------------------------------------------------
-#
 
 
 
@@ -243,11 +241,14 @@ def make_morton_bin_count_type(device, dimensions, particle_id_dtype):
 
     dtype = np.dtype(fields)
 
-    name = "boxtree_morton_bin_count_%dd_t" % dimensions
+    name = "boxtree_morton_bin_count_%dd_p%s_t" % (
+            dimensions,
+            get_type_moniker(particle_id_dtype)
+            )
+
     from pyopencl.tools import get_or_register_dtype, match_dtype_to_c_struct
     dtype, c_decl = match_dtype_to_c_struct(device, name, dtype)
 
-    # FIXME: build id_type into name
     dtype = get_or_register_dtype(name, dtype)
     return dtype, c_decl
 
@@ -260,11 +261,15 @@ def make_scan_type(device, dimensions, particle_id_dtype, box_id_dtype):
             ('morton_nr', np.uint8),
             ])
 
-    name = "boxtree_tree_scan_%dd_t" % dimensions
+    name = "boxtree_tree_scan_%dd_p%s_b%s_t" % (
+            dimensions,
+            get_type_moniker(particle_id_dtype),
+            get_type_moniker(box_id_dtype)
+            )
+
     from pyopencl.tools import get_or_register_dtype, match_dtype_to_c_struct
     dtype, c_decl = match_dtype_to_c_struct(device, name, dtype)
 
-    # FIXME: build id_types into name
     dtype = get_or_register_dtype(name, dtype)
     return dtype, c_decl
 
@@ -305,14 +310,14 @@ PREAMBLE_TPL = Template(r"""//CL//
     ${morton_bin_count_type_decl}
     ${tree_scan_type_decl}
 
-    typedef boxtree_morton_bin_count_${dimensions}d_t morton_t;
-    typedef boxtree_tree_scan_${dimensions}d_t scan_t;
+    typedef ${dtype_to_ctype(morton_bin_count_dtype)} morton_t;
+    typedef ${dtype_to_ctype(scan_dtype)} scan_t;
     typedef boxtree_bbox_${dimensions}d_t bbox_t;
-    typedef ${coord_ctype} coord_t;
-    typedef ${coord_ctype}${dimensions} coord_vec_t;
-    typedef ${box_id_ctype} box_id_t;
-    typedef ${particle_id_ctype} particle_id_t;
-    typedef ${morton_nr_ctype} morton_nr_t;
+    typedef ${dtype_to_ctype(coord_dtype)} coord_t;
+    typedef ${dtype_to_ctype(coord_vec_dtype)} coord_vec_t;
+    typedef ${dtype_to_ctype(box_id_dtype)} box_id_t;
+    typedef ${dtype_to_ctype(particle_id_dtype)} particle_id_t;
+    typedef ${dtype_to_ctype(morton_nr_dtype)} morton_nr_t;
 
     <%
       def get_count_for_branch(known_bits):
@@ -936,16 +941,10 @@ class TreeBuilder(object):
                     "incorrect results.", stacklevel=4)
 
         from pyopencl.tools import dtype_to_c_struct, dtype_to_ctype
-        coord_ctype = dtype_to_ctype(coord_dtype)
         coord_vec_dtype = cl.array.vec.types[coord_dtype, dimensions]
 
         particle_id_dtype = np.dtype(particle_id_dtype)
-        particle_id_ctype = dtype_to_ctype(particle_id_dtype)
-
         box_id_dtype = np.dtype(box_id_dtype)
-        box_id_ctype = dtype_to_ctype(box_id_dtype)
-
-        morton_nr_ctype = dtype_to_ctype(self.morton_nr_dtype)
 
         dev = self.context.devices[0]
         scan_dtype, scan_type_decl = make_scan_type(dev,
@@ -960,14 +959,18 @@ class TreeBuilder(object):
                 dimensions=dimensions,
                 axis_names=axis_names,
                 padded_bin=padded_bin,
-                coord_ctype=coord_ctype,
+                coord_dtype=coord_dtype,
+                coord_vec_dtype=coord_vec_dtype,
                 morton_bin_count_type_decl=dtype_to_c_struct(
                     dev, morton_bin_count_dtype),
                 tree_scan_type_decl=scan_type_decl,
                 bbox_type_decl=dtype_to_c_struct(dev, bbox_dtype),
-                particle_id_ctype=particle_id_ctype,
-                morton_nr_ctype=morton_nr_ctype,
-                box_id_ctype=box_id_ctype,
+                particle_id_dtype=particle_id_dtype,
+                morton_bin_count_dtype=morton_bin_count_dtype,
+                scan_dtype=scan_dtype,
+                morton_nr_dtype=self.morton_nr_dtype,
+                box_id_dtype=box_id_dtype,
+                dtype_to_ctype=dtype_to_ctype,
                 AXIS_NAMES=AXIS_NAMES,
                 box_flags_enum=box_flags_enum
                 )
