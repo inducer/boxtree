@@ -556,6 +556,65 @@ def test_fmm_completeness(ctx_getter):
 
 # }}}
 
+# {{{ geometry query test
+
+def test_geometry_query(ctx_getter, do_plot=False):
+    ctx = ctx_getter()
+    queue = cl.CommandQueue(ctx)
+
+    dims = 2
+    nparticles = 10**5
+    dtype = np.float64
+
+    particles = make_particle_array(queue, nparticles, dims, dtype)
+
+    if do_plot:
+        pt.plot(particles[0].get(), particles[1].get(), "x")
+
+    from boxtree import TreeBuilder
+    tb = TreeBuilder(ctx)
+
+    queue.finish()
+    print "building..."
+    tree = tb(queue, particles, max_particles_in_box=30, debug=True)
+    print "%d boxes, testing..." % tree.nboxes
+
+    nballs = 10**4
+    ball_centers = make_particle_array(queue, nballs, dims, dtype)
+    ball_radii = cl.array.empty(queue, nballs, dtype).fill(0.1)
+
+    from boxtree.geo_query import LeavesToBallsLookupBuilder
+    lblb = LeavesToBallsLookupBuilder(ctx)
+
+    lbl = lblb(queue, tree, ball_centers, ball_radii)
+
+    # get data to host for test
+    tree = tree.get()
+    lbl = lbl.get()
+    ball_centers = np.array([x.get() for x in ball_centers]).T
+    ball_radii = ball_radii.get()
+
+    from boxtree import box_flags_enum
+
+    for ibox in xrange(tree.nboxes):
+        # We only want leaves here.
+        if tree.box_flags[ibox] & box_flags_enum.HAS_CHILDREN:
+            continue
+
+        box_center = tree.box_centers[:, ibox]
+        ext_l, ext_h = tree.get_box_extent(ibox)
+        box_rad = 0.5*(ext_h-ext_l)[0]
+
+        linf_circle_dists = np.max(np.abs(ball_centers-box_center), axis=-1)
+        near_circles, = np.where(linf_circle_dists - ball_radii < box_rad)
+
+        start, end = lbl.balls_near_box_starts[ibox:ibox+2]
+        #print sorted(lbl.balls_near_box_lists[start:end])
+        #print sorted(near_circles)
+        assert sorted(lbl.balls_near_box_lists[start:end]) == sorted(near_circles)
+
+# }}}
+
 # {{{ visualization helper (not a test)
 
 def plot_traversal(ctx_getter, do_plot=False):
@@ -655,10 +714,7 @@ def plot_traversal(ctx_getter, do_plot=False):
 
         pt.show()
 
-
-
-
-
+# }}}
 
 
 

@@ -28,16 +28,19 @@ import pyopencl as cl
 import pyopencl.array
 from mako.template import Template
 from boxtree import AXIS_NAMES
+from boxtree.tools import FromDeviceGettableRecord
 
 
 
 
 # {{{ preamble
 
-PREAMBLE_TEMPLATE = r"""//CL//
+TRAVERSAL_PREAMBLE_TEMPLATE = r"""//CL//
 
 typedef ${dtype_to_ctype(box_id_dtype)} box_id_t;
-typedef ${dtype_to_ctype(particle_id_dtype)} particle_id_t;
+%if particle_id_dtype is not None:
+    typedef ${dtype_to_ctype(particle_id_dtype)} particle_id_t;
+%endif
 typedef ${dtype_to_ctype(coord_dtype)} coord_t;
 typedef ${dtype_to_ctype(vec_types[coord_dtype, dimensions])} coord_vec_t;
 
@@ -413,7 +416,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t leaf_number)
 
 # {{{ traversal info (output)
 
-class FMMTraversalInfo(Record):
+class FMMTraversalInfo(FromDeviceGettableRecord):
     """
     .. attribute:: tree
 
@@ -489,23 +492,6 @@ class FMMTraversalInfo(Record):
     `DOI: 10.1137/0909044 <http://dx.doi.org/10.1137/0909044>`_.
     """
 
-    def get(self):
-        """Return a copy of `self` in which all data lives on the host."""
-
-        from boxtree import Tree
-
-        result = {}
-        for field_name in self.__class__.fields:
-            try:
-                attr = getattr(self, field_name)
-            except AttributeError:
-                pass
-            else:
-                if isinstance(attr, (cl.array.Array, Tree)):
-                    result[field_name] = attr.get()
-
-        return self.copy(**result)
-
 # }}}
 
 class _KernelInfo(Record):
@@ -547,7 +533,7 @@ class FMMTraversalBuilder:
 
         src = Template(
                 box_flags_enum.get_c_defines()
-                + PREAMBLE_TEMPLATE
+                + TRAVERSAL_PREAMBLE_TEMPLATE
                 + LEAVES_AND_PARENTS_TEMPLATE,
                 strict_undefined=True).render(**render_vars)
 
@@ -615,7 +601,7 @@ class FMMTraversalBuilder:
             src = Template(
                     box_flags_enum.get_c_defines()
                     + box_flags_enum.get_c_typedef()
-                    + PREAMBLE_TEMPLATE
+                    + TRAVERSAL_PREAMBLE_TEMPLATE
                     + ADJACENCY_TEST_TEMPLATE
                     + template,
                     strict_undefined=True).render(**render_vars)
@@ -634,7 +620,7 @@ class FMMTraversalBuilder:
         src = Template(
                 box_flags_enum.get_c_defines()
                 + box_flags_enum.get_c_typedef()
-                + PREAMBLE_TEMPLATE
+                + TRAVERSAL_PREAMBLE_TEMPLATE
                 + ADJACENCY_TEST_TEMPLATE
                 + SEP_SMALLER_NONSIBLINGS_TEMPLATE,
                 strict_undefined=True).render(**render_vars)
@@ -774,7 +760,7 @@ class FMMTraversalBuilder:
                         result["sep_smaller_nonsiblings"].lists,
                         # values
                         result["sep_smaller_nonsiblings_origins"].lists,
-                        tree.nboxes+1, starts_dtype=tree.box_id_dtype)
+                        tree.nboxes, starts_dtype=tree.box_id_dtype)
 
         # }}}
 

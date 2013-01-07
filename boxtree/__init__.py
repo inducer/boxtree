@@ -29,6 +29,7 @@ import pyopencl.array
 from pyopencl.elementwise import ElementwiseTemplate
 from mako.template import Template
 from functools import partial
+from boxtree.tools import FromDeviceGettableRecord
 
 __doc__ = """
 This tree builder can be run in two modes:
@@ -673,7 +674,7 @@ GAPPY_COPY_TPL =  Template(r"""//CL//
 
 # {{{ tree data structure (output)
 
-class Tree(Record):
+class Tree(FromDeviceGettableRecord):
     """
     **Data types**
 
@@ -809,25 +810,6 @@ class Tree(Record):
     def plot(self, **kwargs):
         plotter = TreePlotter(self)
         plotter.draw_tree(fill=False, edgecolor="black", **kwargs)
-
-    def get(self):
-        """Return a copy of `self` in which all data lives on the host."""
-
-        result = {}
-        for field_name in self.__class__.fields:
-            try:
-                attr = getattr(self, field_name)
-            except AttributeError:
-                pass
-            else:
-                if isinstance(attr, cl.array.Array):
-                    result[field_name] = attr.get()
-                elif isinstance(attr, np.ndarray) and attr.dtype == object:
-                    from pytools.obj_array import with_object_array_or_scalar
-                    result[field_name] = with_object_array_or_scalar(
-                            lambda x: x.get(), attr)
-
-        return self.copy(**result)
 
     def get_box_extent(self, ibox):
         lev = int(self.box_levels[ibox])
