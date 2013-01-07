@@ -583,7 +583,7 @@ def test_geometry_query(ctx_getter, do_plot=False):
     ball_centers = make_particle_array(queue, nballs, dims, dtype)
     ball_radii = cl.array.empty(queue, nballs, dtype).fill(0.1)
 
-    from boxtree.geo_query import LeavesToBallsLookupBuilder
+    from boxtree.geo_lookup import LeavesToBallsLookupBuilder
     lblb = LeavesToBallsLookupBuilder(ctx)
 
     lbl = lblb(queue, tree, ball_centers, ball_radii)

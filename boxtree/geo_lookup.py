@@ -36,8 +36,6 @@ from boxtree.tools import FromDeviceGettableRecord
 
 
 
-# {{{ "leaves to balls" lookup
-
 # {{{ output
 
 class LeavesToBallsLookup(FromDeviceGettableRecord):
@@ -49,8 +47,11 @@ class LeavesToBallsLookup(FromDeviceGettableRecord):
     .. attribute:: balls_near_box_starts
 
         Indices into :attr:`balls_near_box_lists`.
-        `balls_near_box_lists[balls_near_box_starts[ibox]:balls_near_box_starts[ibox]]`
+        ``balls_near_box_lists[balls_near_box_starts[ibox]:balls_near_box_starts[ibox]+1]``
         results in a list of balls that overlap leaf box *ibox*.
+
+        .. note:: Only leaf boxes have non-empty entries in this table. Nonetheless,
+            this list is indexed by the global box index.
 
     .. attribute:: balls_near_box_lists
     """
@@ -130,6 +131,9 @@ class _KernelInfo(Record):
     pass
 
 class LeavesToBallsLookupBuilder(object):
+    """Given a set of :math:`l^\infty` "balls", this class helps build a
+    look-up from leaf boxes to balls that overlap with each leaf box.
+    """
     def __init__(self, context):
         self.context = context
 
@@ -188,6 +192,25 @@ class LeavesToBallsLookupBuilder(object):
                 complex_kernel=True)
 
     def __call__(self, queue, tree, ball_centers, ball_radii):
+        """
+        :arg queue: a :class:`pyopencl.CommandQueue`
+        :arg tree: a :class:`boxtree.Tree`.
+        :arg ball_centers: an object array of coordinate
+            :class:`pyopencl.array.Array` instances.
+            Their *dtype* must match *tree*'s
+            :attr:`boxtree.Tree.coord_dtype`.
+        :arg ball_radii: a  
+            :class:`pyopencl.array.Array`
+            of positive numbers.
+            Its *dtype* must match *tree*'s
+            :attr:`boxtree.Tree.coord_dtype`.
+        """
+
+        from pytools import single_valued
+        if single_valued(bc.dtype for bc in ball_centers) != tree.coord_dtype:
+            raise TypeError("ball_centers dtype must match tree.coord_dtype")
+        if ball_radii.dtype != tree.coord_dtype:
+            raise TypeError("ball_radii dtype must match tree.coord_dtype")
 
         ball_id_dtype = tree.particle_id_dtype # ?
 
