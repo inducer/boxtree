@@ -375,19 +375,22 @@ SCAN_PREAMBLE_TPL = Template(r"""//CL//
         int i,
         int level,
         bbox_t *bbox,
-        global morton_nr_t *morton_nrs
+        global morton_nr_t *morton_nrs,
+        global particle_id_t *user_srcntgt_ids
         %for ax in axis_names:
-            , coord_t ${ax}
+            , global coord_t *${ax}
         %endfor
     )
     {
+        particle_id_t user_srcntgt_id = user_srcntgt_ids[i];
+
         // Note that the upper bound must be slightly larger than the highest
         // found coordinate, so that 1.0 is never reached as a scaled
         // coordinate.
 
         %for ax in axis_names:
             unsigned ${ax}_bits = (unsigned) (
-                ((${ax}-bbox->min_${ax})/(bbox->max_${ax}-bbox->min_${ax}))
+                ((${ax}[user_srcntgt_id]-bbox->min_${ax})/(bbox->max_${ax}-bbox->min_${ax}))
                 * (1U << (level+1)));
         %endfor
 
@@ -1001,9 +1004,10 @@ class TreeBuilder(object):
                 arguments=common_arguments,
                 input_expr="scan_t_from_particle(%s)"
                     % ", ".join([
-                        "i", "level", "&bbox", "morton_nrs"
+                        "i", "level", "&bbox", "morton_nrs",
+                        "user_srcntgt_ids",
                         ]
-                        +["%s[user_srcntgt_ids[i]]" % ax for ax in axis_names]),
+                        +["%s" % ax for ax in axis_names]),
                 scan_expr="scan_t_add(a, b, across_seg_boundary)",
                 neutral="scan_t_neutral()",
                 is_segment_start_expr="box_start_flags[i]",
