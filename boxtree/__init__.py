@@ -31,6 +31,8 @@ from mako.template import Template
 from functools import partial
 from boxtree.tools import FromDeviceGettableRecord, get_type_moniker
 
+# {{{ comments/docs
+
 __doc__ = """
 This tree builder can be run in two modes:
 
@@ -108,6 +110,8 @@ helps translate potentials back into user target order for output.
 #   the post-processing step.
 #
 # -----------------------------------------------------------------------------
+
+# }}}
 
 
 
@@ -269,7 +273,6 @@ def make_scan_type(device, dimensions, particle_id_dtype, box_id_dtype,
     dtype = np.dtype([
             ('counts', morton_dtype),
             ('split_box_id', box_id_dtype), # sum-scanned
-            ('morton_nr', np.uint8),
             ])
 
     name_suffix = ""
@@ -384,6 +387,10 @@ SCAN_PREAMBLE_TPL = Template(r"""//CL//
     {
         if (!across_seg_boundary)
         {
+            %if have_nonleaf_sources:
+                b.nonchild_sources += a.nonchild_sources;
+            %endif
+
             %for mnr in range(2**dimensions):
                 <% field = "counts.pcnt"+padded_bin(mnr, dimensions) %>
                 b.${field} = a.${field} + b.${field};
@@ -406,7 +413,8 @@ SCAN_PREAMBLE_TPL = Template(r"""//CL//
         particle_id_t box_start,
         particle_id_t box_srcntgt_count,
         particle_id_t max_particles_in_box,
-        bbox_t *bbox
+        bbox_t *bbox,
+        global morton_nr_t *morton_nrs
         %for ax in axis_names:
             , coord_t ${ax}
         %endfor
@@ -429,11 +437,14 @@ SCAN_PREAMBLE_TPL = Template(r"""//CL//
             ;
 
         scan_t result;
+        %if have_nonleaf_sources:
+            result.nonchild_sources = FIXME;
+        %endif
         %for mnr in range(2**dimensions):
             <% field = "counts.pcnt"+padded_bin(mnr, dimensions) %>
             result.${field} = (level_morton_number == ${mnr});
         %endfor
-        result.morton_nr = level_morton_number;
+        morton_nrs[i] = level_morton_number;
 
         // split_box_id is not very meaningful now, but when scanned over
         // by addition, will yield new, unused ids for boxes that are created by
@@ -476,7 +487,6 @@ SCAN_OUTPUT_STMT_TPL = Template(r"""//CL//
             ;
         dbg_printf(("my_id_in_my_box:%d\n", my_id_in_my_box));
         morton_bin_counts[i] = item.counts;
-        morton_nrs[i] = item.morton_nr;
 
         box_id_t current_box_id = srcntgt_box_ids[i];
         particle_id_t box_srcntgt_count = box_srcntgt_counts[current_box_id];
@@ -1068,7 +1078,8 @@ class TreeBuilder(object):
                         "box_srcntgt_starts[srcntgt_box_ids[i]]",
                         "box_srcntgt_counts[srcntgt_box_ids[i]]",
                         "max_particles_in_box",
-                        "&bbox"
+                        "&bbox",
+                        "morton_nrs"
                         ]
                         +["%s[user_srcntgt_ids[i]]" % ax for ax in axis_names]),
                 scan_expr="scan_t_add(a, b, across_seg_boundary)",
