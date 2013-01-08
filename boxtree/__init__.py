@@ -401,11 +401,6 @@ SCAN_PREAMBLE_TPL = Template(r"""//CL//
     scan_t scan_t_from_particle(
         int i,
         int level,
-        box_id_t box_id,
-        box_id_t nboxes,
-        particle_id_t box_start,
-        particle_id_t box_srcntgt_count,
-        particle_id_t max_particles_in_box,
         bbox_t *bbox,
         global morton_nr_t *morton_nrs
         %for ax in axis_names:
@@ -987,7 +982,7 @@ class TreeBuilder(object):
         scan_preamble = preamble + SCAN_PREAMBLE_TPL.render(**codegen_args)
 
         from pyopencl.tools import VectorArg, ScalarArg
-        scan_knl_arguments = (
+        common_arguments = (
                 [
                     # box-local morton bin counts for each particle at the current level
                     # only valid from scan -> split'n'sort
@@ -1033,17 +1028,12 @@ class TreeBuilder(object):
                 )
 
         from pyopencl.scan import GenericScanKernel
-        scan_kernel = GenericScanKernel(
+        morton_count_scan = GenericScanKernel(
                 self.context, scan_dtype,
-                arguments=scan_knl_arguments,
+                arguments=common_arguments,
                 input_expr="scan_t_from_particle(%s)"
                     % ", ".join([
-                        "i", "level", "srcntgt_box_ids[i]", "*nboxes",
-                        "box_srcntgt_starts[srcntgt_box_ids[i]]",
-                        "box_srcntgt_counts[srcntgt_box_ids[i]]",
-                        "max_particles_in_box",
-                        "&bbox",
-                        "morton_nrs"
+                        "i", "level", "&bbox", "morton_nrs"
                         ]
                         +["%s[user_srcntgt_ids[i]]" % ax for ax in axis_names]),
                 scan_expr="scan_t_add(a, b, across_seg_boundary)",
@@ -1116,7 +1106,7 @@ class TreeBuilder(object):
         from pyopencl.elementwise import ElementwiseKernel
         split_and_sort_kernel = ElementwiseKernel(
                 self.context,
-                scan_knl_arguments
+                common_arguments
                 + [
                     VectorArg(particle_id_dtype, "new_user_srcntgt_ids"),
                     VectorArg(np.int32, "have_oversize_box"),
@@ -1314,7 +1304,7 @@ class TreeBuilder(object):
         return _KernelInfo(
                 particle_id_dtype=particle_id_dtype,
                 box_id_dtype=box_id_dtype,
-                scan_kernel=scan_kernel,
+                morton_count_scan=morton_count_scan,
                 split_box_id_scan=split_box_id_scan,
                 morton_bin_count_dtype=morton_bin_count_dtype,
                 split_and_sort_kernel=split_and_sort_kernel,
@@ -1515,7 +1505,7 @@ class TreeBuilder(object):
         start_time = time()
         level = 0
         while True:
-            args = ((morton_bin_counts, morton_nrs,
+            common_args = ((morton_bin_counts, morton_nrs,
                     box_start_flags, srcntgt_box_ids, split_box_ids,
                     box_morton_bin_counts,
                     box_srcntgt_starts, box_srcntgt_counts,
@@ -1526,7 +1516,7 @@ class TreeBuilder(object):
                     + tuple(srcntgts))
 
             # writes: box_morton_bin_counts, morton_nrs
-            knl_info.scan_kernel(*args, queue=queue, size=nsrcntgts)
+            knl_info.morton_count_scan(*common_args, queue=queue, size=nsrcntgts)
 
             # writes: nboxes_dev, split_box_ids
             knl_info.split_box_id_scan(
@@ -1576,7 +1566,7 @@ class TreeBuilder(object):
             new_user_srcntgt_ids = cl.array.empty_like(user_srcntgt_ids)
             new_srcntgt_box_ids = cl.array.empty_like(srcntgt_box_ids)
             split_and_sort_args = (
-                    args
+                    common_args
                     + (new_user_srcntgt_ids,
                         have_oversize_box, new_srcntgt_box_ids))
             knl_info.split_and_sort_kernel(*split_and_sort_args)
