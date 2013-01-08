@@ -125,7 +125,7 @@ def make_bounding_box_dtype(device, dimensions, coord_dtype):
 
     dtype = np.dtype(fields)
 
-    name = "boxtree_bbox_%dd_t" % dimensions
+    name = "boxtree_bbox_%dd_%s_t" % (dimensions, get_type_moniker(coord_dtype))
 
     from pyopencl.tools import get_or_register_dtype, match_dtype_to_c_struct
     dtype, c_decl = match_dtype_to_c_struct(device, name, dtype)
@@ -139,8 +139,8 @@ def make_bounding_box_dtype(device, dimensions, coord_dtype):
 BBOX_CODE_TEMPLATE = Template(r"""//CL//
     ${bbox_struct_decl}
 
-    typedef boxtree_bbox_${dimensions}d_t bbox_t;
-    typedef ${coord_ctype} coord_t;
+    typedef ${dtype_to_ctype(bbox_dtype)} bbox_t;
+    typedef ${dtype_to_ctype(coord_dtype)} coord_t;
 
     bbox_t bbox_neutral()
     {
@@ -196,9 +196,11 @@ class BoundingBoxFinder:
         preamble = BBOX_CODE_TEMPLATE.render(
                 axis_names=axis_names,
                 dimensions=dimensions,
-                coord_ctype=dtype_to_ctype(coord_dtype),
+                coord_dtype=coord_dtype,
                 coord_dtype_3ltr=coord_dtype_3ltr,
-                bbox_struct_decl=bbox_cdecl
+                bbox_struct_decl=bbox_cdecl,
+                dtype_to_ctype=dtype_to_ctype,
+                bbox_dtype=bbox_dtype,
                 )
 
         from pyopencl.reduction import ReductionKernel
@@ -234,17 +236,24 @@ def padded_bin(i, l):
 # {{{ data types
 
 @memoize
-def make_morton_bin_count_type(device, dimensions, particle_id_dtype):
+def make_morton_bin_count_type(device, dimensions, particle_id_dtype, have_nonleaf_sources):
     fields = []
     for mnr in range(2**dimensions):
-        fields.append(('c%s' % padded_bin(mnr, dimensions), particle_id_dtype))
+        fields.append(("pcnt%s" % padded_bin(mnr, dimensions), particle_id_dtype))
+
+    if have_nonleaf_sources:
+        fields.append(("nonchild_sources", particle_id_dtype))
 
     dtype = np.dtype(fields)
 
-    name = "boxtree_morton_bin_count_%dd_p%s_t" % (
+    name_suffix = ""
+    if have_nonleaf_sources:
+        name_suffix = "_nls"
+
+    name = "boxtree_morton_bin_count_%dd_p%s%s_t" % (
             dimensions,
-            get_type_moniker(particle_id_dtype)
-            )
+            get_type_moniker(particle_id_dtype),
+            name_suffix)
 
     from pyopencl.tools import get_or_register_dtype, match_dtype_to_c_struct
     dtype, c_decl = match_dtype_to_c_struct(device, name, dtype)
@@ -253,18 +262,25 @@ def make_morton_bin_count_type(device, dimensions, particle_id_dtype):
     return dtype, c_decl
 
 @memoize
-def make_scan_type(device, dimensions, particle_id_dtype, box_id_dtype):
-    morton_dtype, _ = make_morton_bin_count_type(device, dimensions, particle_id_dtype)
+def make_scan_type(device, dimensions, particle_id_dtype, box_id_dtype,
+        have_nonleaf_sources):
+    morton_dtype, _ = make_morton_bin_count_type(device, dimensions, particle_id_dtype,
+            have_nonleaf_sources)
     dtype = np.dtype([
             ('counts', morton_dtype),
             ('split_box_id', box_id_dtype), # sum-scanned
             ('morton_nr', np.uint8),
             ])
 
-    name = "boxtree_tree_scan_%dd_p%s_b%s_t" % (
+    name_suffix = ""
+    if have_nonleaf_sources:
+        name_suffix = "_nls"
+
+    name = "boxtree_tree_scan_%dd_p%s_b%s%s_t" % (
             dimensions,
             get_type_moniker(particle_id_dtype),
-            get_type_moniker(box_id_dtype)
+            get_type_moniker(box_id_dtype),
+            name_suffix
             )
 
     from pyopencl.tools import get_or_register_dtype, match_dtype_to_c_struct
@@ -312,7 +328,7 @@ PREAMBLE_TPL = Template(r"""//CL//
 
     typedef ${dtype_to_ctype(morton_bin_count_dtype)} morton_t;
     typedef ${dtype_to_ctype(scan_dtype)} scan_t;
-    typedef boxtree_bbox_${dimensions}d_t bbox_t;
+    typedef ${dtype_to_ctype(bbox_dtype)} bbox_t;
     typedef ${dtype_to_ctype(coord_dtype)} coord_t;
     typedef ${dtype_to_ctype(coord_vec_dtype)} coord_vec_t;
     typedef ${dtype_to_ctype(box_id_dtype)} box_id_t;
@@ -322,7 +338,7 @@ PREAMBLE_TPL = Template(r"""//CL//
     <%
       def get_count_for_branch(known_bits):
           if len(known_bits) == dimensions:
-              return "counts.c%s" % known_bits
+              return "counts.pcnt%s" % known_bits
 
           dim = len(known_bits)
           boundary_morton_nr = known_bits + "1" + (dimensions-dim-1)*"0"
@@ -354,8 +370,11 @@ SCAN_PREAMBLE_TPL = Template(r"""//CL//
     scan_t scan_t_neutral()
     {
         scan_t result;
+        %if have_nonleaf_sources:
+            result.counts.nonchild_sources = 0;
+        %endif
         %for mnr in range(2**dimensions):
-            result.counts.c${padded_bin(mnr, dimensions)} = 0;
+            result.counts.pcnt${padded_bin(mnr, dimensions)} = 0;
         %endfor
         result.split_box_id = 0;
         return result;
@@ -366,7 +385,7 @@ SCAN_PREAMBLE_TPL = Template(r"""//CL//
         if (!across_seg_boundary)
         {
             %for mnr in range(2**dimensions):
-                <% field = "counts.c"+padded_bin(mnr, dimensions) %>
+                <% field = "counts.pcnt"+padded_bin(mnr, dimensions) %>
                 b.${field} = a.${field} + b.${field};
             %endfor
         }
@@ -411,7 +430,7 @@ SCAN_PREAMBLE_TPL = Template(r"""//CL//
 
         scan_t result;
         %for mnr in range(2**dimensions):
-            <% field = "counts.c"+padded_bin(mnr, dimensions) %>
+            <% field = "counts.pcnt"+padded_bin(mnr, dimensions) %>
             result.${field} = (level_morton_number == ${mnr});
         %endfor
         result.morton_nr = level_morton_number;
@@ -452,7 +471,7 @@ SCAN_OUTPUT_STMT_TPL = Template(r"""//CL//
     {
         particle_id_t my_id_in_my_box = -1
         %for mnr in range(2**dimensions):
-            + item.counts.c${padded_bin(mnr, dimensions)}
+            + item.counts.pcnt${padded_bin(mnr, dimensions)}
         %endfor
             ;
         dbg_printf(("my_id_in_my_box:%d\n", my_id_in_my_box));
@@ -518,7 +537,7 @@ SPLIT_AND_SORT_KERNEL_TPL =  Template(r"""//CL//
             <% bin_nmr = padded_bin(mnr, dimensions) %>
             tgt_particle_idx +=
                 (my_morton_nr > ${mnr})
-                    ? my_box_morton_bin_counts.c${bin_nmr}
+                    ? my_box_morton_bin_counts.pcnt${bin_nmr}
                     : 0;
         %endfor
 
@@ -533,13 +552,13 @@ SPLIT_AND_SORT_KERNEL_TPL =  Template(r"""//CL//
                 else
             %endif
             if (${mnr} == my_morton_nr
-                && my_box_morton_bin_counts.c${padded_bin(mnr, dimensions)} == my_count)
+                && my_box_morton_bin_counts.pcnt${padded_bin(mnr, dimensions)} == my_count)
             {
                 dbg_printf(("   ## splitting\n"));
 
                 particle_id_t new_box_start = my_box_start
                 %for sub_mnr in range(mnr):
-                    + my_box_morton_bin_counts.c${padded_bin(sub_mnr, dimensions)}
+                    + my_box_morton_bin_counts.pcnt${padded_bin(sub_mnr, dimensions)}
                 %endfor
                     ;
 
@@ -551,7 +570,7 @@ SPLIT_AND_SORT_KERNEL_TPL =  Template(r"""//CL//
                 box_morton_nrs[new_box_id] = my_morton_nr;
 
                 particle_id_t new_count =
-                    my_box_morton_bin_counts.c${padded_bin(mnr, dimensions)};
+                    my_box_morton_bin_counts.pcnt${padded_bin(mnr, dimensions)};
                 box_srcntgt_counts[new_box_id] = new_count;
                 if (new_count > max_particles_in_box)
                     *have_oversize_box = 1;
@@ -681,6 +700,12 @@ GAPPY_COPY_TPL =  Template(r"""//CL//
 
 class Tree(FromDeviceGettableRecord):
     """
+    **Flags**
+
+    .. attribute:: have_nonleaf_sources
+
+        whether this tree has sources in non-leaf boxes
+
     **Data types**
 
     .. attribute:: particle_id_dtype
@@ -933,7 +958,7 @@ class TreeBuilder(object):
 
     @memoize_method
     def get_kernel_info(self, dimensions, coord_dtype,
-            particle_id_dtype, box_id_dtype):
+            particle_id_dtype, box_id_dtype, have_nonleaf_sources):
         if np.iinfo(box_id_dtype).min == 0:
             from warnings import warn
             warn("Careful with signed types for box_id_dtype. Some CL implementations "
@@ -947,9 +972,13 @@ class TreeBuilder(object):
         box_id_dtype = np.dtype(box_id_dtype)
 
         dev = self.context.devices[0]
+        morton_bin_count_dtype, _ = make_morton_bin_count_type(
+                dev, dimensions, particle_id_dtype,
+                have_nonleaf_sources)
         scan_dtype, scan_type_decl = make_scan_type(dev,
-                dimensions, particle_id_dtype, box_id_dtype)
-        morton_bin_count_dtype, _ = scan_dtype.fields["counts"]
+                dimensions, particle_id_dtype, box_id_dtype,
+                have_nonleaf_sources)
+
         bbox_dtype, bbox_type_decl = make_bounding_box_dtype(
                 dev, dimensions, coord_dtype)
 
@@ -965,6 +994,7 @@ class TreeBuilder(object):
                     dev, morton_bin_count_dtype),
                 tree_scan_type_decl=scan_type_decl,
                 bbox_type_decl=dtype_to_c_struct(dev, bbox_dtype),
+                bbox_dtype=bbox_dtype,
                 particle_id_dtype=particle_id_dtype,
                 morton_bin_count_dtype=morton_bin_count_dtype,
                 scan_dtype=scan_dtype,
@@ -972,7 +1002,8 @@ class TreeBuilder(object):
                 box_id_dtype=box_id_dtype,
                 dtype_to_ctype=dtype_to_ctype,
                 AXIS_NAMES=AXIS_NAMES,
-                box_flags_enum=box_flags_enum
+                box_flags_enum=box_flags_enum,
+                have_nonleaf_sources=have_nonleaf_sources,
                 )
 
         preamble = PREAMBLE_TPL.render(**codegen_args)
@@ -1289,18 +1320,28 @@ class TreeBuilder(object):
 
     # {{{ run control
 
-    def __call__(self, queue, particles, max_particles_in_box, nboxes_guess=None,
-            allocator=None, debug=False, targets=None):
+    def __call__(self, queue, particles, max_particles_in_box,
+            allocator=None, debug=False, targets=None,
+            source_exclusion_radii=None):
         """
         :arg queue: a :class:`pyopencl.CommandQueue` instance
         :arg particles: an object array of (XYZ) point coordinate arrays.
         :arg targets: an object array of (XYZ) point coordinate arrays or `None`.
             If `None`, *particles* act as targets, too.
+        :arg source_exclusion_radii: FIXME: Semantics?
+
+            If this is given, *targets* must also be given, i.e. sources and
+            targets must be separate.
         :returns: an instance of :class:`Tree`
         """
-        dimensions = len(particles)
 
+        dimensions = len(particles)
         axis_names = AXIS_NAMES[:dimensions]
+        if source_exclusion_radii and not targets:
+            raise ValueError("must specify targets when specifying "
+                    "source_exclusion_radii")
+
+        have_nonleaf_sources = source_exclusion_radii is not None
 
         empty = partial(cl.array.empty, queue, allocator=allocator)
         zeros = partial(cl.array.zeros, queue, allocator=allocator)
@@ -1309,9 +1350,10 @@ class TreeBuilder(object):
 
         from pytools import single_valued
         coord_dtype = single_valued(coord.dtype for coord in particles)
-        particle_id_dtype = np.uint32
+        particle_id_dtype = np.int32
         box_id_dtype = np.int32
-        knl_info = self.get_kernel_info(dimensions, coord_dtype, particle_id_dtype, box_id_dtype)
+        knl_info = self.get_kernel_info(dimensions, coord_dtype,
+                particle_id_dtype, box_id_dtype, have_nonleaf_sources)
 
         # }}}
 
@@ -1380,28 +1422,49 @@ class TreeBuilder(object):
 
         # {{{ allocate data
 
+        # box-local morton bin counts for each particle at the current level
+        # only valid from scan -> split'n'sort
         morton_bin_counts = empty(nsrcntgts, dtype=knl_info.morton_bin_count_dtype)
+
+        # (local) morton nrs for each particle at the current level
+        # only valid from scan -> split'n'sort
         morton_nrs = empty(nsrcntgts, dtype=np.uint8)
+
+        # 0/1 segment flags
+        # invariant to sorting once set
+        # (particles are only reordered within a box)
+        # valid throughout computation
         box_start_flags = zeros(nsrcntgts, dtype=np.int8)
         srcntgt_box_ids = zeros(nsrcntgts, dtype=box_id_dtype)
         split_box_ids = zeros(nsrcntgts, dtype=box_id_dtype)
 
+        # number of boxes total, and a guess
+        nboxes_dev = empty((), dtype=box_id_dtype)
+        nboxes_dev.fill(1)
+
         from pytools import div_ceil
         nboxes_guess = div_ceil(nsrcntgts, max_particles_in_box) * 2**dimensions
 
+        # per-box morton bin counts
         box_morton_bin_counts = empty(nboxes_guess,
                 dtype=knl_info.morton_bin_count_dtype)
+
+        # particle# at which each box starts
         box_srcntgt_starts = zeros(nboxes_guess, dtype=particle_id_dtype)
+
+        # pointer to parent box
         box_parent_ids = zeros(nboxes_guess, dtype=box_id_dtype)
+
+        # morton nr identifier {quadr,oct}ant of parent in which this box was created
         box_morton_nrs = zeros(nboxes_guess, dtype=self.morton_nr_dtype)
+
+        # number of particles in each box
+        # needs to be globally initialized because empty boxes never get touched
         box_srcntgt_counts = zeros(nboxes_guess, dtype=particle_id_dtype)
 
         # Initalize box 0 to contain all particles
         cl.enqueue_copy(queue, box_srcntgt_counts.data,
                 box_srcntgt_counts.dtype.type(nsrcntgts))
-
-        nboxes_dev = empty((), dtype=box_id_dtype)
-        nboxes_dev.fill(1)
 
         # set parent of root box to itself
         cl.enqueue_copy(queue, box_parent_ids.data, box_parent_ids.dtype.type(0))
@@ -1495,6 +1558,8 @@ class TreeBuilder(object):
             npasses = level+1
             print "elapsed time: %g s (%g s/particle/pass)" % (
                     elapsed, elapsed/(npasses*nsrcntgts))
+
+        del morton_nrs
 
         nboxes = int(nboxes_dev.get())
 
