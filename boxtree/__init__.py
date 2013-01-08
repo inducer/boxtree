@@ -272,7 +272,6 @@ def make_scan_type(device, dimensions, particle_id_dtype, box_id_dtype,
             have_nonleaf_sources)
     dtype = np.dtype([
             ('counts', morton_dtype),
-            ('split_box_id', box_id_dtype), # sum-scanned
             ])
 
     name_suffix = ""
@@ -379,7 +378,6 @@ SCAN_PREAMBLE_TPL = Template(r"""//CL//
         %for mnr in range(2**dimensions):
             result.counts.pcnt${padded_bin(mnr, dimensions)} = 0;
         %endfor
-        result.split_box_id = 0;
         return result;
     }
 
@@ -397,11 +395,6 @@ SCAN_PREAMBLE_TPL = Template(r"""//CL//
             %endfor
         }
 
-        // split_box_id must use a non-segmented scan to globally
-        // assign box numbers.
-        b.split_box_id = a.split_box_id + b.split_box_id;
-
-        // b.morton_nr gets propagated
         return b;
     }
 
@@ -446,29 +439,6 @@ SCAN_PREAMBLE_TPL = Template(r"""//CL//
         %endfor
         morton_nrs[i] = level_morton_number;
 
-        // split_box_id is not very meaningful now, but when scanned over
-        // by addition, will yield new, unused ids for boxes that are created by
-        // subdividing the current box (if it is over-full).
-
-        result.split_box_id = 0;
-        if (i == 0)
-        {
-            // Particle number zero brings in the box count from the
-            // previous level.
-
-            result.split_box_id = nboxes;
-        }
-        if (i == box_start
-            && box_srcntgt_count > max_particles_in_box)
-        {
-            // If this box is overfull, put in a 'request' for 2**d sub-box
-            // IDs. Sub-boxes will have to subtract from the total to find
-            // their id. These requested box IDs are then scanned over by
-            // a global sum.
-
-            result.split_box_id += ${2**dimensions};
-        }
-
         return result;
     }
 
@@ -491,8 +461,6 @@ SCAN_OUTPUT_STMT_TPL = Template(r"""//CL//
         box_id_t current_box_id = srcntgt_box_ids[i];
         particle_id_t box_srcntgt_count = box_srcntgt_counts[current_box_id];
 
-        split_box_ids[i] = item.split_box_id;
-
         // Am I the last particle in my current box?
         // If so, populate particle count.
 
@@ -502,10 +470,6 @@ SCAN_OUTPUT_STMT_TPL = Template(r"""//CL//
             dbg_printf(("   store_sums: %d %d %d %d\n", item.counts.c00, item.counts.c01, item.counts.c10, item.counts.c11));
             box_morton_bin_counts[current_box_id] = item.counts;
         }
-
-        // Am I the last particle overall? If so, write box count
-        if (i+1 == N)
-            *nboxes = item.split_box_id;
     }
 """, strict_undefined=True)
 
@@ -1090,6 +1054,61 @@ class TreeBuilder(object):
 
         # }}}
 
+        # {{{ split_box_id scan
+
+        input_expr = Template("""//CL//
+            (i == 0 ? *nboxes : 0)
+            +
+            (
+                (
+                    /* first particle in box? */
+                    i == box_srcntgt_starts[srcntgt_box_ids[i]]
+                    &&
+                    /* box overfull? */
+                    box_srcntgt_counts[srcntgt_box_ids[i]]
+                            > max_particles_in_box
+                )
+                ?
+                    ${2**dimensions}
+                :
+                    0
+              )
+              """, strict_undefined=True).render(
+                      dimensions=dimensions)
+
+        from pyopencl.scan import GenericScanKernel
+        split_box_id_scan = GenericScanKernel(
+                self.context, box_id_dtype,
+                arguments=[
+                    # input
+                    VectorArg(box_id_dtype, "srcntgt_box_ids"),
+                    VectorArg(particle_id_dtype, "box_srcntgt_starts"),
+                    VectorArg(particle_id_dtype, "box_srcntgt_counts"),
+                    ScalarArg(particle_id_dtype, "max_particles_in_box"),
+
+                    # input/output:
+                    VectorArg(box_id_dtype, "nboxes"),
+
+                    # output:
+                    VectorArg(box_id_dtype, "split_box_ids"),
+                    ],
+                input_expr=str(input_expr),
+                scan_expr="a + b",
+                neutral="0",
+                output_statement="""
+                    split_box_ids[i] = item;
+
+                    // Am I the last particle overall? If so, write box count
+                    if (i+1 == N)
+                        *nboxes = item;
+                    """,
+                preamble=preamble)
+
+        del input_expr
+
+        # }}}
+
+
         # {{{ split-and-sort
 
         split_and_sort_kernel_source = SPLIT_AND_SORT_KERNEL_TPL.render(**codegen_args)
@@ -1296,6 +1315,7 @@ class TreeBuilder(object):
                 particle_id_dtype=particle_id_dtype,
                 box_id_dtype=box_id_dtype,
                 scan_kernel=scan_kernel,
+                split_box_id_scan=split_box_id_scan,
                 morton_bin_count_dtype=morton_bin_count_dtype,
                 split_and_sort_kernel=split_and_sort_kernel,
                 box_info_kernel=box_info_kernel,
@@ -1505,8 +1525,18 @@ class TreeBuilder(object):
                     user_srcntgt_ids)
                     + tuple(srcntgts))
 
-            # writes: nboxes_dev, box_morton_bin_counts, split_box_ids
-            knl_info.scan_kernel(*args)
+            # writes: box_morton_bin_counts, morton_nrs
+            knl_info.scan_kernel(*args, queue=queue, size=nsrcntgts)
+
+            # writes: nboxes_dev, split_box_ids
+            knl_info.split_box_id_scan(
+                    srcntgt_box_ids,
+                    box_srcntgt_starts,
+                    box_srcntgt_counts,
+                    max_particles_in_box,
+                    nboxes_dev,
+                    split_box_ids,
+                    queue=queue, size=nsrcntgts)
 
             nboxes_new = nboxes_dev.get()
 
