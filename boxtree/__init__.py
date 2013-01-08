@@ -265,32 +265,6 @@ def make_morton_bin_count_type(device, dimensions, particle_id_dtype, have_nonle
     dtype = get_or_register_dtype(name, dtype)
     return dtype, c_decl
 
-@memoize
-def make_scan_type(device, dimensions, particle_id_dtype, box_id_dtype,
-        have_nonleaf_sources):
-    morton_dtype, _ = make_morton_bin_count_type(device, dimensions, particle_id_dtype,
-            have_nonleaf_sources)
-    dtype = np.dtype([
-            ('counts', morton_dtype),
-            ])
-
-    name_suffix = ""
-    if have_nonleaf_sources:
-        name_suffix = "_nls"
-
-    name = "boxtree_tree_scan_%dd_p%s_b%s%s_t" % (
-            dimensions,
-            get_type_moniker(particle_id_dtype),
-            get_type_moniker(box_id_dtype),
-            name_suffix
-            )
-
-    from pyopencl.tools import get_or_register_dtype, match_dtype_to_c_struct
-    dtype, c_decl = match_dtype_to_c_struct(device, name, dtype)
-
-    dtype = get_or_register_dtype(name, dtype)
-    return dtype, c_decl
-
 # }}}
 
 class box_flags_enum:
@@ -326,10 +300,9 @@ class box_flags_enum:
 PREAMBLE_TPL = Template(r"""//CL//
     ${bbox_type_decl}
     ${morton_bin_count_type_decl}
-    ${tree_scan_type_decl}
 
-    typedef ${dtype_to_ctype(morton_bin_count_dtype)} morton_t;
-    typedef ${dtype_to_ctype(scan_dtype)} scan_t;
+    typedef ${dtype_to_ctype(morton_bin_count_dtype)} morton_counts_t;
+    typedef morton_counts_t scan_t;
     typedef ${dtype_to_ctype(bbox_dtype)} bbox_t;
     typedef ${dtype_to_ctype(coord_dtype)} coord_t;
     typedef ${dtype_to_ctype(coord_vec_dtype)} coord_vec_t;
@@ -351,7 +324,7 @@ PREAMBLE_TPL = Template(r"""//CL//
               get_count_for_branch(known_bits+"1")))
     %>
 
-    particle_id_t get_count(morton_t counts, int morton_nr)
+    particle_id_t get_count(morton_counts_t counts, int morton_nr)
     {
         return ${get_count_for_branch("")};
     }
@@ -373,10 +346,10 @@ SCAN_PREAMBLE_TPL = Template(r"""//CL//
     {
         scan_t result;
         %if have_nonleaf_sources:
-            result.counts.nonchild_sources = 0;
+            result.nonchild_sources = 0;
         %endif
         %for mnr in range(2**dimensions):
-            result.counts.pcnt${padded_bin(mnr, dimensions)} = 0;
+            result.pcnt${padded_bin(mnr, dimensions)} = 0;
         %endfor
         return result;
     }
@@ -390,7 +363,7 @@ SCAN_PREAMBLE_TPL = Template(r"""//CL//
             %endif
 
             %for mnr in range(2**dimensions):
-                <% field = "counts.pcnt"+padded_bin(mnr, dimensions) %>
+                <% field = "pcnt"+padded_bin(mnr, dimensions) %>
                 b.${field} = a.${field} + b.${field};
             %endfor
         }
@@ -429,7 +402,7 @@ SCAN_PREAMBLE_TPL = Template(r"""//CL//
             result.nonchild_sources = FIXME;
         %endif
         %for mnr in range(2**dimensions):
-            <% field = "counts.pcnt"+padded_bin(mnr, dimensions) %>
+            <% field = "pcnt"+padded_bin(mnr, dimensions) %>
             result.${field} = (level_morton_number == ${mnr});
         %endfor
         morton_nrs[i] = level_morton_number;
@@ -447,11 +420,11 @@ SCAN_OUTPUT_STMT_TPL = Template(r"""//CL//
     {
         particle_id_t my_id_in_my_box = -1
         %for mnr in range(2**dimensions):
-            + item.counts.pcnt${padded_bin(mnr, dimensions)}
+            + item.pcnt${padded_bin(mnr, dimensions)}
         %endfor
             ;
         dbg_printf(("my_id_in_my_box:%d\n", my_id_in_my_box));
-        morton_bin_counts[i] = item.counts;
+        morton_bin_counts[i] = item;
 
         box_id_t current_box_id = srcntgt_box_ids[i];
         particle_id_t box_srcntgt_count = box_srcntgt_counts[current_box_id];
@@ -462,8 +435,8 @@ SCAN_OUTPUT_STMT_TPL = Template(r"""//CL//
         if (my_id_in_my_box+1 == box_srcntgt_count)
         {
             dbg_printf(("store box %d cbi:%d\n", i, current_box_id));
-            dbg_printf(("   store_sums: %d %d %d %d\n", item.counts.c00, item.counts.c01, item.counts.c10, item.counts.c11));
-            box_morton_bin_counts[current_box_id] = item.counts;
+            dbg_printf(("   store_sums: %d %d %d %d\n", item.c00, item.c01, item.c10, item.c11));
+            box_morton_bin_counts[current_box_id] = item;
         }
     }
 """, strict_undefined=True)
@@ -473,7 +446,7 @@ SCAN_OUTPUT_STMT_TPL = Template(r"""//CL//
 # {{{ split-and-sort kernel
 
 SPLIT_AND_SORT_KERNEL_TPL =  Template(r"""//CL//
-    morton_t my_morton_bin_counts = morton_bin_counts[i];
+    morton_counts_t my_morton_bin_counts = morton_bin_counts[i];
     box_id_t my_box_id = srcntgt_box_ids[i];
 
     dbg_printf(("postproc %d:\n", i));
@@ -493,7 +466,7 @@ SPLIT_AND_SORT_KERNEL_TPL =  Template(r"""//CL//
         box_id_t new_box_id = split_box_ids[i] - ${2**dimensions} + my_morton_nr;
         dbg_printf(("   new_box_id: %d\n", new_box_id));
 
-        morton_t my_box_morton_bin_counts = box_morton_bin_counts[my_box_id];
+        morton_counts_t my_box_morton_bin_counts = box_morton_bin_counts[my_box_id];
         /*
         dbg_printf(("   box_sums: %d %d %d %d\n", my_box_morton_bin_counts.c00, my_box_morton_bin_counts.c01, my_box_morton_bin_counts.c10, my_box_morton_bin_counts.c11));
         */
@@ -944,9 +917,6 @@ class TreeBuilder(object):
         morton_bin_count_dtype, _ = make_morton_bin_count_type(
                 dev, dimensions, particle_id_dtype,
                 have_nonleaf_sources)
-        scan_dtype, scan_type_decl = make_scan_type(dev,
-                dimensions, particle_id_dtype, box_id_dtype,
-                have_nonleaf_sources)
 
         bbox_dtype, bbox_type_decl = make_bounding_box_dtype(
                 dev, dimensions, coord_dtype)
@@ -961,12 +931,10 @@ class TreeBuilder(object):
                 coord_vec_dtype=coord_vec_dtype,
                 morton_bin_count_type_decl=dtype_to_c_struct(
                     dev, morton_bin_count_dtype),
-                tree_scan_type_decl=scan_type_decl,
                 bbox_type_decl=dtype_to_c_struct(dev, bbox_dtype),
                 bbox_dtype=bbox_dtype,
                 particle_id_dtype=particle_id_dtype,
                 morton_bin_count_dtype=morton_bin_count_dtype,
-                scan_dtype=scan_dtype,
                 morton_nr_dtype=self.morton_nr_dtype,
                 box_id_dtype=box_id_dtype,
                 dtype_to_ctype=dtype_to_ctype,
@@ -1029,7 +997,7 @@ class TreeBuilder(object):
 
         from pyopencl.scan import GenericScanKernel
         morton_count_scan = GenericScanKernel(
-                self.context, scan_dtype,
+                self.context, morton_bin_count_dtype,
                 arguments=common_arguments,
                 input_expr="scan_t_from_particle(%s)"
                     % ", ".join([
