@@ -14,7 +14,7 @@ def main():
         from distutils.command.build_py import build_py
 
     version_dict = {}
-    init_filename = "islpy/version.py"
+    init_filename = "boxtree/version.py"
     exec(compile(open(init_filename, "r").read(), init_filename, "exec"), version_dict)
 
     setup(name="boxtree",
