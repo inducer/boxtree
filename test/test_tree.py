@@ -29,8 +29,6 @@ import numpy.linalg as la
 import sys
 import pytools.test
 
-import matplotlib.pyplot as pt
-
 import pyopencl as cl
 from pyopencl.tools import pytest_generate_tests_for_pyopencl \
         as pytest_generate_tests
@@ -62,6 +60,7 @@ def test_particle_tree(ctx_getter, do_plot=False):
         particles = make_particle_array(queue, nparticles, dims, dtype)
 
         if do_plot:
+            import matplotlib.pyplot as pt
             pt.plot(particles[0].get(), particles[1].get(), "x")
 
         from boxtree import TreeBuilder
@@ -141,6 +140,7 @@ def test_source_target_tree(ctx_getter, do_plot=False):
                 seed=19)
 
         if do_plot:
+            import matplotlib.pyplot as pt
             pt.plot(sources[0].get(), sources[1].get(), "rx")
             pt.plot(targets[0].get(), targets[1].get(), "g+")
 
@@ -266,6 +266,7 @@ def test_tree_connectivity(ctx_getter):
         # }}}
 
         if 0:
+            import matplotlib.pyplot as pt
             from boxtree import TreePlotter
             plotter = TreePlotter(tree)
             plotter.draw_tree(fill=False, edgecolor="black")
@@ -397,7 +398,7 @@ class ConstantOneExpansionWrangler:
                 if child:
                     mpoles[ibox] += mpoles[child]
 
-    def do_direct_eval(self, leaf_boxes, neighbor_leaves_starts, neighbor_leaves_lists,
+    def eval_direct(self, leaf_boxes, neighbor_leaves_starts, neighbor_leaves_lists,
             src_weights):
         pot = self.potential_zeros()
 
@@ -569,6 +570,7 @@ def test_geometry_query(ctx_getter, do_plot=False):
     particles = make_particle_array(queue, nparticles, dims, dtype)
 
     if do_plot:
+        import matplotlib.pyplot as pt
         pt.plot(particles[0].get(), particles[1].get(), "x")
 
     from boxtree import TreeBuilder
@@ -712,6 +714,7 @@ def plot_traversal(ctx_getter, do_plot=False):
                     trav.sep_bigger_nonsiblings_starts,
                     trav.sep_bigger_nonsiblings_lists)
 
+        import matplotlib.pyplot as pt
         pt.show()
 
 # }}}
@@ -723,9 +726,6 @@ def plot_traversal(ctx_getter, do_plot=False):
 # $ python test_kernels.py 'test_p2p(cl.create_some_context)'
 
 if __name__ == "__main__":
-    # make sure that import failures get reported, instead of skipping the tests.
-    import pyopencl as cl
-
     import sys
     if len(sys.argv) > 1:
         exec(sys.argv[1])
