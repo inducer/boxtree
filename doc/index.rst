@@ -1,6 +1,12 @@
 Welcome to boxtree's documentation!
 ===================================
 
+.. note::
+    Boxtree hasn't been released yet. What's documented here generally
+    exists as code and has survived some light testing. So if you try
+    it and it works for you, great. If not, please do make sure to shoot
+    me a message.
+
 boxtree is a package that, given some point locations in two or three
 dimensions, sorts them into an adaptive quad/octree of boxes, efficiently, in
 parallel, using OpenCL.
