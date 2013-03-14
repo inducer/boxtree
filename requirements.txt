@@ -1,1 +1,2 @@
+numpy
 git+git://github.com/inducer/pyopencl
