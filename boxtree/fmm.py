@@ -58,7 +58,7 @@ def drive_fmm(traversal, expansion_wrangler, src_weights):
 
     # {{{ "Stage 3:" Direct calculation on neighbor leaves ("list 1")
 
-    potentials = wrangler.do_direct_eval(
+    potentials = wrangler.eval_direct(
             traversal.leaf_boxes,
             traversal.neighbor_leaves_starts,
             traversal.neighbor_leaves_lists,
