@@ -46,6 +46,42 @@ def make_particle_array(queue, nparticles, dims, dtype, seed=15):
         for i in range(dims)])
 
 
+# {{{ bounding box test
+
+def test_bounding_box(ctx_getter):
+    ctx = ctx_getter()
+    queue = cl.CommandQueue(ctx)
+
+    from boxtree import AXIS_NAMES, BoundingBoxFinder
+
+    bbf = BoundingBoxFinder(ctx)
+
+    #for dtype in [np.float32, np.float64]:
+    for dtype in [np.float64, np.float32]:
+        for dims in [2, 3]:
+            axis_names = AXIS_NAMES[:dims]
+
+            for nparticles in [9, 4096, 10**5]:
+                print dtype, dims, nparticles
+                particles = make_particle_array(queue, nparticles, dims, dtype)
+
+                bbox_min = [np.min(x.get()) for x in particles]
+                bbox_max = [np.max(x.get()) for x in particles]
+
+                bbox_cl = bbf(particles).get()
+
+                bbox_min_cl = np.empty(dims, dtype)
+                bbox_max_cl = np.empty(dims, dtype)
+
+                for i, ax in enumerate(axis_names):
+                    bbox_min_cl[i] = bbox_cl["min_"+ax]
+                    bbox_max_cl[i] = bbox_cl["max_"+ax]
+
+                assert (bbox_min == bbox_min_cl).all()
+                assert (bbox_max == bbox_max_cl).all()
+
+# }}}
+
 # {{{ basic tree build test
 
 @pytools.test.mark_test.opencl
@@ -71,10 +107,6 @@ def test_particle_tree(ctx_getter, do_plot=False):
                 max_particles_in_box=max_particles_in_box, debug=True,
                 nboxes_guess=nboxes_guess).get()
         print "%d boxes, testing..." % tree.nboxes
-
-        bbox_min = [np.min(x.get()) for x in particles]
-        print tree.bounding_box[0]
-        print bbox_min
 
         sorted_particles = np.array(list(tree.sources))
 
