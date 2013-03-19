@@ -88,6 +88,13 @@ def test_bounding_box(ctx_getter):
 def run_build_test(builder, queue, dims, dtype, nparticles, do_plot, max_particles_in_box=30, nboxes_guess=None):
     dtype = np.dtype(dtype)
 
+    if dtype == np.float32:
+        tol = 1e-4
+    elif dtype == np.float64:
+        tol = 1e-12
+    else:
+        raise RuntimeError("unsupported dtype: %s" % dtype)
+
     print 75*"-"
     print "%dD %s - %d particles - max %d per box - box count guess: %s" % (
             dims, dtype.type.__name__, nparticles, max_particles_in_box, nboxes_guess)
@@ -119,19 +126,20 @@ def run_build_test(builder, queue, dims, dtype, nparticles, do_plot, max_particl
         plotter.draw_tree(fill=False, edgecolor="black", zorder=10)
         plotter.set_bounding_box()
 
+    scaled_tol = tol*tree.root_extent
     for ibox in xrange(tree.nboxes):
         extent_low, extent_high = tree.get_box_extent(ibox)
 
-        assert (extent_low >= tree.bounding_box[0] - 1e-12*tree.root_extent).all(), ibox
-        assert (extent_high <= tree.bounding_box[1] + 1e-12*tree.root_extent).all(), ibox
+        assert (extent_low >= tree.bounding_box[0] - scaled_tol).all(), ibox
+        assert (extent_high <= tree.bounding_box[1] + scaled_tol).all(), ibox
 
         start = tree.box_source_starts[ibox]
 
         box_particles = sorted_particles[:,start:start+tree.box_source_counts[ibox]]
         good = (
-                (box_particles < extent_high[:, np.newaxis])
+                (box_particles < extent_high[:, np.newaxis] + scaled_tol)
                 &
-                (extent_low[:, np.newaxis] <= box_particles)
+                (extent_low[:, np.newaxis] - scaled_tol <= box_particles)
                 )
 
         all_good_here = good.all()
