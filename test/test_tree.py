@@ -52,7 +52,8 @@ def test_bounding_box(ctx_getter):
     ctx = ctx_getter()
     queue = cl.CommandQueue(ctx)
 
-    from boxtree import AXIS_NAMES, BoundingBoxFinder
+    from boxtree import AXIS_NAMES
+    from boxtree.bounding_box import BoundingBoxFinder
 
     bbf = BoundingBoxFinder(ctx)
 

@@ -118,115 +118,6 @@ helps translate potentials back into user target order for output.
 
 AXIS_NAMES = ("x", "y", "z", "w")
 
-# {{{ bounding box finding
-
-@memoize
-def make_bounding_box_dtype(device, dimensions, coord_dtype):
-    fields = []
-    for i in range(dimensions):
-        fields.append(("min_%s" % AXIS_NAMES[i], coord_dtype))
-        fields.append(("max_%s" % AXIS_NAMES[i], coord_dtype))
-
-    dtype = np.dtype(fields)
-
-    name = "boxtree_bbox_%dd_%s_t" % (dimensions, get_type_moniker(coord_dtype))
-
-    from pyopencl.tools import get_or_register_dtype, match_dtype_to_c_struct
-    dtype, c_decl = match_dtype_to_c_struct(device, name, dtype)
-    dtype = get_or_register_dtype(name, dtype)
-
-    return dtype, c_decl
-
-
-
-
-BBOX_CODE_TEMPLATE = Template(r"""//CL//
-    ${bbox_struct_decl}
-
-    typedef ${dtype_to_ctype(bbox_dtype)} bbox_t;
-    typedef ${dtype_to_ctype(coord_dtype)} coord_t;
-
-    bbox_t bbox_neutral()
-    {
-        bbox_t result;
-        %for ax in axis_names:
-            result.min_${ax} = ${coord_dtype_3ltr}_MAX;
-            result.max_${ax} = -${coord_dtype_3ltr}_MAX;
-        %endfor
-        return result;
-    }
-
-    bbox_t bbox_from_particle(${", ".join("coord_t %s" % ax for ax in axis_names)})
-    {
-        bbox_t result;
-        %for ax in axis_names:
-            result.min_${ax} = ${ax};
-            result.max_${ax} = ${ax};
-        %endfor
-        return result;
-    }
-
-    bbox_t agg_bbox(bbox_t a, bbox_t b)
-    {
-        %for ax in axis_names:
-            a.min_${ax} = min(a.min_${ax}, b.min_${ax});
-            a.max_${ax} = max(a.max_${ax}, b.max_${ax});
-        %endfor
-        return a;
-    }
-""", strict_undefined=True)
-
-class BoundingBoxFinder:
-    def __init__(self, context):
-        self.context = context
-
-    @memoize_method
-    def get_kernel(self, dimensions, coord_dtype):
-        from pyopencl.tools import dtype_to_ctype
-        bbox_dtype, bbox_cdecl = make_bounding_box_dtype(
-                self.context.devices[0], dimensions, coord_dtype)
-
-        if coord_dtype == np.float64:
-            coord_dtype_3ltr = "DBL"
-        elif coord_dtype == np.float32:
-            coord_dtype_3ltr = "FLT"
-        else:
-            raise TypeError("unknown coord_dtype")
-
-        axis_names = AXIS_NAMES[:dimensions]
-
-        coord_ctype = dtype_to_ctype(coord_dtype)
-
-        preamble = BBOX_CODE_TEMPLATE.render(
-                axis_names=axis_names,
-                dimensions=dimensions,
-                coord_dtype=coord_dtype,
-                coord_dtype_3ltr=coord_dtype_3ltr,
-                bbox_struct_decl=bbox_cdecl,
-                dtype_to_ctype=dtype_to_ctype,
-                bbox_dtype=bbox_dtype,
-                )
-
-        from pyopencl.reduction import ReductionKernel
-        return ReductionKernel(self.context, bbox_dtype,
-                neutral="bbox_neutral()",
-                reduce_expr="agg_bbox(a, b)",
-                map_expr="bbox_from_particle(%s)" % ", ".join(
-                    "%s[i]" % ax for ax in axis_names),
-                arguments=", ".join(
-                    "__global %s *%s" % (coord_ctype, ax) for ax in axis_names),
-                preamble=preamble,
-                name="bounding_box")
-
-    def __call__(self, particles):
-        dimensions = len(particles)
-
-        from pytools import single_valued
-        coord_dtype = single_valued(coord.dtype for coord in particles)
-
-        return self.get_kernel(dimensions, coord_dtype)(*particles)
-
-# }}}
 
 class _KernelInfo(Record):
     pass
@@ -874,6 +765,7 @@ class TreeBuilder(object):
 
     @memoize_method
     def get_bbox_finder(self):
+        from boxtree.bounding_box import BoundingBoxFinder
         return BoundingBoxFinder(self.context)
 
     @memoize_method
@@ -921,6 +813,7 @@ class TreeBuilder(object):
                 dev, dimensions, particle_id_dtype,
                 have_nonleaf_sources)
 
+        from boxtree.bounding_box import make_bounding_box_dtype
         bbox_dtype, bbox_type_decl = make_bounding_box_dtype(
                 dev, dimensions, coord_dtype)
 
