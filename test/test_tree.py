@@ -53,10 +53,9 @@ def test_particle_tree(ctx_getter, do_plot=False):
     ctx = ctx_getter()
     queue = cl.CommandQueue(ctx)
 
-    for dims in [2, 3]:
-        nparticles = 10**5
-        dtype = np.float64
+    dtype = np.float64
 
+    def run_test(nparticles, do_plot, max_particles_in_box=30, nboxes_guess=None):
         particles = make_particle_array(queue, nparticles, dims, dtype)
 
         if do_plot:
@@ -68,8 +67,14 @@ def test_particle_tree(ctx_getter, do_plot=False):
 
         queue.finish()
         print "building..."
-        tree = tb(queue, particles, max_particles_in_box=30, debug=True).get()
+        tree = tb(queue, particles,
+                max_particles_in_box=max_particles_in_box, debug=True,
+                nboxes_guess=nboxes_guess).get()
         print "%d boxes, testing..." % tree.nboxes
+
+        bbox_min = [np.min(x.get()) for x in particles]
+        print tree.bounding_box[0]
+        print bbox_min
 
         sorted_particles = np.array(list(tree.sources))
 
@@ -121,6 +126,21 @@ def test_particle_tree(ctx_getter, do_plot=False):
 
         print "done"
 
+    for dims in [2, 3]:
+        # test single-box corner case
+        run_test(10, do_plot=False)
+
+        # test bi-level corner case
+        run_test(50, do_plot=False)
+
+        # exercise reallocation code
+        run_test(10**5, do_plot=False, nboxes_guess=5)
+
+        # test many empty leaves corner case
+        run_test(10**5, do_plot=False, max_particles_in_box=5)
+
+        # test vanilla tree build
+        run_test(10**5, do_plot=do_plot)
 
 
 

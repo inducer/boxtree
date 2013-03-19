@@ -391,7 +391,7 @@ SCAN_PREAMBLE_TPL = Template(r"""//CL//
         %for ax in axis_names:
             unsigned ${ax}_bits = (unsigned) (
                 ((${ax}[user_srcntgt_id]-bbox->min_${ax})/(bbox->max_${ax}-bbox->min_${ax}))
-                * (1U << (level+1)));
+                * (1U << level));
         %endfor
 
         unsigned level_morton_number = 0
@@ -1315,13 +1315,14 @@ class TreeBuilder(object):
 
     def __call__(self, queue, particles, max_particles_in_box,
             allocator=None, debug=False, targets=None,
-            source_exclusion_radii=None):
+            source_exclusion_radii=None, **kwargs):
         """
         :arg queue: a :class:`pyopencl.CommandQueue` instance
         :arg particles: an object array of (XYZ) point coordinate arrays.
         :arg targets: an object array of (XYZ) point coordinate arrays or `None`.
             If `None`, *particles* act as targets, too.
         :arg source_exclusion_radii: FIXME: Semantics?
+        :arg kwargs: Used internally for debugging.
 
             If this is given, *targets* must also be given, i.e. sources and
             targets must be separate.
@@ -1436,7 +1437,9 @@ class TreeBuilder(object):
         nboxes_dev.fill(1)
 
         from pytools import div_ceil
-        nboxes_guess = div_ceil(nsrcntgts, max_particles_in_box) * 2**dimensions
+        nboxes_guess = kwargs.get("nboxes_guess")
+        if nboxes_guess  is None:
+            nboxes_guess = div_ceil(nsrcntgts, max_particles_in_box) * 2**dimensions
 
         # per-box morton bin counts
         box_morton_bin_counts = empty(nboxes_guess,
@@ -1475,8 +1478,23 @@ class TreeBuilder(object):
 
         from time import time
         start_time = time()
-        level = 0
-        while True:
+        if nsrcntgts > max_particles_in_box:
+            level = 1
+        else:
+            level = 0
+
+        # INVARIANTS -- Upon entry to this loop:
+        #
+        # - level is the level being built.
+        # - the last entry of level_starts is the beginning of the level to be built
+
+        # This loop condition prevents entering the loop in case there's just a
+        # single box.
+        while level:
+            if debug:
+                # More invariants:
+                assert level == len(level_starts) - 1
+
             common_args = ((morton_bin_counts, morton_nrs,
                     box_start_flags, srcntgt_box_ids, split_box_ids,
                     box_morton_bin_counts,
@@ -1500,7 +1518,14 @@ class TreeBuilder(object):
                     split_box_ids,
                     queue=queue, size=nsrcntgts)
 
-            nboxes_new = nboxes_dev.get()
+            nboxes_new = int(nboxes_dev.get())
+
+            # Assumption: Everything between here and the top of the loop must
+            # be repeatable, so that in an out-of-memory situation, we can just
+            # rerun this bit of the code after reallocating and a minimal reset
+            # procedure.
+
+            # {{{ reallocate and retry if out of memory
 
             if nboxes_new > nboxes_guess:
                 while nboxes_guess < nboxes_new:
@@ -1520,7 +1545,7 @@ class TreeBuilder(object):
                 del my_realloc
                 del my_realloc_zeros
 
-                # resta
+                # reset nboxes_dev to previous value
                 nboxes_dev.fill(level_starts[-1])
 
                 # retry
@@ -1529,11 +1554,16 @@ class TreeBuilder(object):
 
                 continue
 
-            level_starts.append(int(nboxes_new))
-            del nboxes_new
+            # }}}
 
             if debug:
-                print "LEVEL %d -> %d boxes" % (len(level_starts)-2, level_starts[-1])
+                print "LEVEL %d -> %d boxes" % (level, nboxes_new)
+
+            # Assert that we've actually added boxes this time around.
+            # (Otherwise we should've never entered this loop trip.)
+            assert level_starts[-1] != nboxes_new
+            level_starts.append(nboxes_new)
+            del nboxes_new
 
             new_user_srcntgt_ids = cl.array.empty_like(user_srcntgt_ids)
             new_srcntgt_box_ids = cl.array.empty_like(srcntgt_box_ids)
@@ -1608,9 +1638,9 @@ class TreeBuilder(object):
 
         # {{{ update particle indices and box info for source/target split
 
-        # {{{ turn a "to" index list into a "from" index list
+        # {{{ helper: turn a "to" index list into a "from" index list
 
-        # (= 'transpose/invert a permutation)
+        # (= 'transpose'/invert a permutation)
 
         def reverse_particle_index_array(orig_indices):
             n = len(orig_indices)
@@ -1685,7 +1715,7 @@ class TreeBuilder(object):
 
         # }}}
 
-        # {{{ permute and s/t-split (if necessary) particle array
+        # {{{ permute and source/target-split (if necessary) particle array
 
         if targets is None:
             sources = targets = make_obj_array([
@@ -1739,7 +1769,7 @@ class TreeBuilder(object):
         # }}}
 
         nlevels = len(level_starts) - 1
-        assert level + 2 == nlevels
+        assert level + 1 == nlevels
         if debug:
             assert np.max(box_levels.get()) + 1 == nlevels
 
