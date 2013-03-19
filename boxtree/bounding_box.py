@@ -85,17 +85,10 @@ BBOX_CODE_TEMPLATE = Template(r"""//CL//
 
     bbox_t agg_bbox(bbox_t a, bbox_t b)
     {
-        // printf("-----------------------\n");
-        // printf("BEFORE:\n");
-        // printf("a: min: %g %g max: %g %g\n", a.min_x, a.min_y, a.max_x, a.max_y);
-        // printf("b: min: %g %g max: %g %g\n", b.min_x, b.min_y, b.max_x, b.max_y);
         %for ax in axis_names:
             a.min_${ax} = min(a.min_${ax}, b.min_${ax});
             a.max_${ax} = max(a.max_${ax}, b.max_${ax});
         %endfor
-        // printf("-----------------------\n");
-        // printf("AFTER:\n");
-        // printf("min: %g %g max: %g %g\n", a.min_x, a.min_y, a.max_x, a.max_y);
         return a;
     }
 """, strict_undefined=True)
@@ -103,6 +96,12 @@ BBOX_CODE_TEMPLATE = Template(r"""//CL//
 class BoundingBoxFinder:
     def __init__(self, context):
         self.context = context
+
+        for dev in context.devices:
+            if (dev.vendor == "Intel(R) Corporation"
+                    and dev.version == "OpenCL 1.2 (Build 56860)"):
+                raise RuntimeError("bounding box finder does not work "
+                        "properly with this CL runtime.")
 
     @memoize_method
     def get_kernel(self, dimensions, coord_dtype):

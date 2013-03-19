@@ -85,95 +85,107 @@ def test_bounding_box(ctx_getter):
 
 # {{{ basic tree build test
 
+def run_build_test(builder, queue, dims, dtype, nparticles, do_plot, max_particles_in_box=30, nboxes_guess=None):
+    dtype = np.dtype(dtype)
+
+    print 75*"-"
+    print "%dD %s - %d particles - max %d per box - box count guess: %s" % (
+            dims, dtype.type.__name__, nparticles, max_particles_in_box, nboxes_guess)
+    print 75*"-"
+    particles = make_particle_array(queue, nparticles, dims, dtype)
+
+    if do_plot:
+        import matplotlib.pyplot as pt
+        pt.plot(particles[0].get(), particles[1].get(), "x")
+
+    queue.finish()
+    print "building..."
+    tree = builder(queue, particles,
+            max_particles_in_box=max_particles_in_box, debug=True,
+            nboxes_guess=nboxes_guess).get()
+    print "%d boxes, testing..." % tree.nboxes
+
+    sorted_particles = np.array(list(tree.sources))
+
+    unsorted_particles = np.array([pi.get() for pi in particles])
+    assert (sorted_particles
+            == unsorted_particles[:, tree.user_source_ids]).all()
+
+    all_good_so_far = True
+
+    if do_plot:
+        from boxtree import TreePlotter
+        plotter = TreePlotter(tree)
+        plotter.draw_tree(fill=False, edgecolor="black", zorder=10)
+        plotter.set_bounding_box()
+
+    for ibox in xrange(tree.nboxes):
+        extent_low, extent_high = tree.get_box_extent(ibox)
+
+        assert (extent_low >= tree.bounding_box[0] - 1e-12*tree.root_extent).all(), ibox
+        assert (extent_high <= tree.bounding_box[1] + 1e-12*tree.root_extent).all(), ibox
+
+        start = tree.box_source_starts[ibox]
+
+        box_particles = sorted_particles[:,start:start+tree.box_source_counts[ibox]]
+        good = (
+                (box_particles < extent_high[:, np.newaxis])
+                &
+                (extent_low[:, np.newaxis] <= box_particles)
+                )
+
+        all_good_here = good.all()
+        if do_plot and not all_good_here and all_good_so_far:
+            pt.plot(
+                    box_particles[0, np.where(~good)[1]],
+                    box_particles[1, np.where(~good)[1]], "ro")
+
+            plotter.draw_box(ibox, edgecolor="red")
+
+        if not all_good_here:
+            print "BAD BOX", ibox
+
+        all_good_so_far = all_good_so_far and all_good_here
+
+    if do_plot:
+        pt.gca().set_aspect("equal", "datalim")
+        pt.show()
+
+    assert all_good_so_far
+
+    print "done"
 @pytools.test.mark_test.opencl
 def test_particle_tree(ctx_getter, do_plot=False):
     ctx = ctx_getter()
     queue = cl.CommandQueue(ctx)
 
-    dtype = np.float64
+    from boxtree import TreeBuilder
+    builder = TreeBuilder(ctx)
 
-    def run_test(nparticles, do_plot, max_particles_in_box=30, nboxes_guess=None):
-        particles = make_particle_array(queue, nparticles, dims, dtype)
+    for dtype in [
+            #np.float64,
+            np.float32,
+            ]:
+        for dims in [2, 3]:
+            # test single-box corner case
+            run_build_test(builder, queue, dims,
+                    dtype, 4, do_plot=False)
 
-        if do_plot:
-            import matplotlib.pyplot as pt
-            pt.plot(particles[0].get(), particles[1].get(), "x")
+            # test bi-level corner case
+            run_build_test(builder, queue, dims,
+                    dtype, 50, do_plot=False)
 
-        from boxtree import TreeBuilder
-        tb = TreeBuilder(ctx)
+            # exercise reallocation code
+            run_build_test(builder, queue, dims, dtype, 10**5,
+                    do_plot=False, nboxes_guess=5)
 
-        queue.finish()
-        print "building..."
-        tree = tb(queue, particles,
-                max_particles_in_box=max_particles_in_box, debug=True,
-                nboxes_guess=nboxes_guess).get()
-        print "%d boxes, testing..." % tree.nboxes
+            # test many empty leaves corner case
+            run_build_test(builder, queue, dims, dtype, 10**5,
+                    do_plot=False, max_particles_in_box=5)
 
-        sorted_particles = np.array(list(tree.sources))
-
-        unsorted_particles = np.array([pi.get() for pi in particles])
-        assert (sorted_particles
-                == unsorted_particles[:, tree.user_source_ids]).all()
-
-        all_good_so_far = True
-
-        if do_plot:
-            from boxtree import TreePlotter
-            plotter = TreePlotter(tree)
-            plotter.draw_tree(fill=False, edgecolor="black", zorder=10)
-            plotter.set_bounding_box()
-
-        for ibox in xrange(tree.nboxes):
-            extent_low, extent_high = tree.get_box_extent(ibox)
-
-            assert (extent_low >= tree.bounding_box[0] - 1e-12*tree.root_extent).all(), ibox
-            assert (extent_high <= tree.bounding_box[1] + 1e-12*tree.root_extent).all(), ibox
-
-            start = tree.box_source_starts[ibox]
-
-            box_particles = sorted_particles[:,start:start+tree.box_source_counts[ibox]]
-            good = (
-                    (box_particles < extent_high[:, np.newaxis])
-                    &
-                    (extent_low[:, np.newaxis] <= box_particles)
-                    )
-
-            all_good_here = good.all()
-            if do_plot and not all_good_here and all_good_so_far:
-                pt.plot(
-                        box_particles[0, np.where(~good)[1]],
-                        box_particles[1, np.where(~good)[1]], "ro")
-
-                plotter.draw_box(ibox, edgecolor="red")
-
-            if not all_good_here:
-                print "BAD BOX", ibox
-
-            all_good_so_far = all_good_so_far and all_good_here
-
-        if do_plot:
-            pt.gca().set_aspect("equal", "datalim")
-            pt.show()
-
-        assert all_good_so_far
-
-        print "done"
-
-    for dims in [2, 3]:
-        # test single-box corner case
-        run_test(10, do_plot=False)
-
-        # test bi-level corner case
-        run_test(50, do_plot=False)
-
-        # exercise reallocation code
-        run_test(10**5, do_plot=False, nboxes_guess=5)
-
-        # test many empty leaves corner case
-        run_test(10**5, do_plot=False, max_particles_in_box=5)
-
-        # test vanilla tree build
-        run_test(10**5, do_plot=do_plot)
+            # test vanilla tree build
+            run_build_test(builder, queue, dims, dtype, 10**5,
+                    do_plot=do_plot)
 
 
 

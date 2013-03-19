@@ -1298,12 +1298,14 @@ class TreeBuilder(object):
                 for ax in axis_names) * (1+1e-4)
 
         # make bbox square and slightly larger at the top, to ensure scaled
-        # coordinates are alwyas < 1
+        # coordinates are always < 1
         bbox_min = np.empty(dimensions, coord_dtype)
         for i, ax in enumerate(axis_names):
             bbox_min[i] = bbox["min_"+ax]
-            bbox["max_"+ax] = bbox["min_"+ax] + root_extent
+
         bbox_max = bbox_min + root_extent
+        for i, ax in enumerate(axis_names):
+            bbox["max_"+ax] = bbox_max[i]
 
         # }}}
 
