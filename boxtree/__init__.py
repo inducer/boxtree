@@ -1496,37 +1496,45 @@ class TreeBuilder(object):
 
         # {{{ prune empty leaf boxes
 
-        # What is the original index of this box?
-        from_box_id = empty(nboxes, box_id_dtype)
+        if not kwargs.get("skip_prune"):
+            # What is the original index of this box?
+            from_box_id = empty(nboxes, box_id_dtype)
 
-        # Where should I put this box?
-        to_box_id = empty(nboxes, box_id_dtype)
+            # Where should I put this box?
+            to_box_id = empty(nboxes, box_id_dtype)
 
-        nboxes_post_prune_dev = empty((), dtype=box_id_dtype)
-        knl_info.find_prune_indices_kernel(
-                box_srcntgt_counts, to_box_id, from_box_id, nboxes_post_prune_dev,
-                size=nboxes)
+            nboxes_post_prune_dev = empty((), dtype=box_id_dtype)
+            knl_info.find_prune_indices_kernel(
+                    box_srcntgt_counts, to_box_id, from_box_id, nboxes_post_prune_dev,
+                    size=nboxes)
 
-        nboxes_post_prune = int(nboxes_post_prune_dev.get())
+            nboxes_post_prune = int(nboxes_post_prune_dev.get())
 
-        if debug:
-            print "%d empty leaves" % (nboxes-nboxes_post_prune)
+            if debug:
+                print "%d empty leaves" % (nboxes-nboxes_post_prune)
 
-        prune_empty = partial(self._gappy_copy_and_map,
-                queue, allocator, nboxes_post_prune, from_box_id)
+            prune_empty = partial(self._gappy_copy_and_map,
+                    queue, allocator, nboxes_post_prune, from_box_id)
 
-        box_srcntgt_starts = prune_empty(box_srcntgt_starts)
-        box_srcntgt_counts = prune_empty(box_srcntgt_counts)
+            box_srcntgt_starts = prune_empty(box_srcntgt_starts)
+            box_srcntgt_counts = prune_empty(box_srcntgt_counts)
 
-        srcntgt_box_ids = cl.array.take(to_box_id, srcntgt_box_ids)
+            if debug:
+                assert (box_srcntgt_counts.get() > 0).all()
 
-        box_parent_ids = prune_empty(box_parent_ids, map_values=to_box_id)
-        box_morton_nrs = prune_empty(box_morton_nrs)
+            srcntgt_box_ids = cl.array.take(to_box_id, srcntgt_box_ids)
 
-        # Remap level_starts to new box IDs.
-        # FIXME: It would be better to do this on the device.
-        level_starts = list(to_box_id.get()[np.array(level_starts[:-1], box_id_dtype)])
-        level_starts = np.array(level_starts + [nboxes_post_prune], box_id_dtype)
+            box_parent_ids = prune_empty(box_parent_ids, map_values=to_box_id)
+            box_morton_nrs = prune_empty(box_morton_nrs)
+
+            # Remap level_starts to new box IDs.
+            # FIXME: It would be better to do this on the device.
+            level_starts = list(to_box_id.get()[np.array(level_starts[:-1], box_id_dtype)])
+            level_starts = level_starts + [nboxes_post_prune]
+        else:
+            nboxes_post_prune = nboxes
+
+        level_starts = np.array(level_starts, box_id_dtype)
 
         # }}}
 
