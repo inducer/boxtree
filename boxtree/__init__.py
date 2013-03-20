@@ -1523,7 +1523,8 @@ class TreeBuilder(object):
 
         # {{{ prune empty leaf boxes
 
-        if not kwargs.get("skip_prune"):
+        is_pruned = not kwargs.get("skip_prune")
+        if is_pruned:
             # What is the original index of this box?
             from_box_id = empty(nboxes, box_id_dtype)
 
@@ -1739,6 +1740,8 @@ class TreeBuilder(object):
 
                 user_source_ids=user_source_ids,
                 sorted_target_ids=sorted_target_ids,
+
+                _is_pruned=is_pruned,
                 )
 
     # }}}

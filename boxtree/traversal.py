@@ -661,6 +661,10 @@ class FMMTraversalBuilder:
         :arg tree: A :class:`boxtree.Tree` instance.
         :return: A new instance of :class:`FMMTraversalInfo`.
         """
+
+        if not tree._is_pruned:
+            raise ValueError("tree must be pruned for traversal generation")
+
         from pytools import div_ceil
         max_levels = div_ceil(tree.nlevels, 10) * 10
 
