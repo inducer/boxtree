@@ -85,7 +85,7 @@ def test_bounding_box(ctx_getter):
 
 # {{{ basic tree build test
 
-def run_build_test(builder, queue, dims, dtype, nparticles, do_plot, max_particles_in_box=30, nboxes_guess=None):
+def run_build_test(builder, queue, dims, dtype, nparticles, do_plot, max_particles_in_box=30, **kwargs):
     dtype = np.dtype(dtype)
 
     if dtype == np.float32:
@@ -96,8 +96,9 @@ def run_build_test(builder, queue, dims, dtype, nparticles, do_plot, max_particl
         raise RuntimeError("unsupported dtype: %s" % dtype)
 
     print 75*"-"
-    print "%dD %s - %d particles - max %d per box - box count guess: %s" % (
-            dims, dtype.type.__name__, nparticles, max_particles_in_box, nboxes_guess)
+    print "%dD %s - %d particles - max %d per box - %s" % (
+            dims, dtype.type.__name__, nparticles, max_particles_in_box,
+            " - ".join("%s: %s" % (k, v) for k, v in kwargs.iteritems()))
     print 75*"-"
     particles = make_particle_array(queue, nparticles, dims, dtype)
 
@@ -109,7 +110,7 @@ def run_build_test(builder, queue, dims, dtype, nparticles, do_plot, max_particl
     print "building..."
     tree = builder(queue, particles,
             max_particles_in_box=max_particles_in_box, debug=True,
-            nboxes_guess=nboxes_guess).get()
+            **kwargs).get()
     print "%d boxes, testing..." % tree.nboxes
 
     sorted_particles = np.array(list(tree.sources))
@@ -126,12 +127,26 @@ def run_build_test(builder, queue, dims, dtype, nparticles, do_plot, max_particl
         plotter.draw_tree(fill=False, edgecolor="black", zorder=10)
         plotter.set_bounding_box()
 
+    from boxtree import box_flags_enum as bfe
+    BOX_NONEMPTY = bfe.HAS_SOURCES | bfe.HAS_TARGETS
+
     scaled_tol = tol*tree.root_extent
     for ibox in xrange(tree.nboxes):
-        extent_low, extent_high = tree.get_box_extent(ibox)
 
-        assert (extent_low >= tree.bounding_box[0] - scaled_tol).all(), ibox
-        assert (extent_high <= tree.bounding_box[1] + scaled_tol).all(), ibox
+        # Empty boxes exist in non-pruned trees--which themselves are undocumented.
+        # These boxes will fail these tests.
+        if not (tree.box_flags[ibox] & BOX_NONEMPTY):
+            continue
+
+        extent_low, extent_high = tree.get_box_extent(ibox)
+        if extent_low[0] == extent_low[1]:
+            print "ZERO", ibox, tree.box_centers[:, ibox]
+            1/0
+
+        assert (extent_low >= tree.bounding_box[0] - scaled_tol).all(), (
+                ibox, extent_low, tree.bounding_box[0])
+        assert (extent_high <= tree.bounding_box[1] + scaled_tol).all(), (
+                ibox, extent_high, tree.bounding_box[1])
 
         start = tree.box_source_starts[ibox]
 
@@ -182,6 +197,10 @@ def test_particle_tree(ctx_getter, do_plot=False):
             # test bi-level corner case
             run_build_test(builder, queue, dims,
                     dtype, 50, do_plot=False)
+
+            # test unpruned tree build
+            run_build_test(builder, queue, dims, dtype, 10**5,
+                    do_plot=False, skip_prune=True)
 
             # exercise reallocation code
             run_build_test(builder, queue, dims, dtype, 10**5,
