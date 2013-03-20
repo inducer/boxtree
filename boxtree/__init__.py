@@ -454,7 +454,7 @@ BOX_INFO_KERNEL_TPL =  ElementwiseTemplate(
             // Also, those should have gotten pruned by this point.
 
             box_flags[box_id] = 0; // no children, no sources
-            return;
+            PYOPENCL_ELWISE_CONTINUE;
         }
         else if (p_count > max_particles_in_box)
         {
