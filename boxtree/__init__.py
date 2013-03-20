@@ -1701,9 +1701,11 @@ class TreeBuilder(object):
         # }}}
 
         nlevels = len(level_starts) - 1
-        assert level + 1 == nlevels
+        assert level + 1 == nlevels, (level+1, nlevels)
         if debug:
-            assert np.max(box_levels.get()) + 1 == nlevels
+            max_level = np.max(box_levels.get())
+
+            assert max_level + 1 == nlevels
 
         del nlevels
 
