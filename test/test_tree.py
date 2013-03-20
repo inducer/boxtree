@@ -128,14 +128,13 @@ def run_build_test(builder, queue, dims, dtype, nparticles, do_plot, max_particl
         plotter.set_bounding_box()
 
     from boxtree import box_flags_enum as bfe
-    BOX_NONEMPTY = bfe.HAS_SOURCES | bfe.HAS_TARGETS
 
     scaled_tol = tol*tree.root_extent
     for ibox in xrange(tree.nboxes):
 
         # Empty boxes exist in non-pruned trees--which themselves are undocumented.
         # These boxes will fail these tests.
-        if not (tree.box_flags[ibox] & BOX_NONEMPTY):
+        if not (tree.box_flags[ibox] & bfe.IS_NONEMPTY):
             continue
 
         extent_low, extent_high = tree.get_box_extent(ibox)

@@ -165,6 +165,7 @@ class box_flags_enum:
 
     HAS_SOURCES = 1
     HAS_TARGETS = 2
+    IS_NONEMPTY = HAS_SOURCES | HAS_TARGETS
     HAS_CHILDREN = 4
 
     @classmethod
