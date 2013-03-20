@@ -1160,7 +1160,8 @@ class TreeBuilder(object):
                 scan_expr="a+b", neutral="0",
                 output_statement="""
                     to_box_id[i] = i-prev_item;
-                    from_box_id[i-prev_item] = i;
+                    if (box_srcntgt_counts[i])
+                        from_box_id[i-prev_item] = i;
                     if (i+1 == N) *nboxes_post_prune = N-item;
                     """)
 
