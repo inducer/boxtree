@@ -164,7 +164,8 @@ class box_flags_enum:
     dtype = np.dtype(np.uint8)
 
     HAS_SOURCES = 1
-    HAS_CHILDREN = 2
+    HAS_TARGETS = 2
+    HAS_CHILDREN = 4
 
     @classmethod
     def get_c_defines(cls):
@@ -435,6 +436,7 @@ BOX_INFO_KERNEL_TPL =  ElementwiseTemplate(
         bbox_t bbox,
         box_id_t aligned_nboxes,
         particle_id_t *box_srcntgt_counts,
+        particle_id_t *box_source_counts,
         particle_id_t max_particles_in_box,
         /* output */
         box_id_t *box_child_ids, /* [2**dimensions, aligned_nboxes] */
@@ -445,24 +447,57 @@ BOX_INFO_KERNEL_TPL =  ElementwiseTemplate(
     operation=r"""//CL:mako//
         box_id_t box_id = i;
 
+        /* Note that srcntgt_counts is a cumulative count over all children,
+         * up to the point below where it is set to zero for non-leaves.
+         *
+         * box_srcntgt_counts is zero exactly for empty leaves because it gets
+         * initialized to zero and never gets set to another value. If you
+         * check above, most box info is only ever initialized *if* there's a
+         * particle in the box, because the sort/build is a repeated scan over
+         * *particles* (not boxes). Thus, no particle -> no work done.
+         */
+
         particle_id_t p_count = box_srcntgt_counts[box_id];
+
+        box_flags_t my_box_flags = 0;
+
         if (p_count == 0)
         {
-            // Lots of stuff uninitialized for these guys, prevent
+            // Lots of stuff uninitialized for empty leaves, prevent
             // damage by quitting now.
 
-            // Also, those should have gotten pruned by this point.
+            // Also, those should have gotten pruned by this point,
+            // unless skip_prune is True.
 
             box_flags[box_id] = 0; // no children, no sources
             PYOPENCL_ELWISE_CONTINUE;
         }
         else if (p_count > max_particles_in_box)
         {
-            box_flags[box_id] = BOX_HAS_CHILDREN;
+            my_box_flags |= BOX_HAS_CHILDREN;
+
+            // This is a non-leaf. All of its sources and targets are in its children.
             box_srcntgt_counts[box_id] = 0;
         }
+
+        // Same pointer? Sources and targets are the same.
+        if (box_source_counts == box_srcntgt_counts)
+        {
+            if (p_count)
+                my_box_flags |= BOX_HAS_SOURCES | BOX_HAS_TARGETS;
+        }
         else
-            box_flags[box_id] = BOX_HAS_SOURCES;
+        {
+            particle_id_t s_count = box_source_counts[box_id];
+            particle_id_t t_count = p_count - s_count;
+
+            if (s_count)
+                my_box_flags |= BOX_HAS_SOURCES;
+            if (t_count)
+                my_box_flags |= BOX_HAS_TARGETS;
+        }
+
+        box_flags[box_id] = my_box_flags;
 
         box_id_t parent_id = box_parent_ids[box_id];
         morton_nr_t morton_nr = box_morton_nrs[box_id];
@@ -499,14 +534,6 @@ BOX_INFO_KERNEL_TPL =  ElementwiseTemplate(
         %endfor
 
         box_levels[box_id] = level;
-
-        /* box_srcntgt_counts is zero for empty leaves because it gets initialized
-         * to zero and never gets set. If you check above, most box info is only
-         * ever initialized *if* there's a particle in the box, because the sort/build
-         * is a repeated scan over *particles* (not boxes). Thus, no particle -> no
-         * work done.
-         */
-
     """)
 
 # }}}
@@ -1657,13 +1684,13 @@ class TreeBuilder(object):
 
         box_child_ids = zeros((2**dimensions, aligned_nboxes), box_id_dtype)
         box_centers = empty((dimensions, aligned_nboxes), coord_dtype)
-        box_levels = empty(nboxes_post_prune, np.uint8)
+        box_levels = zeros(nboxes_post_prune, np.uint8)
         box_flags = empty(nboxes_post_prune, box_flags_enum.dtype)
 
         knl_info.box_info_kernel(
                 # input:
                 box_parent_ids, box_morton_nrs, bbox, aligned_nboxes,
-                box_srcntgt_counts, max_particles_in_box,
+                box_srcntgt_counts, box_source_counts, max_particles_in_box,
 
                 # output:
                 box_child_ids, box_centers, box_levels, box_flags,
