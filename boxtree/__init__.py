@@ -478,7 +478,7 @@ BOX_INFO_KERNEL_TPL =  ElementwiseTemplate(
             my_box_flags |= BOX_HAS_CHILDREN;
 
             // This is a non-leaf. All of its sources and targets are in its children.
-            box_srcntgt_counts[box_id] = 0;
+            box_srcntgt_counts[box_id] = p_count = 0;
         }
 
         // Same pointer? Sources and targets are the same.

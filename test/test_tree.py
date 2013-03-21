@@ -337,13 +337,14 @@ def test_tree_connectivity(ctx_getter):
         from boxtree.traversal import FMMTraversalBuilder
         tg = FMMTraversalBuilder(ctx)
         trav = tg(queue, tree).get()
+        tree = tree.get()
 
         print "traversal built"
 
-        levels = tree.box_levels.get()
-        parents = tree.box_parent_ids.get().T
-        children = tree.box_child_ids.get().T
-        centers = tree.box_centers.get().T
+        levels = tree.box_levels
+        parents = tree.box_parent_ids.T
+        children = tree.box_child_ids.T
+        centers = tree.box_centers.T
 
         # {{{ parent and child relations, levels match up
 
@@ -370,10 +371,10 @@ def test_tree_connectivity(ctx_getter):
         for ileaf, ibox in enumerate(trav.leaf_boxes):
             start, end = trav.neighbor_leaves_starts[ileaf:ileaf+2]
             nbl = trav.neighbor_leaves_lists[start:end]
+
             assert ibox in nbl
             for jbox in nbl:
-                assert (0 == children[jbox]).all()
-
+                assert (0 == children[jbox]).all(), (ibox, jbox, children[jbox])
         print "list 1 tested"
 
         # }}}
