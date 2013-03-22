@@ -688,10 +688,11 @@ def test_pyfmmlib_fmm(ctx_getter):
     sources = make_particle_array(queue, nsources, dims, dtype, seed=15)
     targets = (
             make_particle_array(queue, ntargets, dims, dtype, seed=18)
-            + np.array([5, 0]))
+            + np.array([2, 0]))
 
     sources_host = particle_array_to_host(sources)
     targets_host = particle_array_to_host(targets)
+
 
     from boxtree import TreeBuilder
     tb = TreeBuilder(ctx)
@@ -707,7 +708,10 @@ def test_pyfmmlib_fmm(ctx_getter):
 
     print "traversal built"
 
-    weights = np.random.randn(nsources)
+    from pyopencl.clrandom import RanluxGenerator
+    rng = RanluxGenerator(queue, seed=20)
+
+    weights = rng.uniform(queue, nsources, dtype=np.float64).get()
     #weights = np.ones(nsources)
 
     from pyfmmlib import hpotgrad2dall_vec
@@ -716,7 +720,7 @@ def test_pyfmmlib_fmm(ctx_getter):
             targets=targets_host.T, zk=helmholtz_k)
 
     from boxtree.pyfmmlib_integration import Helmholtz2DExpansionWrangler
-    wrangler = Helmholtz2DExpansionWrangler(trav.tree, helmholtz_k, nterms=15)
+    wrangler = Helmholtz2DExpansionWrangler(trav.tree, helmholtz_k, nterms=30)
 
     from boxtree.fmm import drive_fmm
     pot = drive_fmm(trav, wrangler, weights)
