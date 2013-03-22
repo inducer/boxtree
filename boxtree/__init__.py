@@ -702,6 +702,7 @@ class Tree(FromDeviceGettableRecord):
         return self.box_child_ids.shape[-1]
 
     def plot(self, **kwargs):
+        from boxtree.visualization import TreePlotter
         plotter = TreePlotter(self)
         plotter.draw_tree(fill=False, edgecolor="black", **kwargs)
 
@@ -711,63 +712,6 @@ class Tree(FromDeviceGettableRecord):
         extent_low = self.box_centers[:, ibox] - 0.5*box_size
         extent_high = extent_low + box_size
         return extent_low, extent_high
-
-
-# }}}
-
-# {{{ visualization
-
-class TreePlotter:
-    """Assumes that the tree has data living on the host. See :meth:`Tree.get`."""
-    def __init__(self, tree):
-        self.tree = tree
-
-    def draw_tree(self, **kwargs):
-        if self.tree.dimensions != 2:
-            raise NotImplementedError("can only plot 2D trees for now")
-
-        for ibox in xrange(self.tree.nboxes):
-            self.draw_box(ibox, **kwargs)
-
-    def set_bounding_box(self):
-        import matplotlib.pyplot as pt
-        bbox_min, bbox_max = self.tree.bounding_box
-        pt.xlim(bbox_min[0], bbox_max[0])
-        pt.ylim(bbox_min[1], bbox_max[1])
-
-    def draw_box(self, ibox, **kwargs):
-        """
-        :arg kwargs: keyword arguments to pass on to :class:`matplotlib.patches.PathPatch`,
-            e.g. `facecolor='red', edgecolor='yellow', alpha=0.5`
-        """
-
-        el, eh = self.tree.get_box_extent(ibox)
-
-        import matplotlib.pyplot as pt
-        import matplotlib.patches as mpatches
-        from matplotlib.path import Path
-
-        pathdata = [
-            (Path.MOVETO, (el[0], el[1])),
-            (Path.LINETO, (eh[0], el[1])),
-            (Path.LINETO, (eh[0], eh[1])),
-            (Path.LINETO, (el[0], eh[1])),
-            (Path.CLOSEPOLY, (el[0], el[1])),
-            ]
-
-        codes, verts = zip(*pathdata)
-        path = Path(verts, codes)
-        patch = mpatches.PathPatch(path, **kwargs)
-        pt.gca().add_patch(patch)
-
-    def draw_box_numbers(self):
-        import matplotlib.pyplot as pt
-        for ibox in xrange(self.tree.nboxes):
-            x, y = self.centers[:, ibox]
-            lev = int(self.levels[ibox])
-            pt.text(x, y, str(ibox), fontsize=20*1.15**(-lev),
-                    ha="center", va="center",
-                    bbox=dict(facecolor='white', alpha=0.5, lw=0))
 
 
 # }}}

@@ -24,6 +24,7 @@ THE SOFTWARE.
 
 
 
+
 import numpy as np
 import numpy.linalg as la
 import sys
@@ -122,7 +123,7 @@ def run_build_test(builder, queue, dims, dtype, nparticles, do_plot, max_particl
     all_good_so_far = True
 
     if do_plot:
-        from boxtree import TreePlotter
+        from boxtree.visualization import TreePlotter
         plotter = TreePlotter(tree)
         plotter.draw_tree(fill=False, edgecolor="black", zorder=10)
         plotter.set_bounding_box()
@@ -260,7 +261,7 @@ def test_source_target_tree(ctx_getter, do_plot=False):
         all_good_so_far = True
 
         if do_plot:
-            from boxtree import TreePlotter
+            from boxtree.visualization import TreePlotter
             plotter = TreePlotter(tree)
             plotter.draw_tree(fill=False, edgecolor="black", zorder=10)
             plotter.set_bounding_box()
@@ -359,7 +360,7 @@ def test_tree_connectivity(ctx_getter):
 
         if 0:
             import matplotlib.pyplot as pt
-            from boxtree import TreePlotter
+            from boxtree.visualization import TreePlotter
             plotter = TreePlotter(tree)
             plotter.draw_tree(fill=False, edgecolor="black")
             plotter.draw_box_numbers()
@@ -743,7 +744,7 @@ def plot_traversal(ctx_getter, do_plot=False):
         tg = FMMTraversalBuilder(ctx)
         trav = tg(queue, tree).get()
 
-        from boxtree import TreePlotter
+        from boxtree.visualization import TreePlotter
         plotter = TreePlotter(tree)
         plotter.draw_tree(fill=False, edgecolor="black")
         #plotter.draw_box_numbers()
