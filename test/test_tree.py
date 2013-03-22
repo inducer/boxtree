@@ -47,6 +47,14 @@ def make_particle_array(queue, nparticles, dims, dtype, seed=15):
         for i in range(dims)])
 
 
+
+
+def particle_array_to_host(parray):
+    return np.array([x.get() for x in parray], order="F").T
+
+
+
+
 # {{{ bounding box test
 
 def test_bounding_box(ctx_getter):
@@ -568,85 +576,155 @@ def test_fmm_completeness(ctx_getter):
     ctx = ctx_getter()
     queue = cl.CommandQueue(ctx)
 
-    for dims in [2]:
-        nparticles = 10**6
-        dtype = np.float64
+    for dims in [
+            2,
+            3
+            ]:
+        for nsources, ntargets in [
+                (10**6, None),
+                (10**5, 3 * 10**5),
+                ]:
+            dtype = np.float64
 
-        from pyopencl.clrandom import RanluxGenerator
-        rng = RanluxGenerator(queue, seed=15)
+            sources = make_particle_array(queue, nsources, dims, dtype, seed=15)
 
-        from pytools.obj_array import make_obj_array
-        particles = make_obj_array([
-            rng.normal(queue, nparticles, dtype=dtype)
-            for i in range(dims)])
+            if ntargets is None:
+                # This says "same as sources" to the tree builder.
+                targets = None
+            else:
+                targets = make_particle_array(
+                        queue, ntargets, dims, dtype, seed=18)
 
-        from boxtree import TreeBuilder
-        tb = TreeBuilder(ctx)
+            from boxtree import TreeBuilder
+            tb = TreeBuilder(ctx)
 
-        tree = tb(queue, particles, max_particles_in_box=30, debug=True)
+            tree = tb(queue, sources, targets=targets,
+                    max_particles_in_box=30, debug=True)
 
-        print "tree built"
+            print "tree built"
 
-        from boxtree.traversal import FMMTraversalBuilder
-        tg = FMMTraversalBuilder(ctx)
-        trav = tg(queue, tree).get()
+            from boxtree.traversal import FMMTraversalBuilder
+            tg = FMMTraversalBuilder(ctx)
+            trav = tg(queue, tree).get()
 
-        print "traversal built"
+            print "traversal built"
 
-        weights = np.random.randn(nparticles)
-        #weights = np.ones(nparticles)
-        weights_sum = np.sum(weights)
+            weights = np.random.randn(nsources)
+            #weights = np.ones(nparticles)
+            weights_sum = np.sum(weights)
 
-        from boxtree.fmm import  drive_fmm
-        wrangler = ConstantOneExpansionWrangler(trav.tree)
+            from boxtree.fmm import drive_fmm
+            wrangler = ConstantOneExpansionWrangler(trav.tree)
 
-        assert (wrangler.reorder_potentials(
-                wrangler.reorder_src_weights(weights)) == weights).all()
+            if ntargets is None:
+                # This check only works for targets == sources.
+                assert (wrangler.reorder_potentials(
+                        wrangler.reorder_src_weights(weights)) == weights).all()
 
-        pot = drive_fmm(trav, wrangler, weights)
+            pot = drive_fmm(trav, wrangler, weights)
 
-        # {{{ build, evaluate matrix (and identify missing interactions)
+            # {{{ build, evaluate matrix (and identify missing interactions)
 
-        if 0:
-            mat = np.zeros((nparticles, nparticles), dtype)
-            from pytools import ProgressBar
-            pb = ProgressBar("matrix", nparticles)
-            for i in xrange(nparticles):
-                unit_vec = np.zeros(nparticles, dtype=dtype)
-                unit_vec[i] = 1
-                mat[:,i] = drive_fmm(trav, wrangler, unit_vec)
-                pb.progress()
-            pb.finished()
+            if 0:
+                mat = np.zeros((ntargets, nsources), dtype)
+                from pytools import ProgressBar
+                pb = ProgressBar("matrix", nsources)
+                for i in xrange(nsources):
+                    unit_vec = np.zeros(nsources, dtype=dtype)
+                    unit_vec[i] = 1
+                    mat[:,i] = drive_fmm(trav, wrangler, unit_vec)
+                    pb.progress()
+                pb.finished()
 
-            missing_tgts, missing_srcs = np.where(mat == 0)
+                missing_tgts, missing_srcs = np.where(mat == 0)
 
-            if len(missing_tgts):
-                import matplotlib.pyplot as pt
+                if len(missing_tgts):
+                    import matplotlib.pyplot as pt
 
-                from boxtree import TreePlotter
-                plotter = TreePlotter(tree)
-                plotter.draw_tree(fill=False, edgecolor="black")
-                plotter.draw_box_numbers()
-                plotter.set_bounding_box()
+                    from boxtree.visualization import TreePlotter
+                    plotter = TreePlotter(tree)
+                    plotter.draw_tree(fill=False, edgecolor="black")
+                    plotter.draw_box_numbers()
+                    plotter.set_bounding_box()
 
-                for tgt, src in zip(missing_tgts, missing_srcs):
-                    pt.plot(
-                            trav.tree.particles[0][tgt],
-                            trav.tree.particles[1][tgt],
-                            "ro")
-                    pt.plot(
-                            trav.tree.particles[0][src],
-                            trav.tree.particles[1][src],
-                            "go")
+                    for tgt, src in zip(missing_tgts, missing_srcs):
+                        pt.plot(
+                                trav.tree.particles[0][tgt],
+                                trav.tree.particles[1][tgt],
+                                "ro")
+                        pt.plot(
+                                trav.tree.particles[0][src],
+                                trav.tree.particles[1][src],
+                                "go")
 
-                pt.show()
+                    pt.show()
 
-            #pt.spy(mat)
-            #pt.show()
+                #pt.spy(mat)
+                #pt.show()
 
-        # }}}
+            # }}}
 
-        assert la.norm((pot - weights_sum) / nparticles) < 1e-8
+            assert la.norm((pot - weights_sum) / nsources) < 1e-8
+
+# }}}
+
+# {{{ test Helmholtz fmm with pyfmmlib
+
+@pytools.test.mark_test.opencl
+def test_pyfmmlib_fmm(ctx_getter):
+    from pytest import importorskip
+    importorskip("pyfmmlib")
+
+    ctx = ctx_getter()
+    queue = cl.CommandQueue(ctx)
+
+    nsources = 10**3
+    ntargets = 10**3
+    dims = 2
+    dtype = np.float64
+
+    helmholtz_k = 2
+
+    sources = make_particle_array(queue, nsources, dims, dtype, seed=15)
+    targets = (
+            make_particle_array(queue, ntargets, dims, dtype, seed=18)
+            + np.array([5, 0]))
+
+    sources_host = particle_array_to_host(sources)
+    targets_host = particle_array_to_host(targets)
+
+    from boxtree import TreeBuilder
+    tb = TreeBuilder(ctx)
+
+    tree = tb(queue, sources, targets=targets,
+            max_particles_in_box=30, debug=True)
+
+    print "tree built"
+
+    from boxtree.traversal import FMMTraversalBuilder
+    tg = FMMTraversalBuilder(ctx)
+    trav = tg(queue, tree).get()
+
+    print "traversal built"
+
+    weights = np.random.randn(nsources)
+    #weights = np.ones(nsources)
+
+    from pyfmmlib import hpotgrad2dall_vec
+    ref_pot, _, _ = hpotgrad2dall_vec(ifgrad=False, ifhess=False,
+            sources=sources_host.T, charge=weights,
+            targets=targets_host.T, zk=helmholtz_k)
+
+    from boxtree.pyfmmlib_integration import Helmholtz2DExpansionWrangler
+    wrangler = Helmholtz2DExpansionWrangler(trav.tree, helmholtz_k, nterms=15)
+
+    from boxtree.fmm import drive_fmm
+    pot = drive_fmm(trav, wrangler, weights)
+
+    rel_err = la.norm(pot - ref_pot) / la.norm(ref_pot)
+    print rel_err
+    #assert  < 1e-8
+    #assert la.norm((pot - weights_sum) / nparticles) < 1e-8
 
 # }}}
 
