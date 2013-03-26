@@ -4,14 +4,27 @@ Tree building
 .. automodule:: boxtree
 .. moduleauthor:: Andreas Kloeckner <inform@tiker.net>
 
-Output
-------
+Tree data structure
+-------------------
 
 .. autoclass:: box_flags_enum
     :members:
     :undoc-members:
 
 .. autoclass:: Tree()
+
+    **Methods**
+
+    .. automethod:: get
+
+    .. automethod:: expand_sources
+
+Tree with linked point sources
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+.. autoclass:: TreeWithLinkedPointSources()
+
+    **Methods**
 
     .. automethod:: get
 
@@ -27,8 +40,8 @@ Traversal building
 
 .. automodule:: boxtree.traversal
 
-Output
-------
+Traversal data structure
+------------------------
 
 .. autoclass:: FMMTraversalInfo()
 

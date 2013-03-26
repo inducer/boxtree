@@ -34,12 +34,28 @@ from boxtree.tools import FromDeviceGettableRecord, get_type_moniker
 # {{{ comments/docs
 
 __doc__ = """
-This tree builder can be run in two modes:
+This module sorts particles into an adaptively refined quad/octree.
+See :mod:`boxtree.traversal` for computing fast multipole interaction
+lists on this tree structure. Note that while traversal generation
+builds on the result of particle sorting (described here),
+it is completely distinct in the software sense.
+
+The tree builder can be run in three modes:
 
 * one where no distinction is made between sources and targets. In this mode,
   all participants in the interaction are called 'particles'.
+  (*targets is None* in the call to :meth:`TreeBuilder.__call__`)
 
-* one where a distinction is made.
+* one where a distinction between sources and targets is made.
+  (*targets is not None* in the call to :meth:`TreeBuilder.__call__`)
+
+* one where a distinction between sources and targets is made,
+  and where sources are considered to have an extent, given by
+  a radius.
+  (``targets is not None`` and ``source_radii is not None`` in the
+  call to :meth:`TreeBuilder.__call__`)
+
+.. _particle-orderings:
 
 Particle Orderings
 ------------------
@@ -54,6 +70,17 @@ There are four particle orderings:
 :attr:`Tree.user_source_ids` helps translate source arrays into
 tree order for processing. :attr:`Tree.sorted_target_ids`
 helps translate potentials back into user target order for output.
+
+Sources with extent
+-------------------
+
+By default, source particles are considered to be points. If *source_radii* is
+passed to :class:`TreeBuilder.__call__`, however, this is no longer true. Each
+source then has an :math:`l^\infty` 'radius'. Each such source is typically
+then later linked to a set of related point sources contained within the
+extent. (See :meth:`Tree.link_point_sources` for more.)
+
+Note that targets with extent are not supported.
 """
 
 
@@ -119,6 +146,8 @@ helps translate potentials back into user target order for output.
 AXIS_NAMES = ("x", "y", "z", "w")
 
 
+
+
 class _KernelInfo(Record):
     pass
 
@@ -131,18 +160,20 @@ def padded_bin(i, l):
 # {{{ data types
 
 @memoize
-def make_morton_bin_count_type(device, dimensions, particle_id_dtype, have_nonleaf_sources):
+def make_morton_bin_count_type(device, dimensions, particle_id_dtype, sources_have_extent):
     fields = []
+
+    # Non-child sources are sorted *before* all the child sources.
+    if sources_have_extent:
+        fields.append(("nonchild_sources", particle_id_dtype))
+
     for mnr in range(2**dimensions):
         fields.append(("pcnt%s" % padded_bin(mnr, dimensions), particle_id_dtype))
-
-    if have_nonleaf_sources:
-        fields.append(("nonchild_sources", particle_id_dtype))
 
     dtype = np.dtype(fields)
 
     name_suffix = ""
-    if have_nonleaf_sources:
+    if sources_have_extent:
         name_suffix = "_nls"
 
     name = "boxtree_morton_bin_count_%dd_p%s%s_t" % (
@@ -222,6 +253,10 @@ PREAMBLE_TPL = Template(r"""//CL//
         return ${get_count_for_branch("")};
     }
 
+    #define STICK_OUT_FACTOR ((coord_t) ${stick_out_factor})
+
+    // Use this as dbg_printf(("oh snap: %d\n", stuff));
+    // Note the double parentheses.
     #ifdef DEBUG
         #define dbg_printf(ARGS) printf ARGS
     #else
@@ -238,7 +273,7 @@ SCAN_PREAMBLE_TPL = Template(r"""//CL//
     scan_t scan_t_neutral()
     {
         scan_t result;
-        %if have_nonleaf_sources:
+        %if sources_have_extent:
             result.nonchild_sources = 0;
         %endif
         %for mnr in range(2**dimensions):
@@ -251,7 +286,7 @@ SCAN_PREAMBLE_TPL = Template(r"""//CL//
     {
         if (!across_seg_boundary)
         {
-            %if have_nonleaf_sources:
+            %if sources_have_extent:
                 b.nonchild_sources += a.nonchild_sources;
             %endif
 
@@ -265,26 +300,44 @@ SCAN_PREAMBLE_TPL = Template(r"""//CL//
     }
 
     scan_t scan_t_from_particle(
-        int i,
-        int level,
-        bbox_t *bbox,
-        global morton_nr_t *morton_nrs,
+        const int i,
+        const int level,
+        bbox_t const *bbox,
+        global morton_nr_t *morton_nrs, // output/side effect
         global particle_id_t *user_srcntgt_ids
         %for ax in axis_names:
-            , global coord_t *${ax}
+            , global const coord_t *${ax}
         %endfor
+        %if sources_have_extent:
+            , global const coord_t *source_radii
+        %endif
     )
     {
         particle_id_t user_srcntgt_id = user_srcntgt_ids[i];
 
-        // Note that the upper bound must be slightly larger than the highest
-        // found coordinate, so that 1.0 is never reached as a scaled
-        // coordinate.
-
         %for ax in axis_names:
+            // Most FMMs are isotropic, i.e. global_extent_{x,y,z} are all the same.
+            // Nonetheless, the gain from exploiting this assumption seems so
+            // minimal that exploiting it here didn't seem worthwhile.
+
+            coord_t global_min_${ax} = bbox->min_${ax};
+            coord_t global_extent_${ax} = bbox->max_${ax} - global_min_${ax};
+            coord_t srcntgt_${ax} = ${ax}[user_srcntgt_id];
+
+            // Note that the upper bound is computed to be slightly larger than
+            // the highest found coordinate, so that 1.0 is never reached as a
+            // scaled coordinate.
+
             unsigned ${ax}_bits = (unsigned) (
-                ((${ax}[user_srcntgt_id]-bbox->min_${ax})/(bbox->max_${ax}-bbox->min_${ax}))
+                ((srcntgt_${ax} - global_min_${ax}) / global_extent_${ax})
                 * (1U << level));
+
+            %if sources_have_extent:
+                // Need to compute center to compare excess with STICK_OUT_FACTOR.
+                coord_t next_level_box_center_${ax} =
+                    global_min_${ax}
+                    + global_extent_${ax} * (${ax}_bits + (coord_t) 0.5) / ((coord_t) (1U << level));
+            %endif
         %endfor
 
         unsigned level_morton_number = 0
@@ -294,7 +347,9 @@ SCAN_PREAMBLE_TPL = Template(r"""//CL//
             ;
 
         scan_t result;
-        %if have_nonleaf_sources:
+        %if sources_have_extent:
+            coord_t radius = source_radii[i];
+
             result.nonchild_sources = FIXME;
         %endif
         %for mnr in range(2**dimensions):
@@ -542,10 +597,14 @@ BOX_INFO_KERNEL_TPL =  ElementwiseTemplate(
 # {{{ tree data structure (output)
 
 class Tree(FromDeviceGettableRecord):
-    """
+    """A quad/octree consisting of particles sorted into a hierarchy of boxes.
+    Optionally, particles may be designated 'sources' and 'targets'. They
+    may also be assigned radii which restrict the minimum size of the box
+    into which they may be sorted.
+
     **Flags**
 
-    .. attribute:: have_nonleaf_sources
+    .. attribute:: sources_have_extent
 
         whether this tree has sources in non-leaf boxes
 
@@ -594,25 +653,32 @@ class Tree(FromDeviceGettableRecord):
 
         ``coord_t [dimensions][nsources]``
         (an object array of coordinate arrays)
-        Stored in tree order. May be the same array as :attr:`targets`.
+        Stored in :ref:`tree order <particle-orderings>`.
+        May be the same array as :attr:`targets`.
+
+    .. attribute:: source_radii
+
+        ``coord_t [dimensions]``
+        :math:`l^\infty` radii of the *sources*.
+        Available if :attr:`sources_have_extent` is *True*.
 
     .. attribute:: targets
 
         ``coord_t [dimensions][nsources]``
         (an object array of coordinate arrays)
-        Stored in tree order. May be the same array as :attr:`sources`.
+        Stored in :ref:`tree order <particle-orderings>`. May be the same array as :attr:`sources`.
 
     .. attribute:: user_source_ids
 
         ``particle_id_t [nsources]``
         Fetching *from* these indices will reorder the sources
-        from user order into tree order.
+        from user order into :ref:`tree order <particle-orderings>`.
 
     .. attribute:: sorted_target_ids
 
         ``particle_id_t [ntargets]``
         Fetching *from* these indices will reorder the targets
-        from tree order into user order.
+        from :ref:`tree order <particle-orderings>` into user order.
 
     **Per-box arrays**
 
@@ -655,6 +721,7 @@ class Tree(FromDeviceGettableRecord):
 
         :attr:`box_flags_enum.dtype` ``[nboxes]``
         A combination of the :class:`box_flags_enum` constants.
+
     """
 
     @property
@@ -693,6 +760,75 @@ class Tree(FromDeviceGettableRecord):
         extent_high = extent_low + box_size
         return extent_low, extent_high
 
+    def link_point_sources(self, point_source_starts, point_source_counts, point_sources):
+        """Build a :class:`TreeWithLinkedPointSources`.
+
+        Requires that :attr:`sources_have_extent` is *True*.
+
+        :arg point_source_starts: `point_source_starts[isrc]` and
+            `point_source_counts[isrc]` together indicate a ranges of point
+            particle indices in *point_sources* which will be linked to the
+            original (extent-having) source number *isrc*. *isrc* is in :ref:`user
+            order <particle-orderings>`.
+
+            All the particles linked to *isrc* shoud fall within the :math:`l^\infty`
+            'circle' around particle number *isrc* with the radius drawn from
+            :attr:`source_radii`.
+
+        :arg point_sources: an object array of (XYZ) point coordinate arrays.
+        """
+
+        raise NotImplementedError
+
+class TreeWithLinkedPointSources(Tree):
+    """A :class:`Tree` after processing by :meth:`Tree.link_point_sources`.
+    The sources of the original tree are linked with
+    extent are expanded into point sources which are linked to the
+    extent-having sources in the original tree. (In an FMM context, they may
+    stand in for the 'underlying' source for the purpose of the far-field
+    calculation.) Has all the same attributes as :class:`Tree`.
+    :attr:`Tree.sources_have_extent` is always *True* for instances of this
+    type. In addition, the following attributes are available.
+
+    .. attribute:: npoint_sources
+
+    .. attribute:: point_source_starts
+
+        ``particle_id_t [nsources]``
+        The array
+        ``point_sources[:][point_source_starts[isrc]:point_source_starts[isrc]+point_source_counts[isrc]]``
+        contains the locations of point sources corresponding to
+        the 'original' source with index *isrc*. (Note that this
+        expression will not entirely work because :attr:`point_sources`
+        is an object array.)
+
+        This array is stored in :ref:`tree order <particle-orderings>`,
+        unlike the parameter to :meth:`Tree.link_point_sources`.
+
+    .. attribute:: point_source_counts
+
+        ``particle_id_t [nsources]`` (See :attr:`point_source_starts`.)
+
+    .. attribute:: point_sources
+
+        ``coord_t [dimensions][npoint_sources]``
+        (an object array of coordinate arrays)
+        Stored in :ref:`tree order <particle-orderings>`.
+
+    .. attribute:: user_point_source_ids
+
+        ``particle_id_t [nsources]``
+        Fetching *from* these indices will reorder the sources
+        from user order into :ref:`tree order <particle-orderings>`.
+
+    .. attribute:: box_point_source_starts
+
+        ``particle_id_t [nboxes]``
+
+    .. attribute:: box_point_source_counts
+
+        ``particle_id_t [nboxes]``
+    """
 
 # }}}
 
@@ -728,7 +864,8 @@ class TreeBuilder(object):
 
     @memoize_method
     def get_kernel_info(self, dimensions, coord_dtype,
-            particle_id_dtype, box_id_dtype, have_nonleaf_sources):
+            particle_id_dtype, box_id_dtype, sources_have_extent,
+            stick_out_factor=0.25):
         if np.iinfo(box_id_dtype).min == 0:
             from warnings import warn
             warn("Careful with signed types for box_id_dtype. Some CL implementations "
@@ -744,7 +881,7 @@ class TreeBuilder(object):
         dev = self.context.devices[0]
         morton_bin_count_dtype, _ = make_morton_bin_count_type(
                 dev, dimensions, particle_id_dtype,
-                have_nonleaf_sources)
+                sources_have_extent)
 
         from boxtree.bounding_box import make_bounding_box_dtype
         bbox_dtype, bbox_type_decl = make_bounding_box_dtype(
@@ -769,7 +906,8 @@ class TreeBuilder(object):
                 dtype_to_ctype=dtype_to_ctype,
                 AXIS_NAMES=AXIS_NAMES,
                 box_flags_enum=box_flags_enum,
-                have_nonleaf_sources=have_nonleaf_sources,
+                sources_have_extent=sources_have_extent,
+                stick_out_factor=stick_out_factor,
                 )
 
         preamble = PREAMBLE_TPL.render(**codegen_args)
@@ -833,7 +971,8 @@ class TreeBuilder(object):
                         "i", "level", "&bbox", "morton_nrs",
                         "user_srcntgt_ids",
                         ]
-                        +["%s" % ax for ax in axis_names]),
+                        + ["%s" % ax for ax in axis_names]
+                        + (["source_radii"] if sources_have_extent else [])),
                 scan_expr="scan_t_add(a, b, across_seg_boundary)",
                 neutral="scan_t_neutral()",
                 is_segment_start_expr="box_start_flags[i]",
@@ -1120,27 +1259,34 @@ class TreeBuilder(object):
 
     def __call__(self, queue, particles, max_particles_in_box,
             allocator=None, debug=False, targets=None,
-            source_exclusion_radii=None, **kwargs):
+            source_radii=None, **kwargs):
         """
         :arg queue: a :class:`pyopencl.CommandQueue` instance
         :arg particles: an object array of (XYZ) point coordinate arrays.
-        :arg targets: an object array of (XYZ) point coordinate arrays or `None`.
-            If `None`, *particles* act as targets, too.
-        :arg source_exclusion_radii: FIXME: Semantics?
-        :arg kwargs: Used internally for debugging.
+        :arg targets: an object array of (XYZ) point coordinate arrays or ``None``.
+            If ``None``, *particles* act as targets, too.
+            Must have the same (inner) dtype as *particles*.
+        :arg source_radii: If not *None*, a :class:`pyopencl.array.Array` of the
+            same dtype as *particles*. The array specifies radii
+            of :math:`l^\infty` 'circles' centered at *particles* that contain
+            the entire extent of each source. Specifying this parameter
+            implies that the return value of this call has
+            :attr:`Tree.sources_have_extent` set to *True*.
 
             If this is given, *targets* must also be given, i.e. sources and
             targets must be separate.
+        :arg kwargs: Used internally for debugging.
+
         :returns: an instance of :class:`Tree`
         """
 
         dimensions = len(particles)
         axis_names = AXIS_NAMES[:dimensions]
-        if source_exclusion_radii and not targets:
+        if source_radii and not targets:
             raise ValueError("must specify targets when specifying "
-                    "source_exclusion_radii")
+                    "source_radii")
 
-        have_nonleaf_sources = source_exclusion_radii is not None
+        sources_have_extent = source_radii is not None
 
         empty = partial(cl.array.empty, queue, allocator=allocator)
         zeros = partial(cl.array.zeros, queue, allocator=allocator)
@@ -1152,7 +1298,7 @@ class TreeBuilder(object):
         particle_id_dtype = np.int32
         box_id_dtype = np.int32
         knl_info = self.get_kernel_info(dimensions, coord_dtype,
-                particle_id_dtype, box_id_dtype, have_nonleaf_sources)
+                particle_id_dtype, box_id_dtype, sources_have_extent)
 
         # }}}
 
@@ -1593,6 +1739,8 @@ class TreeBuilder(object):
 
         del nlevels
 
+        # {{{ build output
+
         return Tree(
                 # If you change this, also change the documentation
                 # of what's in the tree, above.
@@ -1629,6 +1777,8 @@ class TreeBuilder(object):
 
                 _is_pruned=is_pruned,
                 )
+
+        # }}}
 
     # }}}
 
