@@ -81,6 +81,9 @@ def drive_fmm(traversal, expansion_wrangler, src_weights):
 
     # {{{ "Stage 5:" evaluate sep. smaller nonsiblings' mpoles ("list 3") at particles
 
+    # (the point of aiming this stage at particles is specifically to keep its contribution
+    # *out* of the downward-propagating local expansions)
+
     potentials = potentials + wrangler.eval_multipoles(
             traversal.leaf_boxes,
             traversal.sep_smaller_nonsiblings_starts,

@@ -539,27 +539,6 @@ BOX_INFO_KERNEL_TPL =  ElementwiseTemplate(
 
 # }}}
 
-# {{{ gappy copy kernel (for empty leaf pruning)
-
-# This is used to map box IDs and compress box lists in empty leaf
-# pruning.
-
-GAPPY_COPY_TPL =  Template(r"""//CL//
-
-    typedef ${dtype_to_ctype(dtype)} value_t;
-
-    value_t val = input_ary[from_indices[i]];
-
-    %if map_values:
-        val = value_map[val];
-    %endif
-
-    output_ary[i] = val;
-
-""", strict_undefined=True)
-
-# }}}
-
 # {{{ tree data structure (output)
 
 class Tree(FromDeviceGettableRecord):
@@ -595,7 +574,7 @@ class Tree(FromDeviceGettableRecord):
 
     .. attribute:: level_starts
 
-        `box_id_t [nlevels+1]`
+        ``box_id_t [nlevels+1]``
         A :class:`numpy.ndarray` of box ids
         indicating the ID at which each level starts. Levels
         are contiguous in box ID space. To determine
@@ -605,7 +584,7 @@ class Tree(FromDeviceGettableRecord):
 
     .. attribute:: level_starts_dev
 
-        `particle_id_t [nlevels+1`
+        ``particle_id_t [nlevels+1``
         The same array as :attr:`level_starts`
         as a :class:`pyopencl.array.Array`.
 
@@ -613,25 +592,25 @@ class Tree(FromDeviceGettableRecord):
 
     .. attribute:: sources
 
-        `coord_t [dimensions][nsources]`
+        ``coord_t [dimensions][nsources]``
         (an object array of coordinate arrays)
         Stored in tree order. May be the same array as :attr:`targets`.
 
     .. attribute:: targets
 
-        `coord_t [dimensions][nsources]`
+        ``coord_t [dimensions][nsources]``
         (an object array of coordinate arrays)
         Stored in tree order. May be the same array as :attr:`sources`.
 
     .. attribute:: user_source_ids
 
-        `particle_id_t [nsources]`
+        ``particle_id_t [nsources]``
         Fetching *from* these indices will reorder the sources
         from user order into tree order.
 
     .. attribute:: sorted_target_ids
 
-        `particle_id_t [ntargets]`
+        ``particle_id_t [ntargets]``
         Fetching *from* these indices will reorder the targets
         from tree order into user order.
 
@@ -639,41 +618,42 @@ class Tree(FromDeviceGettableRecord):
 
     .. attribute:: box_source_starts
 
-        `particle_id_t [nboxes]` May be the same array as :attr:`box_target_starts`.
+        ``particle_id_t [nboxes]`` May be the same array as :attr:`box_target_starts`.
 
     .. attribute:: box_source_counts
 
-        `particle_id_t [nboxes]` May be the same array as :attr:`box_target_counts`.
+        ``particle_id_t [nboxes]`` May be the same array as :attr:`box_target_counts`.
 
     .. attribute:: box_target_starts
 
-        `particle_id_t [nboxes]` May be the same array as :attr:`box_source_starts`.
+        ``particle_id_t [nboxes]`` May be the same array as :attr:`box_source_starts`.
 
     .. attribute:: box_target_counts
 
-        `particle_id_t [nboxes]` May be the same array as :attr:`box_source_counts`.
+        ``particle_id_t [nboxes]`` May be the same array as :attr:`box_source_counts`.
 
     .. attribute:: box_parent_ids
 
-        `box_id_t [nboxes]`
+        ``box_id_t [nboxes]``
         Box 0 (the root) has 0 as its parent.
 
     .. attribute:: box_child_ids
 
-        `box_id_t [2**dimensions, aligned_nboxes]` (C order)
+        ``box_id_t [2**dimensions, aligned_nboxes]`` (C order)
         "0" is used as a 'no child' marker, as the root box can never
         occur as any box's child.
 
     .. attribute:: box_centers
 
-        `coord_t` [dimensions, aligned_nboxes] (C order)
+        ``coord_t [dimensions, aligned_nboxes]`` (C order)
 
     .. attribute:: box_levels
 
-        `uint8 [nboxes]`
+        ``uint8 [nboxes]``
+
     .. attribute:: box_flags
 
-        :attr:`box_flags_enum.dtype` `[nboxes]`
+        :attr:`box_flags_enum.dtype` ``[nboxes]``
         A combination of the :class:`box_flags_enum` constants.
     """
 
@@ -733,35 +713,16 @@ class TreeBuilder(object):
     def __init__(self, context):
         self.context = context
 
-    # {{{ kernel creation
-
-    @memoize_method
-    def get_bbox_finder(self):
         from boxtree.bounding_box import BoundingBoxFinder
-        return BoundingBoxFinder(self.context)
+        self.bbox_finder = BoundingBoxFinder(self.context)
 
-    @memoize_method
-    def get_gappy_copy_and_map_kernel(self, dtype, src_index_dtype, map_values=False):
-        from pyopencl.tools import VectorArg
-        from pyopencl.elementwise import ElementwiseKernel
+        # This is used to map box IDs and compress box lists in empty leaf
+        # pruning.
 
-        args = [
-                VectorArg(dtype, "input_ary"),
-                VectorArg(dtype, "output_ary"),
-                VectorArg(src_index_dtype, "from_indices")
-                ]
+        from boxtree.tools import GappyCopyAndMapKernel
+        self.gappy_copy_and_map = GappyCopyAndMapKernel(self.context)
 
-        if map_values:
-            args.append(VectorArg(dtype, "value_map"))
-
-        from pyopencl.tools import dtype_to_ctype
-        src = GAPPY_COPY_TPL.render(
-                dtype=dtype,
-                dtype_to_ctype=dtype_to_ctype,
-                map_values=map_values)
-
-        return ElementwiseKernel(self.context,
-                args, str(src), name="gappy_copy_and_map")
+    # {{{ kernel creation
 
     morton_nr_dtype = np.dtype(np.uint8)
 
@@ -1155,28 +1116,6 @@ class TreeBuilder(object):
 
     # }}}
 
-    def _gappy_copy_and_map(self, queue, allocator, new_size,
-            src_indices, ary, map_values=None):
-        """Compresses box info arrays after empty leaf pruning and, optionally,
-        maps old box IDs to new box IDs (if the array being operated on contains
-        box IDs).
-        """
-
-        assert len(ary) >= new_size
-
-        result = cl.array.empty(queue, new_size, ary.dtype, allocator=allocator)
-
-        kernel = self.get_gappy_copy_and_map_kernel(ary.dtype, src_indices.dtype,
-                map_values=map_values is not None)
-
-        args = (ary, result, src_indices)
-        if map_values is not None:
-            args += (map_values,)
-
-        kernel(*args, queue=queue, range=slice(new_size))
-
-        return result
-
     # {{{ run control
 
     def __call__(self, queue, particles, max_particles_in_box,
@@ -1264,7 +1203,7 @@ class TreeBuilder(object):
 
         # {{{ find and process bounding box
 
-        bbox = self.get_bbox_finder()(srcntgts).get()
+        bbox = self.bbox_finder(srcntgts).get()
 
         root_extent = max(
                 bbox["max_"+ax] - bbox["min_"+ax]
@@ -1486,7 +1425,7 @@ class TreeBuilder(object):
             if debug:
                 print "%d empty leaves" % (nboxes-nboxes_post_prune)
 
-            prune_empty = partial(self._gappy_copy_and_map,
+            prune_empty = partial(self.gappy_copy_and_map,
                     queue, allocator, nboxes_post_prune, from_box_id)
 
             box_srcntgt_starts = prune_empty(box_srcntgt_starts)
