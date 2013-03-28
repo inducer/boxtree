@@ -250,7 +250,11 @@ GENERIC_PREAMBLE_TPL = Template(r"""//CL//
 
     // Use this as dbg_printf(("oh snap: %d\n", stuff));
     // Note the double parentheses.
-    %if debug:
+    //
+    // Watch out: 64-bit values on Intel CL must be printed with %ld, or
+    //    subsequent values will print as 0. And you'll be very confused.
+
+    %if enable_printf:
         #define dbg_printf(ARGS) printf ARGS
     %else:
         #define dbg_printf(ARGS) /* */
@@ -396,7 +400,10 @@ SCAN_PREAMBLE_TPL = Template(r"""//CL//
 
         %if sources_have_extent:
             if (stop_srcntgt_descent)
+            {
                 level_morton_number = -1;
+                printf("YIKES\n");
+            }
         %endif
 
         scan_t result;
@@ -442,7 +449,8 @@ SCAN_OUTPUT_STMT_TPL = Template(r"""//CL//
         if (my_id_in_my_box+1 == box_srcntgt_count)
         {
             dbg_printf(("store box %d cbi:%d\n", i, current_box_id));
-            dbg_printf(("   store_sums: %d %d %d %d\n", item.c00, item.c01, item.c10, item.c11));
+            dbg_printf(("   store_sums: %d %d %d %d\n",
+                item.pcnt00, item.pcnt01, item.pcnt10, item.pcnt11));
             box_morton_bin_counts[current_box_id] = item;
         }
     }
@@ -526,7 +534,7 @@ SPLIT_AND_SORT_KERNEL_TPL =  Template(r"""//CL//
                     : 0;
         %endfor
 
-        dbg_printf(("   moving %d -> %d\n", i, tgt_particle_idx));
+        dbg_printf(("   moving %ld -> %d\n", i, tgt_particle_idx));
 
         new_user_srcntgt_ids[tgt_particle_idx] = user_srcntgt_ids[i];
 
@@ -539,7 +547,10 @@ SPLIT_AND_SORT_KERNEL_TPL =  Template(r"""//CL//
 
         %if sources_have_extent:
             if (my_morton_nr == -1)
+            {
                 new_box_id = my_box_id;
+                printf("YIKES!\n");
+            }
         %endif
 
         new_srcntgt_box_ids[tgt_particle_idx] = new_box_id;
@@ -559,6 +570,9 @@ SPLIT_AND_SORT_KERNEL_TPL =  Template(r"""//CL//
                 dbg_printf(("   ## splitting\n"));
 
                 particle_id_t new_box_start = my_box_start
+                %if sources_have_extent:
+                    + my_box_morton_bin_counts.nonchild_sources
+                %endif
                 %for sub_mnr in range(mnr):
                     + my_box_morton_bin_counts.pcnt${padded_bin(sub_mnr, dimensions)}
                 %endfor
@@ -594,6 +608,42 @@ SPLIT_AND_SORT_KERNEL_TPL =  Template(r"""//CL//
 # }}}
 
 # END KERNELS IN THE LEVEL LOOP
+
+# {{{ nonchild source count extraction
+
+EXTRACT_NONCHILD_SOURCE_COUNT_TPL = ElementwiseTemplate(
+    arguments="""//CL//
+        morton_counts_t *box_morton_bin_counts,
+        particle_id_t *box_nonchild_source_counts,
+        """,
+    operation=r"""//CL//
+        box_nonchild_source_counts[i] = box_morton_bin_counts[i].nonchild_sources;
+        """,
+    name="extract_nonchild_source_count")
+
+# }}}
+
+# {{{ source/target permuter
+
+SRCNTGT_PERMUTER_TPL = ElementwiseTemplate(
+    arguments="""//CL:mako//
+        particle_id_t *source_ids
+        %for ax in axis_names:
+            , coord_t *${ax}
+        %endfor
+        %for ax in axis_names:
+            , coord_t *sorted_${ax}
+        %endfor
+        """,
+    operation=r"""//CL:mako//
+        particle_id_t src_idx = source_ids[i];
+        %for ax in axis_names:
+            sorted_${ax}[i] = ${ax}[src_idx];
+        %endfor
+        """,
+    name="permute_srcntgt")
+
+# }}}
 
 # {{{ source and target index finding
 
@@ -684,7 +734,7 @@ SOURCE_AND_TARGET_INDEX_FINDER = ElementwiseTemplate(
 # {{{ box info kernel
 
 BOX_INFO_KERNEL_TPL =  ElementwiseTemplate(
-    arguments="""//CL//
+    arguments="""//CL:mako//
         /* input */
         box_id_t *box_parent_ids,
         morton_nr_t *box_morton_nrs,
@@ -693,11 +743,17 @@ BOX_INFO_KERNEL_TPL =  ElementwiseTemplate(
         particle_id_t *box_srcntgt_counts,
         particle_id_t *box_source_counts,
         particle_id_t max_particles_in_box,
+
         /* output */
         box_id_t *box_child_ids, /* [2**dimensions, aligned_nboxes] */
         coord_t *box_centers, /* [dimensions, aligned_nboxes] */
         unsigned char *box_levels, /* [nboxes] */
         box_flags_t *box_flags, /* [nboxes] */
+
+        /* more input input */
+        %if sources_have_extent:
+            particle_id_t *box_nonchild_source_counts,
+        %endif
         """,
     operation=r"""//CL:mako//
         box_id_t box_id = i;
@@ -715,9 +771,8 @@ BOX_INFO_KERNEL_TPL =  ElementwiseTemplate(
         particle_id_t particle_count = box_srcntgt_counts[box_id];
 
         %if sources_have_extent:
-            FIXME
             const particle_id_t nonchild_source_count =
-                box_morton_bin_counts[box_id].nonchild_sources;
+                box_nonchild_source_counts[box_id];
         %else:
             const particle_id_t nonchild_source_count = 0;
         %endif
@@ -1148,7 +1203,7 @@ class TreeBuilder(object):
                 stick_out_factor=stick_out_factor,
 
                 enable_assert=False,
-                debug=False,
+                enable_printf=False,
                 )
 
         # }}}
@@ -1215,6 +1270,9 @@ class TreeBuilder(object):
 
                 # particle coordinates
                 + [VectorArg(coord_dtype, ax) for ax in axis_names]
+
+                + ([VectorArg(coord_dtype, "source_radii")]
+                    if sources_have_extent else [])
                 )
 
         from pyopencl.scan import GenericScanKernel
@@ -1236,9 +1294,12 @@ class TreeBuilder(object):
 
         # }}}
 
+        # BEGIN KERNELS IN LEVEL LOOP
+
         # {{{ split_box_id scan
 
         input_expr = Template("""//CL//
+            /* First particle? Start counting at nboxes. */
             (i == 0 ? *nboxes : 0)
             +
             (
@@ -1292,7 +1353,6 @@ class TreeBuilder(object):
 
         # {{{ split-and-sort
 
-        # FIXME: convert to elementwise template
         split_and_sort_kernel_source = SPLIT_AND_SORT_KERNEL_TPL.render(**codegen_args)
 
         from pyopencl.elementwise import ElementwiseKernel
@@ -1311,6 +1371,22 @@ class TreeBuilder(object):
                 )
 
         # }}}
+
+        # END KERNELS IN LEVEL LOOP
+
+        if sources_have_extent:
+            extract_nonchild_source_count_kernel = \
+                    EXTRACT_NONCHILD_SOURCE_COUNT_TPL.build(
+                            self.context,
+                            type_aliases=(
+                                ("particle_id_t", particle_id_dtype),
+                                ("morton_counts_t", morton_bin_count_dtype),
+                                ),
+                            var_values=(),
+                            more_preamble=generic_preamble)
+
+        else:
+            extract_nonchild_source_count_kernel = None
 
         # {{{ find-prune-indices
 
@@ -1342,28 +1418,17 @@ class TreeBuilder(object):
         # {{{ particle permuter
 
         # used if there is only one source/target array
-        srcntgt_permuter = ElementwiseTemplate(
-                arguments=[
-                    VectorArg(particle_id_dtype, "source_ids")
-                    ]
-                    + [VectorArg(coord_dtype, ax) for ax in axis_names]
-                    + [VectorArg(coord_dtype, "sorted_"+ax) for ax in axis_names],
-                operation=r"""//CL:mako//
-                    particle_id_t src_idx = source_ids[i];
-                    %for ax in axis_names:
-                        sorted_${ax}[i] = ${ax}[src_idx];
-                    %endfor
-                    """,
-                name="permute_srcntgt").build(
-                            self.context,
-                            type_aliases=(
-                                ("particle_id_t", particle_id_dtype),
-                                ("box_id_t", box_id_dtype),
-                                ),
-                            var_values=(
-                                ("axis_names", axis_names),
-                                ),
-                            more_preamble=generic_preamble)
+        srcntgt_permuter = SRCNTGT_PERMUTER_TPL.build(
+                self.context,
+                type_aliases=(
+                    ("particle_id_t", particle_id_dtype),
+                    ("box_id_t", box_id_dtype),
+                    ("coord_t", coord_dtype),
+                    ),
+                var_values=(
+                    ("axis_names", axis_names),
+                    ),
+                more_preamble=generic_preamble)
 
         # }}}
 
@@ -1423,15 +1488,18 @@ class TreeBuilder(object):
         return _KernelInfo(
                 particle_id_dtype=particle_id_dtype,
                 box_id_dtype=box_id_dtype,
+                morton_bin_count_dtype=morton_bin_count_dtype,
+
                 morton_count_scan=morton_count_scan,
                 split_box_id_scan=split_box_id_scan,
-                morton_bin_count_dtype=morton_bin_count_dtype,
                 split_and_sort_kernel=split_and_sort_kernel,
-                box_info_kernel=box_info_kernel,
+
+                extract_nonchild_source_count_kernel=extract_nonchild_source_count_kernel,
                 find_prune_indices_kernel=find_prune_indices_kernel,
+                srcntgt_permuter=srcntgt_permuter,
                 source_counter=source_counter,
                 source_and_target_index_finder=source_and_target_index_finder,
-                srcntgt_permuter=srcntgt_permuter,
+                box_info_kernel=box_info_kernel,
                 )
 
     # }}}
@@ -1518,7 +1586,7 @@ class TreeBuilder(object):
             ntargets = single_valued(len(coord) for coord in targets)
             nsrcntgts = nsources + ntargets
 
-            def combine_srcntgt_arrays(ary1, ary2):
+            def combine_srcntgt_arrays(ary1, ary2=None):
                 if ary2 is None:
                     result = zeros(nsrcntgts, ary1.dtype)
                 else:
@@ -1577,7 +1645,7 @@ class TreeBuilder(object):
 
         # (local) morton nrs for each particle at the current level
         # only valid from scan -> split'n'sort
-        morton_nrs = empty(nsrcntgts, dtype=np.uint8)
+        morton_nrs = empty(nsrcntgts, dtype=self.morton_nr_dtype)
 
         # 0/1 segment flags
         # invariant to sorting once set
@@ -1600,6 +1668,7 @@ class TreeBuilder(object):
         nboxes_guess = kwargs.get("nboxes_guess")
         if nboxes_guess  is None:
             nboxes_guess = div_ceil(nsrcntgts, max_particles_in_box) * 2**dimensions
+        print nboxes_guess
 
         # per-box morton bin counts
         box_morton_bin_counts = empty(nboxes_guess,
@@ -1666,6 +1735,7 @@ class TreeBuilder(object):
                     level, max_particles_in_box, bbox,
                     user_srcntgt_ids)
                     + tuple(srcntgts)
+                    + ((source_radii,) if sources_have_extent else ())
                     )
 
             # writes: box_morton_bin_counts, morton_nrs
@@ -1756,12 +1826,24 @@ class TreeBuilder(object):
             print "elapsed time: %g s (%g s/particle/pass)" % (
                     elapsed, elapsed/(npasses*nsrcntgts))
 
-        del morton_nrs
-        del box_morton_bin_counts
 
         nboxes = int(nboxes_dev.get())
 
         # }}}
+
+        # {{{ extract number of non-child sources from box morton counts
+
+        if sources_have_extent:
+            box_nonchild_source_counts = empty(nboxes, particle_id_dtype)
+            knl_info.extract_nonchild_source_count_kernel(
+                    box_morton_bin_counts,
+                    box_nonchild_source_counts,
+                    range=slice(nboxes))
+
+        # }}}
+
+        del morton_nrs
+        del box_morton_bin_counts
 
         # {{{ prune empty leaf boxes
 
@@ -1796,6 +1878,9 @@ class TreeBuilder(object):
 
             box_parent_ids = prune_empty(box_parent_ids, map_values=to_box_id)
             box_morton_nrs = prune_empty(box_morton_nrs)
+            if sources_have_extent:
+                box_nonchild_source_counts = prune_empty(
+                        box_nonchild_source_counts)
 
             # Remap level_starts to new box IDs.
             # FIXME: It would be better to do this on the device.
@@ -1940,11 +2025,13 @@ class TreeBuilder(object):
         knl_info.box_info_kernel(
                 # input:
                 box_parent_ids, box_morton_nrs, bbox, aligned_nboxes,
-                box_srcntgt_counts, box_source_counts, max_particles_in_box,
+                box_srcntgt_counts, box_source_counts,
+                max_particles_in_box,
 
                 # output:
                 box_child_ids, box_centers, box_levels, box_flags,
-
+                *(
+                    (box_nonchild_source_counts,) if sources_have_extent else ()),
                 range=slice(nboxes_post_prune))
 
         # }}}

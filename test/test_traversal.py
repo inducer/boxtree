@@ -157,7 +157,6 @@ def test_tree_connectivity(ctx_getter):
 
         # }}}
 
-
 # }}}
 
 # {{{ visualization helper (not a test)

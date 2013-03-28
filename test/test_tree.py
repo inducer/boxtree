@@ -75,7 +75,7 @@ def test_bounding_box(ctx_getter):
 
 # }}}
 
-# {{{ basic tree build test
+# {{{ test basic tree build
 
 def run_build_test(builder, queue, dims, dtype, nparticles, do_plot, max_particles_in_box=30, **kwargs):
     dtype = np.dtype(dtype)
@@ -181,7 +181,7 @@ def test_particle_tree(ctx_getter, do_plot=False):
     builder = TreeBuilder(ctx)
 
     for dtype in [
-            #np.float64,
+            np.float64,
             np.float32,
             ]:
         for dims in [2, 3]:
@@ -305,6 +305,105 @@ def test_source_target_tree(ctx_getter, do_plot=False):
 
 # }}}
 
+# {{{ test sources-with-extent tree
+
+@pytools.test.mark_test.opencl
+def test_source_with_extent_tree(ctx_getter, do_plot=False):
+    ctx = ctx_getter()
+    queue = cl.CommandQueue(ctx)
+
+    for dims in [2, 3]:
+        nsources = 20
+        ntargets = 30
+        dtype = np.float64
+
+        sources = make_particle_array(queue, nsources, dims, dtype,
+                seed=12)
+        targets = make_particle_array(queue, ntargets, dims, dtype,
+                seed=19)
+
+        from pyopencl.clrandom import RanluxGenerator
+        rng = RanluxGenerator(queue, seed=13)
+        source_radii = rng.uniform(queue, nsources, dtype=dtype,
+                a=0.03, b=0.1)
+
+        if do_plot:
+            import matplotlib.pyplot as pt
+            pt.plot(sources[0].get(), sources[1].get(), "rx")
+            pt.plot(targets[0].get(), targets[1].get(), "g+")
+
+        from boxtree import TreeBuilder
+        tb = TreeBuilder(ctx)
+
+        queue.finish()
+        print "building..."
+        tree = tb(queue, sources, targets=targets, source_radii=source_radii,
+                max_particles_in_box=10, debug=True).get()
+        print "%d boxes, testing..." % tree.nboxes
+
+        sorted_sources = np.array(list(tree.sources))
+        sorted_targets = np.array(list(tree.targets))
+
+        unsorted_sources = np.array([pi.get() for pi in sources])
+        unsorted_targets = np.array([pi.get() for pi in targets])
+        assert (sorted_sources
+                == unsorted_sources[:, tree.user_source_ids]).all()
+
+        user_target_ids = np.empty(tree.ntargets, dtype=np.intp)
+        user_target_ids[tree.sorted_target_ids] = np.arange(tree.ntargets, dtype=np.intp)
+        assert (sorted_targets
+                == unsorted_targets[:, user_target_ids]).all()
+
+        all_good_so_far = True
+
+        if do_plot:
+            from boxtree.visualization import TreePlotter
+            plotter = TreePlotter(tree)
+            plotter.draw_tree(fill=False, edgecolor="black", zorder=10)
+            plotter.set_bounding_box()
+
+        for ibox in xrange(tree.nboxes):
+            extent_low, extent_high = tree.get_box_extent(ibox)
+
+            assert (extent_low >= tree.bounding_box[0] - 1e-12*tree.root_extent).all(), ibox
+            assert (extent_high <= tree.bounding_box[1] + 1e-12*tree.root_extent).all(), ibox
+
+            src_start = tree.box_source_starts[ibox]
+            tgt_start = tree.box_target_starts[ibox]
+
+            for what, particles in [
+                    ("sources", sorted_sources[:,src_start:src_start+tree.box_source_counts[ibox]]),
+                    ("targets", sorted_targets[:,tgt_start:tgt_start+tree.box_target_counts[ibox]]),
+                    ]:
+                good = (
+                        (particles < extent_high[:, np.newaxis])
+                        &
+                        (extent_low[:, np.newaxis] <= particles)
+                        ).all(axis=0)
+
+                all_good_here = good.all()
+                if do_plot and not all_good_here:
+                    pt.plot(
+                            particles[0, np.where(~good)[0]],
+                            particles[1, np.where(~good)[0]], "ro")
+
+                    plotter.draw_box(ibox, edgecolor="red")
+                    pt.show()
+
+            if not all_good_here:
+                print "BAD BOX %s %d" % (what, ibox)
+
+            all_good_so_far = all_good_so_far and all_good_here
+
+        if do_plot:
+            pt.gca().set_aspect("equal", "datalim")
+            pt.show()
+
+        assert all_good_so_far
+
+        print "done"
+
+# }}}
 
 # {{{ geometry query test
 
