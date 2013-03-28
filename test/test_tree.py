@@ -143,7 +143,7 @@ def run_build_test(builder, queue, dims, dtype, nparticles, do_plot, max_particl
 
         # Empty boxes exist in non-pruned trees--which themselves are undocumented.
         # These boxes will fail these tests.
-        if not (tree.box_flags[ibox] & bfe.IS_NONEMPTY):
+        if not (tree.box_flags[ibox] & bfe.HAS_OWN_SRCNTGTS):
             continue
 
         extent_low, extent_high = tree.get_box_extent(ibox)

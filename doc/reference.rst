@@ -17,7 +17,7 @@ Tree data structure
 
     .. automethod:: get
 
-    .. automethod:: expand_sources
+    .. automethod:: link_point_sources
 
 Tree with linked point sources
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

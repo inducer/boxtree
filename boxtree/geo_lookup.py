@@ -132,7 +132,7 @@ class _KernelInfo(Record):
 
 class LeavesToBallsLookupBuilder(object):
     """Given a set of :math:`l^\infty` "balls", this class helps build a
-    look-up from leaf boxes to balls that overlap with each leaf box.
+    look-up table from leaf boxes to balls that overlap with each leaf box.
     """
     def __init__(self, context):
         self.context = context

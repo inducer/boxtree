@@ -33,6 +33,29 @@ from mako.template import Template
 
 
 
+
+
+def padded_bin(i, l):
+    """Format *i* as binary number, pad it to length *l*."""
+
+    s = bin(i)[2:]
+    while len(s) < l:
+        s = '0' + s
+    return s
+
+
+
+def realloc_array(ary, new_shape, zero_fill, queue):
+    new_ary = cl.array.empty(queue, shape=new_shape, dtype=ary.dtype,
+            allocator=ary.allocator)
+    if zero_fill:
+        new_ary.fill(0)
+    cl.enqueue_copy(queue, new_ary.data, ary.data, byte_count=ary.nbytes)
+    return new_ary
+
+
+
+
 # {{{ host/device data storage
 
 class FromDeviceGettableRecord(Record):

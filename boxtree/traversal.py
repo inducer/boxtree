@@ -267,7 +267,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t leaf_number)
             {
                 box_flags_t flags = box_flags[child_box_id];
                 /* child_box_id == box_id is ok */
-                if (flags & BOX_HAS_SOURCES)
+                if (flags & BOX_HAS_OWN_SOURCES)
                 {
                     dbg_printf(("    neighbor leaf\n"));
 
@@ -570,7 +570,7 @@ class FMMTraversalBuilder:
                         list_level_starts[my_level] = i;
                 """,
                 name="extract_level_starts").build(self.context,
-                        type_values=(("box_id_t", box_id_dtype),),
+                        type_aliases=(("box_id_t", box_id_dtype),),
                         var_values=())
 
         # }}}
