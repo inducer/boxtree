@@ -54,6 +54,22 @@ def realloc_array(ary, new_shape, zero_fill, queue):
     return new_ary
 
 
+def make_particle_array(queue, nparticles, dims, dtype, seed=15):
+    from pyopencl.clrandom import RanluxGenerator
+    rng = RanluxGenerator(queue, seed=seed)
+
+    from pytools.obj_array import make_obj_array
+    return make_obj_array([
+        rng.normal(queue, nparticles, dtype=dtype)
+        for i in range(dims)])
+
+
+
+
+def particle_array_to_host(parray):
+    return np.array([x.get() for x in parray], order="F").T
+
+
 
 
 # {{{ host/device data storage
