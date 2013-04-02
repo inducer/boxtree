@@ -27,6 +27,7 @@ from pytools import memoize, memoize_method, Record
 import pyopencl as cl
 import pyopencl.array
 from pyopencl.elementwise import ElementwiseTemplate
+from pyopencl.scan import ScanTemplate
 from mako.template import Template
 from functools import partial
 from boxtree.tools import FromDeviceGettableRecord, get_type_moniker
@@ -178,7 +179,7 @@ def make_morton_bin_count_type(device, dimensions, particle_id_dtype, sources_ha
 
     name_suffix = ""
     if sources_have_extent:
-        name_suffix = "_nls"
+        name_suffix = "_ncs"
 
     name = "boxtree_morton_bin_count_%dd_p%s%s_t" % (
             dimensions,
@@ -400,10 +401,7 @@ SCAN_PREAMBLE_TPL = Template(r"""//CL//
 
         %if sources_have_extent:
             if (stop_srcntgt_descent)
-            {
                 level_morton_number = -1;
-                printf("YIKES\n");
-            }
         %endif
 
         scan_t result;
@@ -547,10 +545,7 @@ SPLIT_AND_SORT_KERNEL_TPL =  Template(r"""//CL//
 
         %if sources_have_extent:
             if (my_morton_nr == -1)
-            {
                 new_box_id = my_box_id;
-                printf("YIKES!\n");
-            }
         %endif
 
         new_srcntgt_box_ids[tgt_particle_idx] = new_box_id;
@@ -589,7 +584,9 @@ SPLIT_AND_SORT_KERNEL_TPL =  Template(r"""//CL//
                     my_box_morton_bin_counts.pcnt${padded_bin(mnr, dimensions)};
                 box_srcntgt_counts[new_box_id] = new_count;
                 if (new_count > max_particles_in_box)
-                    *have_oversize_box = 1;
+                {
+                    *have_oversize_split_box = 1;
+                }
 
                 dbg_printf(("   box pcount: %d\n", box_srcntgt_counts[new_box_id]));
             }
@@ -606,6 +603,74 @@ SPLIT_AND_SORT_KERNEL_TPL =  Template(r"""//CL//
 """, strict_undefined=True)
 
 # }}}
+
+SPLIT_BOX_ID_SCAN_TPL = ScanTemplate(
+        arguments="""//CL:mako//
+            /* input */
+            box_id_t *srcntgt_box_ids,
+            particle_id_t *box_srcntgt_starts,
+            particle_id_t *box_srcntgt_counts,
+            particle_id_t max_particles_in_box,
+            morton_counts_t *box_morton_bin_counts,
+
+            /* input/output */
+            box_id_t *nboxes,
+
+            /* output */
+            box_id_t *split_box_ids,
+            """,
+        preamble="""//CL:mako//
+            scan_t count_new_boxes_needed(
+                particle_id_t i,
+                box_id_t box_id,
+                __global box_id_t *nboxes,
+                __global particle_id_t *box_srcntgt_starts,
+                __global particle_id_t *box_srcntgt_counts,
+                __global morton_counts_t *box_morton_bin_counts,
+                particle_id_t max_particles_in_box
+                )
+            {
+                scan_t result = 0;
+
+                // First particle? Start counting at (the previous level's) nboxes.
+                if (i == 0)
+                    result += *nboxes;
+
+                %if sources_have_extent:
+                    particle_id_t nonchild_sources_in_box =
+                        box_morton_bin_counts[box_id].nonchild_sources;
+                %else:
+                    particle_id_t nonchild_sources_in_box = 0;
+                %endif
+
+                particle_id_t first_nonchild_particle_in_my_box =
+                    box_srcntgt_starts[box_id]
+                    + nonchild_sources_in_box;
+
+                if (i == first_nonchild_particle_in_my_box
+                    &&
+                    /* box overfull? */
+                    box_srcntgt_counts[box_id] - nonchild_sources_in_box
+                        > max_particles_in_box)
+                    result += ${2**dimensions};
+
+                return result;
+            }
+            """,
+        input_expr="""count_new_boxes_needed(
+                i, srcntgt_box_ids[i], nboxes,
+                box_srcntgt_starts, box_srcntgt_counts, box_morton_bin_counts,
+                max_particles_in_box
+                )""",
+        scan_expr="a + b",
+        neutral="0",
+        output_statement="""//CL//
+            split_box_ids[i] = item;
+
+            // Am I the last particle overall? If so, write box count
+            if (i+1 == N)
+                *nboxes = item;
+            """)
 
 # END KERNELS IN THE LEVEL LOOP
 
@@ -912,6 +977,10 @@ class Tree(FromDeviceGettableRecord):
 
         the root box size, a scalar
 
+    .. attribute:: stick_out_factor
+
+        See argument *stick_out_factor* of :meth:`Tree.__call__`.
+
     .. attribute:: nlevels
 
         the number of levels
@@ -1154,7 +1223,7 @@ class TreeBuilder(object):
     def get_kernel_info(self, dimensions, coord_dtype,
             particle_id_dtype, box_id_dtype,
             sources_are_targets, sources_have_extent,
-            stick_out_factor=0.25):
+            stick_out_factor):
 
         # {{{ preparation
 
@@ -1216,6 +1285,8 @@ class TreeBuilder(object):
                 + str(TYPE_DECL_PREAMBLE_TPL.render(**codegen_args))
                 + generic_preamble
                 )
+
+        # BEGIN KERNELS IN LEVEL LOOP
 
         # {{{ scan
 
@@ -1294,60 +1365,23 @@ class TreeBuilder(object):
 
         # }}}
 
-        # BEGIN KERNELS IN LEVEL LOOP
-
         # {{{ split_box_id scan
 
-        input_expr = Template("""//CL//
-            /* First particle? Start counting at nboxes. */
-            (i == 0 ? *nboxes : 0)
-            +
-            (
-                (
-                    /* first particle in box? */
-                    i == box_srcntgt_starts[srcntgt_box_ids[i]]
-                    &&
-                    /* box overfull? */
-                    box_srcntgt_counts[srcntgt_box_ids[i]]
-                            > max_particles_in_box
-                )
-                ?
-                    ${2**dimensions}
-                :
-                    0
-              )
-              """, strict_undefined=True).render(
-                      dimensions=dimensions)
-
         from pyopencl.scan import GenericScanKernel
-        split_box_id_scan = GenericScanKernel(
-                self.context, box_id_dtype,
-                arguments=[
-                    # input
-                    VectorArg(box_id_dtype, "srcntgt_box_ids"),
-                    VectorArg(particle_id_dtype, "box_srcntgt_starts"),
-                    VectorArg(particle_id_dtype, "box_srcntgt_counts"),
-                    ScalarArg(particle_id_dtype, "max_particles_in_box"),
-
-                    # input/output:
-                    VectorArg(box_id_dtype, "nboxes"),
-
-                    # output:
-                    VectorArg(box_id_dtype, "split_box_ids"),
-                    ],
-                input_expr=str(input_expr),
-                scan_expr="a + b",
-                neutral="0",
-                output_statement="""
-                    split_box_ids[i] = item;
-
-                    // Am I the last particle overall? If so, write box count
-                    if (i+1 == N)
-                        *nboxes = item;
-                    """,
-                preamble=scan_preamble)
-
-        del input_expr
+        split_box_id_scan = SPLIT_BOX_ID_SCAN_TPL.build(
+                self.context,
+                type_aliases=(
+                    ("scan_t", box_id_dtype),
+                    ("index_t", particle_id_dtype),
+                    ("particle_id_t", particle_id_dtype),
+                    ("box_id_t", box_id_dtype),
+                    ("morton_counts_t", morton_bin_count_dtype),
+                    ),
+                var_values=(
+                    ("dimensions", dimensions),
+                    ("sources_have_extent", sources_have_extent),
+                    ),
+                more_preamble=generic_preamble)
 
         # }}}
 
@@ -1361,7 +1395,7 @@ class TreeBuilder(object):
                 common_arguments
                 + [
                     VectorArg(particle_id_dtype, "new_user_srcntgt_ids"),
-                    VectorArg(np.int32, "have_oversize_box"),
+                    VectorArg(np.int32, "have_oversize_split_box"),
                     VectorArg(box_id_dtype, "new_srcntgt_box_ids"),
                     ],
                 str(split_and_sort_kernel_source), name="split_and_sort",
@@ -1508,7 +1542,7 @@ class TreeBuilder(object):
 
     def __call__(self, queue, particles, max_particles_in_box,
             allocator=None, debug=False, targets=None,
-            source_radii=None, **kwargs):
+            source_radii=None, stick_out_factor=0.25, **kwargs):
         """
         :arg queue: a :class:`pyopencl.CommandQueue` instance
         :arg particles: an object array of (XYZ) point coordinate arrays.
@@ -1524,6 +1558,9 @@ class TreeBuilder(object):
 
             If this is given, *targets* must also be given, i.e. sources and
             targets must be separate.
+        :arg stick_out_factor: The fraction of the box diameter by which the
+            :math:`l^\infty` circles given by *source_radii* may stick out
+            the box in which they are contained.
         :arg kwargs: Used internally for debugging.
 
         :returns: an instance of :class:`Tree`
@@ -1557,7 +1594,8 @@ class TreeBuilder(object):
 
         knl_info = self.get_kernel_info(dimensions, coord_dtype,
                 particle_id_dtype, box_id_dtype,
-                sources_are_targets, sources_have_extent)
+                sources_are_targets, sources_have_extent,
+                stick_out_factor)
 
         # {{{ combine sources and targets into one array, if necessary
 
@@ -1593,7 +1631,7 @@ class TreeBuilder(object):
                     result = empty(nsrcntgts, ary1.dtype)
 
                 cl.enqueue_copy(queue, result.data, ary1.data)
-                if ary2 is not None:
+                if ary2 is not None and ary2.nbytes:
                     cl.enqueue_copy(queue, result.data, ary2.data,
                             dest_offset=ary1.nbytes)
 
@@ -1668,7 +1706,6 @@ class TreeBuilder(object):
         nboxes_guess = kwargs.get("nboxes_guess")
         if nboxes_guess  is None:
             nboxes_guess = div_ceil(nsrcntgts, max_particles_in_box) * 2**dimensions
-        print nboxes_guess
 
         # per-box morton bin counts
         box_morton_bin_counts = empty(nboxes_guess,
@@ -1699,7 +1736,7 @@ class TreeBuilder(object):
         # {{{ level loop
 
         from pytools.obj_array import make_obj_array
-        have_oversize_box = zeros((), np.int32)
+        have_oversize_split_box = zeros((), np.int32)
 
         # Level 0 starts at 0 and always contains box 0 and nothing else.
         # Level 1 therefore starts at 1.
@@ -1747,6 +1784,7 @@ class TreeBuilder(object):
                     box_srcntgt_starts,
                     box_srcntgt_counts,
                     max_particles_in_box,
+                    box_morton_bin_counts,
                     nboxes_dev,
                     split_box_ids,
                     queue=queue, size=nsrcntgts)
@@ -1793,9 +1831,23 @@ class TreeBuilder(object):
             if debug:
                 print "LEVEL %d -> %d boxes" % (level, nboxes_new)
 
-            # Assert that we've actually added boxes this time around.
-            # (Otherwise we should've never entered this loop trip.)
-            assert level_starts[-1] != nboxes_new
+            assert level_starts[-1] != nboxes_new or sources_have_extent
+
+            if level_starts[-1] == nboxes_new:
+                # We haven't created new boxes in this level loop trip.  Unless
+                # sources have extent, this should never happen.  (I.e., we
+                # should've never entered this loop trip.)
+                #
+                # If sources have extent, this can happen if boxes were
+                # in-principle overfull, but couldn't subdivide because of
+                # extent restrictions.
+
+                assert sources_have_extent
+
+                level -= 1
+
+                break
+
             level_starts.append(nboxes_new)
             del nboxes_new
 
@@ -1804,7 +1856,7 @@ class TreeBuilder(object):
             split_and_sort_args = (
                     common_args
                     + (new_user_srcntgt_ids,
-                        have_oversize_box, new_srcntgt_box_ids))
+                        have_oversize_split_box, new_srcntgt_box_ids))
             knl_info.split_and_sort_kernel(*split_and_sort_args)
 
             user_srcntgt_ids = new_user_srcntgt_ids
@@ -1812,12 +1864,12 @@ class TreeBuilder(object):
             srcntgt_box_ids = new_srcntgt_box_ids
             del new_srcntgt_box_ids
 
-            if not int(have_oversize_box.get()):
+            if not int(have_oversize_split_box.get()):
                 break
 
             level += 1
 
-            have_oversize_box.fill(0)
+            have_oversize_split_box.fill(0)
 
         end_time = time()
         if debug:
@@ -1825,7 +1877,7 @@ class TreeBuilder(object):
             npasses = level+1
             print "elapsed time: %g s (%g s/particle/pass)" % (
                     elapsed, elapsed/(npasses*nsrcntgts))
-
+            del npasses
 
         nboxes = int(nboxes_dev.get())
 
@@ -2056,9 +2108,8 @@ class TreeBuilder(object):
                 coord_dtype=coord_dtype,
 
                 root_extent=root_extent,
+                stick_out_factor=stick_out_factor,
 
-                # +2 because we stop one level before the end and we
-                # did not count level 0.
                 bounding_box=(bbox_min, bbox_max),
                 level_starts=level_starts,
                 level_starts_dev=cl.array.to_device(queue, level_starts,

@@ -312,9 +312,12 @@ def test_source_with_extent_tree(ctx_getter, do_plot=False):
     ctx = ctx_getter()
     queue = cl.CommandQueue(ctx)
 
-    for dims in [2, 3]:
-        nsources = 20
-        ntargets = 30
+    for dims in [
+            2,
+            3
+            ]:
+        nsources = 3000
+        ntargets = 30000
         dtype = np.float64
 
         sources = make_particle_array(queue, nsources, dims, dtype,
@@ -324,8 +327,8 @@ def test_source_with_extent_tree(ctx_getter, do_plot=False):
 
         from pyopencl.clrandom import RanluxGenerator
         rng = RanluxGenerator(queue, seed=13)
-        source_radii = rng.uniform(queue, nsources, dtype=dtype,
-                a=0.03, b=0.1)
+        source_radii = 2**rng.uniform(queue, nsources, dtype=dtype,
+                a=-10, b=0)
 
         if do_plot:
             import matplotlib.pyplot as pt
@@ -351,8 +354,9 @@ def test_source_with_extent_tree(ctx_getter, do_plot=False):
 
         user_target_ids = np.empty(tree.ntargets, dtype=np.intp)
         user_target_ids[tree.sorted_target_ids] = np.arange(tree.ntargets, dtype=np.intp)
-        assert (sorted_targets
-                == unsorted_targets[:, user_target_ids]).all()
+        if ntargets:
+            assert (sorted_targets
+                    == unsorted_targets[:, user_target_ids]).all()
 
         all_good_so_far = True
 
