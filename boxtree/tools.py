@@ -35,6 +35,11 @@ from mako.template import Template
 
 
 
+AXIS_NAMES = ("x", "y", "z", "w")
+
+
+
+
 def padded_bin(i, l):
     """Format *i* as binary number, pad it to length *l*."""
 

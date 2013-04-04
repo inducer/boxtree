@@ -27,8 +27,7 @@ from pytools import memoize_method, Record
 import pyopencl as cl
 import pyopencl.array
 from mako.template import Template
-from boxtree import AXIS_NAMES
-from boxtree.tools import FromDeviceGettableRecord
+from boxtree.tools import AXIS_NAMES, FromDeviceGettableRecord
 
 
 

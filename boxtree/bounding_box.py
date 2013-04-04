@@ -38,7 +38,7 @@ import numpy as np
 
 @memoize
 def make_bounding_box_dtype(device, dimensions, coord_dtype):
-    from boxtree import AXIS_NAMES
+    from boxtree.tools import AXIS_NAMES
     fields = []
     for i in range(dimensions):
         fields.append(("min_%s" % AXIS_NAMES[i], coord_dtype))
@@ -116,7 +116,7 @@ class BoundingBoxFinder:
         else:
             raise TypeError("unknown coord_dtype")
 
-        from boxtree import AXIS_NAMES
+        from boxtree.tools import AXIS_NAMES
         axis_names = AXIS_NAMES[:dimensions]
 
         coord_ctype = dtype_to_ctype(coord_dtype)
@@ -151,3 +151,5 @@ class BoundingBoxFinder:
         return self.get_kernel(dimensions, coord_dtype)(*particles)
 
 # }}}
+
+# vim: foldmethod=marker:filetype=pyopencl
