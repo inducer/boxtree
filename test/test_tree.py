@@ -330,11 +330,6 @@ def test_source_with_extent_tree(ctx_getter, do_plot=False):
         source_radii = 2**rng.uniform(queue, nsources, dtype=dtype,
                 a=-10, b=0)
 
-        if do_plot:
-            import matplotlib.pyplot as pt
-            pt.plot(sources[0].get(), sources[1].get(), "rx")
-            pt.plot(targets[0].get(), targets[1].get(), "g+")
-
         from boxtree import TreeBuilder
         tb = TreeBuilder(ctx)
 
@@ -346,11 +341,14 @@ def test_source_with_extent_tree(ctx_getter, do_plot=False):
 
         sorted_sources = np.array(list(tree.sources))
         sorted_targets = np.array(list(tree.targets))
+        sorted_radii = tree.source_radii
 
         unsorted_sources = np.array([pi.get() for pi in sources])
         unsorted_targets = np.array([pi.get() for pi in targets])
         assert (sorted_sources
                 == unsorted_sources[:, tree.user_source_ids]).all()
+        assert (sorted_radii
+                == source_radii.get()[tree.user_source_ids]).all()
 
         user_target_ids = np.empty(tree.ntargets, dtype=np.intp)
         user_target_ids[tree.sorted_target_ids] = np.arange(tree.ntargets, dtype=np.intp)
@@ -360,48 +358,52 @@ def test_source_with_extent_tree(ctx_getter, do_plot=False):
 
         all_good_so_far = True
 
-        if do_plot:
-            from boxtree.visualization import TreePlotter
-            plotter = TreePlotter(tree)
-            plotter.draw_tree(fill=False, edgecolor="black", zorder=10)
-            plotter.set_bounding_box()
-
         for ibox in xrange(tree.nboxes):
             extent_low, extent_high = tree.get_box_extent(ibox)
+
+            box_radius = np.max(extent_high-extent_low) * 0.5
+            stick_out_dist = tree.stick_out_factor * box_radius
 
             assert (extent_low >= tree.bounding_box[0] - 1e-12*tree.root_extent).all(), ibox
             assert (extent_high <= tree.bounding_box[1] + 1e-12*tree.root_extent).all(), ibox
 
+            # {{{ sources
+
             src_start = tree.box_source_starts[ibox]
+            src_slice = slice(src_start, src_start+tree.box_source_counts[ibox])
+            check_particles = sorted_sources[:, src_slice]
+            check_radii = sorted_radii[src_slice]
+
+            good = (
+                    (check_particles + check_radii
+                        < extent_high[:, np.newaxis] + stick_out_dist)
+                    &
+                    (extent_low[:, np.newaxis] - stick_out_dist
+                        <= check_particles - check_radii)
+                    ).all(axis=0)
+
+            all_good_here = good.all()
+
+            # }}}
+
+            # {{{ targets
+
             tgt_start = tree.box_target_starts[ibox]
+            check_particles = sorted_targets[:,tgt_start:tgt_start+tree.box_target_counts[ibox]]
+            good = (
+                    (check_particles < extent_high[:, np.newaxis])
+                    &
+                    (extent_low[:, np.newaxis] <= check_particles)
+                    ).all(axis=0)
 
-            for what, particles in [
-                    ("sources", sorted_sources[:,src_start:src_start+tree.box_source_counts[ibox]]),
-                    ("targets", sorted_targets[:,tgt_start:tgt_start+tree.box_target_counts[ibox]]),
-                    ]:
-                good = (
-                        (particles < extent_high[:, np.newaxis])
-                        &
-                        (extent_low[:, np.newaxis] <= particles)
-                        ).all(axis=0)
+            all_good_here = good.all()
 
-                all_good_here = good.all()
-                if do_plot and not all_good_here:
-                    pt.plot(
-                            particles[0, np.where(~good)[0]],
-                            particles[1, np.where(~good)[0]], "ro")
-
-                    plotter.draw_box(ibox, edgecolor="red")
-                    pt.show()
+            # }}}
 
             if not all_good_here:
                 print "BAD BOX %s %d" % (what, ibox)
 
             all_good_so_far = all_good_so_far and all_good_here
-
-        if do_plot:
-            pt.gca().set_aspect("equal", "datalim")
-            pt.show()
 
         assert all_good_so_far
 

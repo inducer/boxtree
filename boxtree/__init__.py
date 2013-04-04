@@ -2166,6 +2166,13 @@ class TreeBuilder(object):
 
         # {{{ build output
 
+        extra_tree_attrs = {}
+
+        if sources_have_extent:
+            extra_tree_attrs.update(
+                    source_radii=source_radii,
+                    )
+
         return Tree(
                 # If you change this, also change the documentation
                 # of what's in the tree, above.
@@ -2199,7 +2206,10 @@ class TreeBuilder(object):
                 user_source_ids=user_source_ids,
                 sorted_target_ids=sorted_target_ids,
 
+
                 _is_pruned=is_pruned,
+
+                **extra_tree_attrs
                 )
 
         # }}}
