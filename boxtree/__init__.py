@@ -1033,7 +1033,7 @@ class Tree(FromDeviceGettableRecord):
         of the tree. Note that this may be slightly larger
         than what is required to contain all particles.
 
-    .. attribute:: level_starts
+    .. attribute:: level_start_box_nrs
 
         ``box_id_t [nlevels+1]``
         A :class:`numpy.ndarray` of box ids
@@ -1043,10 +1043,10 @@ class Tree(FromDeviceGettableRecord):
         access the start of the next level. This array is
         built so that this works even for the last level.
 
-    .. attribute:: level_starts_dev
+    .. attribute:: level_start_box_nrs_dev
 
         ``particle_id_t [nlevels+1``
-        The same array as :attr:`level_starts`
+        The same array as :attr:`level_start_box_nrs`
         as a :class:`pyopencl.array.Array`.
 
     **Per-particle arrays**
@@ -1146,7 +1146,7 @@ class Tree(FromDeviceGettableRecord):
 
     @property
     def nlevels(self):
-        return len(self.level_starts) - 1
+        return len(self.level_start_box_nrs) - 1
 
     @property
     def aligned_nboxes(self):
@@ -1789,7 +1789,7 @@ class TreeBuilder(object):
 
         # Level 0 starts at 0 and always contains box 0 and nothing else.
         # Level 1 therefore starts at 1.
-        level_starts = [0, 1]
+        level_start_box_nrs = [0, 1]
 
         from time import time
         start_time = time()
@@ -1801,7 +1801,7 @@ class TreeBuilder(object):
         # INVARIANTS -- Upon entry to this loop:
         #
         # - level is the level being built.
-        # - the last entry of level_starts is the beginning of the level to be built
+        # - the last entry of level_start_box_nrs is the beginning of the level to be built
 
         # This while condition prevents entering the loop in case there's just a
         # single box, by how 'level' is set above. Read this as 'while True' with
@@ -1810,7 +1810,7 @@ class TreeBuilder(object):
         while level:
             if debug:
                 # More invariants:
-                assert level == len(level_starts) - 1
+                assert level == len(level_start_box_nrs) - 1
 
             if level > np.iinfo(self.box_level_dtype).max:
                 raise RuntimeError("level count exceeded maximum")
@@ -1877,7 +1877,7 @@ class TreeBuilder(object):
                 del my_realloc_zeros
 
                 # reset nboxes_dev to previous value
-                nboxes_dev.fill(level_starts[-1])
+                nboxes_dev.fill(level_start_box_nrs[-1])
 
                 # retry
                 if debug:
@@ -1890,9 +1890,9 @@ class TreeBuilder(object):
             if debug:
                 print "LEVEL %d -> %d boxes" % (level, nboxes_new)
 
-            assert level_starts[-1] != nboxes_new or sources_have_extent
+            assert level_start_box_nrs[-1] != nboxes_new or sources_have_extent
 
-            if level_starts[-1] == nboxes_new:
+            if level_start_box_nrs[-1] == nboxes_new:
                 # We haven't created new boxes in this level loop trip.  Unless
                 # sources have extent, this should never happen.  (I.e., we
                 # should've never entered this loop trip.)
@@ -1907,7 +1907,7 @@ class TreeBuilder(object):
 
                 break
 
-            level_starts.append(nboxes_new)
+            level_start_box_nrs.append(nboxes_new)
             del nboxes_new
 
             new_user_srcntgt_ids = cl.array.empty_like(user_srcntgt_ids)
@@ -1919,7 +1919,7 @@ class TreeBuilder(object):
             knl_info.split_and_sort_kernel(*split_and_sort_args)
 
             if debug:
-                level_bl_chunk = box_levels.get()[level_starts[-2]:level_starts[-1]]
+                level_bl_chunk = box_levels.get()[level_start_box_nrs[-2]:level_start_box_nrs[-1]]
                 assert ((level_bl_chunk == level) | (level_bl_chunk == 0)).all()
                 del level_bl_chunk
 
@@ -2002,14 +2002,14 @@ class TreeBuilder(object):
                 box_nonchild_source_counts = prune_empty(
                         box_nonchild_source_counts)
 
-            # Remap level_starts to new box IDs.
+            # Remap level_start_box_nrs to new box IDs.
             # FIXME: It would be better to do this on the device.
-            level_starts = list(to_box_id.get()[np.array(level_starts[:-1], box_id_dtype)])
-            level_starts = level_starts + [nboxes_post_prune]
+            level_start_box_nrs = list(to_box_id.get()[np.array(level_start_box_nrs[:-1], box_id_dtype)])
+            level_start_box_nrs = level_start_box_nrs + [nboxes_post_prune]
         else:
             nboxes_post_prune = nboxes
 
-        level_starts = np.array(level_starts, box_id_dtype)
+        level_start_box_nrs = np.array(level_start_box_nrs, box_id_dtype)
 
         # }}}
 
@@ -2155,7 +2155,7 @@ class TreeBuilder(object):
 
         # }}}
 
-        nlevels = len(level_starts) - 1
+        nlevels = len(level_start_box_nrs) - 1
         assert level + 1 == nlevels, (level+1, nlevels)
         if debug:
             max_level = np.max(box_levels.get())
@@ -2185,8 +2185,8 @@ class TreeBuilder(object):
                 stick_out_factor=stick_out_factor,
 
                 bounding_box=(bbox_min, bbox_max),
-                level_starts=level_starts,
-                level_starts_dev=cl.array.to_device(queue, level_starts,
+                level_start_box_nrs=level_start_box_nrs,
+                level_start_box_nrs_dev=cl.array.to_device(queue, level_start_box_nrs,
                     allocator=allocator),
 
                 sources=sources,

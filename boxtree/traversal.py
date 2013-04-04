@@ -429,7 +429,7 @@ class FMMTraversalInfo(FromDeviceGettableRecord):
     .. attribute:: parent_boxes
 
         `box_id_t [*]`
-    .. attribute:: parent_box_level_starts
+    .. attribute:: level_start_parent_box_nrs
 
         `box_id_t [nlevels+1]`
         Indices into :attr:`parent_boxes` indicating where
@@ -548,12 +548,12 @@ class FMMTraversalBuilder:
                     ], debug=debug, name_prefix="leaves_and_parents")
 
         from pyopencl.elementwise import ElementwiseTemplate
-        level_starts_extractor = ElementwiseTemplate(
+        level_start_box_nrs_extractor = ElementwiseTemplate(
                 arguments="""//CL//
-                box_id_t *level_starts,
+                box_id_t *level_start_box_nrs,
                 unsigned char *box_levels,
                 box_id_t *box_list,
-                box_id_t *list_level_starts,
+                box_id_t *list_level_start_box_nrs,
                 """,
 
                 operation=r"""//CL//
@@ -564,12 +564,12 @@ class FMMTraversalBuilder:
                     box_id_t prev_box_id = box_list[i-1];
 
                     int my_level = box_levels[my_box_id];
-                    box_id_t my_level_start = level_starts[my_level];
+                    box_id_t my_level_start = level_start_box_nrs[my_level];
 
                     if (prev_box_id < my_level_start && my_level_start <= my_box_id)
-                        list_level_starts[my_level] = i;
+                        list_level_start_box_nrs[my_level] = i;
                 """,
-                name="extract_level_starts").build(self.context,
+                name="extract_level_start_box_nrs").build(self.context,
                         type_aliases=(("box_id_t", box_id_dtype),),
                         var_values=())
 
@@ -648,7 +648,7 @@ class FMMTraversalBuilder:
 
         return _KernelInfo(
                 leaves_and_parents_builder=leaves_and_parents_builder,
-                level_starts_extractor=level_starts_extractor,
+                level_start_box_nrs_extractor=level_start_box_nrs_extractor,
                 **builders)
 
     # }}}
@@ -686,28 +686,28 @@ class FMMTraversalBuilder:
 
         # {{{ figure out level starts in parent_boxes
 
-        parent_box_level_starts = cl.array.empty(queue,
+        level_start_parent_box_nrs = cl.array.empty(queue,
                 tree.nlevels+1, tree.box_id_dtype) \
                         .fill(len(parent_boxes))
-        knl_info.level_starts_extractor(
-                tree.level_starts_dev,
+        knl_info.level_start_box_nrs_extractor(
+                tree.level_start_box_nrs_dev,
                 tree.box_levels,
                 parent_boxes,
-                parent_box_level_starts,
+                level_start_parent_box_nrs,
                 range=slice(1, len(parent_boxes)),
                 queue=queue)
 
-        parent_box_level_starts = parent_box_level_starts.get()
+        level_start_parent_box_nrs = level_start_parent_box_nrs.get()
 
         # We skipped box 0 above. This is always true, whether
         # box 0 (=level 0) is a leaf or a parent.
-        parent_box_level_starts[0] = 0
+        level_start_parent_box_nrs[0] = 0
 
-        # Postprocess parent_box_level_starts for unoccupied levels
+        # Postprocess level_start_parent_box_nrs for unoccupied levels
         prev_start = len(parent_boxes)
         for ilev in xrange(tree.nlevels-1, -1, -1):
-            parent_box_level_starts[ilev] = prev_start = \
-                    min(parent_box_level_starts[ilev], prev_start)
+            level_start_parent_box_nrs[ilev] = prev_start = \
+                    min(level_start_parent_box_nrs[ilev], prev_start)
 
         # }}}
 
@@ -773,7 +773,7 @@ class FMMTraversalBuilder:
 
                 leaf_boxes=leaf_boxes,
                 parent_boxes=parent_boxes,
-                parent_box_level_starts=parent_box_level_starts,
+                level_start_parent_box_nrs=level_start_parent_box_nrs,
 
                 colleagues_starts=colleagues.starts,
                 colleagues_lists=colleagues.lists,

@@ -47,7 +47,7 @@ def drive_fmm(traversal, expansion_wrangler, src_weights):
     # {{{ "Step 2.2:" Propagate multipoles upward
 
     for lev in xrange(tree.nlevels-1, -1, -1):
-        start_parent_box, end_parent_box = traversal.parent_box_level_starts[lev:lev+2]
+        start_parent_box, end_parent_box = traversal.level_start_parent_box_nrs[lev:lev+2]
         wrangler.coarsen_multipoles(
                 traversal.parent_boxes, start_parent_box, end_parent_box,
                 mpole_exps)
@@ -108,7 +108,7 @@ def drive_fmm(traversal, expansion_wrangler, src_weights):
     # {{{ "Stage 7:" propagate sib_local_exps downward
 
     for lev in xrange(1, tree.nlevels):
-        start_box, end_box = tree.level_starts[lev:lev+2]
+        start_box, end_box = tree.level_start_box_nrs[lev:lev+2]
         wrangler.refine_locals(start_box, end_box, local_exps)
 
     # }}}
