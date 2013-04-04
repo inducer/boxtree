@@ -459,13 +459,15 @@ SCAN_OUTPUT_STMT_TPL = Template(r"""//CL//
 # {{{ split box id scan
 
 SPLIT_BOX_ID_SCAN_TPL = ScanTemplate(
-        arguments="""//CL:mako//
+        arguments=r"""//CL:mako//
             /* input */
             box_id_t *srcntgt_box_ids,
             particle_id_t *box_srcntgt_starts,
             particle_id_t *box_srcntgt_counts,
             particle_id_t max_particles_in_box,
             morton_counts_t *box_morton_bin_counts,
+            box_level_t *box_levels,
+            box_level_t level,
 
             /* input/output */
             box_id_t *nboxes,
@@ -473,7 +475,7 @@ SPLIT_BOX_ID_SCAN_TPL = ScanTemplate(
             /* output */
             box_id_t *split_box_ids,
             """,
-        preamble="""//CL:mako//
+        preamble=r"""//CL:mako//
             scan_t count_new_boxes_needed(
                 particle_id_t i,
                 box_id_t box_id,
@@ -481,7 +483,9 @@ SPLIT_BOX_ID_SCAN_TPL = ScanTemplate(
                 __global particle_id_t *box_srcntgt_starts,
                 __global particle_id_t *box_srcntgt_counts,
                 __global morton_counts_t *box_morton_bin_counts,
-                particle_id_t max_particles_in_box
+                particle_id_t max_particles_in_box,
+                __global box_level_t *box_levels,
+                box_level_t level
                 )
             {
                 scan_t result = 0;
@@ -505,11 +509,22 @@ SPLIT_BOX_ID_SCAN_TPL = ScanTemplate(
                 // including non-child sources.
 
                 if (i == first_particle_in_my_box
+                    %if sources_have_extent:
+                        // Only last-level boxes get to produce new boxes.
+                        // If sources have extent, then prior-level boxes
+                        // will keep asking for more boxes to be allocated.
+                        // Prevent that.
+
+                        &&
+                        box_levels[box_id] + 1 == level
+                    %endif
                     &&
                     /* box overfull? */
                     box_srcntgt_counts[box_id] - nonchild_sources_in_box
                         > max_particles_in_box)
+                {
                     result += ${2**dimensions};
+                }
 
                 return result;
             }
@@ -517,7 +532,7 @@ SPLIT_BOX_ID_SCAN_TPL = ScanTemplate(
         input_expr="""count_new_boxes_needed(
                 i, srcntgt_box_ids[i], nboxes,
                 box_srcntgt_starts, box_srcntgt_counts, box_morton_bin_counts,
-                max_particles_in_box
+                max_particles_in_box, box_levels, level
                 )""",
         scan_expr="a + b",
         neutral="0",
@@ -584,9 +599,14 @@ SPLIT_AND_SORT_KERNEL_TPL =  Template(r"""//CL//
         > max_particles_in_box;
 
     %if sources_have_extent:
+        ## Only do split-box processing for srcntgts that were touched
+        ## on the immediately preceding level.
+        ##
         ## If sources have no extent, then subsequent levels
-        ## will never decide to split them either. If sources do
-        ## have an extent, this can happen. Prevent it.
+        ## will never decide to split boxes that were kept unsplit on prior
+        ## levels either. If sources do
+        ## have an extent, this could happen. Prevent running the
+        ## split code for such particles.
 
         int box_level = box_levels[my_box_id];
         do_split_box = do_split_box && box_level + 1 == level;
@@ -1241,7 +1261,7 @@ class TreeBuilder(object):
     # {{{ kernel creation
 
     morton_nr_dtype = np.dtype(np.int8)
-    box_levels_dtype = np.dtype(np.uint8)
+    box_level_dtype = np.dtype(np.uint8)
 
     @memoize_method
     def get_kernel_info(self, dimensions, coord_dtype,
@@ -1400,6 +1420,7 @@ class TreeBuilder(object):
                     ("particle_id_t", particle_id_dtype),
                     ("box_id_t", box_id_dtype),
                     ("morton_counts_t", morton_bin_count_dtype),
+                    ("box_level_t", self.box_level_dtype),
                     ),
                 var_values=(
                     ("dimensions", dimensions),
@@ -1421,7 +1442,7 @@ class TreeBuilder(object):
                     VectorArg(particle_id_dtype, "new_user_srcntgt_ids"),
                     VectorArg(np.int32, "have_oversize_split_box"),
                     VectorArg(box_id_dtype, "new_srcntgt_box_ids"),
-                    VectorArg(self.box_levels_dtype, "box_levels"),
+                    VectorArg(self.box_level_dtype, "box_levels"),
                     ],
                 str(split_and_sort_kernel_source), name="split_and_sort",
                 preamble=(
@@ -1746,7 +1767,7 @@ class TreeBuilder(object):
         box_morton_nrs = zeros(nboxes_guess, dtype=self.morton_nr_dtype)
 
         # box -> level map
-        box_levels = zeros(nboxes_guess, self.box_levels_dtype)
+        box_levels = zeros(nboxes_guess, self.box_level_dtype)
 
         # number of particles in each box
         # needs to be globally initialized because empty boxes never get touched
@@ -1791,6 +1812,9 @@ class TreeBuilder(object):
                 # More invariants:
                 assert level == len(level_starts) - 1
 
+            if level > np.iinfo(self.box_level_dtype).max:
+                raise RuntimeError("level count exceeded maximum")
+
             common_args = ((morton_bin_counts, morton_nrs,
                     box_start_flags, srcntgt_box_ids, split_box_ids,
                     box_morton_bin_counts,
@@ -1813,7 +1837,13 @@ class TreeBuilder(object):
                     box_srcntgt_counts,
                     max_particles_in_box,
                     box_morton_bin_counts,
+                    box_levels,
+                    level,
+
+                    # input/output:
                     nboxes_dev,
+
+                    # output:
                     split_box_ids,
                     queue=queue, size=nsrcntgts)
 
@@ -1887,6 +1917,11 @@ class TreeBuilder(object):
                     + (new_user_srcntgt_ids, have_oversize_split_box,
                         new_srcntgt_box_ids, box_levels))
             knl_info.split_and_sort_kernel(*split_and_sort_args)
+
+            if debug:
+                level_bl_chunk = box_levels.get()[level_starts[-2]:level_starts[-1]]
+                assert ((level_bl_chunk == level) | (level_bl_chunk == 0)).all()
+                del level_bl_chunk
 
             if debug:
                 assert (box_srcntgt_starts.get() < nsrcntgts).all()

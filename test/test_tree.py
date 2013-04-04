@@ -316,8 +316,8 @@ def test_source_with_extent_tree(ctx_getter, do_plot=False):
             2,
             3
             ]:
-        nsources = 100
-        ntargets = 0
+        nsources = 100000
+        ntargets = 200000
         dtype = np.float64
 
         sources = make_particle_array(queue, nsources, dims, dtype,
