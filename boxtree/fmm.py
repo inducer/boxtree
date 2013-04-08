@@ -22,6 +22,8 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+import logging
+logger = logging.getLogger(__name__)
 
 
 
@@ -34,9 +36,15 @@ def drive_fmm(traversal, expansion_wrangler, src_weights):
     # Interface guidelines: Attributes of the tree are assumed to be known
     # to the expansion wrangler and should not be passed.
 
+    logger.info("start fmm")
+
+    logger.debug("reorder source weights")
+
     src_weights = wrangler.reorder_src_weights(src_weights)
 
     # {{{ "Step 2.1:" Construct local multipoles
+
+    logger.debug("construct local multipoles")
 
     mpole_exps = wrangler.form_multipoles(
             traversal.leaf_boxes,
@@ -45,6 +53,8 @@ def drive_fmm(traversal, expansion_wrangler, src_weights):
     # }}}
 
     # {{{ "Step 2.2:" Propagate multipoles upward
+
+    logger.debug("propagate multipoles upward")
 
     for lev in xrange(tree.nlevels-1, -1, -1):
         start_parent_box, end_parent_box = traversal.level_start_parent_box_nrs[lev:lev+2]
@@ -58,6 +68,8 @@ def drive_fmm(traversal, expansion_wrangler, src_weights):
 
     # {{{ "Stage 3:" Direct calculation on neighbor leaves ("list 1")
 
+    logger.debug("direct calculation on neighbor leaves ('list 1')")
+
     potentials = wrangler.eval_direct(
             traversal.leaf_boxes,
             traversal.neighbor_leaves_starts,
@@ -70,6 +82,8 @@ def drive_fmm(traversal, expansion_wrangler, src_weights):
 
     # {{{ "Stage 4:" translate separated siblings' ("list 2") mpoles to local
 
+    logger.debug("translate separated siblings' ('list 2') mpoles to local")
+
     local_exps = wrangler.multipole_to_local(
             traversal.sep_siblings_starts,
             traversal.sep_siblings_lists,
@@ -80,6 +94,8 @@ def drive_fmm(traversal, expansion_wrangler, src_weights):
     # }}}
 
     # {{{ "Stage 5:" evaluate sep. smaller nonsiblings' mpoles ("list 3") at particles
+
+    logger.debug("evaluate sep. smaller nonsiblings' mpoles ('list 3') at particles")
 
     # (the point of aiming this stage at particles is specifically to keep its contribution
     # *out* of the downward-propagating local expansions)
@@ -96,6 +112,8 @@ def drive_fmm(traversal, expansion_wrangler, src_weights):
 
     # {{{ "Stage 6:" translate separated bigger nonsiblings' mpoles ("list 4") to local
 
+    logger.debug("translate separated bigger nonsiblings' mpoles ('list 4') to local")
+
     local_exps = local_exps + wrangler.multipole_to_local(
             traversal.sep_bigger_nonsiblings_starts,
             traversal.sep_bigger_nonsiblings_lists,
@@ -107,6 +125,8 @@ def drive_fmm(traversal, expansion_wrangler, src_weights):
 
     # {{{ "Stage 7:" propagate sib_local_exps downward
 
+    logger.debug("propagate sib_local_exps downward")
+
     for lev in xrange(1, tree.nlevels):
         start_box, end_box = tree.level_start_box_nrs[lev:lev+2]
         wrangler.refine_locals(start_box, end_box, local_exps)
@@ -115,13 +135,20 @@ def drive_fmm(traversal, expansion_wrangler, src_weights):
 
     # {{{ "Stage 8:" evaluate locals
 
+    logger.debug("evaluate locals")
+
     potentials = potentials + wrangler.eval_locals(
             traversal.leaf_boxes,
             local_exps)
 
     # }}}
 
-    return wrangler.reorder_potentials(potentials)
+    logger.debug("reorder potentials")
+    result = wrangler.reorder_potentials(potentials)
+
+    logger.info("fmm complete")
+
+    return result
 
 
 

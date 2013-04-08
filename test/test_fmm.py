@@ -33,6 +33,9 @@ from pyopencl.tools import pytest_generate_tests_for_pyopencl \
 
 from boxtree.tools import make_particle_array, particle_array_to_host
 
+import logging
+logger = logging.getLogger(__name__)
+
 
 
 
@@ -160,6 +163,9 @@ def test_fmm_completeness(ctx_getter):
     capture all interactions.
     """
 
+    import logging
+    logging.basicConfig(level=logging.INFO)
+
     ctx = ctx_getter()
     queue = cl.CommandQueue(ctx)
 
@@ -188,13 +194,9 @@ def test_fmm_completeness(ctx_getter):
             tree = tb(queue, sources, targets=targets,
                     max_particles_in_box=30, debug=True)
 
-            print "tree built"
-
             from boxtree.traversal import FMMTraversalBuilder
             tg = FMMTraversalBuilder(ctx)
             trav = tg(queue, tree).get()
-
-            print "traversal built"
 
             weights = np.random.randn(nsources)
             #weights = np.ones(nparticles)
@@ -259,6 +261,9 @@ def test_fmm_completeness(ctx_getter):
 
 @pytools.test.mark_test.opencl
 def test_pyfmmlib_fmm(ctx_getter):
+    import logging
+    logging.basicConfig(level=logging.INFO)
+
     from pytest import importorskip
     importorskip("pyfmmlib")
 
@@ -280,20 +285,15 @@ def test_pyfmmlib_fmm(ctx_getter):
     sources_host = particle_array_to_host(sources)
     targets_host = particle_array_to_host(targets)
 
-
     from boxtree import TreeBuilder
     tb = TreeBuilder(ctx)
 
     tree = tb(queue, sources, targets=targets,
             max_particles_in_box=30, debug=True)
 
-    print "tree built"
-
     from boxtree.traversal import FMMTraversalBuilder
     tg = FMMTraversalBuilder(ctx)
     trav = tg(queue, tree).get()
-
-    print "traversal built"
 
     from pyopencl.clrandom import RanluxGenerator
     rng = RanluxGenerator(queue, seed=20)
@@ -301,21 +301,22 @@ def test_pyfmmlib_fmm(ctx_getter):
     weights = rng.uniform(queue, nsources, dtype=np.float64).get()
     #weights = np.ones(nsources)
 
+    logger.info("computing direct (reference) result")
+
     from pyfmmlib import hpotgrad2dall_vec
     ref_pot, _, _ = hpotgrad2dall_vec(ifgrad=False, ifhess=False,
             sources=sources_host.T, charge=weights,
             targets=targets_host.T, zk=helmholtz_k)
 
     from boxtree.pyfmmlib_integration import Helmholtz2DExpansionWrangler
-    wrangler = Helmholtz2DExpansionWrangler(trav.tree, helmholtz_k, nterms=30)
+    wrangler = Helmholtz2DExpansionWrangler(trav.tree, helmholtz_k, nterms=10)
 
     from boxtree.fmm import drive_fmm
     pot = drive_fmm(trav, wrangler, weights)
 
     rel_err = la.norm(pot - ref_pot) / la.norm(ref_pot)
-    print rel_err
-    #assert  < 1e-8
-    #assert la.norm((pot - weights_sum) / nparticles) < 1e-8
+    logger.info("relative l2 error: %g" % rel_err)
+    assert rel_err < 1e-5
 
 # }}}
 

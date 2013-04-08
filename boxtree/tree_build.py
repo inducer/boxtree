@@ -29,7 +29,8 @@ import pyopencl.array
 from functools import partial
 from boxtree.tree import Tree
 
-
+import logging
+logger = logging.getLogger(__name__)
 
 
 # {{{ driver
@@ -208,6 +209,8 @@ class TreeBuilder(object):
 
         # {{{ allocate data
 
+        logger.debug("allocating memory")
+
         # box-local morton bin counts for each particle at the current level
         # only valid from scan -> split'n'sort
         morton_bin_counts = empty(nsrcntgts, dtype=knl_info.morton_bin_count_dtype)
@@ -267,6 +270,12 @@ class TreeBuilder(object):
 
         # }}}
 
+        def fin_debug(s):
+            if debug:
+                queue.finish()
+
+            logger.debug(s)
+
         # {{{ level loop
 
         from pytools.obj_array import make_obj_array
@@ -292,6 +301,8 @@ class TreeBuilder(object):
         # single box, by how 'level' is set above. Read this as 'while True' with
         # an edge case.
 
+        logger.debug("entering level loop")
+
         while level:
             if debug:
                 # More invariants:
@@ -312,8 +323,12 @@ class TreeBuilder(object):
                     + ((source_radii,) if sources_have_extent else ())
                     )
 
+            fin_debug("morton count scan")
+
             # writes: box_morton_bin_counts, morton_nrs
             knl_info.morton_count_scan(*common_args, queue=queue, size=nsrcntgts)
+
+            fin_debug("split box id scan")
 
             # writes: nboxes_dev, split_box_ids
             knl_info.split_box_id_scan(
@@ -342,6 +357,8 @@ class TreeBuilder(object):
             # {{{ reallocate and retry if nboxes_guess was too small
 
             if nboxes_new > nboxes_guess:
+                fin_debug("starting nboxes_guess increase")
+
                 while nboxes_guess < nboxes_new:
                     nboxes_guess *= 2
 
@@ -365,15 +382,13 @@ class TreeBuilder(object):
                 nboxes_dev.fill(level_start_box_nrs[-1])
 
                 # retry
-                if debug:
-                    print "nboxes_guess exceeded: enlarged allocations, restarting level"
+                logger.info("nboxes_guess exceeded: enlarged allocations, restarting level")
 
                 continue
 
             # }}}
 
-            if debug:
-                print "LEVEL %d -> %d boxes" % (level, nboxes_new)
+            logger.info("LEVEL %d -> %d boxes" % (level, nboxes_new))
 
             assert level_start_box_nrs[-1] != nboxes_new or sources_have_extent
 
@@ -401,6 +416,9 @@ class TreeBuilder(object):
                     common_args
                     + (new_user_srcntgt_ids, have_oversize_split_box,
                         new_srcntgt_box_ids, box_levels))
+
+            fin_debug("split and sort")
+
             knl_info.split_and_sort_kernel(*split_and_sort_args)
 
             if debug:
@@ -424,12 +442,11 @@ class TreeBuilder(object):
             have_oversize_split_box.fill(0)
 
         end_time = time()
-        if debug:
-            elapsed = end_time-start_time
-            npasses = level+1
-            print "elapsed time: %g s (%g s/particle/pass)" % (
-                    elapsed, elapsed/(npasses*nsrcntgts))
-            del npasses
+        elapsed = end_time-start_time
+        npasses = level+1
+        logger.info("elapsed time: %g s (%g s/particle/pass)" % (
+                elapsed, elapsed/(npasses*nsrcntgts)))
+        del npasses
 
         nboxes = int(nboxes_dev.get())
 
@@ -439,6 +456,7 @@ class TreeBuilder(object):
 
         if sources_have_extent:
             box_nonchild_source_counts = empty(nboxes, particle_id_dtype)
+            fin_debug("extract non-child source count")
             knl_info.extract_nonchild_source_count_kernel(
                     box_morton_bin_counts,
                     box_nonchild_source_counts,
@@ -453,21 +471,25 @@ class TreeBuilder(object):
 
         is_pruned = not kwargs.get("skip_prune")
         if is_pruned:
+
             # What is the original index of this box?
             from_box_id = empty(nboxes, box_id_dtype)
 
             # Where should I put this box?
             to_box_id = empty(nboxes, box_id_dtype)
 
+            fin_debug("find prune indices")
+
             nboxes_post_prune_dev = empty((), dtype=box_id_dtype)
             knl_info.find_prune_indices_kernel(
                     box_srcntgt_counts, to_box_id, from_box_id, nboxes_post_prune_dev,
                     size=nboxes)
 
+            fin_debug("prune copy")
+
             nboxes_post_prune = int(nboxes_post_prune_dev.get())
 
-            if debug:
-                print "%d empty leaves" % (nboxes-nboxes_post_prune)
+            logger.info("%d empty leaves" % (nboxes-nboxes_post_prune))
 
             prune_empty = partial(self.gappy_copy_and_map,
                     queue, allocator, nboxes_post_prune, from_box_id)
@@ -492,6 +514,7 @@ class TreeBuilder(object):
             level_start_box_nrs = list(to_box_id.get()[np.array(level_start_box_nrs[:-1], box_id_dtype)])
             level_start_box_nrs = level_start_box_nrs + [nboxes_post_prune]
         else:
+            logger.info("skipping empty-leaf pruning")
             nboxes_post_prune = nboxes
 
         level_start_box_nrs = np.array(level_start_box_nrs, box_id_dtype)
@@ -529,6 +552,8 @@ class TreeBuilder(object):
             box_source_counts = box_target_counts = box_srcntgt_counts
         else:
             source_numbers = empty(nsrcntgts, particle_id_dtype)
+
+            fin_debug("source counter")
             knl_info.source_counter(user_srcntgt_ids, nsources,
                     source_numbers, queue=queue, allocator=allocator)
 
@@ -543,6 +568,7 @@ class TreeBuilder(object):
             box_target_starts = zeros(nboxes_post_prune, particle_id_dtype)
             box_target_counts = zeros(nboxes_post_prune, particle_id_dtype)
 
+            fin_debug("source and target index finder")
             knl_info.source_and_target_index_finder(
                     # input:
                     user_srcntgt_ids, nsources, srcntgt_box_ids,
@@ -584,6 +610,8 @@ class TreeBuilder(object):
         if targets is None:
             sources = targets = make_obj_array([
                 cl.array.empty_like(pt) for pt in srcntgts])
+
+            fin_debug("srcntgt permuter (particles)")
             knl_info.srcntgt_permuter(
                     user_srcntgt_ids,
                     *(tuple(srcntgts) + tuple(sources)))
@@ -593,6 +621,7 @@ class TreeBuilder(object):
         else:
             sources = make_obj_array([
                 empty(nsources, coord_dtype) for i in xrange(dimensions)])
+            fin_debug("srcntgt permuter (sources)")
             knl_info.srcntgt_permuter(
                     user_source_ids,
                     *(tuple(srcntgts) + tuple(sources)),
@@ -600,12 +629,14 @@ class TreeBuilder(object):
 
             targets = make_obj_array([
                 empty(ntargets, coord_dtype) for i in xrange(dimensions)])
+            fin_debug("srcntgt permuter (targets)")
             knl_info.srcntgt_permuter(
                     srcntgt_target_ids,
                     *(tuple(srcntgts) + tuple(targets)),
                     queue=queue, range=slice(ntargets))
 
             if source_radii is not None:
+                fin_debug("srcntgt permuter (radii)")
                 source_radii = cl.array.take(
                         source_radii, user_source_ids, queue=queue)
 
@@ -628,6 +659,7 @@ class TreeBuilder(object):
         from boxtree.tree import box_flags_enum
         box_flags = empty(nboxes_post_prune, box_flags_enum.dtype)
 
+        fin_debug("compute box info")
         knl_info.box_info_kernel(
                 # input:
                 box_parent_ids, box_morton_nrs, bbox, aligned_nboxes,
@@ -659,6 +691,8 @@ class TreeBuilder(object):
             extra_tree_attrs.update(
                     source_radii=source_radii,
                     )
+
+        logger.info("tree build complete")
 
         return Tree(
                 # If you change this, also change the documentation

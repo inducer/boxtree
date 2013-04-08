@@ -401,7 +401,7 @@ def test_source_with_extent_tree(ctx_getter, do_plot=False):
             # }}}
 
             if not all_good_here:
-                print "BAD BOX %s %d" % (what, ibox)
+                print "BAD BOX %d" % ibox
 
             all_good_so_far = all_good_so_far and all_good_here
 
@@ -414,6 +414,9 @@ def test_source_with_extent_tree(ctx_getter, do_plot=False):
 # {{{ geometry query test
 
 def test_geometry_query(ctx_getter, do_plot=False):
+    import logging
+    logging.basicConfig(level=logging.INFO)
+
     ctx = ctx_getter()
     queue = cl.CommandQueue(ctx)
 

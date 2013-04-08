@@ -31,6 +31,11 @@ from boxtree.tools import AXIS_NAMES, FromDeviceGettableRecord
 
 
 
+import logging
+logger = logging.getLogger(__name__)
+
+
+
 
 # {{{ preamble
 
@@ -510,6 +515,8 @@ class FMMTraversalBuilder:
     def get_kernel_info(self, dimensions, particle_id_dtype, box_id_dtype,
             coord_dtype, max_levels):
 
+        logging.info("building traversal build kernels")
+
         debug = False
 
         from pyopencl.tools import dtype_to_ctype
@@ -645,6 +652,8 @@ class FMMTraversalBuilder:
 
         # }}}
 
+        logging.info("traversal build kernels built")
+
         return _KernelInfo(
                 leaves_and_parents_builder=leaves_and_parents_builder,
                 level_start_box_nrs_extractor=level_start_box_nrs_extractor,
@@ -654,7 +663,7 @@ class FMMTraversalBuilder:
 
     # {{{ driver
 
-    def __call__(self, queue, tree):
+    def __call__(self, queue, tree, debug=False):
         """
         :arg queue: A :class:`pyopencl.CommandQueue` instance.
         :arg tree: A :class:`boxtree.Tree` instance.
@@ -671,7 +680,17 @@ class FMMTraversalBuilder:
                 tree.dimensions, tree.particle_id_dtype, tree.box_id_dtype,
                 tree.coord_dtype, max_levels)
 
+        def fin_debug(s):
+            if debug:
+                queue.finish()
+
+            logger.debug(s)
+
+        logger.info("start building traversal")
+
         # {{{ leaves and parents
+
+        fin_debug("building list of leaves and parents (=non-leaves)")
 
         result = knl_info.leaves_and_parents_builder(
                 queue, tree.nboxes, tree.box_flags.data)
@@ -684,6 +703,8 @@ class FMMTraversalBuilder:
         # }}}
 
         # {{{ figure out level starts in parent_boxes
+
+        fin_debug("finding level starts in parent boxes array")
 
         level_start_parent_box_nrs = cl.array.empty(queue,
                 tree.nlevels+1, tree.box_id_dtype) \
@@ -712,6 +733,8 @@ class FMMTraversalBuilder:
 
         # {{{ colleagues
 
+        fin_debug("finding colleagues")
+
         colleagues = knl_info.colleagues_builder(
                 queue, tree.nboxes,
                 tree.box_centers.data, tree.root_extent, tree.box_levels.data,
@@ -721,6 +744,8 @@ class FMMTraversalBuilder:
         # }}}
 
         # {{{ neighbor leaves ("list 1")
+
+        fin_debug("finding neighbor leaves ('list 1')")
 
         neighbor_leaves = knl_info.neighbor_leaves_builder(
                 queue, len(leaf_boxes),
@@ -732,6 +757,8 @@ class FMMTraversalBuilder:
 
         # {{{ well-separated siblings ("list 2")
 
+        fin_debug("finding well-separated siblings ('list 2')")
+
         sep_siblings = knl_info.sep_siblings_builder(
                 queue, tree.nboxes,
                 tree.box_centers.data, tree.root_extent, tree.box_levels.data,
@@ -742,6 +769,8 @@ class FMMTraversalBuilder:
         # }}}
 
         # {{{ separated smaller non-siblings ("list 3")
+
+        fin_debug("finding separated smaller non-siblings ('list 3')")
 
         result = knl_info.sep_smaller_nonsiblings_builder(
                 queue, len(leaf_boxes),
@@ -756,6 +785,8 @@ class FMMTraversalBuilder:
 
         # {{{ separated bigger non-siblings ("list 4")
 
+        fin_debug("finding separated bigger non-siblings ('list 4')")
+
         sep_bigger_nonsiblings_starts, sep_bigger_nonsiblings_list \
                 = self.key_value_sorter(
                         queue,
@@ -766,6 +797,8 @@ class FMMTraversalBuilder:
                         tree.nboxes, starts_dtype=tree.box_id_dtype)
 
         # }}}
+
+        logger.info("traversal built")
 
         return FMMTraversalInfo(
                 tree=tree,

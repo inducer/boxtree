@@ -259,7 +259,19 @@ class Tree(FromDeviceGettableRecord):
         :arg point_sources: an object array of (XYZ) point coordinate arrays.
         """
 
-        raise NotImplementedError
+        if not self.sources_have_extent:
+            raise ValueError("only allowed on trees whose sources have extent")
+
+
+        return TreeWithLinkedPointSources(
+                # FIXME: Add existing attributes
+                npoint_sources=None,
+                point_source_starts=None,
+                point_source_counts=None,
+                user_point_source_ids=None,
+                box_point_source_starts=None,
+                box_point_source_counts=None,
+                )
 
 # }}}
 

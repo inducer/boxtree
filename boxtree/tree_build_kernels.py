@@ -31,6 +31,11 @@ from mako.template import Template
 from pytools import Record, memoize
 from boxtree.tools import get_type_moniker
 
+import logging
+logger = logging.getLogger(__name__)
+
+
+
 
 # TODO:
 # - Add *restrict where applicable.
@@ -891,6 +896,8 @@ def get_tree_build_kernel_info(context, dimensions, coord_dtype,
         sources_are_targets, sources_have_extent,
         stick_out_factor, morton_nr_dtype, box_level_dtype):
 
+    logging.info("start building tree build kernels")
+
     # {{{ preparation
 
     if np.iinfo(box_id_dtype).min == 0:
@@ -1056,6 +1063,14 @@ def get_tree_build_kernel_info(context, dimensions, coord_dtype,
 
     # {{{ split-and-sort
 
+    # Work around a bug in Mako < 0.7.3
+    s_and_s_codegen_args = codegen_args.copy()
+    s_and_s_codegen_args.update(
+            dim=None,
+            boundary_morton_nr=None)
+
+    split_and_sort_preamble = SPLIT_AND_SORT_PREAMBLE_TPL.render(**s_and_s_codegen_args)
+
     split_and_sort_kernel_source = SPLIT_AND_SORT_KERNEL_TPL.render(**codegen_args)
 
     from pyopencl.elementwise import ElementwiseKernel
@@ -1071,7 +1086,7 @@ def get_tree_build_kernel_info(context, dimensions, coord_dtype,
             str(split_and_sort_kernel_source), name="split_and_sort",
             preamble=(
                 preamble_with_dtype_decls
-                + str(SPLIT_AND_SORT_PREAMBLE_TPL.render(**codegen_args)))
+                + str(split_and_sort_preamble))
             )
 
     # }}}
@@ -1188,6 +1203,8 @@ def get_tree_build_kernel_info(context, dimensions, coord_dtype,
             )
 
     # }}}
+
+    logging.info("tree build kernels built")
 
     return _KernelInfo(
             particle_id_dtype=particle_id_dtype,
