@@ -257,7 +257,7 @@ class Tree(FromDeviceGettableRecord):
             `point_source_starts[isrc+1]` together indicate a ranges of point
             particle indices in *point_sources* which will be linked to the
             original (extent-having) source number *isrc*. *isrc* is in :ref:`user
-            point source order <particle-orderings>`.
+            source order <particle-orderings>`.
 
             All the particles linked to *isrc* shoud fall within the :math:`l^\infty`
             'circle' around particle number *isrc* with the radius drawn from
