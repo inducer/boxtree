@@ -359,92 +359,92 @@ SCAN_OUTPUT_STMT_TPL = Template(r"""//CL//
 # {{{ split box id scan
 
 SPLIT_BOX_ID_SCAN_TPL = ScanTemplate(
-        arguments=r"""//CL:mako//
-            /* input */
-            box_id_t *srcntgt_box_ids,
-            particle_id_t *box_srcntgt_starts,
-            particle_id_t *box_srcntgt_counts,
+    arguments=r"""//CL:mako//
+        /* input */
+        box_id_t *srcntgt_box_ids,
+        particle_id_t *box_srcntgt_starts,
+        particle_id_t *box_srcntgt_counts,
+        particle_id_t max_particles_in_box,
+        morton_counts_t *box_morton_bin_counts,
+        box_level_t *box_levels,
+        box_level_t level,
+
+        /* input/output */
+        box_id_t *nboxes,
+
+        /* output */
+        box_id_t *split_box_ids,
+        """,
+    preamble=r"""//CL:mako//
+        scan_t count_new_boxes_needed(
+            particle_id_t i,
+            box_id_t box_id,
+            __global box_id_t *nboxes,
+            __global particle_id_t *box_srcntgt_starts,
+            __global particle_id_t *box_srcntgt_counts,
+            __global morton_counts_t *box_morton_bin_counts,
             particle_id_t max_particles_in_box,
-            morton_counts_t *box_morton_bin_counts,
-            box_level_t *box_levels,
-            box_level_t level,
+            __global box_level_t *box_levels,
+            box_level_t level
+            )
+        {
+            scan_t result = 0;
 
-            /* input/output */
-            box_id_t *nboxes,
+            // First particle? Start counting at (the previous level's) nboxes.
+            if (i == 0)
+                result += *nboxes;
 
-            /* output */
-            box_id_t *split_box_ids,
-            """,
-        preamble=r"""//CL:mako//
-            scan_t count_new_boxes_needed(
-                particle_id_t i,
-                box_id_t box_id,
-                __global box_id_t *nboxes,
-                __global particle_id_t *box_srcntgt_starts,
-                __global particle_id_t *box_srcntgt_counts,
-                __global morton_counts_t *box_morton_bin_counts,
-                particle_id_t max_particles_in_box,
-                __global box_level_t *box_levels,
-                box_level_t level
-                )
-            {
-                scan_t result = 0;
+            %if sources_have_extent:
+                const particle_id_t nonchild_sources_in_box =
+                    box_morton_bin_counts[box_id].nonchild_sources;
+            %else:
+                const particle_id_t nonchild_sources_in_box = 0;
+            %endif
 
-                // First particle? Start counting at (the previous level's) nboxes.
-                if (i == 0)
-                    result += *nboxes;
+            particle_id_t first_particle_in_my_box =
+                box_srcntgt_starts[box_id];
 
+            // Add 2**d to make enough room for a split of the current box
+            // This will be the split_box_id for *all* particles in this box,
+            // including non-child sources.
+
+            if (i == first_particle_in_my_box
                 %if sources_have_extent:
-                    const particle_id_t nonchild_sources_in_box =
-                        box_morton_bin_counts[box_id].nonchild_sources;
-                %else:
-                    const particle_id_t nonchild_sources_in_box = 0;
-                %endif
+                    // Only last-level boxes get to produce new boxes.
+                    // If sources have extent, then prior-level boxes
+                    // will keep asking for more boxes to be allocated.
+                    // Prevent that.
 
-                particle_id_t first_particle_in_my_box =
-                    box_srcntgt_starts[box_id];
-
-                // Add 2**d to make enough room for a split of the current box
-                // This will be the split_box_id for *all* particles in this box,
-                // including non-child sources.
-
-                if (i == first_particle_in_my_box
-                    %if sources_have_extent:
-                        // Only last-level boxes get to produce new boxes.
-                        // If sources have extent, then prior-level boxes
-                        // will keep asking for more boxes to be allocated.
-                        // Prevent that.
-
-                        &&
-                        box_levels[box_id] + 1 == level
-                    %endif
                     &&
-                    /* box overfull? */
-                    box_srcntgt_counts[box_id] - nonchild_sources_in_box
-                        > max_particles_in_box)
-                {
-                    result += ${2**dimensions};
-                }
-
-                return result;
+                    box_levels[box_id] + 1 == level
+                %endif
+                &&
+                /* box overfull? */
+                box_srcntgt_counts[box_id] - nonchild_sources_in_box
+                    > max_particles_in_box)
+            {
+                result += ${2**dimensions};
             }
-            """,
-        input_expr="""count_new_boxes_needed(
-                i, srcntgt_box_ids[i], nboxes,
-                box_srcntgt_starts, box_srcntgt_counts, box_morton_bin_counts,
-                max_particles_in_box, box_levels, level
-                )""",
-        scan_expr="a + b",
-        neutral="0",
-        output_statement="""//CL//
-            dbg_assert(item >= 0);
 
-            split_box_ids[i] = item;
+            return result;
+        }
+        """,
+    input_expr="""count_new_boxes_needed(
+            i, srcntgt_box_ids[i], nboxes,
+            box_srcntgt_starts, box_srcntgt_counts, box_morton_bin_counts,
+            max_particles_in_box, box_levels, level
+            )""",
+    scan_expr="a + b",
+    neutral="0",
+    output_statement="""//CL//
+        dbg_assert(item >= 0);
 
-            // Am I the last particle overall? If so, write box count
-            if (i+1 == N)
-                *nboxes = item;
-            """)
+        split_box_ids[i] = item;
+
+        // Am I the last particle overall? If so, write box count
+        if (i+1 == N)
+            *nboxes = item;
+        """)
 
 # }}}
 
@@ -896,7 +896,7 @@ def get_tree_build_kernel_info(context, dimensions, coord_dtype,
         sources_are_targets, sources_have_extent,
         stick_out_factor, morton_nr_dtype, box_level_dtype):
 
-    logging.info("start building tree build kernels")
+    logger.info("start building tree build kernels")
 
     # {{{ preparation
 
@@ -1204,7 +1204,7 @@ def get_tree_build_kernel_info(context, dimensions, coord_dtype,
 
     # }}}
 
-    logging.info("tree build kernels built")
+    logger.info("tree build kernels built")
 
     return _KernelInfo(
             particle_id_dtype=particle_id_dtype,
@@ -1222,6 +1222,80 @@ def get_tree_build_kernel_info(context, dimensions, coord_dtype,
             source_and_target_index_finder=source_and_target_index_finder,
             box_info_kernel=box_info_kernel,
             )
+
+# }}}
+
+# {{{ point source linking kernels
+
+# scan over (non-point) source ids in tree order
+POINT_SOURCE_LINKING_SOURCE_SCAN_TPL = ScanTemplate(
+    arguments=r"""//CL:mako//
+        /* input */
+        particle_id_t *point_source_starts,
+        particle_id_t *user_source_ids,
+
+        /* output */
+        particle_id_t *tree_order_point_source_starts,
+        particle_id_t *tree_order_point_source_counts,
+        particle_id_t *npoint_sources
+        """,
+    input_expr="""
+        point_source_starts[user_source_ids[i]+1]
+        - point_source_starts[user_source_ids[i]]
+        """,
+    scan_expr="a + b",
+    neutral="0",
+    output_statement="""//CL//
+        tree_order_point_source_starts[i] = prev_item;
+        tree_order_point_source_counts[i] = item - prev_item;
+
+        // Am I the last particle overall? If so, write point source count
+        if (i+1 == N)
+            *npoint_sources = item;
+        """)
+
+POINT_SOURCE_LINKING_USER_POINT_SOURCE_ID_SCAN_TPL = ScanTemplate(
+    arguments=r"""//CL:mako//
+        char *source_boundaries,
+        particle_id_t *user_point_source_ids
+        """,
+    input_expr="user_point_source_ids[i]",
+    scan_expr="across_seg_boundary ? b : a + b",
+    neutral="0",
+    is_segment_start_expr="source_boundaries[i]",
+    output_statement="user_point_source_ids[i] = item;")
+
+POINT_SOURCE_LINKING_BOX_POINT_SOURCES = ElementwiseTemplate(
+    arguments="""//CL//
+        particle_id_t *box_point_source_starts,
+        particle_id_t *box_point_source_counts,
+
+        particle_id_t *box_source_starts,
+        particle_id_t *box_source_counts,
+
+        particle_id_t *tree_order_point_source_starts,
+        particle_id_t *tree_order_point_source_counts,
+        """,
+    operation=r"""//CL//
+        particle_id_t s_start = box_source_starts[i];
+        particle_id_t ps_start = tree_order_point_source_starts[s_start];
+        box_point_source_starts[i] = ps_start;
+
+        particle_id_t s_count = box_source_counts[i];
+        if (s_count == 0)
+        {
+            box_point_source_counts[i] = 0;
+        }
+        else
+        {
+            particle_id_t last_s_in_box = s_start+s_count-1;
+            particle_id_t beyond_last_ps_in_box =
+                tree_order_point_source_starts[last_s_in_box]
+                + tree_order_point_source_counts[last_s_in_box];
+            box_point_source_counts[i] = beyond_last_ps_in_box - ps_start;
+        }
+        """,
+    name="box_point_sources")
 
 # }}}
 

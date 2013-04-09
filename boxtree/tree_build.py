@@ -704,6 +704,7 @@ class TreeBuilder(object):
 
                 root_extent=root_extent,
                 stick_out_factor=stick_out_factor,
+                sources_have_extent=sources_have_extent,
 
                 bounding_box=(bbox_min, bbox_max),
                 level_start_box_nrs=level_start_box_nrs,
@@ -726,7 +727,6 @@ class TreeBuilder(object):
 
                 user_source_ids=user_source_ids,
                 sorted_target_ids=sorted_target_ids,
-
 
                 _is_pruned=is_pruned,
 

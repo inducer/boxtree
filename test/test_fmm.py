@@ -163,7 +163,6 @@ def test_fmm_completeness(ctx_getter):
     capture all interactions.
     """
 
-    import logging
     logging.basicConfig(level=logging.INFO)
 
     ctx = ctx_getter()
@@ -261,7 +260,6 @@ def test_fmm_completeness(ctx_getter):
 
 @pytools.test.mark_test.opencl
 def test_pyfmmlib_fmm(ctx_getter):
-    import logging
     logging.basicConfig(level=logging.INFO)
 
     from pytest import importorskip

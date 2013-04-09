@@ -33,12 +33,16 @@ from pyopencl.tools import pytest_generate_tests_for_pyopencl \
 
 from boxtree.tools import make_particle_array
 
+import logging
+logger = logging.getLogger(__name__)
 
 
 # {{{ connectivity test
 
 @pytools.test.mark_test.opencl
 def test_tree_connectivity(ctx_getter):
+    logging.basicConfig(level=logging.INFO)
+
     ctx = ctx_getter()
     queue = cl.CommandQueue(ctx)
 
@@ -52,14 +56,11 @@ def test_tree_connectivity(ctx_getter):
         tb = TreeBuilder(ctx)
 
         tree = tb(queue, particles, max_particles_in_box=30, debug=True)
-        print "tree built"
 
         from boxtree.traversal import FMMTraversalBuilder
         tg = FMMTraversalBuilder(ctx)
         trav = tg(queue, tree).get()
         tree = tree.get()
-
-        print "traversal built"
 
         levels = tree.box_levels
         parents = tree.box_parent_ids.T

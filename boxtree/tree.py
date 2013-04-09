@@ -25,9 +25,12 @@ THE SOFTWARE.
 
 
 
+import pyopencl as cl
 import numpy as np
 from boxtree.tools import FromDeviceGettableRecord
 
+import logging
+logger = logging.getLogger(__name__)
 
 
 
@@ -66,7 +69,7 @@ class box_flags_enum:
 
 # }}}
 
-# {{{ tree data structure (output)
+# {{{ tree data structure
 
 class Tree(FromDeviceGettableRecord):
     """A quad/octree consisting of particles sorted into a hierarchy of boxes.
@@ -241,11 +244,15 @@ class Tree(FromDeviceGettableRecord):
         extent_high = extent_low + box_size
         return extent_low, extent_high
 
-    def link_point_sources(self, point_source_starts, point_sources):
+    # {{{ point source linking
+
+    def link_point_sources(self, queue, point_source_starts, point_sources,
+            debug=False):
         """Build a :class:`TreeWithLinkedPointSources`.
 
         Requires that :attr:`sources_have_extent` is *True*.
 
+        :arg queue: a :class:`pyopencl.CommandQueue` instance
         :arg point_source_starts: `point_source_starts[isrc]` and
             `point_source_starts[isrc+1]` together indicate a ranges of point
             particle indices in *point_sources* which will be linked to the
@@ -259,19 +266,152 @@ class Tree(FromDeviceGettableRecord):
         :arg point_sources: an object array of (XYZ) point coordinate arrays.
         """
 
+        # The whole point of this routine is that all point sources within
+        # a box are reordered to be contiguous.
+
+        logger.info("point source linking: start")
+
         if not self.sources_have_extent:
             raise ValueError("only allowed on trees whose sources have extent")
 
+        npoint_sources_dev = cl.array.empty(queue, (), self.particle_id_dtype)
+
+        # {{{ compute tree_order_point_source_{starts, counts}
+
+        # Scan over lengths of point source lists in tree order to determine
+        # indices of point source starts for each source.
+
+        tree_order_point_source_starts = cl.array.empty(
+                queue, self.nsources, self.particle_id_dtype)
+        tree_order_point_source_counts = cl.array.empty(
+                queue, self.nsources, self.particle_id_dtype)
+
+        from boxtree.tree_build_kernels import POINT_SOURCE_LINKING_SOURCE_SCAN_TPL
+        knl = POINT_SOURCE_LINKING_SOURCE_SCAN_TPL.build(
+            queue.context,
+            type_aliases=(
+                ("scan_t", self.particle_id_dtype),
+                ("index_t", self.particle_id_dtype),
+                ("particle_id_t", self.particle_id_dtype),
+                ),
+            )
+
+        logger.debug("point source linking: tree order source scan")
+
+        knl(point_source_starts, self.user_source_ids,
+                tree_order_point_source_starts, tree_order_point_source_counts,
+                npoint_sources_dev, size=self.nsources, queue=queue)
+
+        # }}}
+
+        npoint_sources = int(npoint_sources_dev.get())
+
+        # {{{ compute user_point_source_ids
+
+        # A list of point source starts, indexed in tree order,
+        # but giving point source indices in user order.
+        tree_order_index_user_point_source_starts = cl.array.take(
+                point_source_starts, self.user_source_ids)
+
+        user_point_source_ids = cl.array.empty(
+                queue, npoint_sources, self.particle_id_dtype)
+        user_point_source_ids.fill(1)
+        cl.array.multi_put([tree_order_index_user_point_source_starts ],
+                dest_indices=tree_order_point_source_starts,
+                out=[user_point_source_ids])
+
+        if debug:
+            ups_host = user_point_source_ids.get()
+            assert (ups_host >= 0).all()
+            assert (ups_host < npoint_sources).all()
+
+        source_boundaries = cl.array.zeros(queue, npoint_sources, np.int8)
+
+        # FIXME: Should be a scalar, in principle.
+        ones = cl.array.empty(queue, self.nsources, np.int8)
+        ones.fill(1)
+
+        cl.array.multi_put(
+                [ones],
+                dest_indices=tree_order_point_source_starts,
+                out=[source_boundaries])
+
+        from boxtree.tree_build_kernels import POINT_SOURCE_LINKING_USER_POINT_SOURCE_ID_SCAN_TPL
+
+        logger.debug("point source linking: point source id scan")
+
+        knl = POINT_SOURCE_LINKING_USER_POINT_SOURCE_ID_SCAN_TPL.build(
+            queue.context,
+            type_aliases=(
+                ("scan_t", self.particle_id_dtype),
+                ("index_t", self.particle_id_dtype),
+                ("particle_id_t", self.particle_id_dtype),
+                ),
+            )
+        knl(source_boundaries, user_point_source_ids,
+                size=npoint_sources, queue=queue)
+
+        if debug:
+            ups_host = user_point_source_ids.get()
+            assert (ups_host >= 0).all()
+            assert (ups_host < npoint_sources).all()
+
+        # }}}
+
+        from pytools.obj_array import make_obj_array
+        tree_order_point_sources = make_obj_array([
+            cl.array.take(point_sources[i], user_point_source_ids)
+            for i in range(self.dimensions)
+            ])
+
+        # {{{ compute box point source metadata
+
+        from boxtree.tree_build_kernels import POINT_SOURCE_LINKING_BOX_POINT_SOURCES
+
+        knl = POINT_SOURCE_LINKING_BOX_POINT_SOURCES.build(
+            queue.context,
+            type_aliases=(
+                ("particle_id_t", self.particle_id_dtype),
+                ),
+            )
+
+        logger.debug("point source linking: box point sources")
+
+        box_point_source_starts = cl.array.empty(
+                queue, self.nboxes, self.particle_id_dtype)
+        box_point_source_counts = cl.array.empty(
+                queue, self.nboxes, self.particle_id_dtype)
+
+        knl(
+                box_point_source_starts, box_point_source_counts,
+                self.box_source_starts, self.box_source_counts,
+                tree_order_point_source_starts,
+                tree_order_point_source_counts,
+                range=slice(self.nboxes), queue=queue)
+
+        # }}}
+
+        logger.info("point source linking: complete")
+
+        tree_attrs = {}
+        for attr_name in self.__class__.fields:
+            try:
+                tree_attrs[attr_name] = getattr(self, attr_name)
+            except AttributeError:
+                pass
 
         return TreeWithLinkedPointSources(
-                # FIXME: Add existing attributes
-                npoint_sources=None,
-                point_source_starts=None,
-                point_source_counts=None,
-                user_point_source_ids=None,
-                box_point_source_starts=None,
-                box_point_source_counts=None,
-                )
+                npoint_sources=npoint_sources,
+                point_source_starts=tree_order_point_source_starts,
+                point_source_counts=tree_order_point_source_counts,
+                point_sources=tree_order_point_sources,
+                user_point_source_ids=user_point_source_ids,
+                box_point_source_starts=box_point_source_starts,
+                box_point_source_counts=box_point_source_counts,
+
+                **tree_attrs)
+
+    # }}}
 
 # }}}
 

@@ -29,18 +29,20 @@ import numpy as np
 import numpy.linalg as la
 import sys
 import pytools.test
+import logging
 
 import pyopencl as cl
 from pyopencl.tools import pytest_generate_tests_for_pyopencl \
         as pytest_generate_tests
 from boxtree.tools import make_particle_array
 
-
-
+logger = logging.getLogger(__name__)
 
 # {{{ bounding box test
 
 def test_bounding_box(ctx_getter):
+    logging.basicConfig(level=logging.INFO)
+
     ctx = ctx_getter()
     queue = cl.CommandQueue(ctx)
 
@@ -55,7 +57,8 @@ def test_bounding_box(ctx_getter):
             axis_names = AXIS_NAMES[:dims]
 
             for nparticles in [9, 4096, 10**5]:
-                print dtype, dims, nparticles
+                logger.info("%s - %s %s" % (dtype, dims, nparticles))
+
                 particles = make_particle_array(queue, nparticles, dims, dtype)
 
                 bbox_min = [np.min(x.get()) for x in particles]
@@ -87,11 +90,12 @@ def run_build_test(builder, queue, dims, dtype, nparticles, do_plot, max_particl
     else:
         raise RuntimeError("unsupported dtype: %s" % dtype)
 
-    print 75*"-"
-    print "%dD %s - %d particles - max %d per box - %s" % (
+    logger.info(75*"-")
+    logger.info("%dD %s - %d particles - max %d per box - %s" % (
             dims, dtype.type.__name__, nparticles, max_particles_in_box,
-            " - ".join("%s: %s" % (k, v) for k, v in kwargs.iteritems()))
-    print 75*"-"
+            " - ".join("%s: %s" % (k, v) for k, v in kwargs.iteritems())))
+    logger.info(75*"-")
+
     particles = make_particle_array(queue, nparticles, dims, dtype)
 
     if do_plot:
@@ -99,11 +103,10 @@ def run_build_test(builder, queue, dims, dtype, nparticles, do_plot, max_particl
         pt.plot(particles[0].get(), particles[1].get(), "x")
 
     queue.finish()
-    print "building..."
+
     tree = builder(queue, particles,
             max_particles_in_box=max_particles_in_box, debug=True,
             **kwargs).get()
-    print "%d boxes, testing..." % tree.nboxes
 
     sorted_particles = np.array(list(tree.sources))
 
@@ -130,9 +133,6 @@ def run_build_test(builder, queue, dims, dtype, nparticles, do_plot, max_particl
             continue
 
         extent_low, extent_high = tree.get_box_extent(ibox)
-        if extent_low[0] == extent_low[1]:
-            print "ZERO", ibox, tree.box_centers[:, ibox]
-            1/0
 
         assert (extent_low >= tree.bounding_box[0] - scaled_tol).all(), (
                 ibox, extent_low, tree.bounding_box[0])
@@ -167,13 +167,13 @@ def run_build_test(builder, queue, dims, dtype, nparticles, do_plot, max_particl
 
     assert all_good_so_far
 
-    print "done"
-
 
 
 
 @pytools.test.mark_test.opencl
 def test_particle_tree(ctx_getter, do_plot=False):
+    logging.basicConfig(level=logging.INFO)
+
     ctx = ctx_getter()
     queue = cl.CommandQueue(ctx)
 
@@ -213,6 +213,8 @@ def test_particle_tree(ctx_getter, do_plot=False):
 
 @pytools.test.mark_test.opencl
 def test_source_target_tree(ctx_getter, do_plot=False):
+    logging.basicConfig(level=logging.INFO)
+
     ctx = ctx_getter()
     queue = cl.CommandQueue(ctx)
 
@@ -235,10 +237,8 @@ def test_source_target_tree(ctx_getter, do_plot=False):
         tb = TreeBuilder(ctx)
 
         queue.finish()
-        print "building..."
         tree = tb(queue, sources, targets=targets,
                 max_particles_in_box=10, debug=True).get()
-        print "%d boxes, testing..." % tree.nboxes
 
         sorted_sources = np.array(list(tree.sources))
         sorted_targets = np.array(list(tree.targets))
@@ -300,15 +300,14 @@ def test_source_target_tree(ctx_getter, do_plot=False):
 
         assert all_good_so_far
 
-        print "done"
-
-
 # }}}
 
 # {{{ test sources-with-extent tree
 
 @pytools.test.mark_test.opencl
 def test_source_with_extent_tree(ctx_getter, do_plot=False):
+    logging.basicConfig(level=logging.INFO)
+
     ctx = ctx_getter()
     queue = cl.CommandQueue(ctx)
 
@@ -319,6 +318,7 @@ def test_source_with_extent_tree(ctx_getter, do_plot=False):
         nsources = 100000
         ntargets = 200000
         dtype = np.float64
+        npoint_sources_per_source = 16
 
         sources = make_particle_array(queue, nsources, dims, dtype,
                 seed=12)
@@ -334,10 +334,12 @@ def test_source_with_extent_tree(ctx_getter, do_plot=False):
         tb = TreeBuilder(ctx)
 
         queue.finish()
-        print "building..."
-        tree = tb(queue, sources, targets=targets, source_radii=source_radii,
-                max_particles_in_box=10, debug=True).get()
-        print "%d boxes, testing..." % tree.nboxes
+        dev_tree = tb(queue, sources, targets=targets, source_radii=source_radii,
+                max_particles_in_box=10, debug=True)
+
+        logger.info("transfer tree, check orderings")
+
+        tree = dev_tree.get()
 
         sorted_sources = np.array(list(tree.sources))
         sorted_targets = np.array(list(tree.targets))
@@ -345,10 +347,15 @@ def test_source_with_extent_tree(ctx_getter, do_plot=False):
 
         unsorted_sources = np.array([pi.get() for pi in sources])
         unsorted_targets = np.array([pi.get() for pi in targets])
+        unsorted_radii = source_radii.get()
         assert (sorted_sources
                 == unsorted_sources[:, tree.user_source_ids]).all()
         assert (sorted_radii
-                == source_radii.get()[tree.user_source_ids]).all()
+                == unsorted_radii[tree.user_source_ids]).all()
+
+        # {{{ test box structure, stick-out criterion
+
+        logger.info("test box structure, stick-out criterion")
 
         user_target_ids = np.empty(tree.ntargets, dtype=np.intp)
         user_target_ids[tree.sorted_target_ids] = np.arange(tree.ntargets, dtype=np.intp)
@@ -407,14 +414,40 @@ def test_source_with_extent_tree(ctx_getter, do_plot=False):
 
         assert all_good_so_far
 
-        print "done"
+        # }}}
+
+        # {{{ create, link point sources
+
+        logger.info("creating point sources")
+
+        np.random.seed(20)
+
+        from pytools.obj_array import make_obj_array
+        point_sources = make_obj_array([
+                cl.array.to_device(queue,
+                    unsorted_sources[i][:, np.newaxis]
+                    + unsorted_radii[:, np.newaxis]
+                    * np.random.uniform(
+                         -1, 1, size=(nsources, npoint_sources_per_source))
+                     )
+                for i in range(dims)])
+
+        point_source_starts = cl.array.arange(queue,
+                0, (nsources+1)*npoint_sources_per_source, npoint_sources_per_source,
+                dtype=tree.particle_id_dtype)
+
+        dev_tree = dev_tree.link_point_sources(queue,
+                point_source_starts, point_sources,
+                debug=True)
+
+        # }}}
+
 
 # }}}
 
 # {{{ geometry query test
 
 def test_geometry_query(ctx_getter, do_plot=False):
-    import logging
     logging.basicConfig(level=logging.INFO)
 
     ctx = ctx_getter()
@@ -434,9 +467,7 @@ def test_geometry_query(ctx_getter, do_plot=False):
     tb = TreeBuilder(ctx)
 
     queue.finish()
-    print "building..."
     tree = tb(queue, particles, max_particles_in_box=30, debug=True)
-    print "%d boxes, testing..." % tree.nboxes
 
     nballs = 10**4
     ball_centers = make_particle_array(queue, nballs, dims, dtype)

@@ -49,6 +49,10 @@ The tree builder can be run in three modes:
   (``targets is not None`` and ``source_radii is not None`` in the
   call to :meth:`TreeBuilder.__call__`)
 
+  In this mode, it is possible to 'link' each source with a number of point
+  sources. It is important to internalize this bit of terminology here:
+  A *source* may consist of multiple *point sources*.
+
 .. _particle-orderings:
 
 Particle Orderings
