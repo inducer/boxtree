@@ -118,12 +118,25 @@ class TreeBuilder(object):
         box_id_dtype = np.int32
         coord_dtype = single_valued(coord.dtype for coord in particles)
 
+        if targets is None:
+            nsrcntgts = single_valued(len(coord) for coord in particles)
+        else:
+            nsources = single_valued(len(coord) for coord in particles)
+            ntargets = single_valued(len(coord) for coord in targets)
+            nsrcntgts = nsources + ntargets
+
         if source_radii is not None:
+            if source_radii.shape != (nsources,):
+                raise ValueError("source_radii has an invalid shape")
+
             if source_radii.dtype != coord_dtype:
                 raise TypeError("dtypes of coordinate arrays and "
                         "source_radii must agree")
 
         if target_radii is not None:
+            if target_radii.shape != (ntargets,):
+                raise ValueError("target_radii has an invalid shape")
+
             if target_radii.dtype != coord_dtype:
                 raise TypeError("dtypes of coordinate arrays and "
                         "target_radii must agree")
@@ -145,7 +158,6 @@ class TreeBuilder(object):
             # call them "srcntgts".
 
             srcntgts = particles
-            nsrcntgts = single_valued(len(coord) for coord in srcntgts)
 
             assert source_radii is None
             assert target_radii is None
@@ -164,10 +176,6 @@ class TreeBuilder(object):
             if target_coord_dtype != coord_dtype:
                 raise TypeError("sources and targets must have same coordinate "
                         "dtype")
-
-            nsources = single_valued(len(coord) for coord in particles)
-            ntargets = single_valued(len(coord) for coord in targets)
-            nsrcntgts = nsources + ntargets
 
             def combine_srcntgt_arrays(ary1, ary2=None):
                 if ary2 is None:

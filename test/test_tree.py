@@ -302,10 +302,10 @@ def test_source_target_tree(ctx_getter, do_plot=False):
 
 # }}}
 
-# {{{ test sources-with-extent tree
+# {{{ test sources/targets-with-extent tree
 
 @pytools.test.mark_test.opencl
-def test_source_with_extent_tree(ctx_getter, do_plot=False):
+def test_extent_tree(ctx_getter, do_plot=False):
     logging.basicConfig(level=logging.INFO)
 
     ctx = ctx_getter()
@@ -329,12 +329,15 @@ def test_source_with_extent_tree(ctx_getter, do_plot=False):
         rng = RanluxGenerator(queue, seed=13)
         source_radii = 2**rng.uniform(queue, nsources, dtype=dtype,
                 a=-10, b=0)
+        target_radii = 2**rng.uniform(queue, ntargets, dtype=dtype,
+                a=-10, b=0)
 
         from boxtree import TreeBuilder
         tb = TreeBuilder(ctx)
 
         queue.finish()
-        dev_tree = tb(queue, sources, targets=targets, source_radii=source_radii,
+        dev_tree = tb(queue, sources, targets=targets,
+                source_radii=source_radii, target_radii=target_radii,
                 max_particles_in_box=10, debug=True)
 
         logger.info("transfer tree, check orderings")
@@ -343,15 +346,17 @@ def test_source_with_extent_tree(ctx_getter, do_plot=False):
 
         sorted_sources = np.array(list(tree.sources))
         sorted_targets = np.array(list(tree.targets))
-        sorted_radii = tree.source_radii
+        sorted_source_radii = tree.source_radii
+        sorted_target_radii = tree.target_radii
 
         unsorted_sources = np.array([pi.get() for pi in sources])
         unsorted_targets = np.array([pi.get() for pi in targets])
-        unsorted_radii = source_radii.get()
+        unsorted_source_radii = source_radii.get()
+        unsorted_target_radii = target_radii.get()
         assert (sorted_sources
                 == unsorted_sources[:, tree.user_source_ids]).all()
-        assert (sorted_radii
-                == unsorted_radii[tree.user_source_ids]).all()
+        assert (sorted_source_radii
+                == unsorted_source_radii[tree.user_source_ids]).all()
 
         # {{{ test box structure, stick-out criterion
 
@@ -362,6 +367,8 @@ def test_source_with_extent_tree(ctx_getter, do_plot=False):
         if ntargets:
             assert (sorted_targets
                     == unsorted_targets[:, user_target_ids]).all()
+            assert (sorted_target_radii
+                    == unsorted_target_radii[user_target_ids]).all()
 
         all_good_so_far = True
 
@@ -376,41 +383,34 @@ def test_source_with_extent_tree(ctx_getter, do_plot=False):
 
             # {{{ sources
 
-            src_start = tree.box_source_starts[ibox]
-            src_slice = slice(src_start, src_start+tree.box_source_counts[ibox])
-            check_particles = sorted_sources[:, src_slice]
-            check_radii = sorted_radii[src_slice]
+            for what, starts, counts, points, radii in [
+                    ("source", tree.box_source_starts, tree.box_source_counts,
+                        sorted_sources, sorted_source_radii),
+                    ("target", tree.box_target_starts, tree.box_target_counts,
+                        sorted_targets, sorted_target_radii),
+                    ]:
+                bstart = starts[ibox]
+                bslice = slice(bstart, bstart+counts[ibox])
+                check_particles = points[:, bslice]
+                check_radii = radii[bslice]
 
-            good = (
-                    (check_particles + check_radii
-                        < extent_high[:, np.newaxis] + stick_out_dist)
-                    &
-                    (extent_low[:, np.newaxis] - stick_out_dist
-                        <= check_particles - check_radii)
-                    ).all(axis=0)
+                good = (
+                        (check_particles + check_radii
+                            < extent_high[:, np.newaxis] + stick_out_dist)
+                        &
+                        (extent_low[:, np.newaxis] - stick_out_dist
+                            <= check_particles - check_radii)
+                        ).all(axis=0)
 
-            all_good_here = good.all()
+                all_good_here = good.all()
 
-            # }}}
+                if not all_good_here:
+                    print "BAD BOX %s %d level %d" % (what, ibox, tree.box_levels[ibox])
 
-            # {{{ targets
-
-            tgt_start = tree.box_target_starts[ibox]
-            check_particles = sorted_targets[:,tgt_start:tgt_start+tree.box_target_counts[ibox]]
-            good = (
-                    (check_particles < extent_high[:, np.newaxis])
-                    &
-                    (extent_low[:, np.newaxis] <= check_particles)
-                    ).all(axis=0)
-
-            all_good_here = good.all()
+                all_good_so_far = all_good_so_far and all_good_here
+                assert all_good_here
 
             # }}}
-
-            if not all_good_here:
-                print "BAD BOX %d" % ibox
-
-            all_good_so_far = all_good_so_far and all_good_here
 
         assert all_good_so_far
 
@@ -426,7 +426,7 @@ def test_source_with_extent_tree(ctx_getter, do_plot=False):
         point_sources = make_obj_array([
                 cl.array.to_device(queue,
                     unsorted_sources[i][:, np.newaxis]
-                    + unsorted_radii[:, np.newaxis]
+                    + unsorted_source_radii[:, np.newaxis]
                     * np.random.uniform(
                          -1, 1, size=(nsources, npoint_sources_per_source))
                      )

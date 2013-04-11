@@ -242,7 +242,7 @@ SCAN_PREAMBLE_TPL = Template(r"""//CL//
 
         %if srcntgts_have_extent:
             bool stop_srcntgt_descent = false;
-            coord_t srcntgt_radius = srcntgt_radii[i];
+            coord_t srcntgt_radius = srcntgt_radii[user_srcntgt_id];
         %endif
 
         %for ax in axis_names:
