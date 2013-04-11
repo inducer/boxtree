@@ -22,7 +22,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-from boxtree.tree import Tree, box_flags_enum
+from boxtree.tree import Tree, TreeWithLinkedPointSources, box_flags_enum
 from boxtree.tree_build import TreeBuilder
 
 __all__ = ["Tree", "TreeBuilder", "box_flags_enum"]
@@ -44,14 +44,14 @@ The tree builder can be run in three modes:
   (*targets is not None* in the call to :meth:`TreeBuilder.__call__`)
 
 * one where a distinction between sources and targets is made,
-  and where sources are considered to have an extent, given by
-  a radius.
-  (``targets is not None`` and ``source_radii is not None`` in the
-  call to :meth:`TreeBuilder.__call__`)
+  and where sources and/or targets are considered to have an extent, given by an
+  :math:`l^\infty` radius.
+  (``targets is not None`` and ``source_radii is not None or target_radii is
+  not None`` in the call to :meth:`TreeBuilder.__call__`)
 
-  In this mode, it is possible to 'link' each source with a number of point
-  sources. It is important to internalize this bit of terminology here:
-  A *source* may consist of multiple *point sources*.
+  If sources have an extent, it is possible to 'link' each source with a number
+  of point sources. It is important to internalize this bit of terminology
+  here: A *source* may consist of multiple *point sources*.
 
 .. _particle-orderings:
 
@@ -77,17 +77,6 @@ the point sources have their own orderings:
 
 :attr:`TreeWithLinkedPointSources.user_point_source_ids` helps translate point
 source arrays into tree order for processing.
-
-Sources with extent
--------------------
-
-By default, source particles are considered to be points. If *source_radii* is
-passed to :class:`TreeBuilder.__call__`, however, this is no longer true. Each
-source then has an :math:`l^\infty` 'radius'. Each such source is typically
-then later linked to a set of related point sources contained within the
-extent. (See :meth:`Tree.link_point_sources` for more.)
-
-Note that targets with extent are not supported.
 """
 
 # vim: filetype=pyopencl:fdm=marker

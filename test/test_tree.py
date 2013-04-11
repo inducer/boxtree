@@ -64,7 +64,7 @@ def test_bounding_box(ctx_getter):
                 bbox_min = [np.min(x.get()) for x in particles]
                 bbox_max = [np.max(x.get()) for x in particles]
 
-                bbox_cl = bbf(particles).get()
+                bbox_cl = bbf(particles, radii=None).get()
 
                 bbox_min_cl = np.empty(dims, dtype)
                 bbox_max_cl = np.empty(dims, dtype)

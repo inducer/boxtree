@@ -58,20 +58,21 @@ class TreeBuilder(object):
     @memoize_method
     def get_kernel_info(self, dimensions, coord_dtype,
             particle_id_dtype, box_id_dtype,
-            sources_are_targets, sources_have_extent,
+            sources_are_targets, srcntgts_have_extent,
             stick_out_factor):
 
         from boxtree.tree_build_kernels import get_tree_build_kernel_info
         return get_tree_build_kernel_info(self.context, dimensions, coord_dtype,
             particle_id_dtype, box_id_dtype,
-            sources_are_targets, sources_have_extent,
+            sources_are_targets, srcntgts_have_extent,
             stick_out_factor, self.morton_nr_dtype, self.box_level_dtype)
 
     # {{{ run control
 
     def __call__(self, queue, particles, max_particles_in_box,
             allocator=None, debug=False, targets=None,
-            source_radii=None, stick_out_factor=0.25, **kwargs):
+            source_radii=None, target_radii=None, stick_out_factor=0.25,
+            **kwargs):
         """
         :arg queue: a :class:`pyopencl.CommandQueue` instance
         :arg particles: an object array of (XYZ) point coordinate arrays.
@@ -87,6 +88,7 @@ class TreeBuilder(object):
 
             If this is given, *targets* must also be given, i.e. sources and
             targets must be separate.
+        :arg target_radii: Like *source_radii*, but for targets.
         :arg stick_out_factor: The fraction of the box diameter by which the
             :math:`l^\infty` circles given by *source_radii* may stick out
             the box in which they are contained.
@@ -102,12 +104,14 @@ class TreeBuilder(object):
         from boxtree.tools import AXIS_NAMES
         axis_names = AXIS_NAMES[:dimensions]
 
-        if source_radii is not None and targets is None:
-            raise ValueError("must specify targets when specifying "
-                    "source_radii")
-
         sources_are_targets = targets is not None
         sources_have_extent = source_radii is not None
+        targets_have_extent = target_radii is not None
+        srcntgts_have_extent = sources_have_extent or targets_have_extent
+
+        if srcntgts_have_extent and targets is None:
+            raise ValueError("must specify targets when specifying "
+                    "any kind of radii")
 
         from pytools import single_valued
         particle_id_dtype = np.int32
@@ -119,6 +123,11 @@ class TreeBuilder(object):
                 raise TypeError("dtypes of coordinate arrays and "
                         "source_radii must agree")
 
+        if target_radii is not None:
+            if target_radii.dtype != coord_dtype:
+                raise TypeError("dtypes of coordinate arrays and "
+                        "target_radii must agree")
+
         # }}}
 
         empty = partial(cl.array.empty, queue, allocator=allocator)
@@ -126,7 +135,7 @@ class TreeBuilder(object):
 
         knl_info = self.get_kernel_info(dimensions, coord_dtype,
                 particle_id_dtype, box_id_dtype,
-                sources_are_targets, sources_have_extent,
+                sources_are_targets, srcntgts_have_extent,
                 stick_out_factor)
 
         # {{{ combine sources and targets into one array, if necessary
@@ -139,6 +148,10 @@ class TreeBuilder(object):
             nsrcntgts = single_valued(len(coord) for coord in srcntgts)
 
             assert source_radii is None
+            assert target_radii is None
+
+            srcntgt_radii = None
+
         else:
             # Here, we mash sources and targets into one array to give us one
             # big array of "srcntgts". In this case, a "srcntgt" is either a
@@ -158,14 +171,21 @@ class TreeBuilder(object):
 
             def combine_srcntgt_arrays(ary1, ary2=None):
                 if ary2 is None:
-                    result = zeros(nsrcntgts, ary1.dtype)
+                    dtype = ary1.dtype
                 else:
-                    result = empty(nsrcntgts, ary1.dtype)
+                    dtype = ary2.dtype
 
-                cl.enqueue_copy(queue, result.data, ary1.data)
+                result = empty(nsrcntgts, dtype)
+                if (ary1 is None) or (ary2 is None):
+                    result.fill(0)
+
+                if ary1 is not None and ary1.nbytes:
+                    cl.enqueue_copy(queue, result.data, ary1.data)
+                    assert ary1.nbytes == dtype.itemsize * nsources
+
                 if ary2 is not None and ary2.nbytes:
                     cl.enqueue_copy(queue, result.data, ary2.data,
-                            dest_offset=ary1.nbytes)
+                            dest_offset=dtype.itemsize * nsources)
 
                 return result
 
@@ -175,8 +195,13 @@ class TreeBuilder(object):
                 for src_i, tgt_i in zip(particles, targets)
                 ])
 
-            if source_radii is not None:
-                source_radii = combine_srcntgt_arrays(source_radii)
+            if srcntgts_have_extent:
+                srcntgt_radii = combine_srcntgt_arrays(source_radii, target_radii)
+            else:
+                srcntgt_radii = None
+
+        del source_radii
+        del target_radii
 
         del particles
 
@@ -187,7 +212,7 @@ class TreeBuilder(object):
 
         # {{{ find and process bounding box
 
-        bbox = self.bbox_finder(srcntgts).get()
+        bbox = self.bbox_finder(srcntgts, srcntgt_radii).get()
 
         root_extent = max(
                 bbox["max_"+ax] - bbox["min_"+ax]
@@ -320,7 +345,7 @@ class TreeBuilder(object):
                     level, max_particles_in_box, bbox,
                     user_srcntgt_ids)
                     + tuple(srcntgts)
-                    + ((source_radii,) if sources_have_extent else ())
+                    + ((srcntgt_radii,) if srcntgts_have_extent else ())
                     )
 
             fin_debug("morton count scan")
@@ -390,18 +415,18 @@ class TreeBuilder(object):
 
             logger.info("LEVEL %d -> %d boxes" % (level, nboxes_new))
 
-            assert level_start_box_nrs[-1] != nboxes_new or sources_have_extent
+            assert level_start_box_nrs[-1] != nboxes_new or srcntgts_have_extent
 
             if level_start_box_nrs[-1] == nboxes_new:
                 # We haven't created new boxes in this level loop trip.  Unless
-                # sources have extent, this should never happen.  (I.e., we
+                # srcntgts have extent, this should never happen.  (I.e., we
                 # should've never entered this loop trip.)
                 #
-                # If sources have extent, this can happen if boxes were
+                # If srcntgts have extent, this can happen if boxes were
                 # in-principle overfull, but couldn't subdivide because of
                 # extent restrictions.
 
-                assert sources_have_extent
+                assert srcntgts_have_extent
 
                 level -= 1
 
@@ -452,15 +477,31 @@ class TreeBuilder(object):
 
         # }}}
 
-        # {{{ extract number of non-child sources from box morton counts
+        # {{{ extract number of non-child srcntgts from box morton counts
 
-        if sources_have_extent:
-            box_nonchild_source_counts = empty(nboxes, particle_id_dtype)
-            fin_debug("extract non-child source count")
-            knl_info.extract_nonchild_source_count_kernel(
+        if srcntgts_have_extent:
+            box_nonchild_srcntgt_counts = empty(nboxes, particle_id_dtype)
+            fin_debug("extract non-child srcntgt count")
+
+            assert len(level_start_box_nrs) >= 2
+            highest_possibly_split_box_nr = level_start_box_nrs[-2]
+
+            knl_info.extract_nonchild_srcntgt_count_kernel(
+                    # input
                     box_morton_bin_counts,
-                    box_nonchild_source_counts,
+                    box_srcntgt_counts,
+                    highest_possibly_split_box_nr,
+
+                    # output
+                    box_nonchild_srcntgt_counts,
+
                     range=slice(nboxes))
+
+            del highest_possibly_split_box_nr
+
+            if debug:
+                assert (box_nonchild_srcntgt_counts.get()
+                        <= box_srcntgt_counts.get()[:nboxes]).all()
 
         # }}}
 
@@ -505,9 +546,9 @@ class TreeBuilder(object):
             box_parent_ids = prune_empty(box_parent_ids, map_values=to_box_id)
             box_morton_nrs = prune_empty(box_morton_nrs)
             box_levels = prune_empty(box_levels)
-            if sources_have_extent:
-                box_nonchild_source_counts = prune_empty(
-                        box_nonchild_source_counts)
+            if srcntgts_have_extent:
+                box_nonchild_srcntgt_counts = prune_empty(
+                        box_nonchild_srcntgt_counts)
 
             # Remap level_start_box_nrs to new box IDs.
             # FIXME: It would be better to do this on the device.
@@ -568,18 +609,42 @@ class TreeBuilder(object):
             box_target_starts = zeros(nboxes_post_prune, particle_id_dtype)
             box_target_counts = zeros(nboxes_post_prune, particle_id_dtype)
 
+            if srcntgts_have_extent:
+                box_nonchild_source_counts = zeros(nboxes_post_prune, particle_id_dtype)
+                box_nonchild_target_counts = zeros(nboxes_post_prune, particle_id_dtype)
+
             fin_debug("source and target index finder")
-            knl_info.source_and_target_index_finder(
+            knl_info.source_and_target_index_finder(*(
                     # input:
+                    (
                     user_srcntgt_ids, nsources, srcntgt_box_ids,
                     box_srcntgt_starts, box_srcntgt_counts,
                     source_numbers,
+                    )
+                    + ((box_nonchild_srcntgt_counts,) if srcntgts_have_extent else ())
 
                     # output:
+                    + (
                     user_source_ids, srcntgt_target_ids, sorted_target_ids,
                     box_source_starts, box_source_counts,
                     box_target_starts, box_target_counts,
+                    )
+                    + ((
+                        box_nonchild_source_counts,
+                        box_nonchild_target_counts,
+                        ) if srcntgts_have_extent else ())
+                    ),
                     queue=queue, range=slice(nsrcntgts))
+
+            if srcntgts_have_extent:
+                if debug:
+                    assert (
+                            box_nonchild_srcntgt_counts.get()
+                            ==
+                            (box_nonchild_source_counts
+                            + box_nonchild_target_counts).get()).all()
+
+                del box_nonchild_srcntgt_counts
 
             if debug:
                 usi_host = user_source_ids.get()
@@ -616,7 +681,7 @@ class TreeBuilder(object):
                     user_srcntgt_ids,
                     *(tuple(srcntgts) + tuple(sources)))
 
-            assert source_radii is None
+            assert srcntgt_radii is None
 
         else:
             sources = make_obj_array([
@@ -635,12 +700,18 @@ class TreeBuilder(object):
                     *(tuple(srcntgts) + tuple(targets)),
                     queue=queue, range=slice(ntargets))
 
-            if source_radii is not None:
-                fin_debug("srcntgt permuter (radii)")
+            if srcntgt_radii is not None:
+                fin_debug("srcntgt permuter (source radii)")
                 source_radii = cl.array.take(
-                        source_radii, user_source_ids, queue=queue)
+                        srcntgt_radii, user_source_ids, queue=queue)
+
+                fin_debug("srcntgt permuter (target radii)")
+                target_radii = cl.array.take(
+                        srcntgt_radii, srcntgt_target_ids, queue=queue)
 
             del srcntgt_target_ids
+
+        del srcntgt_radii
 
         # }}}
 
@@ -663,13 +734,16 @@ class TreeBuilder(object):
         knl_info.box_info_kernel(
                 # input:
                 box_parent_ids, box_morton_nrs, bbox, aligned_nboxes,
-                box_srcntgt_counts, box_source_counts,
+                box_srcntgt_counts, box_source_counts, box_target_counts,
                 max_particles_in_box,
 
                 # output:
                 box_child_ids, box_centers, box_flags,
                 *(
-                    (box_nonchild_source_counts,) if sources_have_extent else ()),
+                    (
+                        box_nonchild_source_counts,
+                        box_nonchild_target_counts,
+                        ) if srcntgts_have_extent else ()),
                 range=slice(nboxes_post_prune))
 
         # }}}
@@ -688,9 +762,9 @@ class TreeBuilder(object):
         extra_tree_attrs = {}
 
         if sources_have_extent:
-            extra_tree_attrs.update(
-                    source_radii=source_radii,
-                    )
+            extra_tree_attrs.update(source_radii=source_radii)
+        if targets_have_extent:
+            extra_tree_attrs.update(target_radii=target_radii)
 
         logger.info("tree build complete")
 
@@ -705,6 +779,7 @@ class TreeBuilder(object):
                 root_extent=root_extent,
                 stick_out_factor=stick_out_factor,
                 sources_have_extent=sources_have_extent,
+                targets_have_extent=targets_have_extent,
 
                 bounding_box=(bbox_min, bbox_max),
                 level_start_box_nrs=level_start_box_nrs,
