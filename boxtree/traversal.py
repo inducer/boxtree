@@ -570,7 +570,7 @@ class FMMTraversalBuilder:
 
         result = {}
 
-        # {{{ leaves and parents
+        # {{{ source boxes and their parents
 
         src = Template(
                 box_flags_enum.get_c_defines()

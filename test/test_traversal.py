@@ -87,15 +87,16 @@ def test_tree_connectivity(ctx_getter):
             plotter.set_bounding_box()
             pt.show()
 
-        # {{{ neighbor_leaves (list 1) consists of leaves
+        # {{{ neighbor_source_boxes (list 1) consists of source boxes
 
-        for ileaf, ibox in enumerate(trav.leaf_boxes):
-            start, end = trav.neighbor_leaves_starts[ileaf:ileaf+2]
-            nbl = trav.neighbor_leaves_lists[start:end]
+        for isrcbox, ibox in enumerate(trav.source_boxes):
+            start, end = trav.neighbor_source_boxes_starts[isrcbox:isrcbox+2]
+            nbl = trav.neighbor_source_boxes_lists[start:end]
 
             assert ibox in nbl
             for jbox in nbl:
                 assert (0 == children[jbox]).all(), (ibox, jbox, children[jbox])
+
         print "list 1 tested"
 
         # }}}
@@ -122,8 +123,8 @@ def test_tree_connectivity(ctx_getter):
 
         # (technically, we only test one half of that)
 
-        for ileaf, ibox in enumerate(trav.leaf_boxes):
-            start, end = trav.sep_smaller_nonsiblings_starts[ileaf:ileaf+2]
+        for isource_box, ibox in enumerate(trav.source_boxes):
+            start, end = trav.sep_smaller_nonsiblings_starts[isource_box:isource_box+2]
 
             for jbox in trav.sep_smaller_nonsiblings_lists[start:end]:
                 rstart, rend = trav.sep_bigger_nonsiblings_starts[jbox:jbox+2]
@@ -136,8 +137,8 @@ def test_tree_connectivity(ctx_getter):
 
         # {{{ sep_smaller_nonsiblings satisfies size assumption
 
-        for ileaf, ibox in enumerate(trav.leaf_boxes):
-            start, end = trav.sep_smaller_nonsiblings_starts[ileaf:ileaf+2]
+        for isource_box, ibox in enumerate(trav.source_boxes):
+            start, end = trav.sep_smaller_nonsiblings_starts[isource_box:isource_box+2]
 
             for jbox in trav.sep_smaller_nonsiblings_lists[start:end]:
                 assert levels[ibox] < levels[jbox]
@@ -239,7 +240,7 @@ def plot_traversal(ctx_getter, do_plot=False):
             draw_some_box_lists(
                     trav.neighbor_leaves_starts,
                     trav.neighbor_leaves_lists,
-                    key_to_box=trav.leaf_boxes)
+                    key_to_box=trav.source_boxes)
         elif 0:
             # well-separated siblings (list 2)
             draw_some_box_lists(
@@ -250,7 +251,7 @@ def plot_traversal(ctx_getter, do_plot=False):
             draw_some_box_lists(
                     trav.sep_smaller_nonsiblings_starts,
                     trav.sep_smaller_nonsiblings_lists,
-                    key_to_box=trav.leaf_boxes)
+                    key_to_box=trav.source_boxes)
         elif 1:
             # separated bigger non-siblings (list 4)
             draw_some_box_lists(
