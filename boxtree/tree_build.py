@@ -33,8 +33,6 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-# {{{ driver
-
 class TreeBuilder(object):
     def __init__(self, context):
         """
@@ -783,6 +781,7 @@ class TreeBuilder(object):
                 particle_id_dtype=knl_info.particle_id_dtype,
                 box_id_dtype=knl_info.box_id_dtype,
                 coord_dtype=coord_dtype,
+                box_level_dtype=self.box_level_dtype,
 
                 root_extent=root_extent,
                 stick_out_factor=stick_out_factor,
@@ -819,7 +818,5 @@ class TreeBuilder(object):
         # }}}
 
     # }}}
-
-# }}}
 
 # vim: foldmethod=marker:filetype=pyopencl

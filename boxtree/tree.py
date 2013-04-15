@@ -91,6 +91,7 @@ class Tree(FromDeviceGettableRecord):
     .. attribute:: particle_id_dtype
     .. attribute:: box_id_dtype
     .. attribute:: coord_dtype
+    .. attribute:: box_level_dtype
 
     **Counts and sizes**
 
@@ -197,7 +198,7 @@ class Tree(FromDeviceGettableRecord):
 
     .. attribute:: box_levels
 
-        ``uint8 [nboxes]``
+        ``box_level_t [nboxes]``
 
     .. attribute:: box_flags
 

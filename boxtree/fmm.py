@@ -47,7 +47,7 @@ def drive_fmm(traversal, expansion_wrangler, src_weights):
     logger.debug("construct local multipoles")
 
     mpole_exps = wrangler.form_multipoles(
-            traversal.leaf_boxes,
+            traversal.source_boxes,
             src_weights)
 
     # }}}
@@ -59,21 +59,21 @@ def drive_fmm(traversal, expansion_wrangler, src_weights):
     for lev in xrange(tree.nlevels-1, -1, -1):
         start_parent_box, end_parent_box = traversal.level_start_parent_box_nrs[lev:lev+2]
         wrangler.coarsen_multipoles(
-                traversal.parent_boxes, start_parent_box, end_parent_box,
+                traversal.source_parent_boxes, start_parent_box, end_parent_box,
                 mpole_exps)
 
     # mpole_exps is called Phi in [1]
 
     # }}}
 
-    # {{{ "Stage 3:" Direct calculation on neighbor leaves ("list 1")
+    # {{{ "Stage 3:" Direct evaluation from neighbor source boxes ("list 1")
 
-    logger.debug("direct calculation on neighbor leaves ('list 1')")
+    logger.debug("direct evaluation from neighbor source boxes ('list 1')")
 
     potentials = wrangler.eval_direct(
-            traversal.leaf_boxes,
-            traversal.neighbor_leaves_starts,
-            traversal.neighbor_leaves_lists,
+            traversal.source_boxes,
+            traversal.neighbor_source_boxes_starts,
+            traversal.neighbor_source_boxes_lists,
             src_weights)
 
     # these potentials are called alpha in [1]
@@ -101,7 +101,7 @@ def drive_fmm(traversal, expansion_wrangler, src_weights):
     # *out* of the downward-propagating local expansions)
 
     potentials = potentials + wrangler.eval_multipoles(
-            traversal.leaf_boxes,
+            traversal.source_boxes,
             traversal.sep_smaller_nonsiblings_starts,
             traversal.sep_smaller_nonsiblings_lists,
             mpole_exps)
@@ -138,7 +138,7 @@ def drive_fmm(traversal, expansion_wrangler, src_weights):
     logger.debug("evaluate locals")
 
     potentials = potentials + wrangler.eval_locals(
-            traversal.leaf_boxes,
+            traversal.source_boxes,
             local_exps)
 
     # }}}
