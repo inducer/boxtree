@@ -72,9 +72,9 @@ class ConstantOneExpansionWrangler:
     def reorder_potentials(self, potentials):
         return potentials[self.tree.sorted_target_ids]
 
-    def form_multipoles(self, leaf_boxes, src_weights):
+    def form_multipoles(self, source_boxes, src_weights):
         mpoles = self.expansion_zeros()
-        for ibox in leaf_boxes:
+        for ibox in source_boxes:
             pslice = self._get_source_slice(ibox)
             mpoles[ibox] += np.sum(src_weights[pslice])
 
@@ -89,17 +89,18 @@ class ConstantOneExpansionWrangler:
                 if child:
                     mpoles[ibox] += mpoles[child]
 
-    def eval_direct(self, leaf_boxes, neighbor_leaves_starts, neighbor_leaves_lists,
+    def eval_direct(self, target_boxes, neighbor_sources_starts, neighbor_sources_lists,
             src_weights):
         pot = self.potential_zeros()
 
-        for itgt_leaf, itgt_box in enumerate(leaf_boxes):
-            tgt_pslice = self._get_target_slice(itgt_box)
+        for itgt_box, tgt_ibox in enumerate(target_boxes):
+            tgt_pslice = self._get_target_slice(tgt_ibox)
 
             src_sum = 0
-            start, end = neighbor_leaves_starts[itgt_leaf:itgt_leaf+2]
-            for isrc_box in neighbor_leaves_lists[start:end]:
-                src_pslice = self._get_source_slice(isrc_box)
+            start, end = neighbor_sources_starts[itgt_box:itgt_box+2]
+            #print "DIR: %s <- %s" % (tgt_ibox, neighbor_sources_lists[start:end])
+            for src_ibox in neighbor_sources_lists[start:end]:
+                src_pslice = self._get_source_slice(src_ibox)
 
                 src_sum += np.sum(src_weights[src_pslice])
 
@@ -111,33 +112,50 @@ class ConstantOneExpansionWrangler:
     def multipole_to_local(self, starts, lists, mpole_exps):
         local_exps = self.expansion_zeros()
 
-        for itgt_box in xrange(self.tree.nboxes):
-            start, end = starts[itgt_box:itgt_box+2]
+        for tgt_ibox in xrange(self.tree.nboxes):
+            start, end = starts[tgt_ibox:tgt_ibox+2]
 
             contrib = 0
-            #print itgt_box, "<-", lists[start:end]
-            for isrc_box in lists[start:end]:
-                contrib += mpole_exps[isrc_box]
+            #print tgt_ibox, "<-", lists[start:end]
+            for src_ibox in lists[start:end]:
+                contrib += mpole_exps[src_ibox]
 
-            local_exps[itgt_box] += contrib
+            local_exps[tgt_ibox] += contrib
 
         return local_exps
 
-    def eval_multipoles(self, leaf_boxes, sep_smaller_nonsiblings_starts,
+    def eval_multipoles(self, target_boxes, sep_smaller_nonsiblings_starts,
             sep_smaller_nonsiblings_lists, mpole_exps):
         pot = self.potential_zeros()
 
-        for itgt_leaf, itgt_box in enumerate(leaf_boxes):
-            tgt_pslice = self._get_target_slice(itgt_box)
+        for itgt_box, tgt_ibox in enumerate(target_boxes):
+            tgt_pslice = self._get_target_slice(tgt_ibox)
 
             contrib = 0
-            start, end = sep_smaller_nonsiblings_starts[itgt_leaf:itgt_leaf+2]
-            for isrc_box in sep_smaller_nonsiblings_lists[start:end]:
-                contrib += mpole_exps[isrc_box]
+            start, end = sep_smaller_nonsiblings_starts[itgt_box:itgt_box+2]
+            for src_ibox in sep_smaller_nonsiblings_lists[start:end]:
+                contrib += mpole_exps[src_ibox]
 
             pot[tgt_pslice] += contrib
 
         return pot
+
+    def form_locals(self, starts, lists, src_weights):
+        local_exps = self.expansion_zeros()
+
+        for tgt_ibox in xrange(self.tree.nboxes):
+            start, end = starts[tgt_ibox:tgt_ibox+2]
+
+            #print "LIST 4", tgt_ibox, "<-", lists[start:end]
+            contrib = 0
+            for src_ibox in lists[start:end]:
+                src_pslice = self._get_source_slice(src_ibox)
+
+                contrib += np.sum(src_weights[src_pslice])
+
+            local_exps[tgt_ibox] += contrib
+
+        return local_exps
 
     def refine_locals(self, start_box, end_box, local_exps):
         for ibox in xrange(start_box, end_box):
@@ -145,10 +163,10 @@ class ConstantOneExpansionWrangler:
 
         return local_exps
 
-    def eval_locals(self, leaf_boxes, local_exps):
+    def eval_locals(self, target_boxes, local_exps):
         pot = self.potential_zeros()
 
-        for ibox in leaf_boxes:
+        for ibox in target_boxes:
             tgt_pslice = self._get_target_slice(ibox)
             pot[tgt_pslice] += local_exps[ibox]
 
@@ -174,7 +192,7 @@ def test_fmm_completeness(ctx_getter):
             ]:
         for nsources, ntargets in [
                 (10**6, None),
-                (10**5, 3 * 10**5),
+                (5 * 10**5, 4*10**5),
                 ]:
             dtype = np.float64
 
@@ -185,7 +203,7 @@ def test_fmm_completeness(ctx_getter):
                 targets = None
             else:
                 targets = make_particle_array(
-                        queue, ntargets, dims, dtype, seed=18)
+                        queue, ntargets, dims, dtype, seed=16)
 
             from boxtree import TreeBuilder
             tb = TreeBuilder(ctx)
@@ -194,15 +212,16 @@ def test_fmm_completeness(ctx_getter):
                     max_particles_in_box=30, debug=True)
 
             from boxtree.traversal import FMMTraversalBuilder
-            tg = FMMTraversalBuilder(ctx)
-            trav = tg(queue, tree).get()
+            tbuild = FMMTraversalBuilder(ctx)
+            trav = tbuild(queue, tree, debug=True).get()
+            tree = trav.tree
 
-            weights = np.random.randn(nsources)
-            #weights = np.ones(nparticles)
+            #weights = np.random.randn(nsources)
+            weights = np.ones(nsources)
             weights_sum = np.sum(weights)
 
             from boxtree.fmm import drive_fmm
-            wrangler = ConstantOneExpansionWrangler(trav.tree)
+            wrangler = ConstantOneExpansionWrangler(tree)
 
             if ntargets is None:
                 # This check only works for targets == sources.
@@ -216,6 +235,9 @@ def test_fmm_completeness(ctx_getter):
             if 0:
                 mat = np.zeros((ntargets, nsources), dtype)
                 from pytools import ProgressBar
+
+                logging.getLogger().setLevel(logging.WARNING)
+
                 pb = ProgressBar("matrix", nsources)
                 for i in xrange(nsources):
                     unit_vec = np.zeros(nsources, dtype=dtype)
@@ -224,9 +246,11 @@ def test_fmm_completeness(ctx_getter):
                     pb.progress()
                 pb.finished()
 
+                logging.getLogger().setLevel(logging.INFO)
+
                 missing_tgts, missing_srcs = np.where(mat == 0)
 
-                if len(missing_tgts):
+                if 0 and len(missing_tgts):
                     import matplotlib.pyplot as pt
 
                     from boxtree.visualization import TreePlotter
@@ -235,24 +259,43 @@ def test_fmm_completeness(ctx_getter):
                     plotter.draw_box_numbers()
                     plotter.set_bounding_box()
 
-                    for tgt, src in zip(missing_tgts, missing_srcs):
-                        pt.plot(
-                                trav.tree.particles[0][tgt],
-                                trav.tree.particles[1][tgt],
-                                "ro")
-                        pt.plot(
-                                trav.tree.particles[0][src],
-                                trav.tree.particles[1][src],
-                                "go")
+                    tree_order_missing_tgts = \
+                            tree.indices_to_tree_target_order(missing_tgts)
+                    tree_order_missing_srcs = \
+                            tree.indices_to_tree_source_order(missing_srcs)
+
+                    src_boxes = [
+                            tree.find_box_nr_for_source(i)
+                            for i in tree_order_missing_srcs]
+                    tgt_boxes = [
+                            tree.find_box_nr_for_target(i)
+                            for i in tree_order_missing_tgts]
+                    print zip(src_boxes, tgt_boxes)
+
+                    pt.plot(
+                            tree.targets[0][tree_order_missing_tgts],
+                            tree.targets[1][tree_order_missing_tgts],
+                            "rv")
+                    pt.plot(
+                            tree.sources[0][tree_order_missing_srcs],
+                            tree.sources[1][tree_order_missing_srcs],
+                            "go")
 
                     pt.show()
 
-                #pt.spy(mat)
-                #pt.show()
+                    pt.spy(mat)
+                    pt.show()
 
             # }}}
 
-            assert la.norm((pot - weights_sum) / nsources) < 1e-8
+            rel_err = la.norm((pot - weights_sum) / nsources)
+            good = rel_err < 1e-8
+            if 1 and not good:
+                import matplotlib.pyplot as pt
+                pt.plot(pot-weights_sum)
+                pt.show()
+
+            assert good
 
 # }}}
 
@@ -290,8 +333,8 @@ def test_pyfmmlib_fmm(ctx_getter):
             max_particles_in_box=30, debug=True)
 
     from boxtree.traversal import FMMTraversalBuilder
-    tg = FMMTraversalBuilder(ctx)
-    trav = tg(queue, tree).get()
+    tbuild = FMMTraversalBuilder(ctx)
+    trav = tbuild(queue, tree, debug=True).get()
 
     from pyopencl.clrandom import RanluxGenerator
     rng = RanluxGenerator(queue, seed=20)

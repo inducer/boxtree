@@ -22,8 +22,6 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-import numpy as np
-
 
 
 
@@ -75,9 +73,12 @@ class TreePlotter:
 
     def draw_box_numbers(self):
         import matplotlib.pyplot as pt
-        for ibox in xrange(self.tree.nboxes):
-            x, y = self.centers[:, ibox]
-            lev = int(self.levels[ibox])
+
+        tree = self.tree
+
+        for ibox in xrange(tree.nboxes):
+            x, y = tree.box_centers[:, ibox]
+            lev = int(tree.box_levels[ibox])
             pt.text(x, y, str(ibox), fontsize=20*1.15**(-lev),
                     ha="center", va="center",
                     bbox=dict(facecolor='white', alpha=0.5, lw=0))

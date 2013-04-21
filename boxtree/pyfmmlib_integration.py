@@ -74,22 +74,22 @@ class Helmholtz2DExpansionWrangler:
     def reorder_potentials(self, potentials):
         return potentials[self.tree.sorted_target_ids]
 
-    def form_multipoles(self, leaf_boxes, src_weights):
+    def form_multipoles(self, source_boxes, src_weights):
         rscale = 1 # FIXME
 
         from pyfmmlib import h2dformmp
 
         mpoles = self.expansion_zeros()
-        for ibox in leaf_boxes:
-            pslice = self._get_source_slice(ibox)
+        for src_ibox in source_boxes:
+            pslice = self._get_source_slice(src_ibox)
 
             if pslice.stop - pslice.start == 0:
                 continue
 
-            ier, mpoles[ibox] = h2dformmp(
+            ier, mpoles[src_ibox] = h2dformmp(
                     self.helmholtz_k, rscale, self._get_sources(pslice),
                     src_weights[pslice],
-                    self.tree.box_centers[:, ibox], self.nterms)
+                    self.tree.box_centers[:, src_ibox], self.nterms)
             if ier:
                 raise RuntimeError("h2dformmp failed")
 
@@ -115,22 +115,22 @@ class Helmholtz2DExpansionWrangler:
 
                     mpoles[ibox] += new_mp[:, 0]
 
-    def eval_direct(self, leaf_boxes, neighbor_leaves_starts, neighbor_leaves_lists,
+    def eval_direct(self, target_boxes, neighbor_sources_starts, neighbor_sources_lists,
             src_weights):
         pot = self.potential_zeros()
 
         from pyfmmlib import hpotgrad2dall_vec
 
-        for itgt_leaf, itgt_box in enumerate(leaf_boxes):
-            tgt_pslice = self._get_target_slice(itgt_box)
+        for itgt_box, tgt_ibox in enumerate(target_boxes):
+            tgt_pslice = self._get_target_slice(tgt_ibox)
 
             if tgt_pslice.stop - tgt_pslice.start == 0:
                 continue
 
             tgt_result = np.zeros(tgt_pslice.stop - tgt_pslice.start, np.complex128)
-            start, end = neighbor_leaves_starts[itgt_leaf:itgt_leaf+2]
-            for isrc_box in neighbor_leaves_lists[start:end]:
-                src_pslice = self._get_source_slice(isrc_box)
+            start, end = neighbor_sources_starts[itgt_box:itgt_box+2]
+            for src_ibox in neighbor_sources_lists[start:end]:
+                src_pslice = self._get_source_slice(src_ibox)
 
                 if src_pslice.stop - src_pslice.start == 0:
                     continue
@@ -155,44 +155,44 @@ class Helmholtz2DExpansionWrangler:
 
         from pyfmmlib import h2dmploc_vec
 
-        for itgt_box in xrange(self.tree.nboxes):
-            start, end = starts[itgt_box:itgt_box+2]
-            tgt_center = tree.box_centers[:, itgt_box]
+        for tgt_ibox in xrange(self.tree.nboxes):
+            start, end = starts[tgt_ibox:tgt_ibox+2]
+            tgt_center = tree.box_centers[:, tgt_ibox]
 
-            #print itgt_box, "<-", lists[start:end]
+            #print tgt_ibox, "<-", lists[start:end]
             tgt_loc = 0
 
-            for isrc_box in lists[start:end]:
-                src_center = tree.box_centers[:, isrc_box]
+            for src_ibox in lists[start:end]:
+                src_center = tree.box_centers[:, src_ibox]
 
                 tgt_loc = tgt_loc + h2dmploc_vec(
                         self.helmholtz_k,
-                        rscale, src_center, mpole_exps[isrc_box],
+                        rscale, src_center, mpole_exps[src_ibox],
                         rscale, tgt_center, self.nterms)[:, 0]
 
-            local_exps[itgt_box] += tgt_loc
+            local_exps[tgt_ibox] += tgt_loc
 
         return local_exps
 
-    def eval_multipoles(self, leaf_boxes, sep_smaller_nonsiblings_starts,
+    def eval_multipoles(self, target_boxes, sep_smaller_nonsiblings_starts,
             sep_smaller_nonsiblings_lists, mpole_exps):
         pot = self.potential_zeros()
 
         rscale = 1
 
         from pyfmmlib import h2dmpeval_vec
-        for itgt_leaf, itgt_box in enumerate(leaf_boxes):
-            tgt_pslice = self._get_target_slice(itgt_box)
+        for itgt_box, tgt_ibox in enumerate(target_boxes):
+            tgt_pslice = self._get_target_slice(tgt_ibox)
 
             if tgt_pslice.stop - tgt_pslice.start == 0:
                 continue
 
             tgt_pot = 0
-            start, end = sep_smaller_nonsiblings_starts[itgt_leaf:itgt_leaf+2]
-            for isrc_box in sep_smaller_nonsiblings_lists[start:end]:
+            start, end = sep_smaller_nonsiblings_starts[itgt_box:itgt_box+2]
+            for src_ibox in sep_smaller_nonsiblings_lists[start:end]:
 
                 tmp_pot, _, _ = h2dmpeval_vec(self.helmholtz_k, rscale, self.
-                        tree.box_centers[:, isrc_box], mpole_exps[isrc_box],
+                        tree.box_centers[:, src_ibox], mpole_exps[src_ibox],
                         self._get_targets(tgt_pslice),
                         ifgrad=False, ifhess=False)
 
@@ -201,6 +201,34 @@ class Helmholtz2DExpansionWrangler:
             pot[tgt_pslice] += tgt_pot
 
         return pot
+
+    def form_locals(self, starts, lists, src_weights):
+        rscale = 1 # FIXME
+        local_exps = self.expansion_zeros()
+
+        from pyfmmlib import h2dformta
+
+        for tgt_ibox in xrange(self.tree.nboxes):
+            start, end = starts[tgt_ibox:tgt_ibox+2]
+
+            contrib = 0
+
+            for src_ibox in lists[start:end]:
+                src_pslice = self._get_source_slice(src_ibox)
+                tgt_center = self.tree.box_centers[:, tgt_ibox]
+
+                ier, mpole = h2dformta(
+                        self.helmholtz_k, rscale,
+                        self._get_sources(src_pslice), src_weights[src_pslice],
+                        tgt_center, self.nterms)
+                if ier:
+                    raise RuntimeError("h2dformta failed")
+
+                contrib = contrib + mpole
+
+            local_exps[tgt_ibox] = contrib
+
+        return local_exps
 
     def refine_locals(self, start_box, end_box, local_exps):
         rscale = 1 # FIXME
@@ -221,20 +249,20 @@ class Helmholtz2DExpansionWrangler:
 
         return local_exps
 
-    def eval_locals(self, leaf_boxes, local_exps):
+    def eval_locals(self, target_boxes, local_exps):
         pot = self.potential_zeros()
         rscale = 1 # FIXME
 
         from pyfmmlib import h2dtaeval_vec
 
-        for ibox in leaf_boxes:
-            tgt_pslice = self._get_target_slice(ibox)
+        for tgt_ibox in target_boxes:
+            tgt_pslice = self._get_target_slice(tgt_ibox)
 
             if tgt_pslice.stop - tgt_pslice.start == 0:
                 continue
 
             tmp_pot, _, _ = h2dtaeval_vec(self.helmholtz_k, rscale,
-                    self.tree.box_centers[:, ibox], local_exps[ibox],
+                    self.tree.box_centers[:, tgt_ibox], local_exps[tgt_ibox],
                     self._get_targets(tgt_pslice), ifgrad=False, ifhess=False)
 
             pot[tgt_pslice] += tmp_pot

@@ -30,8 +30,6 @@ from pyopencl.elementwise import ElementwiseTemplate
 from mako.template import Template
 from boxtree.tools import AXIS_NAMES, FromDeviceGettableRecord
 
-
-
 import logging
 logger = logging.getLogger(__name__)
 
@@ -41,6 +39,8 @@ logger = logging.getLogger(__name__)
 # {{{ preamble
 
 TRAVERSAL_PREAMBLE_TEMPLATE = r"""//CL//
+${box_flags_enum.get_c_defines()}
+${box_flags_enum.get_c_typedef()}
 
 typedef ${dtype_to_ctype(box_id_dtype)} box_id_t;
 %if particle_id_dtype is not None:
@@ -122,9 +122,9 @@ typedef ${dtype_to_ctype(vec_types[coord_dtype, dimensions])} coord_vec_t;
 
 # }}}
 
-# {{{ adjacency test
+# {{{ helper functions (adjacency test, ...)
 
-ADJACENCY_TEST_TEMPLATE = r"""//CL//
+HELPER_FUNCTION_TEMPLATE = r"""//CL//
 
 bool is_adjacent_or_overlapping(
     USER_ARG_DECL coord_vec_t center, int level, box_id_t other_box_id)
@@ -153,17 +153,24 @@ bool is_adjacent_or_overlapping(
 
 # }}}
 
-# {{{ sources and their parents
+# {{{ sources and their parents, targets
 
-SOURCES_AND_PARENTS_TEMPLATE = r"""//CL//
+SOURCES_PARENTS_AND_TARGETS_TEMPLATE = r"""//CL//
 
 void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t box_id)
 {
-    if (box_flags[box_id] & BOX_HAS_OWN_SOURCES)
+    box_flags_t flags = box_flags[box_id];
+
+    if (flags & BOX_HAS_OWN_SOURCES)
     { APPEND_source_boxes(box_id); }
 
-    if (box_flags[box_id] & BOX_HAS_CHILD_SOURCES)
+    if (flags & BOX_HAS_CHILD_SOURCES)
     { APPEND_source_parent_boxes(box_id); }
+
+    %if not sources_are_targets:
+        if (flags & BOX_HAS_OWN_TARGETS)
+        { APPEND_target_boxes(box_id); }
+    %endif
 }
 """
 
@@ -268,12 +275,12 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t box_id)
 
 NEIGBHOR_SOURCE_BOXES_TEMPLATE = r"""//CL//
 
-void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t source_box_number)
+void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
 {
-    // /!\ source_box_number is *not* a box_id, despite the type.
+    // /!\ target_box_number is *not* a box_id, despite the type.
     // It's the number of the source box we're currently processing.
 
-    box_id_t box_id = source_boxes[source_box_number];
+    box_id_t box_id = target_boxes[target_box_number];
 
     ${load_center("center", "box_id")}
 
@@ -307,7 +314,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t source_box_number)
                     APPEND_neighbor_source_boxes(child_box_id);
                 }
 
-                if (flags & BOX_HAS_CHILDREN)
+                if (flags & BOX_HAS_CHILD_SOURCES)
                 {
                     // We want to descend into this box. Put the current state
                     // on the stack.
@@ -371,20 +378,20 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t box_id)
         }
     }
 }
-
 """
 
 # }}}
 
-# {{{ separated smaller non-siblings ("list 3", also used for "list 4")
+# {{{ separated smaller non-siblings ("list 3")
 
 SEP_SMALLER_NONSIBLINGS_TEMPLATE = r"""//CL//
 
-void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t leaf_number)
+void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
 {
-    // /!\ leaf_number is *not* a box_id, despite the type.
-    // It's the number of the leaf we're currently processing.
-    box_id_t box_id = leaf_boxes[leaf_number];
+    // /!\ target_box_number is *not* a box_id, despite the type.
+    // It's the number of the target box we're currently processing.
+
+    box_id_t box_id = target_boxes[target_box_number];
 
     ${load_center("center", "box_id")}
 
@@ -433,7 +440,6 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t leaf_number)
                 }
                 else
                 {
-                    APPEND_sep_smaller_nonsiblings_origins(box_id);
                     APPEND_sep_smaller_nonsiblings(child_box_id);
                 }
             }
@@ -442,7 +448,96 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t leaf_number)
         }
     }
 }
+"""
 
+# }}}
+
+# {{{ separated bigger non-siblings ("list 4")
+
+SEP_BIGGER_NONSIBLINGS_TEMPLATE = r"""//CL//
+
+void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t box_id)
+{
+    ${load_center("center", "box_id")}
+
+    int box_level = box_levels[box_id];
+
+    box_id_t current_parent_box_id = box_id;
+    int walk_level = box_level;
+
+    while (walk_level)
+    {
+        // {{{ advance
+
+        --walk_level;
+
+        // Box 0 (== level 0) doesn't have any colleagues.
+        if (walk_level == 0)
+            break;
+
+        current_parent_box_id = box_parent_ids[current_parent_box_id];
+
+        // }}}
+
+        box_id_t coll_start = colleagues_starts[current_parent_box_id];
+        box_id_t coll_stop = colleagues_starts[current_parent_box_id+1];
+
+        // /!\ i is not a box_id, it's an index into colleagues_list.
+        for (box_id_t i = coll_start; i < coll_stop; ++i)
+        {
+            box_id_t colleague_box_id = colleagues_list[i];
+
+            bool a_or_o = is_adjacent_or_overlapping(
+                USER_ARGS center, box_level, colleague_box_id);
+
+            if (!a_or_o && box_flags[colleague_box_id] & BOX_HAS_OWN_SOURCES)
+            {
+                // Now check if any of box_id's parents up to current_parent_box_id
+                // are already not adjacent to colleague_box_id. If so, then that parent
+                // will have included colleague_box_id in its List 4, and it will
+                // propagate down by local expansion. Therefore, no need to add in
+                // that case.
+                //
+                // Yes, Batman, we just went O(n log(n)^2).
+
+                ${load_center("colleague_center", "colleague_box_id")}
+
+                box_id_t check_parent_box_id = box_id;
+                int check_walk_level = box_level;
+
+                bool found_closer_parent = false;
+
+                while (true)
+                {
+                    // {{{ advance
+
+                    --check_walk_level;
+
+                    if (check_walk_level == walk_level)
+                        break;
+
+                    check_parent_box_id = box_parent_ids[check_parent_box_id];
+
+                    // }}}
+
+                    bool parent_a_or_o = is_adjacent_or_overlapping(
+                        USER_ARGS colleague_center, walk_level, check_parent_box_id);
+
+                    if (!parent_a_or_o)
+                    {
+                        found_closer_parent = true;
+                        break;
+                    }
+                }
+
+                if (!found_closer_parent)
+                {
+                    APPEND_sep_bigger_nonsiblings(colleague_box_id);
+                }
+            }
+        }
+    }
+}
 """
 
 # }}}
@@ -458,6 +553,12 @@ class FMMTraversalInfo(FromDeviceGettableRecord):
     .. attribute:: source_boxes
 
         ``box_id_t [*]`` List of boxes having sources.
+
+    .. attribute:: target_boxes
+
+        ``box_id_t [*]`` List of boxes having sources.
+        If :attr:`boxtree.Tree.sources_are_targets`,
+        then ``target_boxes is source_boxes``.
 
     .. attribute:: source_parent_boxes
 
@@ -485,7 +586,7 @@ class FMMTraversalInfo(FromDeviceGettableRecord):
 
     .. attribute:: neighbor_source_boxes_starts
 
-        ``box_id_t [nleaves+1]``
+        ``box_id_t [ntarget_boxes+1]``
 
     .. attribute:: neighbor_source_boxes_lists
 
@@ -505,7 +606,7 @@ class FMMTraversalInfo(FromDeviceGettableRecord):
 
     .. attribute:: sep_smaller_nonsiblings_starts
 
-        ``box_id_t [nleaves+1]``
+        ``box_id_t [ntargets+1]``
 
     .. attribute:: sep_smaller_nonsiblings_lists
 
@@ -529,6 +630,16 @@ class FMMTraversalInfo(FromDeviceGettableRecord):
     `DOI: 10.1137/0909044 <http://dx.doi.org/10.1137/0909044>`_.
     """
 
+    # {{{ debugging aids
+
+    def get_box_list(self, what, index):
+        starts = getattr(self, what+"_starts")
+        lists = getattr(self, what+"_lists")
+        start, stop = starts[index:index+2]
+        return lists[start:stop]
+
+    # }}}
+
 # }}}
 
 class _KernelInfo(Record):
@@ -539,51 +650,54 @@ class _KernelInfo(Record):
 class FMMTraversalBuilder:
     def __init__(self, context):
         self.context = context
-        from pyopencl.algorithm import KeyValueSorter
-        self.key_value_sorter = KeyValueSorter(context)
 
     # {{{ kernel builder
 
     @memoize_method
     def get_kernel_info(self, dimensions, particle_id_dtype, box_id_dtype,
-            coord_dtype, box_level_dtype, max_levels):
+            coord_dtype, box_level_dtype, max_levels,
+            sources_are_targets):
 
         logging.info("building traversal build kernels")
 
         debug = False
 
         from pyopencl.tools import dtype_to_ctype
+        from boxtree.tree import box_flags_enum
         render_vars = dict(
                 dimensions=dimensions,
                 dtype_to_ctype=dtype_to_ctype,
                 particle_id_dtype=particle_id_dtype,
                 box_id_dtype=box_id_dtype,
+                box_flags_enum=box_flags_enum,
                 coord_dtype=coord_dtype,
                 vec_types=cl.array.vec.types,
                 max_levels=max_levels,
                 AXIS_NAMES=AXIS_NAMES,
                 debug=debug,
+                sources_are_targets=sources_are_targets,
                 )
         from pyopencl.algorithm import ListOfListsBuilder
         from pyopencl.tools import VectorArg, ScalarArg
-        from boxtree import box_flags_enum
 
         result = {}
 
-        # {{{ source boxes and their parents
+        # {{{ source boxes, their parents, target boxes
 
         src = Template(
-                box_flags_enum.get_c_defines()
-                + TRAVERSAL_PREAMBLE_TEMPLATE
-                + SOURCES_AND_PARENTS_TEMPLATE,
+                TRAVERSAL_PREAMBLE_TEMPLATE
+                + SOURCES_PARENTS_AND_TARGETS_TEMPLATE,
                 strict_undefined=True).render(**render_vars)
 
-        result["sources_and_parents_builder"] = \
+        result["sources_parents_and_targets_builder"] = \
                 ListOfListsBuilder(self.context,
                         [
-                            ("source_boxes", box_id_dtype),
                             ("source_parent_boxes", box_id_dtype),
-                            ],
+                            ("source_boxes", box_id_dtype),
+                            ] + (
+                                [("target_boxes", box_id_dtype)]
+                                if not sources_are_targets
+                                else []),
                         str(src),
                         arg_decls=[
                             VectorArg(box_flags_enum.dtype, "box_flags"),
@@ -599,7 +713,7 @@ class FMMTraversalBuilder:
 
         # }}}
 
-        # {{{ colleagues, neighbors (list 1), well-sep siblings (list 2)
+        # {{{ build list N builders
 
         base_args = [
                 VectorArg(coord_dtype, "box_centers"),
@@ -613,8 +727,22 @@ class FMMTraversalBuilder:
         for list_name, template, extra_args in [
                 ("colleagues", COLLEAGUES_TEMPLATE, []),
                 ("neighbor_source_boxes", NEIGBHOR_SOURCE_BOXES_TEMPLATE,
-                        [VectorArg(box_id_dtype, "source_boxes")]),
+                        [
+                            VectorArg(box_id_dtype, "target_boxes"),
+                            ]),
                 ("sep_siblings", SEP_SIBLINGS_TEMPLATE,
+                        [
+                            VectorArg(box_id_dtype, "box_parent_ids"),
+                            VectorArg(box_id_dtype, "colleagues_starts"),
+                            VectorArg(box_id_dtype, "colleagues_list"),
+                            ]),
+                ("sep_smaller_nonsiblings", SEP_SMALLER_NONSIBLINGS_TEMPLATE,
+                        [
+                            VectorArg(box_id_dtype, "target_boxes"),
+                            VectorArg(box_id_dtype, "colleagues_starts"),
+                            VectorArg(box_id_dtype, "colleagues_list"),
+                            ]),
+                ("sep_bigger_nonsiblings", SEP_BIGGER_NONSIBLINGS_TEMPLATE,
                         [
                             VectorArg(box_id_dtype, "box_parent_ids"),
                             VectorArg(box_id_dtype, "colleagues_starts"),
@@ -622,10 +750,8 @@ class FMMTraversalBuilder:
                             ]),
                 ]:
             src = Template(
-                    box_flags_enum.get_c_defines()
-                    + box_flags_enum.get_c_typedef()
-                    + TRAVERSAL_PREAMBLE_TEMPLATE
-                    + ADJACENCY_TEST_TEMPLATE
+                    TRAVERSAL_PREAMBLE_TEMPLATE
+                    + HELPER_FUNCTION_TEMPLATE
                     + template,
                     strict_undefined=True).render(**render_vars)
 
@@ -635,37 +761,6 @@ class FMMTraversalBuilder:
                     arg_decls=base_args + extra_args,
                     debug=debug, name_prefix=list_name,
                     complex_kernel=True)
-
-        # }}}
-
-        # {{{ separated smaller non-siblings ("list 3")
-
-        src = Template(
-                box_flags_enum.get_c_defines()
-                + box_flags_enum.get_c_typedef()
-                + TRAVERSAL_PREAMBLE_TEMPLATE
-                + ADJACENCY_TEST_TEMPLATE
-                + SEP_SMALLER_NONSIBLINGS_TEMPLATE,
-                strict_undefined=True).render(**render_vars)
-
-        result["sep_smaller_nonsiblings_builder"] = ListOfListsBuilder(self.context,
-                [
-                    ("sep_smaller_nonsiblings_origins", box_id_dtype),
-                    ("sep_smaller_nonsiblings", box_id_dtype),
-                    ],
-                str(src),
-                arg_decls=base_args + [
-                    VectorArg(box_id_dtype, "leaf_boxes"),
-                    VectorArg(box_id_dtype, "colleagues_starts"),
-                    VectorArg(box_id_dtype, "colleagues_list"),
-                    ],
-                debug=debug, name_prefix="sep_smaller_nonsiblings",
-                complex_kernel=True,
-                count_sharing={
-                    # /!\ This makes a promise that APPEND_origin_box will
-                    # always occur *before* APPEND_sep_smaller_nonsiblings.
-                    "sep_smaller_nonsiblings": "sep_smaller_nonsiblings_origins"
-                    })
 
         # }}}
 
@@ -692,7 +787,8 @@ class FMMTraversalBuilder:
 
         knl_info = self.get_kernel_info(
                 tree.dimensions, tree.particle_id_dtype, tree.box_id_dtype,
-                tree.coord_dtype, tree.box_level_dtype, max_levels)
+                tree.coord_dtype, tree.box_level_dtype, max_levels,
+                tree.sources_are_targets)
 
         def fin_debug(s):
             if debug:
@@ -702,15 +798,21 @@ class FMMTraversalBuilder:
 
         logger.info("start building traversal")
 
-        # {{{ sources boxes and their parents
+        # {{{ source boxes, their parents, and target boxes
 
-        fin_debug("building list of source boxes and their parents")
+        fin_debug("building list of source boxes, their parents, and target boxes")
 
-        result = knl_info.sources_and_parents_builder(
+        result = knl_info.sources_parents_and_targets_builder(
                 queue, tree.nboxes, tree.box_flags.data)
 
         source_boxes = result["source_boxes"].lists
         assert len(source_boxes) == result["source_boxes"].count
+        if not tree.sources_are_targets:
+            target_boxes = result["target_boxes"].lists
+            assert len(target_boxes) == result["target_boxes"].count
+        else:
+            target_boxes = source_boxes
+
         source_parent_boxes = result["source_parent_boxes"].lists
         assert len(source_parent_boxes) == result["source_parent_boxes"].count
 
@@ -718,30 +820,36 @@ class FMMTraversalBuilder:
 
         # {{{ figure out level starts in source_parent_boxes
 
-        fin_debug("finding level starts in parent boxes array")
+        def extract_level_start_box_nrs(box_list):
+            result = cl.array.empty(queue,
+                    tree.nlevels+1, tree.box_id_dtype) \
+                            .fill(len(box_list))
+            knl_info.level_start_box_nrs_extractor(
+                    tree.level_start_box_nrs_dev,
+                    tree.box_levels,
+                    box_list,
+                    result,
+                    range=slice(1, len(box_list)),
+                    queue=queue)
 
-        level_start_parent_box_nrs = cl.array.empty(queue,
-                tree.nlevels+1, tree.box_id_dtype) \
-                        .fill(len(source_parent_boxes))
-        knl_info.level_start_box_nrs_extractor(
-                tree.level_start_box_nrs_dev,
-                tree.box_levels,
-                source_parent_boxes,
-                level_start_parent_box_nrs,
-                range=slice(1, len(source_parent_boxes)),
-                queue=queue)
+            result = result.get()
 
-        level_start_parent_box_nrs = level_start_parent_box_nrs.get()
+            # We skipped box 0 above. This is always true, whether
+            # box 0 (=level 0) is a leaf or a parent.
+            result[0] = 0
 
-        # We skipped box 0 above. This is always true, whether
-        # box 0 (=level 0) is a leaf or a parent.
-        level_start_parent_box_nrs[0] = 0
+            # Postprocess result for unoccupied levels
+            prev_start = len(box_list)
+            for ilev in xrange(tree.nlevels-1, -1, -1):
+                result[ilev] = prev_start = \
+                        min(result[ilev], prev_start)
 
-        # Postprocess level_start_parent_box_nrs for unoccupied levels
-        prev_start = len(source_parent_boxes)
-        for ilev in xrange(tree.nlevels-1, -1, -1):
-            level_start_parent_box_nrs[ilev] = prev_start = \
-                    min(level_start_parent_box_nrs[ilev], prev_start)
+            return result
+
+        fin_debug("finding level starts in source parent boxes array")
+
+        level_start_source_parent_box_nrs = \
+                extract_level_start_box_nrs(source_parent_boxes)
 
         # }}}
 
@@ -762,10 +870,10 @@ class FMMTraversalBuilder:
         fin_debug("finding neighbor source boxes ('list 1')")
 
         neighbor_source_boxes = knl_info.neighbor_source_boxes_builder(
-                queue, len(source_boxes),
+                queue, len(target_boxes),
                 tree.box_centers.data, tree.root_extent, tree.box_levels.data,
                 tree.aligned_nboxes, tree.box_child_ids.data, tree.box_flags.data,
-                source_boxes.data)["neighbor_source_boxes"]
+                target_boxes.data)["neighbor_source_boxes"]
 
         # }}}
 
@@ -787,10 +895,10 @@ class FMMTraversalBuilder:
         fin_debug("finding separated smaller non-siblings ('list 3')")
 
         result = knl_info.sep_smaller_nonsiblings_builder(
-                queue, len(source_boxes),
+                queue, len(target_boxes),
                 tree.box_centers.data, tree.root_extent, tree.box_levels.data,
                 tree.aligned_nboxes, tree.box_child_ids.data, tree.box_flags.data,
-                source_boxes.data,
+                target_boxes.data,
                 colleagues.starts.data, colleagues.lists.data)
 
         sep_smaller_nonsiblings = result["sep_smaller_nonsiblings"]
@@ -801,14 +909,14 @@ class FMMTraversalBuilder:
 
         fin_debug("finding separated bigger non-siblings ('list 4')")
 
-        sep_bigger_nonsiblings_starts, sep_bigger_nonsiblings_list \
-                = self.key_value_sorter(
-                        queue,
-                        # keys
-                        result["sep_smaller_nonsiblings"].lists,
-                        # values
-                        result["sep_smaller_nonsiblings_origins"].lists,
-                        tree.nboxes, starts_dtype=tree.box_id_dtype)
+        result = knl_info.sep_bigger_nonsiblings_builder(
+                queue, tree.nboxes,
+                tree.box_centers.data, tree.root_extent, tree.box_levels.data,
+                tree.aligned_nboxes, tree.box_child_ids.data, tree.box_flags.data,
+                tree.box_parent_ids.data,
+                colleagues.starts.data, colleagues.lists.data)
+
+        sep_bigger_nonsiblings = result["sep_bigger_nonsiblings"]
 
         # }}}
 
@@ -818,8 +926,9 @@ class FMMTraversalBuilder:
                 tree=tree,
 
                 source_boxes=source_boxes,
+                target_boxes=target_boxes,
                 source_parent_boxes=source_parent_boxes,
-                level_start_parent_box_nrs=level_start_parent_box_nrs,
+                level_start_source_parent_box_nrs=level_start_source_parent_box_nrs,
 
                 colleagues_starts=colleagues.starts,
                 colleagues_lists=colleagues.lists,
@@ -833,8 +942,8 @@ class FMMTraversalBuilder:
                 sep_smaller_nonsiblings_starts=sep_smaller_nonsiblings.starts,
                 sep_smaller_nonsiblings_lists=sep_smaller_nonsiblings.lists,
 
-                sep_bigger_nonsiblings_starts=sep_bigger_nonsiblings_starts,
-                sep_bigger_nonsiblings_lists=sep_bigger_nonsiblings_list,
+                sep_bigger_nonsiblings_starts=sep_bigger_nonsiblings.starts,
+                sep_bigger_nonsiblings_lists=sep_bigger_nonsiblings.lists,
                 )
 
     # }}}

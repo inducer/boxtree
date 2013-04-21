@@ -102,7 +102,7 @@ class TreeBuilder(object):
         from boxtree.tools import AXIS_NAMES
         axis_names = AXIS_NAMES[:dimensions]
 
-        sources_are_targets = targets is not None
+        sources_are_targets = targets is None
         sources_have_extent = source_radii is not None
         targets_have_extent = target_radii is not None
         srcntgts_have_extent = sources_have_extent or targets_have_extent
@@ -778,6 +778,10 @@ class TreeBuilder(object):
                 # If you change this, also change the documentation
                 # of what's in the tree, above.
 
+                sources_are_targets=sources_are_targets,
+                sources_have_extent=sources_have_extent,
+                targets_have_extent=targets_have_extent,
+
                 particle_id_dtype=knl_info.particle_id_dtype,
                 box_id_dtype=knl_info.box_id_dtype,
                 coord_dtype=coord_dtype,
@@ -785,8 +789,6 @@ class TreeBuilder(object):
 
                 root_extent=root_extent,
                 stick_out_factor=stick_out_factor,
-                sources_have_extent=sources_have_extent,
-                targets_have_extent=targets_have_extent,
 
                 bounding_box=(bbox_min, bbox_max),
                 level_start_box_nrs=level_start_box_nrs,

@@ -32,6 +32,9 @@ import pyopencl.array
 from mako.template import Template
 from boxtree.tools import AXIS_NAMES, FromDeviceGettableRecord
 
+import logging
+logger = logging.getLogger(__name__)
+
 
 
 
@@ -60,7 +63,6 @@ class LeavesToBallsLookup(FromDeviceGettableRecord):
 # {{{ kernel templates
 
 BALLS_TO_LEAVES_TEMPLATE = r"""//CL//
-
 typedef ${dtype_to_ctype(ball_id_dtype)} ball_id_t;
 
 void generate(LIST_ARG_DECL USER_ARG_DECL ball_id_t ball_nr)
@@ -143,6 +145,7 @@ class LeavesToBallsLookupBuilder(object):
     def get_balls_to_leaves_kernel(self, dimensions, coord_dtype, box_id_dtype,
             ball_id_dtype, max_levels):
         from pyopencl.tools import dtype_to_ctype
+        from boxtree import box_flags_enum
         render_vars = dict(
                 dimensions=dimensions,
                 dtype_to_ctype=dtype_to_ctype,
@@ -153,21 +156,23 @@ class LeavesToBallsLookupBuilder(object):
                 vec_types=cl.array.vec.types,
                 max_levels=max_levels,
                 AXIS_NAMES=AXIS_NAMES,
+                box_flags_enum=box_flags_enum,
                 debug=False,
                 )
 
-        from boxtree import box_flags_enum
+        logger.info("start building leaves-to-balls lookup kernel")
+
         from boxtree.traversal import TRAVERSAL_PREAMBLE_TEMPLATE
 
         src = Template(
-                box_flags_enum.get_c_defines()
-                + TRAVERSAL_PREAMBLE_TEMPLATE
+                TRAVERSAL_PREAMBLE_TEMPLATE
                 + BALLS_TO_LEAVES_TEMPLATE,
                 strict_undefined=True).render(**render_vars)
 
+
         from pyopencl.tools import VectorArg, ScalarArg
         from pyopencl.algorithm import ListOfListsBuilder
-        return ListOfListsBuilder(self.context,
+        result = ListOfListsBuilder(self.context,
                 [
                     ("ball_numbers", ball_id_dtype),
                     ("overlapping_leaves", box_id_dtype),
@@ -189,6 +194,10 @@ class LeavesToBallsLookupBuilder(object):
                     "overlapping_leaves": "ball_numbers"
                     },
                 complex_kernel=True)
+
+        logger.info("done building leaves-to-balls lookup kernel")
+
+        return result
 
     def __call__(self, queue, tree, ball_centers, ball_radii):
         """
@@ -221,6 +230,8 @@ class LeavesToBallsLookupBuilder(object):
                 tree.box_id_dtype, ball_id_dtype,
                 max_levels)
 
+        logger.info("leaves-to-balls lookup: prepare ball list")
+
         nballs = len(ball_radii)
         result = b2l_knl(
                 queue, nballs,
@@ -228,6 +239,8 @@ class LeavesToBallsLookupBuilder(object):
                 tree.box_child_ids.data, tree.box_levels.data,
                 tree.root_extent, tree.aligned_nboxes,
                 ball_radii.data, *tuple(bc.data for bc in ball_centers))
+
+        logger.info("leaves-to-balls lookup: key-value sort")
 
         balls_near_box_starts, balls_near_box_lists \
                 = self.key_value_sorter(
@@ -237,6 +250,8 @@ class LeavesToBallsLookupBuilder(object):
                         # values
                         result["ball_numbers"].lists,
                         tree.nboxes, starts_dtype=tree.box_id_dtype)
+
+        logger.info("leaves-to-balls lookup: built")
 
         return LeavesToBallsLookup(
                 tree=tree,

@@ -46,20 +46,28 @@ def test_tree_connectivity(ctx_getter):
     ctx = ctx_getter()
     queue = cl.CommandQueue(ctx)
 
-    for dims in [2]:
-        nparticles = 10**5
+    for dims, sources_are_targets in [
+            (2, True),
+            (2, False),
+            (3, True),
+            (3, False),
+            ]:
         dtype = np.float64
 
-        particles = make_particle_array(queue, nparticles, dims, dtype)
+        sources = make_particle_array(queue, 5 * 10**5, dims, dtype)
+        if sources_are_targets:
+            targets = None
+        else:
+            targets = make_particle_array(queue, 3 * 10**5, dims, dtype)
 
         from boxtree import TreeBuilder
         tb = TreeBuilder(ctx)
-
-        tree = tb(queue, particles, max_particles_in_box=30, debug=True)
+        tree = tb(queue, sources, max_particles_in_box=30,
+                targets=targets, debug=True)
 
         from boxtree.traversal import FMMTraversalBuilder
         tg = FMMTraversalBuilder(ctx)
-        trav = tg(queue, tree).get()
+        trav = tg(queue, tree, debug=True).get()
         tree = tree.get()
 
         levels = tree.box_levels
@@ -89,15 +97,17 @@ def test_tree_connectivity(ctx_getter):
 
         # {{{ neighbor_source_boxes (list 1) consists of source boxes
 
-        for isrcbox, ibox in enumerate(trav.source_boxes):
-            start, end = trav.neighbor_source_boxes_starts[isrcbox:isrcbox+2]
+        for itgt_box, ibox in enumerate(trav.target_boxes):
+            start, end = trav.neighbor_source_boxes_starts[itgt_box:itgt_box+2]
             nbl = trav.neighbor_source_boxes_lists[start:end]
 
-            assert ibox in nbl
+            if sources_are_targets:
+                assert ibox in nbl
+
             for jbox in nbl:
                 assert (0 == children[jbox]).all(), (ibox, jbox, children[jbox])
 
-        print "list 1 tested"
+        logger.info("list 1 consists of source boxes")
 
         # }}}
 
@@ -117,45 +127,92 @@ def test_tree_connectivity(ctx_getter):
                 dist = la.norm(centers[jbox]-icenter)
                 assert dist > mindist, (dist, mindist)
 
-        # }}}
-
-        # {{{ sep_{smaller,bigger}_nonsiblings are duals of each other
-
-        # (technically, we only test one half of that)
-
-        for isource_box, ibox in enumerate(trav.source_boxes):
-            start, end = trav.sep_smaller_nonsiblings_starts[isource_box:isource_box+2]
-
-            for jbox in trav.sep_smaller_nonsiblings_lists[start:end]:
-                rstart, rend = trav.sep_bigger_nonsiblings_starts[jbox:jbox+2]
-
-                assert ibox in trav.sep_bigger_nonsiblings_lists[rstart:rend], (ibox, jbox)
-
-        print "list 3, 4 are duals"
+        logger.info("separated siblings (list 2) are actually separated")
 
         # }}}
 
-        # {{{ sep_smaller_nonsiblings satisfies size assumption
+        if sources_are_targets:
+            # {{{ sep_{smaller,bigger}_nonsiblings are duals of each other
 
-        for isource_box, ibox in enumerate(trav.source_boxes):
-            start, end = trav.sep_smaller_nonsiblings_starts[isource_box:isource_box+2]
+            # {{{ list 4 <= list 3
+            for itarget_box, ibox in enumerate(trav.target_boxes):
+                start, end = trav.sep_smaller_nonsiblings_starts[itarget_box:itarget_box+2]
+
+                for jbox in trav.sep_smaller_nonsiblings_lists[start:end]:
+                    rstart, rend = trav.sep_bigger_nonsiblings_starts[jbox:jbox+2]
+
+                    assert ibox in trav.sep_bigger_nonsiblings_lists[rstart:rend], (ibox, jbox)
+
+            # }}}
+
+            # {{{ list 4 <= list 3
+
+            box_to_target_box_index = np.empty(tree.nboxes, tree.box_id_dtype)
+            box_to_target_box_index.fill(-1)
+            box_to_target_box_index[trav.target_boxes] = np.arange(
+                    len(trav.target_boxes), dtype=tree.box_id_dtype)
+
+            assert (trav.source_boxes == trav.target_boxes).all()
+
+            for ibox in xrange(tree.nboxes):
+                start, end = trav.sep_bigger_nonsiblings_starts[ibox:ibox+2]
+
+                for jbox in trav.sep_bigger_nonsiblings_lists[start:end]:
+                    # In principle, entries of sep_bigger_nonsiblings_lists are
+                    # source boxes. In this special case, source and target boxes
+                    # are the same thing (i.e. leaves--see assertion above), so we
+                    # may treat them as targets anyhow.
+
+                    jtgt_box = box_to_target_box_index[jbox]
+                    assert jbox != -1
+
+                    rstart, rend = trav.sep_smaller_nonsiblings_starts[jtgt_box:jtgt_box+2]
+                    good = ibox in trav.sep_smaller_nonsiblings_lists[rstart:rend]
+
+                    if not good:
+                        from boxtree.visualization import TreePlotter
+                        plotter = TreePlotter(tree)
+                        plotter.draw_tree(fill=False, edgecolor="black", zorder=10)
+                        plotter.set_bounding_box()
+
+                        plotter.draw_box(ibox, facecolor='green', alpha=0.5)
+                        plotter.draw_box(jbox, facecolor='red', alpha=0.5)
+
+                        import matplotlib.pyplot as pt
+                        pt.gca().set_aspect("equal")
+                        pt.show()
+
+                    # This assertion failing means that ibox's list 4 contains a box
+                    # 'jbox' whose list 3 does not contain ibox.
+                    assert good, (ibox, jbox)
+
+            # }}}
+
+            logger.info("list 3, 4 are duals")
+
+            # }}}
+
+        # {{{ sep_smaller_nonsiblings satisfies relative level assumption
+
+        for itarget_box, ibox in enumerate(trav.target_boxes):
+            start, end = trav.sep_smaller_nonsiblings_starts[itarget_box:itarget_box+2]
 
             for jbox in trav.sep_smaller_nonsiblings_lists[start:end]:
                 assert levels[ibox] < levels[jbox]
 
-        print "list 3 satisfies size assumption"
+        logger.info("list 3 satisfies relative level assumption")
 
         # }}}
 
-        # {{{ sep_smaller_nonsiblings satisfies size assumption
+        # {{{ sep_smaller_nonsiblings satisfies relative level assumption
 
-        for  ibox in xrange(tree.nboxes):
+        for ibox in xrange(tree.nboxes):
             start, end = trav.sep_bigger_nonsiblings_starts[ibox:ibox+2]
 
             for jbox in trav.sep_bigger_nonsiblings_lists[start:end]:
                 assert levels[ibox] > levels[jbox]
 
-        print "list 4 satisfies size assumption"
+        logger.info("list 4 satisfies relative level assumption")
 
         # }}}
 
@@ -187,9 +244,7 @@ def plot_traversal(ctx_getter, do_plot=False):
         tb = TreeBuilder(ctx)
 
         queue.finish()
-        print "building..."
         tree = tb(queue, particles, max_particles_in_box=30, debug=True)
-        print "done"
 
         from boxtree.traversal import FMMTraversalBuilder
         tg = FMMTraversalBuilder(ctx)

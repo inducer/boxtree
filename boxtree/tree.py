@@ -82,9 +82,17 @@ class Tree(FromDeviceGettableRecord):
 
     **Flags**
 
+    .. attribute:: sources_are_targets
+
+        ``bool`` whether sources and targets are the same
+
     .. attribute:: sources_have_extent
 
-        whether this tree has sources in non-leaf boxes
+        ``bool`` whether this tree has sources in non-leaf boxes
+
+    .. attribute:: target_have_extent
+
+        ``bool`` whether this tree has targets in non-leaf boxes
 
     **Data types**
 

@@ -513,7 +513,6 @@ def test_geometry_query(ctx_getter, do_plot=False):
 # $ python test_tree.py 'test_routine(cl.create_some_context)'
 
 if __name__ == "__main__":
-    import sys
     if len(sys.argv) > 1:
         exec(sys.argv[1])
     else:
