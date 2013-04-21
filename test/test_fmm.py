@@ -27,7 +27,7 @@ import numpy as np
 import numpy.linalg as la
 import pyopencl as cl
 
-import pytools.test
+import pytest
 from pyopencl.tools import pytest_generate_tests_for_pyopencl \
         as pytest_generate_tests
 
@@ -175,8 +175,13 @@ class ConstantOneExpansionWrangler:
 
 
 
-@pytools.test.mark_test.opencl
-def test_fmm_completeness(ctx_getter):
+@pytest.mark.opencl
+@pytest.mark.parametrize("dims", [2, 3])
+@pytest.mark.parametrize(("nsources", "ntargets"), [
+    (10**6, None),
+    (5 * 10**5, 4*10**5),
+    ])
+def test_fmm_completeness(ctx_getter, dims, nsources, ntargets):
     """Tests whether the built FMM traversal structures and driver completely
     capture all interactions.
     """
@@ -186,122 +191,114 @@ def test_fmm_completeness(ctx_getter):
     ctx = ctx_getter()
     queue = cl.CommandQueue(ctx)
 
-    for dims in [
-            2,
-            3
-            ]:
-        for nsources, ntargets in [
-                (10**6, None),
-                (5 * 10**5, 4*10**5),
-                ]:
-            dtype = np.float64
+    dtype = np.float64
 
-            sources = make_particle_array(queue, nsources, dims, dtype, seed=15)
+    sources = make_particle_array(queue, nsources, dims, dtype, seed=15)
 
-            if ntargets is None:
-                # This says "same as sources" to the tree builder.
-                targets = None
-            else:
-                targets = make_particle_array(
-                        queue, ntargets, dims, dtype, seed=16)
+    if ntargets is None:
+        # This says "same as sources" to the tree builder.
+        targets = None
+    else:
+        targets = make_particle_array(
+                queue, ntargets, dims, dtype, seed=16)
 
-            from boxtree import TreeBuilder
-            tb = TreeBuilder(ctx)
+    from boxtree import TreeBuilder
+    tb = TreeBuilder(ctx)
 
-            tree = tb(queue, sources, targets=targets,
-                    max_particles_in_box=30, debug=True)
+    tree = tb(queue, sources, targets=targets,
+            max_particles_in_box=30, debug=True)
 
-            from boxtree.traversal import FMMTraversalBuilder
-            tbuild = FMMTraversalBuilder(ctx)
-            trav = tbuild(queue, tree, debug=True).get()
-            tree = trav.tree
+    from boxtree.traversal import FMMTraversalBuilder
+    tbuild = FMMTraversalBuilder(ctx)
+    trav = tbuild(queue, tree, debug=True).get()
+    tree = trav.tree
 
-            #weights = np.random.randn(nsources)
-            weights = np.ones(nsources)
-            weights_sum = np.sum(weights)
+    #weights = np.random.randn(nsources)
+    weights = np.ones(nsources)
+    weights_sum = np.sum(weights)
 
-            from boxtree.fmm import drive_fmm
-            wrangler = ConstantOneExpansionWrangler(tree)
+    from boxtree.fmm import drive_fmm
+    wrangler = ConstantOneExpansionWrangler(tree)
 
-            if ntargets is None:
-                # This check only works for targets == sources.
-                assert (wrangler.reorder_potentials(
-                        wrangler.reorder_src_weights(weights)) == weights).all()
+    if ntargets is None:
+        # This check only works for targets == sources.
+        assert (wrangler.reorder_potentials(
+                wrangler.reorder_src_weights(weights)) == weights).all()
 
-            pot = drive_fmm(trav, wrangler, weights)
+    pot = drive_fmm(trav, wrangler, weights)
 
-            # {{{ build, evaluate matrix (and identify missing interactions)
+    # {{{ build, evaluate matrix (and identify missing interactions)
 
-            if 0:
-                mat = np.zeros((ntargets, nsources), dtype)
-                from pytools import ProgressBar
+    if 0:
+        mat = np.zeros((ntargets, nsources), dtype)
+        from pytools import ProgressBar
 
-                logging.getLogger().setLevel(logging.WARNING)
+        logging.getLogger().setLevel(logging.WARNING)
 
-                pb = ProgressBar("matrix", nsources)
-                for i in xrange(nsources):
-                    unit_vec = np.zeros(nsources, dtype=dtype)
-                    unit_vec[i] = 1
-                    mat[:,i] = drive_fmm(trav, wrangler, unit_vec)
-                    pb.progress()
-                pb.finished()
+        pb = ProgressBar("matrix", nsources)
+        for i in xrange(nsources):
+            unit_vec = np.zeros(nsources, dtype=dtype)
+            unit_vec[i] = 1
+            mat[:,i] = drive_fmm(trav, wrangler, unit_vec)
+            pb.progress()
+        pb.finished()
 
-                logging.getLogger().setLevel(logging.INFO)
+        logging.getLogger().setLevel(logging.INFO)
 
-                missing_tgts, missing_srcs = np.where(mat == 0)
+        missing_tgts, missing_srcs = np.where(mat == 0)
 
-                if 0 and len(missing_tgts):
-                    import matplotlib.pyplot as pt
+        if 0 and len(missing_tgts):
+            import matplotlib.pyplot as pt
 
-                    from boxtree.visualization import TreePlotter
-                    plotter = TreePlotter(tree)
-                    plotter.draw_tree(fill=False, edgecolor="black")
-                    plotter.draw_box_numbers()
-                    plotter.set_bounding_box()
+            from boxtree.visualization import TreePlotter
+            plotter = TreePlotter(tree)
+            plotter.draw_tree(fill=False, edgecolor="black")
+            plotter.draw_box_numbers()
+            plotter.set_bounding_box()
 
-                    tree_order_missing_tgts = \
-                            tree.indices_to_tree_target_order(missing_tgts)
-                    tree_order_missing_srcs = \
-                            tree.indices_to_tree_source_order(missing_srcs)
+            tree_order_missing_tgts = \
+                    tree.indices_to_tree_target_order(missing_tgts)
+            tree_order_missing_srcs = \
+                    tree.indices_to_tree_source_order(missing_srcs)
 
-                    src_boxes = [
-                            tree.find_box_nr_for_source(i)
-                            for i in tree_order_missing_srcs]
-                    tgt_boxes = [
-                            tree.find_box_nr_for_target(i)
-                            for i in tree_order_missing_tgts]
-                    print zip(src_boxes, tgt_boxes)
+            src_boxes = [
+                    tree.find_box_nr_for_source(i)
+                    for i in tree_order_missing_srcs]
+            tgt_boxes = [
+                    tree.find_box_nr_for_target(i)
+                    for i in tree_order_missing_tgts]
+            print zip(src_boxes, tgt_boxes)
 
-                    pt.plot(
-                            tree.targets[0][tree_order_missing_tgts],
-                            tree.targets[1][tree_order_missing_tgts],
-                            "rv")
-                    pt.plot(
-                            tree.sources[0][tree_order_missing_srcs],
-                            tree.sources[1][tree_order_missing_srcs],
-                            "go")
+            pt.plot(
+                    tree.targets[0][tree_order_missing_tgts],
+                    tree.targets[1][tree_order_missing_tgts],
+                    "rv")
+            pt.plot(
+                    tree.sources[0][tree_order_missing_srcs],
+                    tree.sources[1][tree_order_missing_srcs],
+                    "go")
 
-                    pt.show()
+            pt.show()
 
-                    pt.spy(mat)
-                    pt.show()
+            pt.spy(mat)
+            pt.show()
 
-            # }}}
+    # }}}
 
-            rel_err = la.norm((pot - weights_sum) / nsources)
-            good = rel_err < 1e-8
-            if 1 and not good:
-                import matplotlib.pyplot as pt
-                pt.plot(pot-weights_sum)
-                pt.show()
+    rel_err = la.norm((pot - weights_sum) / nsources)
+    good = rel_err < 1e-8
+    if 1 and not good:
+        import matplotlib.pyplot as pt
+        pt.plot(pot-weights_sum)
+        pt.show()
 
-            assert good
+    assert good
 
 # }}}
 
 # {{{ test Helmholtz fmm with pyfmmlib
 
-@pytools.test.mark_test.opencl
+@pytest.mark.opencl
 def test_pyfmmlib_fmm(ctx_getter):
     logging.basicConfig(level=logging.INFO)
 

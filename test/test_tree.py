@@ -28,7 +28,7 @@ THE SOFTWARE.
 import numpy as np
 import numpy.linalg as la
 import sys
-import pytools.test
+import pytest
 import logging
 
 import pyopencl as cl
@@ -170,8 +170,10 @@ def run_build_test(builder, queue, dims, dtype, nparticles, do_plot, max_particl
 
 
 
-@pytools.test.mark_test.opencl
-def test_particle_tree(ctx_getter, do_plot=False):
+@pytest.mark.opencl
+@pytest.mark.parametrize("dtype", [np.float64, np.float32])
+@pytest.mark.parametrize("dims", [2, 3])
+def test_particle_tree(ctx_getter, dtype, dims, do_plot=False):
     logging.basicConfig(level=logging.INFO)
 
     ctx = ctx_getter()
@@ -180,280 +182,272 @@ def test_particle_tree(ctx_getter, do_plot=False):
     from boxtree import TreeBuilder
     builder = TreeBuilder(ctx)
 
-    for dtype in [
-            np.float64,
-            np.float32,
-            ]:
-        for dims in [2, 3]:
-            # test single-box corner case
-            run_build_test(builder, queue, dims,
-                    dtype, 4, do_plot=False)
+    # test single-box corner case
+    run_build_test(builder, queue, dims,
+            dtype, 4, do_plot=False)
 
-            # test bi-level corner case
-            run_build_test(builder, queue, dims,
-                    dtype, 50, do_plot=False)
+    # test bi-level corner case
+    run_build_test(builder, queue, dims,
+            dtype, 50, do_plot=False)
 
-            # test unpruned tree build
-            run_build_test(builder, queue, dims, dtype, 10**5,
-                    do_plot=False, skip_prune=True)
+    # test unpruned tree build
+    run_build_test(builder, queue, dims, dtype, 10**5,
+            do_plot=False, skip_prune=True)
 
-            # exercise reallocation code
-            run_build_test(builder, queue, dims, dtype, 10**5,
-                    do_plot=False, nboxes_guess=5)
+    # exercise reallocation code
+    run_build_test(builder, queue, dims, dtype, 10**5,
+            do_plot=False, nboxes_guess=5)
 
-            # test many empty leaves corner case
-            run_build_test(builder, queue, dims, dtype, 10**5,
-                    do_plot=False, max_particles_in_box=5)
+    # test many empty leaves corner case
+    run_build_test(builder, queue, dims, dtype, 10**5,
+            do_plot=False, max_particles_in_box=5)
 
-            # test vanilla tree build
-            run_build_test(builder, queue, dims, dtype, 10**5,
-                    do_plot=do_plot)
+    # test vanilla tree build
+    run_build_test(builder, queue, dims, dtype, 10**5,
+            do_plot=do_plot)
 
 
 
-@pytools.test.mark_test.opencl
-def test_source_target_tree(ctx_getter, do_plot=False):
+@pytest.mark.opencl
+@pytest.mark.parametrize("dims", [2, 3])
+def test_source_target_tree(ctx_getter, dims, do_plot=False):
     logging.basicConfig(level=logging.INFO)
 
     ctx = ctx_getter()
     queue = cl.CommandQueue(ctx)
 
-    for dims in [2, 3]:
-        nsources = 2 * 10**5
-        ntargets = 3 * 10**5
-        dtype = np.float64
+    nsources = 2 * 10**5
+    ntargets = 3 * 10**5
+    dtype = np.float64
 
-        sources = make_particle_array(queue, nsources, dims, dtype,
-                seed=12)
-        targets = make_particle_array(queue, ntargets, dims, dtype,
-                seed=19)
+    sources = make_particle_array(queue, nsources, dims, dtype,
+            seed=12)
+    targets = make_particle_array(queue, ntargets, dims, dtype,
+            seed=19)
 
-        if do_plot:
-            import matplotlib.pyplot as pt
-            pt.plot(sources[0].get(), sources[1].get(), "rx")
-            pt.plot(targets[0].get(), targets[1].get(), "g+")
+    if do_plot:
+        import matplotlib.pyplot as pt
+        pt.plot(sources[0].get(), sources[1].get(), "rx")
+        pt.plot(targets[0].get(), targets[1].get(), "g+")
 
-        from boxtree import TreeBuilder
-        tb = TreeBuilder(ctx)
+    from boxtree import TreeBuilder
+    tb = TreeBuilder(ctx)
 
-        queue.finish()
-        tree = tb(queue, sources, targets=targets,
-                max_particles_in_box=10, debug=True).get()
+    queue.finish()
+    tree = tb(queue, sources, targets=targets,
+            max_particles_in_box=10, debug=True).get()
 
-        sorted_sources = np.array(list(tree.sources))
-        sorted_targets = np.array(list(tree.targets))
+    sorted_sources = np.array(list(tree.sources))
+    sorted_targets = np.array(list(tree.targets))
 
-        unsorted_sources = np.array([pi.get() for pi in sources])
-        unsorted_targets = np.array([pi.get() for pi in targets])
-        assert (sorted_sources
-                == unsorted_sources[:, tree.user_source_ids]).all()
+    unsorted_sources = np.array([pi.get() for pi in sources])
+    unsorted_targets = np.array([pi.get() for pi in targets])
+    assert (sorted_sources
+            == unsorted_sources[:, tree.user_source_ids]).all()
 
-        user_target_ids = np.empty(tree.ntargets, dtype=np.intp)
-        user_target_ids[tree.sorted_target_ids] = np.arange(tree.ntargets, dtype=np.intp)
-        assert (sorted_targets
-                == unsorted_targets[:, user_target_ids]).all()
+    user_target_ids = np.empty(tree.ntargets, dtype=np.intp)
+    user_target_ids[tree.sorted_target_ids] = np.arange(tree.ntargets, dtype=np.intp)
+    assert (sorted_targets
+            == unsorted_targets[:, user_target_ids]).all()
 
-        all_good_so_far = True
+    all_good_so_far = True
 
-        if do_plot:
-            from boxtree.visualization import TreePlotter
-            plotter = TreePlotter(tree)
-            plotter.draw_tree(fill=False, edgecolor="black", zorder=10)
-            plotter.set_bounding_box()
+    if do_plot:
+        from boxtree.visualization import TreePlotter
+        plotter = TreePlotter(tree)
+        plotter.draw_tree(fill=False, edgecolor="black", zorder=10)
+        plotter.set_bounding_box()
 
-        for ibox in xrange(tree.nboxes):
-            extent_low, extent_high = tree.get_box_extent(ibox)
+    for ibox in xrange(tree.nboxes):
+        extent_low, extent_high = tree.get_box_extent(ibox)
 
-            assert (extent_low >= tree.bounding_box[0] - 1e-12*tree.root_extent).all(), ibox
-            assert (extent_high <= tree.bounding_box[1] + 1e-12*tree.root_extent).all(), ibox
+        assert (extent_low >= tree.bounding_box[0] - 1e-12*tree.root_extent).all(), ibox
+        assert (extent_high <= tree.bounding_box[1] + 1e-12*tree.root_extent).all(), ibox
 
-            src_start = tree.box_source_starts[ibox]
-            tgt_start = tree.box_target_starts[ibox]
+        src_start = tree.box_source_starts[ibox]
+        tgt_start = tree.box_target_starts[ibox]
 
-            for what, particles in [
-                    ("sources", sorted_sources[:,src_start:src_start+tree.box_source_counts[ibox]]),
-                    ("targets", sorted_targets[:,tgt_start:tgt_start+tree.box_target_counts[ibox]]),
-                    ]:
-                good = (
-                        (particles < extent_high[:, np.newaxis])
-                        &
-                        (extent_low[:, np.newaxis] <= particles)
-                        ).all(axis=0)
+        for what, particles in [
+                ("sources", sorted_sources[:,src_start:src_start+tree.box_source_counts[ibox]]),
+                ("targets", sorted_targets[:,tgt_start:tgt_start+tree.box_target_counts[ibox]]),
+                ]:
+            good = (
+                    (particles < extent_high[:, np.newaxis])
+                    &
+                    (extent_low[:, np.newaxis] <= particles)
+                    ).all(axis=0)
 
-                all_good_here = good.all()
-                if do_plot and not all_good_here:
-                    pt.plot(
-                            particles[0, np.where(~good)[0]],
-                            particles[1, np.where(~good)[0]], "ro")
+            all_good_here = good.all()
+            if do_plot and not all_good_here:
+                pt.plot(
+                        particles[0, np.where(~good)[0]],
+                        particles[1, np.where(~good)[0]], "ro")
 
-                    plotter.draw_box(ibox, edgecolor="red")
-                    pt.show()
+                plotter.draw_box(ibox, edgecolor="red")
+                pt.show()
 
-            if not all_good_here:
-                print "BAD BOX %s %d" % (what, ibox)
+        if not all_good_here:
+            print "BAD BOX %s %d" % (what, ibox)
 
-            all_good_so_far = all_good_so_far and all_good_here
+        all_good_so_far = all_good_so_far and all_good_here
 
-        if do_plot:
-            pt.gca().set_aspect("equal", "datalim")
-            pt.show()
+    if do_plot:
+        pt.gca().set_aspect("equal", "datalim")
+        pt.show()
 
-        assert all_good_so_far
+    assert all_good_so_far
 
 # }}}
 
 # {{{ test sources/targets-with-extent tree
 
-@pytools.test.mark_test.opencl
-def test_extent_tree(ctx_getter, do_plot=False):
+@pytest.mark.opencl
+@pytest.mark.parametrize("dims", [2, 3])
+def test_extent_tree(ctx_getter, dims, do_plot=False):
     logging.basicConfig(level=logging.INFO)
 
     ctx = ctx_getter()
     queue = cl.CommandQueue(ctx)
 
-    for dims in [
-            2,
-            3
-            ]:
-        nsources = 100000
-        ntargets = 200000
-        dtype = np.float64
-        npoint_sources_per_source = 16
+    nsources = 100000
+    ntargets = 200000
+    dtype = np.float64
+    npoint_sources_per_source = 16
 
-        sources = make_particle_array(queue, nsources, dims, dtype,
-                seed=12)
-        targets = make_particle_array(queue, ntargets, dims, dtype,
-                seed=19)
+    sources = make_particle_array(queue, nsources, dims, dtype,
+            seed=12)
+    targets = make_particle_array(queue, ntargets, dims, dtype,
+            seed=19)
 
-        from pyopencl.clrandom import RanluxGenerator
-        rng = RanluxGenerator(queue, seed=13)
-        source_radii = 2**rng.uniform(queue, nsources, dtype=dtype,
-                a=-10, b=0)
-        target_radii = 2**rng.uniform(queue, ntargets, dtype=dtype,
-                a=-10, b=0)
+    from pyopencl.clrandom import RanluxGenerator
+    rng = RanluxGenerator(queue, seed=13)
+    source_radii = 2**rng.uniform(queue, nsources, dtype=dtype,
+            a=-10, b=0)
+    target_radii = 2**rng.uniform(queue, ntargets, dtype=dtype,
+            a=-10, b=0)
 
-        from boxtree import TreeBuilder
-        tb = TreeBuilder(ctx)
+    from boxtree import TreeBuilder
+    tb = TreeBuilder(ctx)
 
-        queue.finish()
-        dev_tree = tb(queue, sources, targets=targets,
-                source_radii=source_radii, target_radii=target_radii,
-                max_particles_in_box=10, debug=True)
+    queue.finish()
+    dev_tree = tb(queue, sources, targets=targets,
+            source_radii=source_radii, target_radii=target_radii,
+            max_particles_in_box=10, debug=True)
 
-        logger.info("transfer tree, check orderings")
+    logger.info("transfer tree, check orderings")
 
-        tree = dev_tree.get()
+    tree = dev_tree.get()
 
-        sorted_sources = np.array(list(tree.sources))
-        sorted_targets = np.array(list(tree.targets))
-        sorted_source_radii = tree.source_radii
-        sorted_target_radii = tree.target_radii
+    sorted_sources = np.array(list(tree.sources))
+    sorted_targets = np.array(list(tree.targets))
+    sorted_source_radii = tree.source_radii
+    sorted_target_radii = tree.target_radii
 
-        unsorted_sources = np.array([pi.get() for pi in sources])
-        unsorted_targets = np.array([pi.get() for pi in targets])
-        unsorted_source_radii = source_radii.get()
-        unsorted_target_radii = target_radii.get()
-        assert (sorted_sources
-                == unsorted_sources[:, tree.user_source_ids]).all()
-        assert (sorted_source_radii
-                == unsorted_source_radii[tree.user_source_ids]).all()
+    unsorted_sources = np.array([pi.get() for pi in sources])
+    unsorted_targets = np.array([pi.get() for pi in targets])
+    unsorted_source_radii = source_radii.get()
+    unsorted_target_radii = target_radii.get()
+    assert (sorted_sources
+            == unsorted_sources[:, tree.user_source_ids]).all()
+    assert (sorted_source_radii
+            == unsorted_source_radii[tree.user_source_ids]).all()
 
-        # {{{ test box structure, stick-out criterion
+    # {{{ test box structure, stick-out criterion
 
-        logger.info("test box structure, stick-out criterion")
+    logger.info("test box structure, stick-out criterion")
 
-        user_target_ids = np.empty(tree.ntargets, dtype=np.intp)
-        user_target_ids[tree.sorted_target_ids] = np.arange(tree.ntargets, dtype=np.intp)
-        if ntargets:
-            assert (sorted_targets
-                    == unsorted_targets[:, user_target_ids]).all()
-            assert (sorted_target_radii
-                    == unsorted_target_radii[user_target_ids]).all()
+    user_target_ids = np.empty(tree.ntargets, dtype=np.intp)
+    user_target_ids[tree.sorted_target_ids] = np.arange(tree.ntargets, dtype=np.intp)
+    if ntargets:
+        assert (sorted_targets
+                == unsorted_targets[:, user_target_ids]).all()
+        assert (sorted_target_radii
+                == unsorted_target_radii[user_target_ids]).all()
 
-        all_good_so_far = True
+    all_good_so_far = True
 
-        for ibox in xrange(tree.nboxes):
-            extent_low, extent_high = tree.get_box_extent(ibox)
+    for ibox in xrange(tree.nboxes):
+        extent_low, extent_high = tree.get_box_extent(ibox)
 
-            box_radius = np.max(extent_high-extent_low) * 0.5
-            stick_out_dist = tree.stick_out_factor * box_radius
+        box_radius = np.max(extent_high-extent_low) * 0.5
+        stick_out_dist = tree.stick_out_factor * box_radius
 
-            assert (extent_low >= tree.bounding_box[0] - 1e-12*tree.root_extent).all(), ibox
-            assert (extent_high <= tree.bounding_box[1] + 1e-12*tree.root_extent).all(), ibox
+        assert (extent_low >= tree.bounding_box[0] - 1e-12*tree.root_extent).all(), ibox
+        assert (extent_high <= tree.bounding_box[1] + 1e-12*tree.root_extent).all(), ibox
 
-            # {{{ sources
+        # {{{ sources
 
-            for what, starts, counts, points, radii in [
-                    ("source", tree.box_source_starts, tree.box_source_counts,
-                        sorted_sources, sorted_source_radii),
-                    ("target", tree.box_target_starts, tree.box_target_counts,
-                        sorted_targets, sorted_target_radii),
-                    ]:
-                bstart = starts[ibox]
-                bslice = slice(bstart, bstart+counts[ibox])
-                check_particles = points[:, bslice]
-                check_radii = radii[bslice]
+        for what, starts, counts, points, radii in [
+                ("source", tree.box_source_starts, tree.box_source_counts,
+                    sorted_sources, sorted_source_radii),
+                ("target", tree.box_target_starts, tree.box_target_counts,
+                    sorted_targets, sorted_target_radii),
+                ]:
+            bstart = starts[ibox]
+            bslice = slice(bstart, bstart+counts[ibox])
+            check_particles = points[:, bslice]
+            check_radii = radii[bslice]
 
-                good = (
-                        (check_particles + check_radii
-                            < extent_high[:, np.newaxis] + stick_out_dist)
-                        &
-                        (extent_low[:, np.newaxis] - stick_out_dist
-                            <= check_particles - check_radii)
-                        ).all(axis=0)
+            good = (
+                    (check_particles + check_radii
+                        < extent_high[:, np.newaxis] + stick_out_dist)
+                    &
+                    (extent_low[:, np.newaxis] - stick_out_dist
+                        <= check_particles - check_radii)
+                    ).all(axis=0)
 
-                all_good_here = good.all()
+            all_good_here = good.all()
 
-                if not all_good_here:
-                    print "BAD BOX %s %d level %d" % (what, ibox, tree.box_levels[ibox])
+            if not all_good_here:
+                print "BAD BOX %s %d level %d" % (what, ibox, tree.box_levels[ibox])
 
-                all_good_so_far = all_good_so_far and all_good_here
-                assert all_good_here
-
-            # }}}
-
-        assert all_good_so_far
+            all_good_so_far = all_good_so_far and all_good_here
+            assert all_good_here
 
         # }}}
 
-        # {{{ create, link point sources
+    assert all_good_so_far
 
-        logger.info("creating point sources")
+    # }}}
 
-        np.random.seed(20)
+    # {{{ create, link point sources
 
-        from pytools.obj_array import make_obj_array
-        point_sources = make_obj_array([
-                cl.array.to_device(queue,
-                    unsorted_sources[i][:, np.newaxis]
-                    + unsorted_source_radii[:, np.newaxis]
-                    * np.random.uniform(
-                         -1, 1, size=(nsources, npoint_sources_per_source))
-                     )
-                for i in range(dims)])
+    logger.info("creating point sources")
 
-        point_source_starts = cl.array.arange(queue,
-                0, (nsources+1)*npoint_sources_per_source, npoint_sources_per_source,
-                dtype=tree.particle_id_dtype)
+    np.random.seed(20)
 
-        dev_tree = dev_tree.link_point_sources(queue,
-                point_source_starts, point_sources,
-                debug=True)
+    from pytools.obj_array import make_obj_array
+    point_sources = make_obj_array([
+            cl.array.to_device(queue,
+                unsorted_sources[i][:, np.newaxis]
+                + unsorted_source_radii[:, np.newaxis]
+                * np.random.uniform(
+                     -1, 1, size=(nsources, npoint_sources_per_source))
+                 )
+            for i in range(dims)])
 
-        # }}}
+    point_source_starts = cl.array.arange(queue,
+            0, (nsources+1)*npoint_sources_per_source, npoint_sources_per_source,
+            dtype=tree.particle_id_dtype)
 
+    dev_tree = dev_tree.link_point_sources(queue,
+            point_source_starts, point_sources,
+            debug=True)
+
+    # }}}
 
 # }}}
 
 # {{{ geometry query test
 
-def test_geometry_query(ctx_getter, do_plot=False):
+@pytest.mark.opencl
+@pytest.mark.parametrize("dims", [2, 3])
+def test_geometry_query(ctx_getter, dims, do_plot=False):
     logging.basicConfig(level=logging.INFO)
 
     ctx = ctx_getter()
     queue = cl.CommandQueue(ctx)
 
-    dims = 2
     nparticles = 10**5
     dtype = np.float64
 
