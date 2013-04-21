@@ -414,6 +414,53 @@ class Tree(FromDeviceGettableRecord):
 
     # }}}
 
+    # {{{ debugging aids
+
+    # these assume numpy arrays (i.e. post-.get()), for now
+
+    def _reverse_index_lookup(self, ary, new_key_size):
+        result = np.empty(new_key_size, ary.dtype)
+        result.fill(-1)
+        result[ary] = np.arange(len(ary), dtype=ary.dtype)
+        return result
+
+    def indices_to_tree_source_order(self, user_indices):
+        # user_source_ids : tree order source indices -> user order source indices
+        # tree_source_ids : user order source indices -> tree order source indices
+
+        tree_source_ids = self._reverse_index_lookup(self.user_source_ids, self.nsources)
+        return tree_source_ids[user_indices]
+
+    def indices_to_tree_target_order(self, user_indices):
+        # sorted_target_ids : user order target indices -> tree order target indices
+
+        return self.sorted_target_ids[user_indices]
+
+    def find_box_nr_for_target(self, itarget):
+        """
+        :arg itarget: target number in tree order
+        """
+        crit = (
+                (self.box_target_starts <= itarget)
+                &
+                (itarget < self.box_target_starts + self.box_target_counts))
+
+        return int(np.where(crit)[0])
+
+    def find_box_nr_for_source(self, isource):
+        """
+        :arg isource: source number in tree order
+        """
+        crit = (
+                (self.box_source_starts <= isource)
+                &
+                (isource < self.box_source_starts + self.box_source_counts))
+
+        return int(np.where(crit)[0])
+
+    # }}}
+
+
 # }}}
 
 # {{{ tree with linked point sources
