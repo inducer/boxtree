@@ -160,7 +160,7 @@ class BoundingBoxFinder:
                     )
                 )
 
-    def __call__(self, particles, radii):
+    def __call__(self, particles, radii, wait_for=None):
         dimensions = len(particles)
 
         from pytools import single_valued
@@ -171,8 +171,9 @@ class BoundingBoxFinder:
         else:
             radii_tuple = (radii,)
 
-        return self.get_kernel(dimensions, coord_dtype, have_radii=radii is not None)(*(
-            tuple(particles) + radii_tuple))
+        knl = self.get_kernel(dimensions, coord_dtype, have_radii=radii is not None)
+        return knl(*(tuple(particles) + radii_tuple),
+                wait_for=wait_for, return_event=True)
 
 # }}}
 

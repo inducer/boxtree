@@ -64,7 +64,8 @@ def test_bounding_box(ctx_getter):
                 bbox_min = [np.min(x.get()) for x in particles]
                 bbox_max = [np.max(x.get()) for x in particles]
 
-                bbox_cl = bbf(particles, radii=None).get()
+                bbox_cl, evt = bbf(particles, radii=None)
+                bbox_cl = bbox_cl.get()
 
                 bbox_min_cl = np.empty(dims, dtype)
                 bbox_max_cl = np.empty(dims, dtype)
@@ -104,9 +105,10 @@ def run_build_test(builder, queue, dims, dtype, nparticles, do_plot, max_particl
 
     queue.finish()
 
-    tree = builder(queue, particles,
+    tree, _ = builder(queue, particles,
             max_particles_in_box=max_particles_in_box, debug=True,
-            **kwargs).get()
+            **kwargs)
+    tree = tree.get()
 
     sorted_particles = np.array(list(tree.sources))
 
@@ -234,8 +236,9 @@ def test_source_target_tree(ctx_getter, dims, do_plot=False):
     tb = TreeBuilder(ctx)
 
     queue.finish()
-    tree = tb(queue, sources, targets=targets,
-            max_particles_in_box=10, debug=True).get()
+    tree, _ = tb(queue, sources, targets=targets,
+            max_particles_in_box=10, debug=True)
+    tree = tree.get()
 
     sorted_sources = np.array(list(tree.sources))
     sorted_targets = np.array(list(tree.targets))
@@ -330,7 +333,7 @@ def test_extent_tree(ctx_getter, dims, do_plot=False):
     tb = TreeBuilder(ctx)
 
     queue.finish()
-    dev_tree = tb(queue, sources, targets=targets,
+    dev_tree, _ = tb(queue, sources, targets=targets,
             source_radii=source_radii, target_radii=target_radii,
             max_particles_in_box=10, debug=True)
 
@@ -461,7 +464,7 @@ def test_geometry_query(ctx_getter, dims, do_plot=False):
     tb = TreeBuilder(ctx)
 
     queue.finish()
-    tree = tb(queue, particles, max_particles_in_box=30, debug=True)
+    tree, _ = tb(queue, particles, max_particles_in_box=30, debug=True)
 
     nballs = 10**4
     ball_centers = make_particle_array(queue, nballs, dims, dtype)
@@ -470,7 +473,7 @@ def test_geometry_query(ctx_getter, dims, do_plot=False):
     from boxtree.geo_lookup import LeavesToBallsLookupBuilder
     lblb = LeavesToBallsLookupBuilder(ctx)
 
-    lbl = lblb(queue, tree, ball_centers, ball_radii)
+    lbl, _ = lblb(queue, tree, ball_centers, ball_radii)
 
     # get data to host for test
     tree = tree.get()

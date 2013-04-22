@@ -205,12 +205,13 @@ def test_fmm_completeness(ctx_getter, dims, nsources, ntargets):
     from boxtree import TreeBuilder
     tb = TreeBuilder(ctx)
 
-    tree = tb(queue, sources, targets=targets,
+    tree, _ = tb(queue, sources, targets=targets,
             max_particles_in_box=30, debug=True)
 
     from boxtree.traversal import FMMTraversalBuilder
     tbuild = FMMTraversalBuilder(ctx)
-    trav = tbuild(queue, tree, debug=True).get()
+    trav, _ = tbuild(queue, tree, debug=True)
+    trav = trav.get()
     tree = trav.tree
 
     #weights = np.random.randn(nsources)
@@ -326,12 +327,14 @@ def test_pyfmmlib_fmm(ctx_getter):
     from boxtree import TreeBuilder
     tb = TreeBuilder(ctx)
 
-    tree = tb(queue, sources, targets=targets,
+    tree, _ = tb(queue, sources, targets=targets,
             max_particles_in_box=30, debug=True)
 
     from boxtree.traversal import FMMTraversalBuilder
     tbuild = FMMTraversalBuilder(ctx)
-    trav = tbuild(queue, tree, debug=True).get()
+    trav, _ = tbuild(queue, tree, debug=True)
+
+    trav = trav.get()
 
     from pyopencl.clrandom import RanluxGenerator
     rng = RanluxGenerator(queue, seed=20)

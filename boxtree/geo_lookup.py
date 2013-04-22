@@ -199,7 +199,7 @@ class LeavesToBallsLookupBuilder(object):
 
         return result
 
-    def __call__(self, queue, tree, ball_centers, ball_radii):
+    def __call__(self, queue, tree, ball_centers, ball_radii, wait_for=None):
         """
         :arg queue: a :class:`pyopencl.CommandQueue`
         :arg tree: a :class:`boxtree.Tree`.
@@ -207,11 +207,17 @@ class LeavesToBallsLookupBuilder(object):
             :class:`pyopencl.array.Array` instances.
             Their *dtype* must match *tree*'s
             :attr:`boxtree.Tree.coord_dtype`.
-        :arg ball_radii: a  
+        :arg ball_radii: a
             :class:`pyopencl.array.Array`
             of positive numbers.
             Its *dtype* must match *tree*'s
             :attr:`boxtree.Tree.coord_dtype`.
+        :arg wait_for: may either be *None* or a list of :class:`pyopencl.Event`
+            instances for whose completion this command waits before starting
+            exeuction.
+        :returns: a tuple *(lbl, event)*, where *lbl* is an instance of
+            :class:`LeavesToBallsLookup`, and *event* is a :class:`pyopencl.Event` 
+            for dependency management.
         """
 
         from pytools import single_valued
@@ -233,30 +239,33 @@ class LeavesToBallsLookupBuilder(object):
         logger.info("leaves-to-balls lookup: prepare ball list")
 
         nballs = len(ball_radii)
-        result = b2l_knl(
+        result, evt = b2l_knl(
                 queue, nballs,
                 tree.box_flags.data, tree.box_centers.data,
                 tree.box_child_ids.data, tree.box_levels.data,
                 tree.root_extent, tree.aligned_nboxes,
-                ball_radii.data, *tuple(bc.data for bc in ball_centers))
+                ball_radii.data, *tuple(bc.data for bc in ball_centers),
+                wait_for=wait_for)
+        wait_for = [evt]
 
         logger.info("leaves-to-balls lookup: key-value sort")
 
-        balls_near_box_starts, balls_near_box_lists \
+        balls_near_box_starts, balls_near_box_lists, evt \
                 = self.key_value_sorter(
                         queue,
                         # keys
                         result["overlapping_leaves"].lists,
                         # values
                         result["ball_numbers"].lists,
-                        tree.nboxes, starts_dtype=tree.box_id_dtype)
+                        tree.nboxes, starts_dtype=tree.box_id_dtype,
+                        wait_for=wait_for)
 
         logger.info("leaves-to-balls lookup: built")
 
         return LeavesToBallsLookup(
                 tree=tree,
                 balls_near_box_starts=balls_near_box_starts,
-                balls_near_box_lists=balls_near_box_lists)
+                balls_near_box_lists=balls_near_box_lists), evt
 
 # }}}
 

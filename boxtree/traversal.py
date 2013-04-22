@@ -772,11 +772,16 @@ class FMMTraversalBuilder:
 
     # {{{ driver
 
-    def __call__(self, queue, tree, debug=False):
+    def __call__(self, queue, tree, wait_for=None, debug=False):
         """
         :arg queue: A :class:`pyopencl.CommandQueue` instance.
         :arg tree: A :class:`boxtree.Tree` instance.
-        :return: A new instance of :class:`FMMTraversalInfo`.
+        :arg wait_for: may either be *None* or a list of :class:`pyopencl.Event`
+            instances for whose completion this command waits before starting
+            exeuction.
+        :return: A tuple *(trav, event)*, where *trav* is a new instance of
+            :class:`FMMTraversalInfo`.  and *event* is a :class:`pyopencl.Event`
+            for dependency management.
         """
 
         if not tree._is_pruned:
@@ -802,8 +807,9 @@ class FMMTraversalBuilder:
 
         fin_debug("building list of source boxes, their parents, and target boxes")
 
-        result = knl_info.sources_parents_and_targets_builder(
-                queue, tree.nboxes, tree.box_flags.data)
+        result, evt = knl_info.sources_parents_and_targets_builder(
+                queue, tree.nboxes, tree.box_flags.data, wait_for=wait_for)
+        wait_for = [evt]
 
         source_boxes = result["source_boxes"].lists
         assert len(source_boxes) == result["source_boxes"].count
@@ -820,17 +826,17 @@ class FMMTraversalBuilder:
 
         # {{{ figure out level starts in source_parent_boxes
 
-        def extract_level_start_box_nrs(box_list):
+        def extract_level_start_box_nrs(box_list, wait_for):
             result = cl.array.empty(queue,
                     tree.nlevels+1, tree.box_id_dtype) \
                             .fill(len(box_list))
-            knl_info.level_start_box_nrs_extractor(
+            evt = knl_info.level_start_box_nrs_extractor(
                     tree.level_start_box_nrs_dev,
                     tree.box_levels,
                     box_list,
                     result,
                     range=slice(1, len(box_list)),
-                    queue=queue)
+                    queue=queue, wait_for=wait_for)
 
             result = result.get()
 
@@ -844,12 +850,14 @@ class FMMTraversalBuilder:
                 result[ilev] = prev_start = \
                         min(result[ilev], prev_start)
 
-            return result
+            return result, evt
 
         fin_debug("finding level starts in source parent boxes array")
 
-        level_start_source_parent_box_nrs = \
-                extract_level_start_box_nrs(source_parent_boxes)
+        level_start_source_parent_box_nrs, evt = \
+                extract_level_start_box_nrs(source_parent_boxes, wait_for=wait_for)
+
+        wait_for = [evt]
 
         # }}}
 
@@ -857,11 +865,13 @@ class FMMTraversalBuilder:
 
         fin_debug("finding colleagues")
 
-        colleagues = knl_info.colleagues_builder(
+        result, evt = knl_info.colleagues_builder(
                 queue, tree.nboxes,
                 tree.box_centers.data, tree.root_extent, tree.box_levels.data,
-                tree.aligned_nboxes, tree.box_child_ids.data, tree.box_flags.data) \
-                        ["colleagues"]
+                tree.aligned_nboxes, tree.box_child_ids.data, tree.box_flags.data,
+                wait_for=wait_for)
+        wait_for = [evt]
+        colleagues = result["colleagues"]
 
         # }}}
 
@@ -869,11 +879,13 @@ class FMMTraversalBuilder:
 
         fin_debug("finding neighbor source boxes ('list 1')")
 
-        neighbor_source_boxes = knl_info.neighbor_source_boxes_builder(
+        result, evt = knl_info.neighbor_source_boxes_builder(
                 queue, len(target_boxes),
                 tree.box_centers.data, tree.root_extent, tree.box_levels.data,
                 tree.aligned_nboxes, tree.box_child_ids.data, tree.box_flags.data,
-                target_boxes.data)["neighbor_source_boxes"]
+                target_boxes.data, wait_for=wait_for)
+        wait_for = [evt]
+        neighbor_source_boxes = result["neighbor_source_boxes"]
 
         # }}}
 
@@ -881,12 +893,14 @@ class FMMTraversalBuilder:
 
         fin_debug("finding well-separated siblings ('list 2')")
 
-        sep_siblings = knl_info.sep_siblings_builder(
+        result, evt = knl_info.sep_siblings_builder(
                 queue, tree.nboxes,
                 tree.box_centers.data, tree.root_extent, tree.box_levels.data,
                 tree.aligned_nboxes, tree.box_child_ids.data, tree.box_flags.data,
                 tree.box_parent_ids.data,
-                colleagues.starts.data, colleagues.lists.data)["sep_siblings"]
+                colleagues.starts.data, colleagues.lists.data, wait_for=wait_for)
+        wait_for = [evt]
+        sep_siblings = result["sep_siblings"]
 
         # }}}
 
@@ -894,13 +908,14 @@ class FMMTraversalBuilder:
 
         fin_debug("finding separated smaller non-siblings ('list 3')")
 
-        result = knl_info.sep_smaller_nonsiblings_builder(
+        result, evt = knl_info.sep_smaller_nonsiblings_builder(
                 queue, len(target_boxes),
                 tree.box_centers.data, tree.root_extent, tree.box_levels.data,
                 tree.aligned_nboxes, tree.box_child_ids.data, tree.box_flags.data,
                 target_boxes.data,
-                colleagues.starts.data, colleagues.lists.data)
-
+                colleagues.starts.data, colleagues.lists.data,
+                wait_for=wait_for)
+        wait_for = [evt]
         sep_smaller_nonsiblings = result["sep_smaller_nonsiblings"]
 
         # }}}
@@ -909,16 +924,18 @@ class FMMTraversalBuilder:
 
         fin_debug("finding separated bigger non-siblings ('list 4')")
 
-        result = knl_info.sep_bigger_nonsiblings_builder(
+        result, evt = knl_info.sep_bigger_nonsiblings_builder(
                 queue, tree.nboxes,
                 tree.box_centers.data, tree.root_extent, tree.box_levels.data,
                 tree.aligned_nboxes, tree.box_child_ids.data, tree.box_flags.data,
                 tree.box_parent_ids.data,
-                colleagues.starts.data, colleagues.lists.data)
-
+                colleagues.starts.data, colleagues.lists.data, wait_for=wait_for)
+        wait_for=[evt]
         sep_bigger_nonsiblings = result["sep_bigger_nonsiblings"]
 
         # }}}
+
+        evt, = wait_for
 
         logger.info("traversal built")
 
@@ -944,7 +961,7 @@ class FMMTraversalBuilder:
 
                 sep_bigger_nonsiblings_starts=sep_bigger_nonsiblings.starts,
                 sep_bigger_nonsiblings_lists=sep_bigger_nonsiblings.lists,
-                )
+                ), evt
 
     # }}}
 

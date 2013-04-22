@@ -24,11 +24,11 @@ particles = make_obj_array([
 # -----------------------------------------------------------------------------
 from boxtree import TreeBuilder
 tb = TreeBuilder(ctx)
-tree = tb(queue, particles, max_particles_in_box=30)
+tree, _ = tb(queue, particles, max_particles_in_box=30)
 
 from boxtree.traversal import FMMTraversalBuilder
 tg = FMMTraversalBuilder(ctx)
-trav = tg(queue, tree)
+trav, _ = tg(queue, tree)
 
 # ENDEXAMPLE
 
@@ -40,8 +40,8 @@ import matplotlib.pyplot as pt
 
 pt.plot(particles[0].get(), particles[1].get(), "x")
 
-from boxtree import TreePlotter
-plotter = TreePlotter(tree)
+from boxtree.visualization import TreePlotter
+plotter = TreePlotter(tree.get())
 plotter.draw_tree(fill=False, edgecolor="black")
 plotter.draw_box_numbers()
 plotter.set_bounding_box()

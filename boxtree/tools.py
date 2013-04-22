@@ -50,13 +50,17 @@ def padded_bin(i, l):
 
 
 
-def realloc_array(ary, new_shape, zero_fill, queue):
+def realloc_array(ary, new_shape, zero_fill, queue, wait_for):
     new_ary = cl.array.empty(queue, shape=new_shape, dtype=ary.dtype,
             allocator=ary.allocator)
     if zero_fill:
-        new_ary.fill(0)
-    cl.enqueue_copy(queue, new_ary.data, ary.data, byte_count=ary.nbytes)
-    return new_ary
+        new_ary.fill(0, wait_for=wait_for)
+        wait_for = new_ary.events
+
+    evt = cl.enqueue_copy(queue, new_ary.data, ary.data, byte_count=ary.nbytes,
+            wait_for=wait_for)
+
+    return new_ary, evt
 
 
 def make_particle_array(queue, nparticles, dims, dtype, seed=15):
@@ -165,7 +169,7 @@ class GappyCopyAndMapKernel:
                 args, str(src), name="gappy_copy_and_map")
 
     def __call__(self, queue, allocator, new_size,
-            src_indices, ary, map_values=None):
+            src_indices, ary, map_values=None, wait_for=None):
         """Compresses box info arrays after empty leaf pruning and, optionally,
         maps old box IDs to new box IDs (if the array being operated on contains
         box IDs).
@@ -182,9 +186,9 @@ class GappyCopyAndMapKernel:
         if map_values is not None:
             args += (map_values,)
 
-        kernel(*args, queue=queue, range=slice(new_size))
+        evt = kernel(*args, queue=queue, range=slice(new_size), wait_for=wait_for)
 
-        return result
+        return result, evt
 
 # }}}
 
