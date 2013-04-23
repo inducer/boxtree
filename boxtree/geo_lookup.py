@@ -143,7 +143,7 @@ class LeavesToBallsLookupBuilder(object):
 
     @memoize_method
     def get_balls_to_leaves_kernel(self, dimensions, coord_dtype, box_id_dtype,
-            ball_id_dtype, max_levels):
+            ball_id_dtype, max_levels, stick_out_factor):
         from pyopencl.tools import dtype_to_ctype
         from boxtree import box_flags_enum
         render_vars = dict(
@@ -158,6 +158,7 @@ class LeavesToBallsLookupBuilder(object):
                 AXIS_NAMES=AXIS_NAMES,
                 box_flags_enum=box_flags_enum,
                 debug=False,
+                stick_out_factor=stick_out_factor,
                 )
 
         logger.info("start building leaves-to-balls lookup kernel")
@@ -234,7 +235,7 @@ class LeavesToBallsLookupBuilder(object):
         b2l_knl = self.get_balls_to_leaves_kernel(
                 tree.dimensions, tree.coord_dtype,
                 tree.box_id_dtype, ball_id_dtype,
-                max_levels)
+                max_levels, tree.stick_out_factor)
 
         logger.info("leaves-to-balls lookup: prepare ball list")
 

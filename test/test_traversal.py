@@ -133,18 +133,18 @@ def test_tree_connectivity(ctx_getter, dims, sources_are_targets):
     # }}}
 
     if sources_are_targets:
-        # {{{ sep_{smaller,bigger}_nonsiblings are duals of each other
+        # {{{ sep_{smaller,bigger} are duals of each other
 
         assert (trav.target_or_target_parent_boxes == np.arange(tree.nboxes)).all()
 
         # {{{ list 4 <= list 3
         for itarget_box, ibox in enumerate(trav.target_boxes):
-            start, end = trav.sep_smaller_nonsiblings_starts[itarget_box:itarget_box+2]
+            start, end = trav.sep_smaller_starts[itarget_box:itarget_box+2]
 
-            for jbox in trav.sep_smaller_nonsiblings_lists[start:end]:
-                rstart, rend = trav.sep_bigger_nonsiblings_starts[jbox:jbox+2]
+            for jbox in trav.sep_smaller_lists[start:end]:
+                rstart, rend = trav.sep_bigger_starts[jbox:jbox+2]
 
-                assert ibox in trav.sep_bigger_nonsiblings_lists[rstart:rend], (ibox, jbox)
+                assert ibox in trav.sep_bigger_lists[rstart:rend], (ibox, jbox)
 
         # }}}
 
@@ -158,10 +158,10 @@ def test_tree_connectivity(ctx_getter, dims, sources_are_targets):
         assert (trav.source_boxes == trav.target_boxes).all()
 
         for ibox in xrange(tree.nboxes):
-            start, end = trav.sep_bigger_nonsiblings_starts[ibox:ibox+2]
+            start, end = trav.sep_bigger_starts[ibox:ibox+2]
 
-            for jbox in trav.sep_bigger_nonsiblings_lists[start:end]:
-                # In principle, entries of sep_bigger_nonsiblings_lists are
+            for jbox in trav.sep_bigger_lists[start:end]:
+                # In principle, entries of sep_bigger_lists are
                 # source boxes. In this special case, source and target boxes
                 # are the same thing (i.e. leaves--see assertion above), so we
                 # may treat them as targets anyhow.
@@ -169,8 +169,8 @@ def test_tree_connectivity(ctx_getter, dims, sources_are_targets):
                 jtgt_box = box_to_target_box_index[jbox]
                 assert jbox != -1
 
-                rstart, rend = trav.sep_smaller_nonsiblings_starts[jtgt_box:jtgt_box+2]
-                good = ibox in trav.sep_smaller_nonsiblings_lists[rstart:rend]
+                rstart, rend = trav.sep_smaller_starts[jtgt_box:jtgt_box+2]
+                good = ibox in trav.sep_smaller_lists[rstart:rend]
 
                 if not good:
                     from boxtree.visualization import TreePlotter
@@ -195,24 +195,24 @@ def test_tree_connectivity(ctx_getter, dims, sources_are_targets):
 
         # }}}
 
-    # {{{ sep_smaller_nonsiblings satisfies relative level assumption
+    # {{{ sep_smaller satisfies relative level assumption
 
     for itarget_box, ibox in enumerate(trav.target_boxes):
-        start, end = trav.sep_smaller_nonsiblings_starts[itarget_box:itarget_box+2]
+        start, end = trav.sep_smaller_starts[itarget_box:itarget_box+2]
 
-        for jbox in trav.sep_smaller_nonsiblings_lists[start:end]:
+        for jbox in trav.sep_smaller_lists[start:end]:
             assert levels[ibox] < levels[jbox]
 
     logger.info("list 3 satisfies relative level assumption")
 
     # }}}
 
-    # {{{ sep_smaller_nonsiblings satisfies relative level assumption
+    # {{{ sep_smaller satisfies relative level assumption
 
     for itgt_box, tgt_ibox in enumerate(trav.target_or_target_parent_boxes):
-        start, end = trav.sep_bigger_nonsiblings_starts[itgt_box:itgt_box+2]
+        start, end = trav.sep_bigger_starts[itgt_box:itgt_box+2]
 
-        for jbox in trav.sep_bigger_nonsiblings_lists[start:end]:
+        for jbox in trav.sep_bigger_lists[start:end]:
             assert levels[tgt_ibox] > levels[jbox]
 
     logger.info("list 4 satisfies relative level assumption")
@@ -305,16 +305,16 @@ def plot_traversal(ctx_getter, do_plot=False):
                     trav.sep_siblings_starts,
                     trav.sep_siblings_lists)
         elif 1:
-            # separated smaller non-siblings (list 3)
+            # separated smaller (list 3)
             draw_some_box_lists(
-                    trav.sep_smaller_nonsiblings_starts,
-                    trav.sep_smaller_nonsiblings_lists,
+                    trav.sep_smaller_starts,
+                    trav.sep_smaller_lists,
                     key_to_box=trav.source_boxes)
         elif 1:
-            # separated bigger non-siblings (list 4)
+            # separated bigger (list 4)
             draw_some_box_lists(
-                    trav.sep_bigger_nonsiblings_starts,
-                    trav.sep_bigger_nonsiblings_lists)
+                    trav.sep_bigger_starts,
+                    trav.sep_bigger_lists)
 
         import matplotlib.pyplot as pt
         pt.show()

@@ -50,6 +50,7 @@ typedef ${dtype_to_ctype(coord_dtype)} coord_t;
 typedef ${dtype_to_ctype(vec_types[coord_dtype, dimensions])} coord_vec_t;
 
 #define NLEVELS ${max_levels}
+#define STICK_OUT_FACTOR ((coord_t) ${stick_out_factor})
 
 <%def name="load_center(name, box_id)">
     coord_vec_t ${name};
@@ -398,9 +399,9 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
 
 # }}}
 
-# {{{ separated smaller non-siblings ("list 3")
+# {{{ separated smaller ("list 3")
 
-SEP_SMALLER_NONSIBLINGS_TEMPLATE = r"""//CL//
+SEP_SMALLER_TEMPLATE = r"""//CL//
 
 void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
 {
@@ -456,7 +457,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
                 }
                 else
                 {
-                    APPEND_sep_smaller_nonsiblings(child_box_id);
+                    APPEND_sep_smaller(child_box_id);
                 }
             }
 
@@ -468,9 +469,9 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
 
 # }}}
 
-# {{{ separated bigger non-siblings ("list 4")
+# {{{ separated bigger ("list 4")
 
-SEP_BIGGER_NONSIBLINGS_TEMPLATE = r"""//CL//
+SEP_BIGGER_TEMPLATE = r"""//CL//
 
 void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
 {
@@ -550,7 +551,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
 
                 if (!found_closer_parent)
                 {
-                    APPEND_sep_bigger_nonsiblings(colleague_box_id);
+                    APPEND_sep_bigger(colleague_box_id);
                 }
             }
         }
@@ -638,21 +639,21 @@ class FMMTraversalInfo(FromDeviceGettableRecord):
 
     **"List 3"**
 
-    .. attribute:: sep_smaller_nonsiblings_starts
+    .. attribute:: sep_smaller_starts
 
         ``box_id_t [ntargets+1]``
 
-    .. attribute:: sep_smaller_nonsiblings_lists
+    .. attribute:: sep_smaller_lists
 
         ``box_id_t [*]``
 
     **"List 4"**
 
-    .. attribute:: sep_bigger_nonsiblings_starts
+    .. attribute:: sep_bigger_starts
 
         ``box_id_t [ntarget_or_target_parent_boxes+1]``
 
-    .. attribute:: sep_bigger_nonsiblings_lists
+    .. attribute:: sep_bigger_lists
 
         ``box_id_t [*]``
 
@@ -694,7 +695,8 @@ class FMMTraversalBuilder:
     @memoize_method
     def get_kernel_info(self, dimensions, particle_id_dtype, box_id_dtype,
             coord_dtype, box_level_dtype, max_levels,
-            sources_are_targets):
+            sources_are_targets, sources_have_extent, targets_have_extent,
+            stick_out_factor):
 
         logging.info("building traversal build kernels")
 
@@ -714,6 +716,9 @@ class FMMTraversalBuilder:
                 AXIS_NAMES=AXIS_NAMES,
                 debug=debug,
                 sources_are_targets=sources_are_targets,
+                sources_have_extent=sources_have_extent,
+                targets_have_extent=targets_have_extent,
+                stick_out_factor=stick_out_factor,
                 )
         from pyopencl.algorithm import ListOfListsBuilder
         from pyopencl.tools import VectorArg, ScalarArg
@@ -763,32 +768,35 @@ class FMMTraversalBuilder:
                 VectorArg(box_flags_enum.dtype, "box_flags"),
                 ]
 
-        for list_name, template, extra_args in [
-                ("colleagues", COLLEAGUES_TEMPLATE, []),
+        for list_name, template, extra_args, extra_lists in [
+                ("colleagues", COLLEAGUES_TEMPLATE, [], []),
                 ("neighbor_source_boxes", NEIGBHOR_SOURCE_BOXES_TEMPLATE,
                         [
                             VectorArg(box_id_dtype, "target_boxes"),
-                            ]),
+                            ], []),
                 ("sep_siblings", SEP_SIBLINGS_TEMPLATE,
                         [
                             VectorArg(box_id_dtype, "target_or_target_parent_boxes"),
                             VectorArg(box_id_dtype, "box_parent_ids"),
                             VectorArg(box_id_dtype, "colleagues_starts"),
                             VectorArg(box_id_dtype, "colleagues_list"),
-                            ]),
-                ("sep_smaller_nonsiblings", SEP_SMALLER_NONSIBLINGS_TEMPLATE,
+                            ], []),
+                ("sep_smaller", SEP_SMALLER_TEMPLATE,
                         [
                             VectorArg(box_id_dtype, "target_boxes"),
                             VectorArg(box_id_dtype, "colleagues_starts"),
                             VectorArg(box_id_dtype, "colleagues_list"),
-                            ]),
-                ("sep_bigger_nonsiblings", SEP_BIGGER_NONSIBLINGS_TEMPLATE,
+                            ], []),
+                ("sep_bigger", SEP_BIGGER_TEMPLATE,
                         [
                             VectorArg(box_id_dtype, "target_or_target_parent_boxes"),
                             VectorArg(box_id_dtype, "box_parent_ids"),
                             VectorArg(box_id_dtype, "colleagues_starts"),
                             VectorArg(box_id_dtype, "colleagues_list"),
-                            ]),
+                            ],
+                            ["sep_close_bigger"]
+                            if sources_have_extent or targets_have_extent
+                            else []),
                 ]:
             src = Template(
                     TRAVERSAL_PREAMBLE_TEMPLATE
@@ -797,7 +805,9 @@ class FMMTraversalBuilder:
                     strict_undefined=True).render(**render_vars)
 
             result[list_name+"_builder"] = ListOfListsBuilder(self.context,
-                    [(list_name, box_id_dtype) ],
+                    [(list_name, box_id_dtype)]
+                    + [(extra_list_name, box_id_dtype)
+                        for extra_list_name in extra_lists],
                     str(src),
                     arg_decls=base_args + extra_args,
                     debug=debug, name_prefix=list_name,
@@ -834,7 +844,9 @@ class FMMTraversalBuilder:
         knl_info = self.get_kernel_info(
                 tree.dimensions, tree.particle_id_dtype, tree.box_id_dtype,
                 tree.coord_dtype, tree.box_level_dtype, max_levels,
-                tree.sources_are_targets)
+                tree.sources_are_targets,
+                tree.sources_have_extent, tree.targets_have_extent,
+                tree.stick_out_factor)
 
         def fin_debug(s):
             if debug:
@@ -948,11 +960,11 @@ class FMMTraversalBuilder:
 
         # }}}
 
-        # {{{ separated smaller non-siblings ("list 3")
+        # {{{ separated smaller ("list 3")
 
-        fin_debug("finding separated smaller non-siblings ('list 3')")
+        fin_debug("finding separated smaller ('list 3')")
 
-        result, evt = knl_info.sep_smaller_nonsiblings_builder(
+        result, evt = knl_info.sep_smaller_builder(
                 queue, len(target_boxes),
                 tree.box_centers.data, tree.root_extent, tree.box_levels.data,
                 tree.aligned_nboxes, tree.box_child_ids.data, tree.box_flags.data,
@@ -960,28 +972,41 @@ class FMMTraversalBuilder:
                 colleagues.starts.data, colleagues.lists.data,
                 wait_for=wait_for)
         wait_for = [evt]
-        sep_smaller_nonsiblings = result["sep_smaller_nonsiblings"]
+        sep_smaller = result["sep_smaller"]
 
         # }}}
 
-        # {{{ separated bigger non-siblings ("list 4")
+        # {{{ separated bigger ("list 4")
 
-        fin_debug("finding separated bigger non-siblings ('list 4')")
+        fin_debug("finding separated bigger ('list 4')")
 
-        result, evt = knl_info.sep_bigger_nonsiblings_builder(
+        result, evt = knl_info.sep_bigger_builder(
                 queue, len(target_or_target_parent_boxes),
                 tree.box_centers.data, tree.root_extent, tree.box_levels.data,
                 tree.aligned_nboxes, tree.box_child_ids.data, tree.box_flags.data,
                 target_or_target_parent_boxes.data, tree.box_parent_ids.data,
                 colleagues.starts.data, colleagues.lists.data, wait_for=wait_for)
         wait_for=[evt]
-        sep_bigger_nonsiblings = result["sep_bigger_nonsiblings"]
+        sep_bigger = result["sep_bigger"]
+
+        if tree.sources_have_extent or tree.targets_have_extent:
+            sep_close_bigger = result["sep_close_bigger"]
+        else:
+            sep_close_bigger = None
 
         # }}}
 
         evt, = wait_for
 
         logger.info("traversal built")
+
+        extra_attrs = {}
+
+        if sep_close_bigger is not None:
+            extra_attrs.update(
+                    sep_close_bigger_starts=sep_close_bigger.starts,
+                    sep_close_bigger_lists=sep_close_bigger.lists,
+                    )
 
         return FMMTraversalInfo(
                 tree=tree,
@@ -1005,11 +1030,13 @@ class FMMTraversalBuilder:
                 sep_siblings_starts=sep_siblings.starts,
                 sep_siblings_lists=sep_siblings.lists,
 
-                sep_smaller_nonsiblings_starts=sep_smaller_nonsiblings.starts,
-                sep_smaller_nonsiblings_lists=sep_smaller_nonsiblings.lists,
+                sep_smaller_starts=sep_smaller.starts,
+                sep_smaller_lists=sep_smaller.lists,
 
-                sep_bigger_nonsiblings_starts=sep_bigger_nonsiblings.starts,
-                sep_bigger_nonsiblings_lists=sep_bigger_nonsiblings.lists,
+                sep_bigger_starts=sep_bigger.starts,
+                sep_bigger_lists=sep_bigger.lists,
+
+                **extra_attrs
                 ), evt
 
     # }}}

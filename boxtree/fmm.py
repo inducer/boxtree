@@ -95,31 +95,31 @@ def drive_fmm(traversal, expansion_wrangler, src_weights):
 
     # }}}
 
-    # {{{ "Stage 5:" evaluate sep. smaller nonsiblings' mpoles ("list 3") at particles
+    # {{{ "Stage 5:" evaluate sep. smaller mpoles ("list 3") at particles
 
-    logger.debug("evaluate sep. smaller nonsiblings' mpoles ('list 3') at particles")
+    logger.debug("evaluate sep. smaller mpoles ('list 3') at particles")
 
     # (the point of aiming this stage at particles is specifically to keep its
     # contribution *out* of the downward-propagating local expansions)
 
     potentials = potentials + wrangler.eval_multipoles(
             traversal.target_boxes,
-            traversal.sep_smaller_nonsiblings_starts,
-            traversal.sep_smaller_nonsiblings_lists,
+            traversal.sep_smaller_starts,
+            traversal.sep_smaller_lists,
             mpole_exps)
 
     # these potentials are called beta in [1]
 
     # }}}
 
-    # {{{ "Stage 6:" form locals for separated bigger nonsiblings' mpoles ("list 4")
+    # {{{ "Stage 6:" form locals for separated bigger mpoles ("list 4")
 
-    logger.debug("form locals for separated bigger nonsiblings' mpoles ('list 4')")
+    logger.debug("form locals for separated bigger mpoles ('list 4')")
 
     local_exps = local_exps + wrangler.form_locals(
             traversal.target_or_target_parent_boxes,
-            traversal.sep_bigger_nonsiblings_starts,
-            traversal.sep_bigger_nonsiblings_lists,
+            traversal.sep_bigger_starts,
+            traversal.sep_bigger_lists,
             src_weights)
 
     # }}}
