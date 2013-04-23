@@ -860,9 +860,9 @@ BOX_INFO_KERNEL_TPL =  ElementwiseTemplate(
         }
         else if (particle_count - nonchild_srcntgt_count > max_particles_in_box)
         {
-            my_box_flags |= BOX_HAS_CHILDREN;
+            // This box has children, it is not a leaf.
 
-            // The only srcntgts allowed here are of the 'non-child' variety.
+            my_box_flags |= BOX_HAS_CHILDREN;
 
             %if sources_are_targets:
                 if (particle_count - nonchild_srcntgt_count)
@@ -887,6 +887,8 @@ BOX_INFO_KERNEL_TPL =  ElementwiseTemplate(
 
             if (nonchild_source_count)
                 my_box_flags |= BOX_HAS_OWN_SOURCES;
+            if (nonchild_target_count)
+                my_box_flags |= BOX_HAS_OWN_TARGETS;
         }
         else
         {

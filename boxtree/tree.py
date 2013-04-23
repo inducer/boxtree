@@ -49,16 +49,25 @@ class box_flags_enum:
     HAS_CHILDREN = (HAS_CHILD_SOURCES | HAS_CHILD_TARGETS)
 
     @classmethod
+    def get_flag_names_and_values(cls):
+        return [(name, getattr(cls, name))
+                for name in sorted(dir(cls))
+                if name[0].isupper()]
+
+    @classmethod
     def get_c_defines(cls):
         """Return a string with C defines corresponding to these constants.
         """
 
         return "\n".join(
-                "#define BOX_%s %d"
-                % (name, getattr(cls, name))
-                for name in sorted(dir(box_flags_enum))
-                if name[0].isupper()) + "\n\n"
+                "#define BOX_%s %d" % (flag_name, value)
+                for flag_name, value in cls.get_flag_names_and_values())
 
+    @classmethod
+    def stringify_value(cls, val):
+        return " ".join(
+                flag_name for flag_name, flag_value in cls.get_flag_names_and_values()
+                if val & flag_value)
 
     @classmethod
     def get_c_typedef(cls):

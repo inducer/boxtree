@@ -178,11 +178,16 @@ class ConstantOneExpansionWrangler:
 
 @pytest.mark.opencl
 @pytest.mark.parametrize("dims", [2, 3])
-@pytest.mark.parametrize(("nsources", "ntargets"), [
-    (10**6, None),
-    (5 * 10**5, 4*10**5),
+@pytest.mark.parametrize(("nsources", "ntargets",
+        "sources_have_extent", "targets_have_extent"), [
+    (10**5, None, False, False),
+    (5 * 10**4, 4*10**4, False, False),
+    (5 * 10**5, 4*10**4, True, False),
+    (5 * 10**5, 4*10**4, True, True),
+    (5 * 10**5, 4*10**4, False, True),
     ])
-def test_fmm_completeness(ctx_getter, dims, nsources, ntargets):
+def test_fmm_completeness(ctx_getter, dims, nsources, ntargets,
+        sources_have_extent, targets_have_extent):
     """Tests whether the built FMM traversal structures and driver completely
     capture all interactions.
     """
@@ -203,11 +208,27 @@ def test_fmm_completeness(ctx_getter, dims, nsources, ntargets):
         targets = make_particle_array(
                 queue, ntargets, dims, dtype, seed=16)
 
+    from pyopencl.clrandom import RanluxGenerator
+    rng = RanluxGenerator(queue, seed=13)
+    if sources_have_extent:
+        source_radii = 2**rng.uniform(queue, nsources, dtype=dtype,
+                a=-10, b=0)
+    else:
+        source_radii = None
+
+    if targets_have_extent:
+        target_radii = 2**rng.uniform(queue, ntargets, dtype=dtype,
+                a=-10, b=0)
+    else:
+        target_radii = None
+
     from boxtree import TreeBuilder
     tb = TreeBuilder(ctx)
 
     tree, _ = tb(queue, sources, targets=targets,
-            max_particles_in_box=30, debug=True)
+            max_particles_in_box=30,
+            source_radii=source_radii, target_radii=target_radii,
+            debug=True)
 
     from boxtree.traversal import FMMTraversalBuilder
     tbuild = FMMTraversalBuilder(ctx)
@@ -215,8 +236,8 @@ def test_fmm_completeness(ctx_getter, dims, nsources, ntargets):
     trav = trav.get()
     tree = trav.tree
 
-    #weights = np.random.randn(nsources)
-    weights = np.ones(nsources)
+    weights = np.random.randn(nsources)
+    #weights = np.ones(nsources)
     weights_sum = np.sum(weights)
 
     from boxtree.fmm import drive_fmm
@@ -249,7 +270,7 @@ def test_fmm_completeness(ctx_getter, dims, nsources, ntargets):
 
         missing_tgts, missing_srcs = np.where(mat == 0)
 
-        if 0 and len(missing_tgts):
+        if 1 and len(missing_tgts):
             import matplotlib.pyplot as pt
 
             from boxtree.visualization import TreePlotter
@@ -269,7 +290,8 @@ def test_fmm_completeness(ctx_getter, dims, nsources, ntargets):
             tgt_boxes = [
                     tree.find_box_nr_for_target(i)
                     for i in tree_order_missing_tgts]
-            print zip(src_boxes, tgt_boxes)
+            print src_boxes
+            print tgt_boxes
 
             pt.plot(
                     tree.targets[0][tree_order_missing_tgts],
@@ -279,8 +301,10 @@ def test_fmm_completeness(ctx_getter, dims, nsources, ntargets):
                     tree.sources[0][tree_order_missing_srcs],
                     tree.sources[1][tree_order_missing_srcs],
                     "go")
+            pt.gca().set_aspect("equal")
 
             pt.show()
+            from pytools.debug import shell; shell()
 
             pt.spy(mat)
             pt.show()
@@ -289,7 +313,7 @@ def test_fmm_completeness(ctx_getter, dims, nsources, ntargets):
 
     rel_err = la.norm((pot - weights_sum) / nsources)
     good = rel_err < 1e-8
-    if 1 and not good:
+    if 0 and not good:
         import matplotlib.pyplot as pt
         pt.plot(pot-weights_sum)
         pt.show()

@@ -290,6 +290,18 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
 
     dbg_printf(("box id: %d level: %d\n", box_id, level));
 
+    // root box is not part of walk, check it up front.
+    // Also no need to check for overlap-iness. The root box
+    // overlaps *everybody*.
+
+    {
+        box_flags_t root_flags = box_flags[0];
+        if (root_flags & BOX_HAS_OWN_SOURCES)
+        {
+            APPEND_neighbor_source_boxes(0);
+        }
+    }
+
     // To find this box's colleagues, start at the top of the tree, descend
     // into adjacent (or overlapping) parents.
     ${walk_init(0)}
