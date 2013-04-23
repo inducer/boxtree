@@ -109,11 +109,12 @@ class ConstantOneExpansionWrangler:
         return pot
 
 
-    def multipole_to_local(self, starts, lists, mpole_exps):
+    def multipole_to_local(self, target_or_target_parent_boxes,
+            starts, lists, mpole_exps):
         local_exps = self.expansion_zeros()
 
-        for tgt_ibox in xrange(self.tree.nboxes):
-            start, end = starts[tgt_ibox:tgt_ibox+2]
+        for itgt_box, tgt_ibox in enumerate(target_or_target_parent_boxes):
+            start, end = starts[itgt_box:itgt_box+2]
 
             contrib = 0
             #print tgt_ibox, "<-", lists[start:end]
@@ -140,11 +141,11 @@ class ConstantOneExpansionWrangler:
 
         return pot
 
-    def form_locals(self, starts, lists, src_weights):
+    def form_locals(self, target_or_target_parent_boxes, starts, lists, src_weights):
         local_exps = self.expansion_zeros()
 
-        for tgt_ibox in xrange(self.tree.nboxes):
-            start, end = starts[tgt_ibox:tgt_ibox+2]
+        for itgt_box, tgt_ibox in enumerate(target_or_target_parent_boxes):
+            start, end = starts[itgt_box:itgt_box+2]
 
             #print "LIST 4", tgt_ibox, "<-", lists[start:end]
             contrib = 0
@@ -157,8 +158,8 @@ class ConstantOneExpansionWrangler:
 
         return local_exps
 
-    def refine_locals(self, start_box, end_box, local_exps):
-        for ibox in xrange(start_box, end_box):
+    def refine_locals(self, child_boxes, start_child_box, end_child_box, local_exps):
+        for ibox in child_boxes[start_child_box:end_child_box]:
             local_exps[ibox] += local_exps[self.tree.box_parent_ids[ibox]]
 
         return local_exps
@@ -309,8 +310,8 @@ def test_pyfmmlib_fmm(ctx_getter):
     ctx = ctx_getter()
     queue = cl.CommandQueue(ctx)
 
-    nsources = 10**3
-    ntargets = 10**3
+    nsources = 3000
+    ntargets = 1000
     dims = 2
     dtype = np.float64
 

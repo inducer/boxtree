@@ -114,16 +114,16 @@ def test_tree_connectivity(ctx_getter, dims, sources_are_targets):
 
     # {{{ separated siblings (list 2) are actually separated
 
-    for ibox in xrange(tree.nboxes):
-        start, end = trav.sep_siblings_starts[ibox:ibox+2]
+    for itgt_box, tgt_ibox in enumerate(trav.target_or_target_parent_boxes):
+        start, end = trav.sep_siblings_starts[itgt_box:itgt_box+2]
         seps = trav.sep_siblings_lists[start:end]
 
-        assert (levels[seps] == levels[ibox]).all()
+        assert (levels[seps] == levels[tgt_ibox]).all()
 
         # three-ish box radii (half of size)
-        mindist = 2.5 * 0.5 * 2**-int(levels[ibox]) * tree.root_extent
+        mindist = 2.5 * 0.5 * 2**-int(levels[tgt_ibox]) * tree.root_extent
 
-        icenter = centers[ibox]
+        icenter = centers[tgt_ibox]
         for jbox in seps:
             dist = la.norm(centers[jbox]-icenter)
             assert dist > mindist, (dist, mindist)
@@ -134,6 +134,8 @@ def test_tree_connectivity(ctx_getter, dims, sources_are_targets):
 
     if sources_are_targets:
         # {{{ sep_{smaller,bigger}_nonsiblings are duals of each other
+
+        assert (trav.target_or_target_parent_boxes == np.arange(tree.nboxes)).all()
 
         # {{{ list 4 <= list 3
         for itarget_box, ibox in enumerate(trav.target_boxes):
@@ -207,11 +209,11 @@ def test_tree_connectivity(ctx_getter, dims, sources_are_targets):
 
     # {{{ sep_smaller_nonsiblings satisfies relative level assumption
 
-    for ibox in xrange(tree.nboxes):
-        start, end = trav.sep_bigger_nonsiblings_starts[ibox:ibox+2]
+    for itgt_box, tgt_ibox in enumerate(trav.target_or_target_parent_boxes):
+        start, end = trav.sep_bigger_nonsiblings_starts[itgt_box:itgt_box+2]
 
         for jbox in trav.sep_bigger_nonsiblings_lists[start:end]:
-            assert levels[ibox] > levels[jbox]
+            assert levels[tgt_ibox] > levels[jbox]
 
     logger.info("list 4 satisfies relative level assumption")
 

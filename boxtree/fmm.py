@@ -86,6 +86,7 @@ def drive_fmm(traversal, expansion_wrangler, src_weights):
     logger.debug("translate separated siblings' ('list 2') mpoles to local")
 
     local_exps = wrangler.multipole_to_local(
+            traversal.target_or_target_parent_boxes,
             traversal.sep_siblings_starts,
             traversal.sep_siblings_lists,
             mpole_exps)
@@ -116,6 +117,7 @@ def drive_fmm(traversal, expansion_wrangler, src_weights):
     logger.debug("form locals for separated bigger nonsiblings' mpoles ('list 4')")
 
     local_exps = local_exps + wrangler.form_locals(
+            traversal.target_or_target_parent_boxes,
             traversal.sep_bigger_nonsiblings_starts,
             traversal.sep_bigger_nonsiblings_lists,
             src_weights)
@@ -127,8 +129,10 @@ def drive_fmm(traversal, expansion_wrangler, src_weights):
     logger.debug("propagate local_exps downward")
 
     for lev in xrange(1, tree.nlevels):
-        start_box, end_box = tree.level_start_box_nrs[lev:lev+2]
-        wrangler.refine_locals(start_box, end_box, local_exps)
+        start_box, end_box = traversal.level_start_target_or_target_parent_box_nrs[lev:lev+2]
+        wrangler.refine_locals(
+                traversal.target_or_target_parent_boxes,
+                start_box, end_box, local_exps)
 
     # }}}
 

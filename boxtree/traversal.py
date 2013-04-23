@@ -171,6 +171,8 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t box_id)
         if (flags & BOX_HAS_OWN_TARGETS)
         { APPEND_target_boxes(box_id); }
     %endif
+    if (flags & (BOX_HAS_CHILD_TARGETS | BOX_HAS_OWN_TARGETS))
+    { APPEND_target_or_target_parent_boxes(box_id); }
 }
 """
 
@@ -345,8 +347,10 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
 
 SEP_SIBLINGS_TEMPLATE = r"""//CL//
 
-void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t box_id)
+void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
 {
+    box_id_t box_id = target_or_target_parent_boxes[itarget_or_target_parent_box];
+
     ${load_center("center", "box_id")}
 
     int level = box_levels[box_id];
@@ -456,8 +460,10 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
 
 SEP_BIGGER_NONSIBLINGS_TEMPLATE = r"""//CL//
 
-void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t box_id)
+void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
 {
+    box_id_t box_id = target_or_target_parent_boxes[itarget_or_target_parent_box];
+
     ${load_center("center", "box_id")}
 
     int box_level = box_levels[box_id];
@@ -572,12 +578,28 @@ class FMMTraversalInfo(FromDeviceGettableRecord):
         Indices into :attr:`source_parent_boxes` indicating where
         each level starts and ends.
 
+    .. attribute:: target_or_target_parent_boxes
+
+        ``box_id_t [*]`` List of boxes that are one of the :attr:`target_boxes`
+        or their (direct or indirect) parents.
+
+    .. attribute:: ntarget_or_target_parent_boxes
+
+        Number of :attr:`target_or_target_parent_boxes`.
+
+    .. attribute:: level_start_target_or_target_parent_box_nrs
+
+        ``box_id_t [nlevels+1]``
+        Indices into :attr:`source_parent_boxes` indicating where
+        each level starts and ends.
+
     For each of the following data structures, the `starts` part
     contains indices into the `lists` part.
 
     .. attribute:: colleagues_starts
 
         ``box_id_t [nboxes+1]``
+
     .. attribute:: colleagues_lists
 
         ``box_id_t [*]``
@@ -596,7 +618,7 @@ class FMMTraversalInfo(FromDeviceGettableRecord):
 
     .. attribute:: sep_siblings_starts
 
-        ``box_id_t [nboxes+1]``
+        ``box_id_t [ntarget_or_target_parent_boxes+1]``
 
     .. attribute:: sep_siblings_lists
 
@@ -616,7 +638,7 @@ class FMMTraversalInfo(FromDeviceGettableRecord):
 
     .. attribute:: sep_bigger_nonsiblings_starts
 
-        ``box_id_t [nboxes+1]``
+        ``box_id_t [ntarget_or_target_parent_boxes+1]``
 
     .. attribute:: sep_bigger_nonsiblings_lists
 
@@ -639,6 +661,10 @@ class FMMTraversalInfo(FromDeviceGettableRecord):
         return lists[start:stop]
 
     # }}}
+
+    @property
+    def ntarget_or_target_parent_boxes(self):
+        return len(self.target_or_target_parent_boxes)
 
 # }}}
 
@@ -694,6 +720,7 @@ class FMMTraversalBuilder:
                         [
                             ("source_parent_boxes", box_id_dtype),
                             ("source_boxes", box_id_dtype),
+                            ("target_or_target_parent_boxes", box_id_dtype)
                             ] + (
                                 [("target_boxes", box_id_dtype)]
                                 if not sources_are_targets
@@ -732,6 +759,7 @@ class FMMTraversalBuilder:
                             ]),
                 ("sep_siblings", SEP_SIBLINGS_TEMPLATE,
                         [
+                            VectorArg(box_id_dtype, "target_or_target_parent_boxes"),
                             VectorArg(box_id_dtype, "box_parent_ids"),
                             VectorArg(box_id_dtype, "colleagues_starts"),
                             VectorArg(box_id_dtype, "colleagues_list"),
@@ -744,6 +772,7 @@ class FMMTraversalBuilder:
                             ]),
                 ("sep_bigger_nonsiblings", SEP_BIGGER_NONSIBLINGS_TEMPLATE,
                         [
+                            VectorArg(box_id_dtype, "target_or_target_parent_boxes"),
                             VectorArg(box_id_dtype, "box_parent_ids"),
                             VectorArg(box_id_dtype, "colleagues_starts"),
                             VectorArg(box_id_dtype, "colleagues_list"),
@@ -811,20 +840,18 @@ class FMMTraversalBuilder:
                 queue, tree.nboxes, tree.box_flags.data, wait_for=wait_for)
         wait_for = [evt]
 
+        source_parent_boxes = result["source_parent_boxes"].lists
         source_boxes = result["source_boxes"].lists
-        assert len(source_boxes) == result["source_boxes"].count
+        target_or_target_parent_boxes = result["target_or_target_parent_boxes"].lists
+
         if not tree.sources_are_targets:
             target_boxes = result["target_boxes"].lists
-            assert len(target_boxes) == result["target_boxes"].count
         else:
             target_boxes = source_boxes
 
-        source_parent_boxes = result["source_parent_boxes"].lists
-        assert len(source_parent_boxes) == result["source_parent_boxes"].count
-
         # }}}
 
-        # {{{ figure out level starts in source_parent_boxes
+        # {{{ figure out level starts in *_parent_boxes
 
         def extract_level_start_box_nrs(box_list, wait_for):
             result = cl.array.empty(queue,
@@ -853,11 +880,16 @@ class FMMTraversalBuilder:
             return result, evt
 
         fin_debug("finding level starts in source parent boxes array")
+        level_start_source_parent_box_nrs, evt_s = \
+                extract_level_start_box_nrs(
+                        source_parent_boxes, wait_for=wait_for)
 
-        level_start_source_parent_box_nrs, evt = \
-                extract_level_start_box_nrs(source_parent_boxes, wait_for=wait_for)
+        fin_debug("finding level starts in target or target parent boxes array")
+        level_start_target_or_target_parent_box_nrs, evt_t = \
+                extract_level_start_box_nrs(
+                        target_or_target_parent_boxes, wait_for=wait_for)
 
-        wait_for = [evt]
+        wait_for = [evt_s, evt_t]
 
         # }}}
 
@@ -894,10 +926,10 @@ class FMMTraversalBuilder:
         fin_debug("finding well-separated siblings ('list 2')")
 
         result, evt = knl_info.sep_siblings_builder(
-                queue, tree.nboxes,
+                queue, len(target_or_target_parent_boxes),
                 tree.box_centers.data, tree.root_extent, tree.box_levels.data,
                 tree.aligned_nboxes, tree.box_child_ids.data, tree.box_flags.data,
-                tree.box_parent_ids.data,
+                target_or_target_parent_boxes.data, tree.box_parent_ids.data,
                 colleagues.starts.data, colleagues.lists.data, wait_for=wait_for)
         wait_for = [evt]
         sep_siblings = result["sep_siblings"]
@@ -925,10 +957,10 @@ class FMMTraversalBuilder:
         fin_debug("finding separated bigger non-siblings ('list 4')")
 
         result, evt = knl_info.sep_bigger_nonsiblings_builder(
-                queue, tree.nboxes,
+                queue, len(target_or_target_parent_boxes),
                 tree.box_centers.data, tree.root_extent, tree.box_levels.data,
                 tree.aligned_nboxes, tree.box_child_ids.data, tree.box_flags.data,
-                tree.box_parent_ids.data,
+                target_or_target_parent_boxes.data, tree.box_parent_ids.data,
                 colleagues.starts.data, colleagues.lists.data, wait_for=wait_for)
         wait_for=[evt]
         sep_bigger_nonsiblings = result["sep_bigger_nonsiblings"]
@@ -944,8 +976,13 @@ class FMMTraversalBuilder:
 
                 source_boxes=source_boxes,
                 target_boxes=target_boxes,
+
                 source_parent_boxes=source_parent_boxes,
                 level_start_source_parent_box_nrs=level_start_source_parent_box_nrs,
+
+                target_or_target_parent_boxes=target_or_target_parent_boxes,
+                level_start_target_or_target_parent_box_nrs=
+                    level_start_target_or_target_parent_box_nrs,
 
                 colleagues_starts=colleagues.starts,
                 colleagues_lists=colleagues.lists,

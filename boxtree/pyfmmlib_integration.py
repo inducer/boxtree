@@ -147,7 +147,8 @@ class Helmholtz2DExpansionWrangler:
         return pot
 
 
-    def multipole_to_local(self, starts, lists, mpole_exps):
+    def multipole_to_local(self, target_or_target_parent_boxes,
+            starts, lists, mpole_exps):
         tree = self.tree
         local_exps = self.expansion_zeros()
 
@@ -155,8 +156,8 @@ class Helmholtz2DExpansionWrangler:
 
         from pyfmmlib import h2dmploc_vec
 
-        for tgt_ibox in xrange(self.tree.nboxes):
-            start, end = starts[tgt_ibox:tgt_ibox+2]
+        for itgt_box, tgt_ibox in enumerate(target_or_target_parent_boxes):
+            start, end = starts[itgt_box:itgt_box+2]
             tgt_center = tree.box_centers[:, tgt_ibox]
 
             #print tgt_ibox, "<-", lists[start:end]
@@ -202,14 +203,14 @@ class Helmholtz2DExpansionWrangler:
 
         return pot
 
-    def form_locals(self, starts, lists, src_weights):
+    def form_locals(self, target_or_target_parent_boxes, starts, lists, src_weights):
         rscale = 1 # FIXME
         local_exps = self.expansion_zeros()
 
         from pyfmmlib import h2dformta
 
-        for tgt_ibox in xrange(self.tree.nboxes):
-            start, end = starts[tgt_ibox:tgt_ibox+2]
+        for itgt_box, tgt_ibox in enumerate(target_or_target_parent_boxes):
+            start, end = starts[itgt_box:itgt_box+2]
 
             contrib = 0
 
@@ -230,12 +231,12 @@ class Helmholtz2DExpansionWrangler:
 
         return local_exps
 
-    def refine_locals(self, start_box, end_box, local_exps):
+    def refine_locals(self, child_boxes, start_child_box, end_child_box, local_exps):
         rscale = 1 # FIXME
 
         from pyfmmlib import h2dlocloc_vec
 
-        for tgt_ibox in xrange(start_box, end_box):
+        for tgt_ibox in child_boxes[start_child_box:end_child_box]:
             tgt_center = self.tree.box_centers[:, tgt_ibox]
             src_ibox = self.tree.box_parent_ids[tgt_ibox]
             src_center = self.tree.box_centers[:, src_ibox]
