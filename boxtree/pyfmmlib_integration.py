@@ -218,6 +218,9 @@ class Helmholtz2DExpansionWrangler:
                 src_pslice = self._get_source_slice(src_ibox)
                 tgt_center = self.tree.box_centers[:, tgt_ibox]
 
+                if src_pslice.stop - src_pslice.start == 0:
+                    continue
+
                 ier, mpole = h2dformta(
                         self.helmholtz_k, rscale,
                         self._get_sources(src_pslice), src_weights[src_pslice],

@@ -123,20 +123,19 @@ typedef ${dtype_to_ctype(vec_types[coord_dtype, dimensions])} coord_vec_t;
 
 # }}}
 
-# {{{ helper functions (adjacency test, ...)
+# {{{ adjacency test
 
 HELPER_FUNCTION_TEMPLATE = r"""//CL//
 
-bool is_adjacent_or_overlapping(
-    USER_ARG_DECL coord_vec_t center, int level, box_id_t other_box_id,
+inline bool is_adjacent_or_overlapping(
+    coord_t root_extent,
+    coord_vec_t center, int level,
+    coord_vec_t other_center, int other_level,
     // these two are expected to be constant so that the inliner will kill the ifs.
     const char include_stick_out,
     const char who_target /* 'b' or 'o' for 'box' or 'other' */
     )
 {
-    ${load_center("other_center", "other_box_id")}
-    int other_level = box_levels[other_box_id];
-
     // This checks if the two boxes overlap
     // with an amount of 'slack' corresponding to half the
     // width of the smaller of the two boxes.
@@ -266,8 +265,10 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t box_id)
 
         if (child_box_id)
         {
-            bool a_or_o = is_adjacent_or_overlapping(
-                USER_ARGS center, level, child_box_id, false, 'n');
+            ${load_center("child_center", "child_box_id")}
+
+            bool a_or_o = is_adjacent_or_overlapping(root_extent,
+                center, level, child_center, box_levels[child_box_id], false, 'n');
 
             if (a_or_o)
             {
@@ -345,8 +346,10 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
 
         if (child_box_id)
         {
-            bool a_or_o = is_adjacent_or_overlapping(
-                USER_ARGS center, level, child_box_id, false, 'n');
+            ${load_center("child_center", "child_box_id")}
+
+            bool a_or_o = is_adjacent_or_overlapping(root_extent,
+                center, level, child_center, box_levels[child_box_id], false, 'n');
 
             if (a_or_o)
             {
@@ -415,8 +418,10 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
             box_id_t sib_box_id = box_child_ids[
                     morton_nr * aligned_nboxes + parent_colleague];
 
-            bool sep = !is_adjacent_or_overlapping(
-                USER_ARGS center, level, sib_box_id, false, 'n');
+            ${load_center("sib_center", "sib_box_id")}
+
+            bool sep = !is_adjacent_or_overlapping(root_extent,
+                center, level, sib_center, box_levels[sib_box_id], false, 'n');
 
             if (sep)
             {
@@ -467,8 +472,10 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
 
             if (child_box_id)
             {
-                bool a_or_o = is_adjacent_or_overlapping(
-                    USER_ARGS center, level, child_box_id, false, 'n');
+                ${load_center("child_center", "child_box_id")}
+
+                bool a_or_o = is_adjacent_or_overlapping(root_extent,
+                    center, level, child_center, box_levels[child_box_id], false, 'n');
 
                 if (a_or_o)
                 {
@@ -501,33 +508,107 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
 
 # {{{ separated bigger ("list 4")
 
+# "Normal" case: Sources/targets without extent
+# ---------------------------------------------
+#
+# List 4 interactions for box "B" are about a parent P's colleague A not
+# adjacent to B.
+#
+# -------|----------|----------|
+# Case   |    1     |    2     |
+#        | adj to A | adj to A |
+# -------|----------|----------|
+#        |          |          |
+# A---P  |    X !   |    X !   |
+#     |  |          |          |
+#     o  |    X     |    X     |
+#     |  |          |          |
+#     o  |    X     |    X     |
+#     |  |          |          |
+#     o  |    X     |    O     |
+#     |  |          |          |
+#     B  |    O !   |    O !   |
+#
+# Note that once a parent is no longer adjacent, it's children won't be either.
+#
+# (X: yes, O:no, exclamation marks denote that this *must* be the case. Entries
+# without exclamation mark are choices for this case)
+#
+# Case 1: A->B interaction enters the downward propagation at B, i.e. A is in
+#    B's "sep_bigger". (list 4)
+#
+# Case 2: A->B interaction entered the downward propagation at B's parent, i.e.
+#    A is not in B's "sep_bigger". (list 4)
+
+# Sources/targets with extent
+# ---------------------------
+#
+# List 4 interactions for box "B" are about a parent P's colleague A not
+# adjacent to B.
+#
+# -------|----------|----------|----------|
+# Case   |    1     |    2     |    3     |
+#        | so   adj | so   adj | so   adj |
+# -------|----------|----------|----------|
+#        |          |          |          |
+# A---P  | X!    X! | X!    X! | X!    X! |
+#     |  |          |          |          |
+#     o  | X     ?  | X     ?  | X     ?  |
+#     |  |          |          |          |
+#     o  | X     ?  | X     ?  | X     ?  |
+#     |  |          |          |          |
+#     o  | X     ?  | X     ?  | O     O  |
+#     |  |          |          |          |
+#     B  | X     O! | O     O! | O     O! |
+#
+# "so": adjacent to A or overlapping when stick-out is taken into account
+# "adj": adjacent to A without stick-out
+#
+# Note that once a parent is no longer "adj" or "so", it's children won't be
+# either.  Also note that "adj" => "so". (And there by "not so" => "not adj".)
+#
+# (X: yes, O:no, ?: doesn't matter, exclamation marks denote that this *must*
+# be the case. Entries without exclamation mark are choices for this case)
+#
+# Case 1: A->B interaction must be processed by direct eval because of "so",
+#    i.e. it is in B's "sep_close_bigger".
+#
+# Case 2: A->B interaction enters downward the propagation at B,
+#    i.e. it is in B's "sep_bigger".
+#
+# Case 3: A->B interaction enters downward the propagation at B's parent,
+#    i.e. A is not in B's "sep*bigger"
+
 SEP_BIGGER_TEMPLATE = r"""//CL//
 
 void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
 {
     box_id_t box_id = target_or_target_parent_boxes[itarget_or_target_parent_box];
-
     ${load_center("center", "box_id")}
 
     int box_level = box_levels[box_id];
+    // The root box has no parents, so no list 4.
+    if (box_level == 0)
+        return;
 
-    box_id_t current_parent_box_id = box_id;
-    int walk_level = box_level;
+    box_id_t parent_box_id = box_parent_ids[box_id];
+    ${load_center("parent_center", "parent_box_id")}
 
-    while (walk_level)
+    box_id_t current_parent_box_id = parent_box_id;
+    int walk_level = box_level - 1;
+
+    // Look for colleagues of parents that are non-adjacent to box_id.
+    // Walk up the tree from box_id.
+
+    // Box 0 (== level 0) doesn't have any colleagues, so we can stop the
+    // search for such colleagues there.
+    for (int walk_level = box_level - 1; walk_level != 0;
+            // {{{ advance
+            --walk_level,
+            current_parent_box_id = box_parent_ids[current_parent_box_id]
+            // }}}
+            )
     {
-        // {{{ advance
-
-        --walk_level;
-
-        // Box 0 (== level 0) doesn't have any colleagues.
-        if (walk_level == 0)
-            break;
-
-        current_parent_box_id = box_parent_ids[current_parent_box_id];
-
-        // }}}
-
         box_id_t coll_start = colleagues_starts[current_parent_box_id];
         box_id_t coll_stop = colleagues_starts[current_parent_box_id+1];
 
@@ -536,53 +617,45 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
         {
             box_id_t colleague_box_id = colleagues_list[i];
 
-            bool a_or_o = is_adjacent_or_overlapping(
-                USER_ARGS center, box_level, colleague_box_id, false, 'n');
-
-            if (!a_or_o && box_flags[colleague_box_id] & BOX_HAS_OWN_SOURCES)
+            if (box_flags[colleague_box_id] & BOX_HAS_OWN_SOURCES)
             {
-                // Now check if any of box_id's parents up to current_parent_box_id
-                // are already not adjacent to colleague_box_id. If so, then that parent
-                // will have included colleague_box_id in its List 4, and it will
-                // propagate down by local expansion. Therefore, no need to add in
-                // that case.
-                //
-                // Yes, Batman, we just went O(n log(n)^2).
-
                 ${load_center("colleague_center", "colleague_box_id")}
+                bool a_or_o = is_adjacent_or_overlapping(root_extent,
+                    center, box_level, colleague_center, walk_level, false, 'n');
 
-                box_id_t check_parent_box_id = box_id;
-                int check_walk_level = box_level;
-
-                bool found_closer_parent = false;
-
-                while (true)
+                if (!a_or_o)
                 {
-                    // {{{ advance
+                    // Found one.
 
-                    --check_walk_level;
+                    /*
+                    %if sources_have_extent or targets_have_extent:
+                        bool a_or_o_with_stick_out = is_adjacent_or_overlapping(root_extent,
+                            center, box_level, colleague_center, walk_level, true, 'b');
+                    %else:
+                        bool a_or_o_with_stick_out = false;
+                    %endif
+                    */
 
-                    if (check_walk_level == walk_level)
-                        break;
+                    bool parent_a_or_o_with_stick_out = is_adjacent_or_overlapping(root_extent,
+                        parent_center, box_level-1, colleague_center, walk_level, false, 'n');
 
-                    check_parent_box_id = box_parent_ids[check_parent_box_id];
-
-                    // }}}
-
-                    bool parent_a_or_o = is_adjacent_or_overlapping(
-                        USER_ARGS colleague_center, walk_level,
-                        check_parent_box_id, false, 'n');
-
-                    if (!parent_a_or_o)
+                    if (parent_a_or_o_with_stick_out)
                     {
-                        found_closer_parent = true;
-                        break;
+                        APPEND_sep_bigger(colleague_box_id);
                     }
-                }
 
-                if (!found_closer_parent)
-                {
-                    APPEND_sep_bigger(colleague_box_id);
+                    /*
+                    if (a_or_o_with_stick_out)
+                    {
+                        // colleague_box_id is too close and overlaps our stick_out
+                        // region. We're obliged to do the interaction directly.
+
+                        APPEND_sep_close_bigger(colleague_box_id);
+
+                        // This interaction will also not 'rain down' upon us through
+                        // a parent's list 4 because...?
+                    }
+                    */
                 }
             }
         }

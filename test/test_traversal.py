@@ -156,6 +156,8 @@ def test_tree_connectivity(ctx_getter, dims, sources_are_targets):
                 len(trav.target_boxes), dtype=tree.box_id_dtype)
 
         assert (trav.source_boxes == trav.target_boxes).all()
+        assert (trav.target_or_target_parent_boxes == np.arange(
+                tree.nboxes, dtype=tree.box_id_dtype)).all()
 
         for ibox in xrange(tree.nboxes):
             start, end = trav.sep_bigger_starts[ibox:ibox+2]
@@ -167,7 +169,7 @@ def test_tree_connectivity(ctx_getter, dims, sources_are_targets):
                 # may treat them as targets anyhow.
 
                 jtgt_box = box_to_target_box_index[jbox]
-                assert jbox != -1
+                assert jtgt_box != -1
 
                 rstart, rend = trav.sep_smaller_starts[jtgt_box:jtgt_box+2]
                 good = ibox in trav.sep_smaller_lists[rstart:rend]
