@@ -59,8 +59,8 @@ typedef ${dtype_to_ctype(vec_types[coord_dtype, dimensions])} coord_vec_t;
     %endfor
 </%def>
 
-#define LEVEL_TO_SIZE(level) \
-        (root_extent * 1 / (coord_t) (1 << level))
+#define LEVEL_TO_RAD(level) \
+        (root_extent * 1 / (coord_t) (1 << (level + 1)))
 
 %if 0:
     #define dbg_printf(ARGS) printf ARGS
@@ -128,7 +128,11 @@ typedef ${dtype_to_ctype(vec_types[coord_dtype, dimensions])} coord_vec_t;
 HELPER_FUNCTION_TEMPLATE = r"""//CL//
 
 bool is_adjacent_or_overlapping(
-    USER_ARG_DECL coord_vec_t center, int level, box_id_t other_box_id)
+    USER_ARG_DECL coord_vec_t center, int level, box_id_t other_box_id,
+    // these two are expected to be constant so that the inliner will kill the ifs.
+    const char include_stick_out,
+    const char who_target /* 'b' or 'o' for 'box' or 'other' */
+    )
 {
     ${load_center("other_center", "other_box_id")}
     int other_level = box_levels[other_box_id];
@@ -139,8 +143,34 @@ bool is_adjacent_or_overlapping(
     // (Without the 'slack', there wouldn't be any
     // overlap.)
 
-    coord_t size_sum = 0.5 * (LEVEL_TO_SIZE(level) + LEVEL_TO_SIZE(other_level));
-    coord_t slack = size_sum + 0.5 * LEVEL_TO_SIZE(max(level, other_level));
+    coord_t my_rad = LEVEL_TO_RAD(level);
+    coord_t other_rad = LEVEL_TO_RAD(other_level);
+    coord_t rad_sum = my_rad + other_rad;
+    coord_t slack = rad_sum + fmin(my_rad, other_rad);
+
+    if (include_stick_out)
+    {
+        if (who_target == 'b')
+            slack += STICK_OUT_FACTOR * (
+                0
+                %if targets_have_extent:
+                    + my_rad
+                %endif
+                %if sources_have_extent:
+                    + other_rad
+                %endif
+                );
+        else
+            slack += STICK_OUT_FACTOR * (
+                0
+                %if sources_have_extent:
+                    + my_rad
+                %endif
+                %if targets_have_extent:
+                    + other_rad
+                %endif
+                );
+    }
 
     coord_t max_dist = 0;
     %for i in range(dimensions):
@@ -237,7 +267,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t box_id)
         if (child_box_id)
         {
             bool a_or_o = is_adjacent_or_overlapping(
-                USER_ARGS center, level, child_box_id);
+                USER_ARGS center, level, child_box_id, false, 'n');
 
             if (a_or_o)
             {
@@ -316,7 +346,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
         if (child_box_id)
         {
             bool a_or_o = is_adjacent_or_overlapping(
-                USER_ARGS center, level, child_box_id);
+                USER_ARGS center, level, child_box_id, false, 'n');
 
             if (a_or_o)
             {
@@ -386,7 +416,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
                     morton_nr * aligned_nboxes + parent_colleague];
 
             bool sep = !is_adjacent_or_overlapping(
-                USER_ARGS center, level, sib_box_id);
+                USER_ARGS center, level, sib_box_id, false, 'n');
 
             if (sep)
             {
@@ -438,7 +468,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
             if (child_box_id)
             {
                 bool a_or_o = is_adjacent_or_overlapping(
-                    USER_ARGS center, level, child_box_id);
+                    USER_ARGS center, level, child_box_id, false, 'n');
 
                 if (a_or_o)
                 {
@@ -507,7 +537,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
             box_id_t colleague_box_id = colleagues_list[i];
 
             bool a_or_o = is_adjacent_or_overlapping(
-                USER_ARGS center, box_level, colleague_box_id);
+                USER_ARGS center, box_level, colleague_box_id, false, 'n');
 
             if (!a_or_o && box_flags[colleague_box_id] & BOX_HAS_OWN_SOURCES)
             {
@@ -540,7 +570,8 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
                     // }}}
 
                     bool parent_a_or_o = is_adjacent_or_overlapping(
-                        USER_ARGS colleague_center, walk_level, check_parent_box_id);
+                        USER_ARGS colleague_center, walk_level,
+                        check_parent_box_id, false, 'n');
 
                     if (!parent_a_or_o)
                     {
@@ -647,6 +678,14 @@ class FMMTraversalInfo(FromDeviceGettableRecord):
 
         ``box_id_t [*]``
 
+    .. attribute:: sep_close_smaller_starts
+
+        ``box_id_t [ntargets+1]`` (or *None*)
+
+    .. attribute:: sep_close_smaller_lists
+
+        ``box_id_t [*]`` (or *None*)
+
     **"List 4"**
 
     .. attribute:: sep_bigger_starts
@@ -656,6 +695,14 @@ class FMMTraversalInfo(FromDeviceGettableRecord):
     .. attribute:: sep_bigger_lists
 
         ``box_id_t [*]``
+
+    .. attribute:: sep_close_bigger_starts
+
+        ``box_id_t [ntarget_or_target_parent_boxes+1]`` (or *None*)
+
+    .. attribute:: sep_close_bigger_lists
+
+        ``box_id_t [*]`` (or *None*)
 
     Terminology follows this article:
 
@@ -786,7 +833,11 @@ class FMMTraversalBuilder:
                             VectorArg(box_id_dtype, "target_boxes"),
                             VectorArg(box_id_dtype, "colleagues_starts"),
                             VectorArg(box_id_dtype, "colleagues_list"),
-                            ], []),
+                            ],
+                            ["sep_close_smaller"]
+                            if sources_have_extent or targets_have_extent
+                            else [],
+                            ),
                 ("sep_bigger", SEP_BIGGER_TEMPLATE,
                         [
                             VectorArg(box_id_dtype, "target_or_target_parent_boxes"),
@@ -796,7 +847,8 @@ class FMMTraversalBuilder:
                             ],
                             ["sep_close_bigger"]
                             if sources_have_extent or targets_have_extent
-                            else []),
+                            else [],
+                            ),
                 ]:
             src = Template(
                     TRAVERSAL_PREAMBLE_TEMPLATE
@@ -838,8 +890,10 @@ class FMMTraversalBuilder:
         if not tree._is_pruned:
             raise ValueError("tree must be pruned for traversal generation")
 
+        # Generated code shouldn't depend on tje *exact* number of tree levels.
+        # So round up to the next multiple of 5.
         from pytools import div_ceil
-        max_levels = div_ceil(tree.nlevels, 10) * 10
+        max_levels = div_ceil(tree.nlevels, 5) * 5
 
         knl_info = self.get_kernel_info(
                 tree.dimensions, tree.particle_id_dtype, tree.box_id_dtype,
@@ -974,6 +1028,13 @@ class FMMTraversalBuilder:
         wait_for = [evt]
         sep_smaller = result["sep_smaller"]
 
+        if tree.sources_have_extent or tree.targets_have_extent:
+            sep_close_smaller_starts = result["sep_close_smaller"].starts
+            sep_close_smaller_lists = result["sep_close_smaller"].lists
+        else:
+            sep_close_smaller_starts = None
+            sep_close_smaller_lists = None
+
         # }}}
 
         # {{{ separated bigger ("list 4")
@@ -990,23 +1051,17 @@ class FMMTraversalBuilder:
         sep_bigger = result["sep_bigger"]
 
         if tree.sources_have_extent or tree.targets_have_extent:
-            sep_close_bigger = result["sep_close_bigger"]
+            sep_close_bigger_starts = result["sep_close_bigger"].starts
+            sep_close_bigger_lists = result["sep_close_bigger"].lists
         else:
-            sep_close_bigger = None
+            sep_close_bigger_starts = None
+            sep_close_bigger_lists = None
 
         # }}}
 
         evt, = wait_for
 
         logger.info("traversal built")
-
-        extra_attrs = {}
-
-        if sep_close_bigger is not None:
-            extra_attrs.update(
-                    sep_close_bigger_starts=sep_close_bigger.starts,
-                    sep_close_bigger_lists=sep_close_bigger.lists,
-                    )
 
         return FMMTraversalInfo(
                 tree=tree,
@@ -1033,10 +1088,14 @@ class FMMTraversalBuilder:
                 sep_smaller_starts=sep_smaller.starts,
                 sep_smaller_lists=sep_smaller.lists,
 
+                sep_close_smaller_starts=sep_smaller.starts,
+                sep_close_smaller_lists=sep_smaller.lists,
+
                 sep_bigger_starts=sep_bigger.starts,
                 sep_bigger_lists=sep_bigger.lists,
 
-                **extra_attrs
+                sep_close_bigger_starts=sep_close_bigger_starts,
+                sep_close_bigger_lists=sep_close_bigger_lists,
                 ), evt
 
     # }}}

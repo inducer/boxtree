@@ -92,7 +92,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL ball_id_t ball_nr)
                 ${load_center("child_center", "child_box_id")}
                 int child_level = box_levels[child_box_id];
 
-                coord_t size_sum = 0.5 * LEVEL_TO_SIZE(child_level) + ball_radius;
+                coord_t size_sum = LEVEL_TO_RAD(child_level) + ball_radius;
 
                 coord_t max_dist = 0;
                 %for i in range(dimensions):
