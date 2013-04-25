@@ -46,6 +46,8 @@ class TreePlotter:
         pt.xlim(bbox_min[0], bbox_max[0])
         pt.ylim(bbox_min[1], bbox_max[1])
 
+        pt.gca().set_aspect("equal")
+
     def draw_box(self, ibox, **kwargs):
         """
         :arg kwargs: keyword arguments to pass on to :class:`matplotlib.patches.PathPatch`,
