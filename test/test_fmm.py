@@ -31,7 +31,11 @@ import pytest
 from pyopencl.tools import pytest_generate_tests_for_pyopencl \
         as pytest_generate_tests
 
-from boxtree.tools import make_particle_array, particle_array_to_host
+from boxtree.tools import (
+        make_normal_particle_array as p_normal,
+        make_surface_particle_array as p_surface,
+        make_uniform_particle_array as p_uniform,
+        particle_array_to_host)
 
 import logging
 logger = logging.getLogger(__name__)
@@ -175,22 +179,31 @@ class ConstantOneExpansionWrangler:
 
 
 
-
 @pytest.mark.opencl
-@pytest.mark.parametrize("dims", [2, 3])
-@pytest.mark.parametrize(("nsources", "ntargets",
-        "sources_have_extent", "targets_have_extent"), [
-    (10**5, None, False, False),
-    (5 * 10**4, 4*10**4, False, False),
-    (5 * 10**5, 4*10**4, True, False),
-    (5 * 10**5, 4*10**4, True, True),
-    (5 * 10**5, 4*10**4, False, True),
+@pytest.mark.parametrize(("dims", "nsources_req", "ntargets_req",
+        "who_has_extent", "source_gen", "target_gen"), [
+    (2, 10**5, None, "", p_normal, p_normal),
+    (3, 5 * 10**4, 4*10**4, "", p_normal, p_normal),
+    (2, 5 * 10**5, 4*10**4, "s", p_normal, p_normal),
+    (2, 5 * 10**5, 4*10**4, "st", p_normal, p_normal),
+    (2, 5 * 10**5, 4*10**4, "t", p_normal, p_normal),
+    (2, 5 * 10**5, 4*10**4, "st", p_surface, p_uniform),
+
+    (3, 10**5, None, "", p_normal, p_normal),
+    (3, 5 * 10**4, 4*10**4, "", p_normal, p_normal),
+    (3, 5 * 10**5, 4*10**4, "s", p_normal, p_normal),
+    (3, 5 * 10**5, 4*10**4, "st", p_normal, p_normal),
+    (3, 5 * 10**5, 4*10**4, "t", p_normal, p_normal),
+    (2, 5 * 10**5, 4*10**4, "st", p_surface, p_uniform),
     ])
-def test_fmm_completeness(ctx_getter, dims, nsources, ntargets,
-        sources_have_extent, targets_have_extent):
+def test_fmm_completeness(ctx_getter, dims, nsources_req, ntargets_req, who_has_extent,
+        source_gen, target_gen):
     """Tests whether the built FMM traversal structures and driver completely
     capture all interactions.
     """
+
+    sources_have_extent = "s" in who_has_extent
+    targets_have_extent = "t" in who_has_extent
 
     logging.basicConfig(level=logging.INFO)
 
@@ -199,14 +212,20 @@ def test_fmm_completeness(ctx_getter, dims, nsources, ntargets,
 
     dtype = np.float64
 
-    sources = make_particle_array(queue, nsources, dims, dtype, seed=15)
+    try:
+        sources = source_gen(queue, nsources_req, dims, dtype, seed=15)
+        nsources = len(sources[0])
 
-    if ntargets is None:
-        # This says "same as sources" to the tree builder.
-        targets = None
-    else:
-        targets = make_particle_array(
-                queue, ntargets, dims, dtype, seed=16)
+        if ntargets_req is None:
+            # This says "same as sources" to the tree builder.
+            targets = None
+            ntargets = ntargets_req
+        else:
+            targets = target_gen(queue, ntargets_req, dims, dtype, seed=16)
+            ntargets = len(targets[0])
+    except ImportError:
+        pytest.skip("loo.py not available, but needed for particle array "
+                "generation")
 
     from pyopencl.clrandom import RanluxGenerator
     rng = RanluxGenerator(queue, seed=13)
@@ -229,6 +248,10 @@ def test_fmm_completeness(ctx_getter, dims, nsources, ntargets,
             max_particles_in_box=30,
             source_radii=source_radii, target_radii=target_radii,
             debug=True)
+    if 0:
+        tree.get().plot()
+        import matplotlib.pyplot as pt
+        pt.show()
 
     from boxtree.traversal import FMMTraversalBuilder
     tbuild = FMMTraversalBuilder(ctx)
@@ -268,11 +291,15 @@ def test_fmm_completeness(ctx_getter, dims, nsources, ntargets,
 
         logging.getLogger().setLevel(logging.INFO)
 
+        import matplotlib.pyplot as pt
+
+        if 1:
+            pt.spy(mat)
+            pt.show()
+
         missing_tgts, missing_srcs = np.where(mat == 0)
 
         if 1 and len(missing_tgts):
-            import matplotlib.pyplot as pt
-
             from boxtree.visualization import TreePlotter
             plotter = TreePlotter(tree)
             plotter.draw_tree(fill=False, edgecolor="black")
@@ -283,6 +310,7 @@ def test_fmm_completeness(ctx_getter, dims, nsources, ntargets,
                     tree.indices_to_tree_target_order(missing_tgts)
             tree_order_missing_srcs = \
                     tree.indices_to_tree_source_order(missing_srcs)
+            from pytools.debug import shell;shell()
 
             src_boxes = [
                     tree.find_box_nr_for_source(i)
@@ -306,8 +334,6 @@ def test_fmm_completeness(ctx_getter, dims, nsources, ntargets,
             pt.show()
             from pytools.debug import shell; shell()
 
-            pt.spy(mat)
-            pt.show()
 
     # }}}
 
@@ -341,9 +367,9 @@ def test_pyfmmlib_fmm(ctx_getter):
 
     helmholtz_k = 2
 
-    sources = make_particle_array(queue, nsources, dims, dtype, seed=15)
+    sources = p_normal(queue, nsources, dims, dtype, seed=15)
     targets = (
-            make_particle_array(queue, ntargets, dims, dtype, seed=18)
+            p_normal(queue, ntargets, dims, dtype, seed=18)
             + np.array([2, 0]))
 
     sources_host = particle_array_to_host(sources)

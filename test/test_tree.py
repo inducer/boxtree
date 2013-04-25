@@ -34,7 +34,7 @@ import logging
 import pyopencl as cl
 from pyopencl.tools import pytest_generate_tests_for_pyopencl \
         as pytest_generate_tests
-from boxtree.tools import make_particle_array
+from boxtree.tools import make_normal_particle_array
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +59,7 @@ def test_bounding_box(ctx_getter):
             for nparticles in [9, 4096, 10**5]:
                 logger.info("%s - %s %s" % (dtype, dims, nparticles))
 
-                particles = make_particle_array(queue, nparticles, dims, dtype)
+                particles = make_normal_particle_array(queue, nparticles, dims, dtype)
 
                 bbox_min = [np.min(x.get()) for x in particles]
                 bbox_max = [np.max(x.get()) for x in particles]
@@ -97,7 +97,7 @@ def run_build_test(builder, queue, dims, dtype, nparticles, do_plot, max_particl
             " - ".join("%s: %s" % (k, v) for k, v in kwargs.iteritems())))
     logger.info(75*"-")
 
-    particles = make_particle_array(queue, nparticles, dims, dtype)
+    particles = make_normal_particle_array(queue, nparticles, dims, dtype)
 
     if do_plot:
         import matplotlib.pyplot as pt
@@ -222,9 +222,9 @@ def test_source_target_tree(ctx_getter, dims, do_plot=False):
     ntargets = 3 * 10**5
     dtype = np.float64
 
-    sources = make_particle_array(queue, nsources, dims, dtype,
+    sources = make_normal_particle_array(queue, nsources, dims, dtype,
             seed=12)
-    targets = make_particle_array(queue, ntargets, dims, dtype,
+    targets = make_normal_particle_array(queue, ntargets, dims, dtype,
             seed=19)
 
     if do_plot:
@@ -317,9 +317,9 @@ def test_extent_tree(ctx_getter, dims, do_plot=False):
     dtype = np.float64
     npoint_sources_per_source = 16
 
-    sources = make_particle_array(queue, nsources, dims, dtype,
+    sources = make_normal_particle_array(queue, nsources, dims, dtype,
             seed=12)
-    targets = make_particle_array(queue, ntargets, dims, dtype,
+    targets = make_normal_particle_array(queue, ntargets, dims, dtype,
             seed=19)
 
     from pyopencl.clrandom import RanluxGenerator
@@ -454,7 +454,7 @@ def test_geometry_query(ctx_getter, dims, do_plot=False):
     nparticles = 10**5
     dtype = np.float64
 
-    particles = make_particle_array(queue, nparticles, dims, dtype)
+    particles = make_normal_particle_array(queue, nparticles, dims, dtype)
 
     if do_plot:
         import matplotlib.pyplot as pt
@@ -467,7 +467,7 @@ def test_geometry_query(ctx_getter, dims, do_plot=False):
     tree, _ = tb(queue, particles, max_particles_in_box=30, debug=True)
 
     nballs = 10**4
-    ball_centers = make_particle_array(queue, nballs, dims, dtype)
+    ball_centers = make_normal_particle_array(queue, nballs, dims, dtype)
     ball_radii = cl.array.empty(queue, nballs, dtype).fill(0.1)
 
     from boxtree.geo_lookup import LeavesToBallsLookupBuilder

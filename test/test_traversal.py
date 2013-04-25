@@ -31,7 +31,7 @@ import pytest
 from pyopencl.tools import pytest_generate_tests_for_pyopencl \
         as pytest_generate_tests
 
-from boxtree.tools import make_particle_array
+from boxtree.tools import make_normal_particle_array
 
 import logging
 logger = logging.getLogger(__name__)
@@ -54,11 +54,11 @@ def test_tree_connectivity(ctx_getter, dims, sources_are_targets):
 
     dtype = np.float64
 
-    sources = make_particle_array(queue, 1 * 10**5, dims, dtype)
+    sources = make_normal_particle_array(queue, 1 * 10**5, dims, dtype)
     if sources_are_targets:
         targets = None
     else:
-        targets = make_particle_array(queue, 2 * 10**5, dims, dtype)
+        targets = make_normal_particle_array(queue, 2 * 10**5, dims, dtype)
 
     from boxtree import TreeBuilder
     tb = TreeBuilder(ctx)

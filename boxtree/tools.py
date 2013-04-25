@@ -30,6 +30,7 @@ from pytools import Record, memoize_method
 import pyopencl as cl
 import pyopencl.array
 from mako.template import Template
+from pytools.obj_array import make_obj_array
 
 
 
@@ -63,14 +64,155 @@ def realloc_array(ary, new_shape, zero_fill, queue, wait_for):
     return new_ary, evt
 
 
-def make_particle_array(queue, nparticles, dims, dtype, seed=15):
+
+# {{{ particle distribution generators
+
+def make_normal_particle_array(queue, nparticles, dims, dtype, seed=15):
     from pyopencl.clrandom import RanluxGenerator
     rng = RanluxGenerator(queue, seed=seed)
 
-    from pytools.obj_array import make_obj_array
     return make_obj_array([
         rng.normal(queue, nparticles, dtype=dtype)
         for i in range(dims)])
+
+def make_surface_particle_array(queue, nparticles, dims, dtype, seed=15):
+    if dims == 2:
+        import loopy as lp
+        knl = lp.make_kernel(queue.device,
+            "{[i]: 0<=i<n}",
+            """
+                <> phi = 2*M_PI/n * i
+                x[i] = 0.5* (3*cos(phi) + 2*sin(3*phi))
+                y[i] = 0.5* (1*sin(phi) + 1.5*sin(2*phi))
+                """,
+            [
+                lp.GlobalArg("x", dtype, shape="n"),
+                lp.GlobalArg("y", dtype, shape="n"),
+                lp.ValueArg("n", np.int32),
+                ])
+
+        knl = lp.split_iname(knl, "i", 128, outer_tag="g.0", inner_tag="l.0")
+
+        cknl = lp.CompiledKernel(queue.context, knl)
+        evt, result = cknl(queue, n=nparticles)
+
+        result = [x.ravel() for x in result]
+
+        return make_obj_array(result)
+    elif dims == 3:
+        n = int(nparticles**0.5)
+
+        import loopy as lp
+        knl = lp.make_kernel(queue.device,
+            "{[i,j]: 0<=i,j<n}",
+            """
+                <> phi = 2*M_PI/n * i
+                <> theta = 2*M_PI/n * j
+                x[i,j] = 5*cos(phi) * (3 + cos(theta))
+                y[i,j] = 5*sin(phi) * (3 + cos(theta))
+                z[i,j] = 5*sin(theta)
+                """,
+            [
+                lp.GlobalArg("x", dtype, shape="n,n"),
+                lp.GlobalArg("y", dtype, shape="n,n"),
+                lp.GlobalArg("z", dtype, shape="n,n"),
+                lp.ValueArg("n", np.int32),
+                ])
+
+        knl = lp.split_iname(knl, "i", 16, outer_tag="g.1", inner_tag="l.1")
+        knl = lp.split_iname(knl, "j", 16, outer_tag="g.0", inner_tag="l.0")
+
+        cknl = lp.CompiledKernel(queue.context, knl)
+        evt, result = cknl(queue, n=n)
+
+        result = [x.ravel() for x in result]
+
+        return make_obj_array(result)
+    else:
+        raise NotImplementedError
+
+
+def make_uniform_particle_array(queue, nparticles, dims, dtype, seed=15):
+    if dims == 2:
+        n = int(nparticles**0.5)
+
+        import loopy as lp
+        knl = lp.make_kernel(queue.device,
+            "{[i,j]: 0<=i,j<n}",
+            """
+                <> xx = 4*i/(n-1)
+                <> yy = 4*j/(n-1)
+                <float64> angle = 0.3
+                <> s = sin(angle)
+                <> c = cos(angle)
+                x[i,j] = c*xx + s*yy - 2
+                y[i,j] = -s*xx + c*yy - 2
+                """,
+            [
+                lp.GlobalArg("x", dtype, shape="n,n"),
+                lp.GlobalArg("y", dtype, shape="n,n"),
+                lp.ValueArg("n", np.int32),
+                ], assumptions="n>0")
+
+        knl = lp.split_iname(knl, "i", 16, outer_tag="g.1", inner_tag="l.1")
+        knl = lp.split_iname(knl, "j", 16, outer_tag="g.0", inner_tag="l.0")
+
+        cknl = lp.CompiledKernel(queue.context, knl)
+        evt, result = cknl(queue, n=n)
+
+        result = [x.ravel() for x in result]
+
+        return make_obj_array(result)
+    elif dims == 3:
+        n = int(nparticles**(1/3))
+
+        import loopy as lp
+        knl = lp.make_kernel(queue.device,
+            "{[i,j,k]: 0<=i,j,k<n}",
+            """
+                <> xx = i/(n-1)
+                <> yy = j/(n-1)
+                <> zz = k/(n-1)
+
+                <float64> phi = 0.3
+                <> s1 = sin(phi)
+                <> c1 = cos(phi)
+
+                <> xxx = c1*xx + s1*yy
+                <> yyy = -s1*xx + c1*yy
+                <> zzz = zz
+
+                <float64> theta = 0.7
+                <> s2 = sin(theta)
+                <> c2 = cos(theta)
+
+                x[i,j,k] = 4 * (c2*xxx + s2*zzz) - 2
+                y[i,j,k] = 4 * yyy - 2
+                z[i,j,k] = 4 * (-s2*xxx + c2*zzz) - 2
+                """,
+            [
+                lp.GlobalArg("x", dtype, shape="n,n,n"),
+                lp.GlobalArg("y", dtype, shape="n,n,n"),
+                lp.GlobalArg("z", dtype, shape="n,n,n"),
+                lp.ValueArg("n", np.int32),
+                ], assumptions="n>0")
+
+        knl = lp.split_iname(knl, "j", 16, outer_tag="g.1", inner_tag="l.1")
+        knl = lp.split_iname(knl, "k", 16, outer_tag="g.0", inner_tag="l.0")
+
+        cknl = lp.CompiledKernel(queue.context, knl)
+        evt, result = cknl(queue, n=n)
+
+        result = [x.ravel() for x in result]
+
+        return make_obj_array(result)
+    else:
+        raise NotImplementedError
+
+def make_rotated_uniform_particle_array(queue, nparticles, dims, dtype, seed=15):
+    raise NotImplementedError
+
+# }}}
 
 
 
