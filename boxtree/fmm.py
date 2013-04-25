@@ -114,13 +114,22 @@ def drive_fmm(traversal, expansion_wrangler, src_weights):
 
     # {{{ "Stage 6:" form locals for separated bigger mpoles ("list 4")
 
-    logger.debug("form locals for separated bigger mpoles ('list 4')")
+    logger.debug("form locals for separated bigger mpoles ('list 4 far')")
 
     local_exps = local_exps + wrangler.form_locals(
             traversal.target_or_target_parent_boxes,
             traversal.sep_bigger_starts,
             traversal.sep_bigger_lists,
             src_weights)
+
+    if traversal.sep_close_bigger_starts is not None:
+        logger.debug("evaluate directly for separated close bigger mpoles ('list 4 close')")
+
+        potentials = potentials + wrangler.eval_direct(
+                traversal.target_or_target_parent_boxes,
+                traversal.sep_close_bigger_starts,
+                traversal.sep_close_bigger_lists,
+                src_weights)
 
     # }}}
 

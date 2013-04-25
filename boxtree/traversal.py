@@ -561,7 +561,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
 #     |  |          |          |          |
 #     B  | X     O! | O     O! | O     O! |
 #
-# "so": adjacent to A or overlapping when stick-out is taken into account
+# "so": adjacent or overlapping when stick-out is taken into account (to A)
 # "adj": adjacent to A without stick-out
 #
 # Note that once a parent is no longer "adj" or "so", it's children won't be
@@ -627,35 +627,40 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
                 {
                     // Found one.
 
-                    /*
                     %if sources_have_extent or targets_have_extent:
-                        bool a_or_o_with_stick_out = is_adjacent_or_overlapping(root_extent,
-                            center, box_level, colleague_center, walk_level, true, 'b');
-                    %else:
-                        bool a_or_o_with_stick_out = false;
-                    %endif
-                    */
+                        const bool a_or_o_with_stick_out =
+                            is_adjacent_or_overlapping(root_extent,
+                                center, box_level, colleague_center, walk_level, true, 'b');
 
-                    bool parent_a_or_o_with_stick_out = is_adjacent_or_overlapping(root_extent,
-                        parent_center, box_level-1, colleague_center, walk_level, false, 'n');
-
-                    if (parent_a_or_o_with_stick_out)
-                    {
-                        APPEND_sep_bigger(colleague_box_id);
-                    }
-
-                    /*
                     if (a_or_o_with_stick_out)
                     {
-                        // colleague_box_id is too close and overlaps our stick_out
-                        // region. We're obliged to do the interaction directly.
+                        // "Case 1" above: colleague_box_id is too close and
+                        // overlaps our stick_out region. We're obliged to do
+                        // the interaction directly.
 
                         APPEND_sep_close_bigger(colleague_box_id);
-
-                        // This interaction will also not 'rain down' upon us through
-                        // a parent's list 4 because...?
                     }
-                    */
+                    else
+                    %endif
+                    {
+                        bool parent_a_or_o_with_stick_out = is_adjacent_or_overlapping(root_extent,
+                            parent_center, box_level-1, colleague_center, walk_level, true, 'b');
+
+                        if (parent_a_or_o_with_stick_out)
+                        {
+                            // "Case 2" above: We're the first box down the chain
+                            // to be far enough away to let the interaction into
+                            // our local downward subtree.
+                            APPEND_sep_bigger(colleague_box_id);
+                        }
+                        else
+                        {
+                            // "Case 2" above: A parent box was already far
+                            // enough away to let the interaction into its
+                            // local downward subtree. We'll get the interaction
+                            // that way. Nothing to do.
+                        }
+                    }
                 }
             }
         }
