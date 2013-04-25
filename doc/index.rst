@@ -41,6 +41,7 @@ Overview
     :maxdepth: 3
 
     reference
+    misc
 
 Indices and tables
 ------------------
