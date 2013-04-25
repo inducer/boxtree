@@ -636,9 +636,6 @@ EXTRACT_NONCHILD_SRCNTGT_COUNT_TPL = ElementwiseTemplate(
     operation=r"""//CL//
         if (i >= highest_possibly_split_box_nr)
         {
-            // box_morton_bin_counts gets written in morton scan output.
-            // Therefore, newly created boxes in the last level don't
-            // have it initialized.
             box_nonchild_srcntgt_counts[i] = 0;
         }
         else if (box_srcntgt_counts[i] == 0)
@@ -803,6 +800,8 @@ BOX_INFO_KERNEL_TPL =  ElementwiseTemplate(
         particle_id_t *box_source_counts,
         particle_id_t *box_target_counts,
         particle_id_t max_particles_in_box,
+        box_level_t *box_levels,
+        box_level_t nlevels,
 
         /* output */
         box_id_t *box_child_ids, /* [2**dimensions, aligned_nboxes] */
@@ -858,9 +857,18 @@ BOX_INFO_KERNEL_TPL =  ElementwiseTemplate(
             box_flags[box_id] = 0; // no children, no sources, no targets, bye.
             PYOPENCL_ELWISE_CONTINUE;
         }
-        else if (particle_count - nonchild_srcntgt_count > max_particles_in_box)
+        else if (particle_count - nonchild_srcntgt_count > max_particles_in_box
+            && box_levels[box_id] + 1 < nlevels)
         {
             // This box has children, it is not a leaf.
+
+            // That second condition there covers a weird corner case.  It's
+            // obviously true--a last-level box won't have children.  But why
+            // is it necessary? It turns out that nonchild_srcntgt_count is not
+            // available (i.e. zero) for boxes on the last level. So these boxes
+            // look like they got split if they have enough non-child srcntgts,
+            // to the first part of the 'if' condition. But in fact they weren't,
+            // because of their non-child srcntgts.
 
             my_box_flags |= BOX_HAS_CHILDREN;
 
@@ -1254,6 +1262,7 @@ def get_tree_build_kernel_info(context, dimensions, coord_dtype,
             ("morton_nr_t", morton_nr_dtype),
             ("coord_vec_t", coord_vec_dtype),
             ("box_flags_t", box_flags_enum.dtype),
+            ("box_level_t", box_level_dtype),
             )
     codegen_args_tuples = tuple(codegen_args.iteritems())
     box_info_kernel = BOX_INFO_KERNEL_TPL.build(

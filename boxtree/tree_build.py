@@ -547,6 +547,10 @@ class TreeBuilder(object):
             box_nonchild_srcntgt_counts = empty(nboxes, particle_id_dtype)
             fin_debug("extract non-child srcntgt count")
 
+            # box_morton_bin_counts gets written in morton scan output.
+            # Therefore, newly created boxes in the last level don't
+            # have it initialized.
+
             assert len(level_start_box_nrs) >= 2
             highest_possibly_split_box_nr = level_start_box_nrs[-2]
 
@@ -814,6 +818,13 @@ class TreeBuilder(object):
 
         del srcntgts
 
+        nlevels = len(level_start_box_nrs) - 1
+        assert level + 1 == nlevels, (level+1, nlevels)
+        if debug:
+            max_level = np.max(box_levels.get())
+
+            assert max_level + 1 == nlevels
+
         # {{{ compute box info
 
         # A number of arrays below are nominally 2-dimensional and stored with
@@ -834,7 +845,7 @@ class TreeBuilder(object):
                 box_parent_ids, box_morton_nrs, bbox, aligned_nboxes,
                 box_srcntgt_counts, box_source_counts, box_target_counts,
                 max_particles_in_box,
-
+                box_levels, nlevels,
                 # output:
                 box_child_ids, box_centers, box_flags,
                 *(
@@ -846,15 +857,6 @@ class TreeBuilder(object):
                 wait_for=wait_for)
 
         # }}}
-
-        nlevels = len(level_start_box_nrs) - 1
-        assert level + 1 == nlevels, (level+1, nlevels)
-        if debug:
-            max_level = np.max(box_levels.get())
-
-            assert max_level + 1 == nlevels
-
-        del nlevels
 
         # {{{ build output
 
