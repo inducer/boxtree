@@ -114,10 +114,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL ball_id_t ball_nr)
                     // We want to descend into this box. Put the current state
                     // on the stack.
 
-                    ${walk_push()}
-
-                    walk_box_id = child_box_id;
-                    walk_morton_nr = 0;
+                    ${walk_push("child_box_id")}
                     continue;
                 }
             }

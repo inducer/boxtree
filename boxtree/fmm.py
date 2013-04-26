@@ -97,7 +97,7 @@ def drive_fmm(traversal, expansion_wrangler, src_weights):
 
     # {{{ "Stage 5:" evaluate sep. smaller mpoles ("list 3") at particles
 
-    logger.debug("evaluate sep. smaller mpoles ('list 3') at particles")
+    logger.debug("evaluate sep. smaller mpoles at particles ('list 3 far')")
 
     # (the point of aiming this stage at particles is specifically to keep its
     # contribution *out* of the downward-propagating local expansions)
@@ -109,6 +109,15 @@ def drive_fmm(traversal, expansion_wrangler, src_weights):
             mpole_exps)
 
     # these potentials are called beta in [1]
+
+    if traversal.sep_close_smaller_starts is not None:
+        logger.debug("evaluate separated close smaller interactions directly ('list 3 close')")
+
+        potentials = potentials + wrangler.eval_direct(
+                traversal.target_boxes,
+                traversal.sep_close_smaller_starts,
+                traversal.sep_close_smaller_lists,
+                src_weights)
 
     # }}}
 
@@ -123,7 +132,7 @@ def drive_fmm(traversal, expansion_wrangler, src_weights):
             src_weights)
 
     if traversal.sep_close_bigger_starts is not None:
-        logger.debug("evaluate directly for separated close bigger mpoles ('list 4 close')")
+        logger.debug("evaluate separated close bigger interactions directly ('list 4 close')")
 
         potentials = potentials + wrangler.eval_direct(
                 traversal.target_or_target_parent_boxes,

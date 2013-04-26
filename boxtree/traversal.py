@@ -105,7 +105,7 @@ typedef ${dtype_to_ctype(vec_types[coord_dtype, dimensions])} coord_vec_t;
     }
 </%def>
 
-<%def name="walk_push()">
+<%def name="walk_push(new_box)">
     box_stack[walk_level] = walk_box_id;
     morton_nr_stack[walk_level] = walk_morton_nr;
     ++walk_level;
@@ -117,6 +117,9 @@ typedef ${dtype_to_ctype(vec_types[coord_dtype, dimensions])} coord_vec_t;
         return;
     }
     %endif
+
+    walk_box_id = ${new_box};
+    walk_morton_nr = 0;
 </%def>
 
 """
@@ -129,11 +132,11 @@ HELPER_FUNCTION_TEMPLATE = r"""//CL//
 
 inline bool is_adjacent_or_overlapping(
     coord_t root_extent,
-    coord_vec_t center, int level,
-    coord_vec_t other_center, int other_level,
-    // these two are expected to be constant so that the inliner will kill the ifs.
-    const char include_stick_out,
-    const char who_target /* 'b' or 'o' for 'box' or 'other' */
+    // target and source order only matter if include_stick_out is true.
+    coord_vec_t target_center, int target_level,
+    coord_vec_t source_center, int source_level,
+    // this is expected to be constant so that the inliner will kill the if.
+    const bool include_stick_out
     )
 {
     // This checks if the two boxes overlap
@@ -142,38 +145,27 @@ inline bool is_adjacent_or_overlapping(
     // (Without the 'slack', there wouldn't be any
     // overlap.)
 
-    coord_t my_rad = LEVEL_TO_RAD(level);
-    coord_t other_rad = LEVEL_TO_RAD(other_level);
-    coord_t rad_sum = my_rad + other_rad;
-    coord_t slack = rad_sum + fmin(my_rad, other_rad);
+    coord_t target_rad = LEVEL_TO_RAD(target_level);
+    coord_t source_rad = LEVEL_TO_RAD(source_level);
+    coord_t rad_sum = target_rad + source_rad;
+    coord_t slack = rad_sum + fmin(target_rad, source_rad);
 
     if (include_stick_out)
     {
-        if (who_target == 'b')
-            slack += STICK_OUT_FACTOR * (
-                0
-                %if targets_have_extent:
-                    + my_rad
-                %endif
-                %if sources_have_extent:
-                    + other_rad
-                %endif
-                );
-        else
-            slack += STICK_OUT_FACTOR * (
-                0
-                %if sources_have_extent:
-                    + my_rad
-                %endif
-                %if targets_have_extent:
-                    + other_rad
-                %endif
-                );
+        slack += STICK_OUT_FACTOR * (
+            0
+            %if targets_have_extent:
+                + target_rad
+            %endif
+            %if sources_have_extent:
+                + source_rad
+            %endif
+            );
     }
 
     coord_t max_dist = 0;
     %for i in range(dimensions):
-        max_dist = fmax(max_dist, fabs(center.s${i} - other_center.s${i}));
+        max_dist = fmax(max_dist, fabs(target_center.s${i} - source_center.s${i}));
     %endfor
 
     return max_dist <= slack;
@@ -268,7 +260,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t box_id)
             ${load_center("child_center", "child_box_id")}
 
             bool a_or_o = is_adjacent_or_overlapping(root_extent,
-                center, level, child_center, box_levels[child_box_id], false, 'n');
+                center, level, child_center, box_levels[child_box_id], false);
 
             if (a_or_o)
             {
@@ -284,10 +276,8 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t box_id)
                     // on the stack.
 
                     dbg_printf(("    descend\n"));
-                    ${walk_push()}
+                    ${walk_push("child_box_id")}
 
-                    walk_box_id = child_box_id;
-                    walk_morton_nr = 0;
                     continue;
                 }
             }
@@ -349,7 +339,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
             ${load_center("child_center", "child_box_id")}
 
             bool a_or_o = is_adjacent_or_overlapping(root_extent,
-                center, level, child_center, box_levels[child_box_id], false, 'n');
+                center, level, child_center, box_levels[child_box_id], false);
 
             if (a_or_o)
             {
@@ -368,10 +358,9 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
                     // on the stack.
 
                     dbg_printf(("    descend\n"));
-                    ${walk_push()}
 
-                    walk_box_id = child_box_id;
-                    walk_morton_nr = 0;
+                    ${walk_push("child_box_id")}
+
                     continue;
                 }
             }
@@ -421,7 +410,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
             ${load_center("sib_center", "sib_box_id")}
 
             bool sep = !is_adjacent_or_overlapping(root_extent,
-                center, level, sib_center, box_levels[sib_box_id], false, 'n');
+                center, level, sib_center, box_levels[sib_box_id], false);
 
             if (sep)
             {
@@ -461,40 +450,82 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
 
         while (continue_walk)
         {
-            // Loop invariant: walk_box_id is always adjacent to box_id.
+            // Loop invariant: walk_box_id is, at first, always adjacent to box_id.
             // This is true at the first level because colleagues are by adjacent
             // by definition, and is kept true throughout the walk by only descending
             // into adjacent boxes.
+            //
+            // As we descend, we may find a child of an adjacent box that is
+            // non-adjacent to box_id.
+            //
+            // If neither sources nor targets have extent, then that nonadjacent
+            // child box is added to box_id's sep_smaller ("list 3 far") and that's it.
+            //
+            // If they have extent, then while they may be separated, the
+            // intersection of box_id's and the child box's stick-out region
+            // may be non-empty, and we thus need to add that child to
+            // sep_close_smaller ("list 3 close") for the interaction to be
+            // done by direct evaluation. We also need to descend into that
+            // child.
 
             box_id_t child_box_id = box_child_ids[walk_morton_nr * aligned_nboxes + walk_box_id];
-            dbg_printf(("  walk box id: %d morton: %d child id: %d level: %d\n",
-                walk_box_id, walk_morton_nr, child_box_id, walk_level));
+            dbg_printf(("  walk box id: %d morton: %d child id: %d\n",
+                walk_box_id, walk_morton_nr, child_box_id));
 
-            if (child_box_id)
+            box_flags_t child_box_flags = box_flags[child_box_id];
+
+            if (child_box_id
+                    && (child_box_flags & (BOX_HAS_OWN_SOURCES | BOX_HAS_CHILD_SOURCES)))
             {
                 ${load_center("child_center", "child_box_id")}
 
                 bool a_or_o = is_adjacent_or_overlapping(root_extent,
-                    center, level, child_center, box_levels[child_box_id], false, 'n');
+                    center, level, child_center, box_levels[child_box_id], false);
 
                 if (a_or_o)
                 {
-                    if (box_flags[child_box_id] & BOX_HAS_CHILDREN)
+                    if (child_box_flags & BOX_HAS_CHILD_SOURCES)
                     {
                         // We want to descend into this box. Put the current state
                         // on the stack.
 
-                        dbg_printf(("    descend\n"));
-                        ${walk_push()}
-
-                        walk_box_id = child_box_id;
-                        walk_morton_nr = 0;
+                        ${walk_push("child_box_id")}
                         continue;
                     }
                 }
                 else
                 {
-                    APPEND_sep_smaller(child_box_id);
+                    %if sources_have_extent or targets_have_extent:
+                        const bool a_or_o_with_stick_out =
+                            is_adjacent_or_overlapping(root_extent,
+                                center, level, child_center, box_levels[child_box_id],
+                                true);
+                    %else:
+                        const bool a_or_o_with_stick_out = false;
+                    %endif
+
+                    // We're no longer *immediately* adjacent to our target box, but
+                    // our stick-out regions might still have a non-empty intersection.
+
+                    if (!a_or_o_with_stick_out)
+                    {
+                        APPEND_sep_smaller(child_box_id);
+                    }
+                    else
+                    {
+                    %if sources_have_extent or targets_have_extent:
+                        if (child_box_flags & BOX_HAS_OWN_SOURCES)
+                        {
+                            APPEND_sep_close_smaller(child_box_id);
+                        }
+
+                        if (child_box_flags & BOX_HAS_CHILD_SOURCES)
+                        {
+                            ${walk_push("child_box_id")}
+                            continue;
+                        }
+                    %endif
+                    }
                 }
             }
 
@@ -621,7 +652,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
             {
                 ${load_center("colleague_center", "colleague_box_id")}
                 bool a_or_o = is_adjacent_or_overlapping(root_extent,
-                    center, box_level, colleague_center, walk_level, false, 'n');
+                    center, box_level, colleague_center, walk_level, false);
 
                 if (!a_or_o)
                 {
@@ -630,7 +661,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
                     %if sources_have_extent or targets_have_extent:
                         const bool a_or_o_with_stick_out =
                             is_adjacent_or_overlapping(root_extent,
-                                center, box_level, colleague_center, walk_level, true, 'b');
+                                center, box_level, colleague_center, walk_level, true);
 
                     if (a_or_o_with_stick_out)
                     {
@@ -644,7 +675,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
                     %endif
                     {
                         bool parent_a_or_o_with_stick_out = is_adjacent_or_overlapping(root_extent,
-                            parent_center, box_level-1, colleague_center, walk_level, true, 'b');
+                            parent_center, box_level-1, colleague_center, walk_level, true);
 
                         if (parent_a_or_o_with_stick_out)
                         {
@@ -1166,8 +1197,8 @@ class FMMTraversalBuilder:
                 sep_smaller_starts=sep_smaller.starts,
                 sep_smaller_lists=sep_smaller.lists,
 
-                sep_close_smaller_starts=sep_smaller.starts,
-                sep_close_smaller_lists=sep_smaller.lists,
+                sep_close_smaller_starts=sep_close_smaller_starts,
+                sep_close_smaller_lists=sep_close_smaller_lists,
 
                 sep_bigger_starts=sep_bigger.starts,
                 sep_bigger_lists=sep_bigger.lists,
