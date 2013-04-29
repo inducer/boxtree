@@ -28,55 +28,25 @@ logger = logging.getLogger(__name__)
 
 
 
-# {{{ expansion wrangler interface
-
-class ExpansionWranglerInterface:
-    """
-    """
-
-    def expansion_zeros(self):
-        pass
-
-    def potential_zeros(self):
-        pass
-
-    def reorder_src_weights(self, src_weights):
-        pass
-
-    def reorder_potentials(self, potentials):
-        pass
-
-    def form_multipoles(self, source_boxes, src_weights):
-        pass
-
-    def coarsen_multipoles(self, parent_boxes, start_parent_box, end_parent_box,
-            mpoles):
-        pass
-
-    def eval_direct(self, target_boxes, neighbor_sources_starts, neighbor_sources_lists,
-            src_weights):
-        pass
-
-    def multipole_to_local(self, target_or_target_parent_boxes,
-            starts, lists, mpole_exps):
-        pass
-
-    def eval_multipoles(self, target_boxes, sep_smaller_nonsiblings_starts,
-            sep_smaller_nonsiblings_lists, mpole_exps):
-        pass
-
-    def form_locals(self, target_or_target_parent_boxes, starts, lists, src_weights):
-        pass
-
-    def refine_locals(self, child_boxes, start_child_box, end_child_box, local_exps):
-        pass
-
-    def eval_locals(self, target_boxes, local_exps):
-        pass
-
-# }}}
 
 def drive_fmm(traversal, expansion_wrangler, src_weights):
+    """Top-level driver routine for a fast multipole calculation.
+
+    In part, this is intended as a template for custom FMMs, in the sense that
+    you may copy and paste its
+    `source code <https://github.com/inducer/boxtree/blob/master/boxtree/fmm.py>`_
+    as a starting point.
+
+    Nonetheless, many common applications (such as point-to-point FMMs) can be
+    covered by supplying the right *expansion_wrangler* to this routine.
+
+    :arg traversal: A :class:`boxtree.traversal.FMMTraversalInfo` instance.
+    :arg expansion_wrangler: An object exhibiting the :class:`ExpansionWranglerInterface`.
+    :arg src_weights: Source 'density/weights/charges'.
+        Passed unmodified to *expansion_wrangler*.
+
+    Returns the potentials computed by *expansion_wrangler*.
+    """
     tree = traversal.tree
 
     wrangler = expansion_wrangler
@@ -219,7 +189,116 @@ def drive_fmm(traversal, expansion_wrangler, src_weights):
 
     return result
 
+# {{{ expansion wrangler interface
 
+class ExpansionWranglerInterface:
+    """Abstract expansion handling interface for use with :func:`drive_fmm`.
+
+    See this
+    `test code <https://github.com/inducer/boxtree/blob/master/test/test_fmm.py>`_
+    for a very simple sample implementation.
+
+    Will usually hold a reference (and thereby be specific to) a :class:`boxtree.Tree`
+    instance.
+    """
+
+    def expansion_zeros(self):
+        """Return an expansions array (which must support addition)
+        capable of holding one multipole or local expansion for every
+        box in the tree.
+        """
+
+    def potential_zeros(self):
+        """Return a potentials array (which must support addition) capable of
+        holding a potential value for each target in the tree. Note that
+        :func:`drive_fmm` makes no assumptions about *potential* other than
+        that it supports addition--it may consist of potentials, gradients of
+        the potential, or arbitrary other per-target output data.
+        """
+
+    def reorder_src_weights(self, src_weights):
+        """Return a copy of *source_weights* in
+        :ref:`tree source order <particle-orderings>`.
+        *source_weights* is in user source order.
+        """
+
+    def reorder_potentials(self, potentials):
+        """Return a copy of *potentials* in
+        :ref:`user target order <particle-orderings>`.
+        *source_weights* is in tree target order.
+        """
+
+    def form_multipoles(self, source_boxes, src_weights):
+        """Return an expansions array (compatible with :meth:`expansion_zeros`)
+        containing multipole expansions in *source_boxes* due with *src_weights*.
+        All other expansions must be zero.
+        """
+
+    def coarsen_multipoles(self, parent_boxes, start_parent_box, end_parent_box,
+            mpoles):
+        """For each box in ``parent_boxes[start_parent_box:end_parent_box]``,
+        gather (and translate) the box's children's multipole expansions in *mpole*
+        and add the resulting expansion into the box's multipole expansion in *mpole*.
+
+        :returns: *mpoles*
+        """
+
+    def eval_direct(self, target_boxes, neighbor_sources_starts, neighbor_sources_lists,
+            src_weights):
+        """For each box in *target_boxes*, evaluate the influence of the neigbor sources
+        due to *src_weights*,
+        which use :ref:`csr` and are indexed like *target_boxes*.
+
+        :returns: a new potential array, see :meth:`potential_zeros`.
+        """
+
+    def multipole_to_local(self, target_or_target_parent_boxes,
+            starts, lists, mpole_exps):
+        """For each box in *target_or_target_parent_boxes*,
+        translate and add the influence of the multipole expansion
+        in *mpole_exps* into a new array of local expansions.
+        *starts* and *lists* use :ref:`csr`, and *starts* is indexed like *target_or_target_parent_boxes*.
+
+        :returns: a new (local) expansion array, see :meth:`expansion_zeros`.
+        """
+
+    def eval_multipoles(self, target_boxes, starts, lists, mpole_exps):
+        """For each box in *target_boxes*, evaluate the multipole expansion in
+        *mpole_exps* in the nearby boxes given in *starts* and *lists*,
+        and return a new potential array.
+        *starts* and *lists* use :ref:`csr` and *starts* is indexed like *target_boxes*.
+
+        :returns: a new potential array, see :meth:`potential_zeros`.
+        """
+
+    def form_locals(self, target_or_target_parent_boxes, starts, lists, src_weights):
+        """For each box in *target_or_target_parent_boxes*, form local
+        expansions due to the sources
+        in the nearby boxes given in *starts* and *lists*,
+        and return a new local expansion array.
+        *starts* and *lists* use :ref:`csr` and *starts* is indexed like *target_or_target_parent_boxes*.
+
+        :returns: a new local expansion array, see :meth:`expansion_zeros`.
+        """
+        pass
+
+    def refine_locals(self, child_boxes, start_child_box, end_child_box, local_exps):
+        """For each box in *child_boxes[start_child_box:end_child_box]*,
+        translate the box's parent's local expansion in *local_exps*
+        and add the resulting expansion into the box's local expansion in *local_exps*.
+
+        :returns: *local_exps*
+        """
+
+
+    def eval_locals(self, target_boxes, local_exps):
+        """For each box in *target_boxes*, evaluate the local expansion in *local_exps*
+        and return a new potential array.
+
+        :returns: a new potential array, see :meth:`potential_zeros`.
+        """
+
+# }}}
 
 
 # vim: filetype=pyopencl:fdm=marker

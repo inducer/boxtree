@@ -32,7 +32,18 @@ import numpy as np
 
 
 
+__doc__ = """Integrates :mod:`boxtree` with
+`pyfmmlib <http://pypi.python.org/pypi/pyfmmlib>`_.
+"""
+
+
+
+
 class Helmholtz2DExpansionWrangler:
+    """Implements the :class:`boxtree.fmm.ExpansionWranglerInterface`
+    by using pyfmmlib.
+    """
+
     def __init__(self, tree, helmholtz_k, nterms):
         self.tree = tree
         self.helmholtz_k = helmholtz_k
