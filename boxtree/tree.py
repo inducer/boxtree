@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 # {{{ box flags
 
 class box_flags_enum:
-    """Constants for box types."""
+    """Constants for box flags bit field."""
 
     dtype = np.dtype(np.uint8)
 
@@ -89,28 +89,41 @@ class Tree(FromDeviceGettableRecord):
     Instances of this class are not constructed directly. They are returned
     by :meth:`TreeBuilder.__call__`.
 
-    **Flags**
+    Unless otherwise indicated, all bulk data in this data structure is stored
+    in a :class:`pyopencl.array.Array`. See also :meth:`get`.
+
+    .. rubric:: Flags
 
     .. attribute:: sources_are_targets
 
-        ``bool`` whether sources and targets are the same
+        ``bool``
+
+        Whether sources and targets are the same
 
     .. attribute:: sources_have_extent
 
-        ``bool`` whether this tree has sources in non-leaf boxes
+        ``bool``
 
-    .. attribute:: target_have_extent
+        Whether this tree has sources in non-leaf boxes
 
-        ``bool`` whether this tree has targets in non-leaf boxes
+    .. attribute:: targets_have_extent
 
-    **Data types**
+        ``bool``
+
+        Whether this tree has targets in non-leaf boxes
+
+    .. ------------------------------------------------------------------------
+    .. rubric:: Data types
+    .. ------------------------------------------------------------------------
 
     .. attribute:: particle_id_dtype
     .. attribute:: box_id_dtype
     .. attribute:: coord_dtype
     .. attribute:: box_level_dtype
 
-    **Counts and sizes**
+    .. ------------------------------------------------------------------------
+    .. rubric:: Counts and sizes
+    .. ------------------------------------------------------------------------
 
     .. attribute:: root_extent
 
@@ -118,7 +131,9 @@ class Tree(FromDeviceGettableRecord):
 
     .. attribute:: stick_out_factor
 
-        See argument *stick_out_factor* of :meth:`Tree.__call__`.
+        The fraction of the box diameter by which the :math:`l^\infty` circles
+        given by :attr:`source_radii` may stick out the box in which they are
+        contained. A scalar.
 
     .. attribute:: nlevels
 
@@ -134,6 +149,7 @@ class Tree(FromDeviceGettableRecord):
     .. attribute:: level_start_box_nrs
 
         ``box_id_t [nlevels+1]``
+
         A :class:`numpy.ndarray` of box ids
         indicating the ID at which each level starts. Levels
         are contiguous in box ID space. To determine
@@ -144,84 +160,129 @@ class Tree(FromDeviceGettableRecord):
     .. attribute:: level_start_box_nrs_dev
 
         ``particle_id_t [nlevels+1``
+
         The same array as :attr:`level_start_box_nrs`
         as a :class:`pyopencl.array.Array`.
 
-    **Per-particle arrays**
+    .. ------------------------------------------------------------------------
+    .. rubric:: Per-particle arrays
+    .. ------------------------------------------------------------------------
 
     .. attribute:: sources
 
         ``coord_t [dimensions][nsources]``
         (an object array of coordinate arrays)
+
         Stored in :ref:`tree source order <particle-orderings>`.
         May be the same array as :attr:`targets`.
 
     .. attribute:: source_radii
 
         ``coord_t [nsources]``
-        :math:`l^\infty` radii of the *sources*.
+        :math:`l^\infty` radii of the :attr:`sources`.
+
         Available if :attr:`sources_have_extent` is *True*.
 
     .. attribute:: targets
 
         ``coord_t [dimensions][nsources]``
         (an object array of coordinate arrays)
+
         Stored in :ref:`tree target order <particle-orderings>`. May be the same array as :attr:`sources`.
+
+    .. attribute:: target_radii
+
+        ``coord_t [nsources]``
+
+        :math:`l^\infty` radii of the :attr:`targets`.
+        Available if :attr:`sources_have_extent` is *True*.
+
+    .. ------------------------------------------------------------------------
+    .. rubric:: Tree/user order indices
+    .. ------------------------------------------------------------------------
+
+    See :ref:`particle-orderings`.
 
     .. attribute:: user_source_ids
 
         ``particle_id_t [nsources]``
+
         Fetching *from* these indices will reorder the sources
         from user source order into :ref:`tree source order <particle-orderings>`.
 
     .. attribute:: sorted_target_ids
 
         ``particle_id_t [ntargets]``
+
         Fetching *from* these indices will reorder the targets
         from :ref:`tree target order <particle-orderings>` into user target order.
 
-    **Per-box arrays**
+    .. ------------------------------------------------------------------------
+    .. rubric:: Box properties
+    .. ------------------------------------------------------------------------
 
     .. attribute:: box_source_starts
 
-        ``particle_id_t [nboxes]`` May be the same array as :attr:`box_target_starts`.
+        ``particle_id_t [nboxes]``
+
+        List of sources in each box. Records start indices in :attr:`sources`
+        for each box.
+        Use together with :attr:`box_source_counts`.
+        May be the same array as :attr:`box_target_starts`.
 
     .. attribute:: box_source_counts
 
-        ``particle_id_t [nboxes]`` May be the same array as :attr:`box_target_counts`.
+        ``particle_id_t [nboxes]``
+
+        List of sources in each box. Records number of sources from :attr:`sources`
+        in each box.
+        Use together with :attr:`box_source_starts`.
+        May be the same array as :attr:`box_target_counts`.
 
     .. attribute:: box_target_starts
 
-        ``particle_id_t [nboxes]`` May be the same array as :attr:`box_source_starts`.
+        ``particle_id_t [nboxes]``
+
+        List of targets in each box. Records start indices in :attr:`targets`
+        for each box.
+        Use together with :attr:`box_target_counts`.
+        May be the same array as :attr:`box_source_starts`.
 
     .. attribute:: box_target_counts
 
-        ``particle_id_t [nboxes]`` May be the same array as :attr:`box_source_counts`.
+        ``particle_id_t [nboxes]``
+
+        List of targets in each box. Records number of sources from :attr:`targets`
+        in each box.
+        Use together with :attr:`box_target_starts`.
+        May be the same array as :attr:`box_source_counts`.
 
     .. attribute:: box_parent_ids
 
         ``box_id_t [nboxes]``
+
         Box 0 (the root) has 0 as its parent.
 
     .. attribute:: box_child_ids
 
-        ``box_id_t [2**dimensions, aligned_nboxes]`` (C order)
+        ``box_id_t [2**dimensions, aligned_nboxes]`` (C order, 'structure of arrays')
+
         "0" is used as a 'no child' marker, as the root box can never
         occur as any box's child.
 
     .. attribute:: box_centers
 
-        ``coord_t [dimensions, aligned_nboxes]`` (C order)
+        ``coord_t [dimensions, aligned_nboxes]`` (C order, 'structure of arrays')
 
     .. attribute:: box_levels
 
-        ``box_level_t [nboxes]``
+        :attr:`box_level_dtype` ``box_level_t [nboxes]``
 
     .. attribute:: box_flags
 
         :attr:`box_flags_enum.dtype` ``[nboxes]``
-        A combination of the :class:`box_flags_enum` constants.
 
+        A bitwise combination of :class:`box_flags_enum` constants.
     """
 
     @property
@@ -272,8 +333,8 @@ class Tree(FromDeviceGettableRecord):
         Requires that :attr:`sources_have_extent` is *True*.
 
         :arg queue: a :class:`pyopencl.CommandQueue` instance
-        :arg point_source_starts: `point_source_starts[isrc]` and
-            `point_source_starts[isrc+1]` together indicate a ranges of point
+        :arg point_source_starts: ``point_source_starts[isrc]`` and
+            ``point_source_starts[isrc+1]`` together indicate a ranges of point
             particle indices in *point_sources* which will be linked to the
             original (extent-having) source number *isrc*. *isrc* is in :ref:`user
             source order <particle-orderings>`.
@@ -501,6 +562,7 @@ class TreeWithLinkedPointSources(Tree):
     .. attribute:: point_source_starts
 
         ``particle_id_t [nsources]``
+
         The array
         ``point_sources[:][point_source_starts[isrc]:point_source_starts[isrc]+point_source_counts[isrc]]``
         contains the locations of point sources corresponding to
@@ -519,11 +581,13 @@ class TreeWithLinkedPointSources(Tree):
 
         ``coord_t [dimensions][npoint_sources]``
         (an object array of coordinate arrays)
+
         Stored in :ref:`tree point source order <particle-orderings>`.
 
     .. attribute:: user_point_source_ids
 
         ``particle_id_t [nsources]``
+
         Fetching *from* these indices will reorder the sources
         from user point source order into :ref:`tree point source order <particle-orderings>`.
 

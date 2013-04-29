@@ -1,7 +1,19 @@
 Installation
 ============
 
-Installation should require no more than the usual::
+This command should install :mod:`boxtree`::
+
+    pip install boxtree
+
+You may need to run this with :command:`sudo`.
+If you don't already have `pip <https://pypi.python.org/pypi/pip>`_,
+run this beforehand::
+
+    curl -O https://raw.github.com/pypa/pip/master/contrib/get-pip.py
+    python get-pip.py
+
+For a more manual installation, download the source, unpack it,
+and say::
 
     python setup.py install
 
@@ -28,7 +40,7 @@ Licensing
 
 Boxtree is licensed to you under the MIT/X Consortium license:
 
-Copyright (c) 2012-13 Andreas Klöckner and Contributors.
+Copyright (c) 2012-13 Andreas Klöckner and contributors.
 
 Permission is hereby granted, free of charge, to any person
 obtaining a copy of this software and associated documentation
@@ -55,4 +67,4 @@ Frequently Asked Questions
 ==========================
 
 The FAQ is maintained collaboratively on the
-`Wiki FAQ page <http://wiki.tiker.net/Boxtree/FrequentlyAskedQuestions>`_.
+`Wiki FAQ page <http://wiki.tiker.net/BoxTree/FrequentlyAskedQuestions>`_.

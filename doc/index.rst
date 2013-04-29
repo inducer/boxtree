@@ -1,20 +1,15 @@
 Welcome to boxtree's documentation!
 ===================================
 
-.. note::
-    Boxtree hasn't been released yet. What's documented here generally
-    exists as code and has survived some light testing. So if you try
-    it and it works for you, great. If not, please do make sure to shoot
-    me a message.
-
 boxtree is a package that, given some point locations in two or three
 dimensions, sorts them into an adaptive quad/octree of boxes, efficiently, in
-parallel, using OpenCL.
+parallel, using OpenCL. It also computes geometric lookup tables and
+generates FMM interaction lists.
 
 Other places on the web to find boxtree stuff:
 
 * `wiki home page <http://wiki.tiker.net/BoxTree>`_
-* `source code via git <http://github.com/inducer/boxtree>`_
+* `github (source code, bug tracker) <http://github.com/inducer/boxtree>`_
 
 Now you obviously want to watch the library do something (at least mildly)
 cool? Well, sit back and watch:
@@ -24,14 +19,14 @@ cool? Well, sit back and watch:
    :end-before: ENDEXAMPLE
 
 This file is included in the :mod:`boxtree` distribution as
-:file:`examples/demo.py`.  With some plotting code (not shown above, but
+:download:`examples/demo.py <../examples/demo.py>`.  With some plotting code (not shown above, but
 included in the demo file), you can see what's going on:
 
 .. image:: images/tree.png
 
 More importantly, perhaps, than being able to draw the tree, the :class:`boxtree.Tree`
-data structure is now accesible via the `tree` variable above, and the connecitivity
-information needed for an FMM-like traversal is available in `trav` as
+data structure is now accesible via the ``tree`` variable above, and the connecitivity
+information needed for an FMM-like traversal is available in ``trav`` as
 a :class:`boxtree.traversal.FMMTraversalInfo`.
 
 Overview
@@ -40,7 +35,11 @@ Overview
 .. toctree::
     :maxdepth: 3
 
-    reference
+    intro
+    tree
+    traversal
+    fmm
+    lookup
     misc
 
 Indices and tables
@@ -50,3 +49,4 @@ Indices and tables
 * :ref:`modindex`
 * :ref:`search`
 
+.. vim: sw=4

@@ -28,6 +28,54 @@ logger = logging.getLogger(__name__)
 
 
 
+# {{{ expansion wrangler interface
+
+class ExpansionWranglerInterface:
+    """
+    """
+
+    def expansion_zeros(self):
+        pass
+
+    def potential_zeros(self):
+        pass
+
+    def reorder_src_weights(self, src_weights):
+        pass
+
+    def reorder_potentials(self, potentials):
+        pass
+
+    def form_multipoles(self, source_boxes, src_weights):
+        pass
+
+    def coarsen_multipoles(self, parent_boxes, start_parent_box, end_parent_box,
+            mpoles):
+        pass
+
+    def eval_direct(self, target_boxes, neighbor_sources_starts, neighbor_sources_lists,
+            src_weights):
+        pass
+
+    def multipole_to_local(self, target_or_target_parent_boxes,
+            starts, lists, mpole_exps):
+        pass
+
+    def eval_multipoles(self, target_boxes, sep_smaller_nonsiblings_starts,
+            sep_smaller_nonsiblings_lists, mpole_exps):
+        pass
+
+    def form_locals(self, target_or_target_parent_boxes, starts, lists, src_weights):
+        pass
+
+    def refine_locals(self, child_boxes, start_child_box, end_child_box, local_exps):
+        pass
+
+    def eval_locals(self, target_boxes, local_exps):
+        pass
+
+# }}}
+
 def drive_fmm(traversal, expansion_wrangler, src_weights):
     tree = traversal.tree
 

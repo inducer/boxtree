@@ -28,30 +28,54 @@ from boxtree.tree_build import TreeBuilder
 __all__ = ["Tree", "TreeBuilder", "box_flags_enum"]
 
 __doc__ = """
-This module sorts particles into an adaptively refined quad/octree.
-See :mod:`boxtree.traversal` for computing fast multipole interaction
-lists on this tree structure. Note that while traversal generation
-builds on the result of particle sorting (described here),
-it is completely distinct in the software sense.
+:mod:`boxtree` can do three main things:
 
-The tree builder can be run in three modes:
+* it can sort particles into an adaptively refined quad/octree,
+  see :class:`boxtree.Tree` and :class:`boxtree.TreeBuilder`.
+
+* it can compute fast-multipole-like interaction lists on this tree structure,
+  see :mod:`boxtree.traversal`. Note that while this traversal generation
+  builds on the result of particle sorting,
+  it is completely distinct in the software sense.
+
+* It can compute geometric lookup structures based on a :class:`boxtree.Tree`,
+  see :mod:`boxtree.geo_lookup`.
+
+Tree modes
+----------
+
+:mod:`boxtree` can operate in three 'modes':
 
 * one where no distinction is made between sources and targets. In this mode,
   all participants in the interaction are called 'particles'.
-  (*targets is None* in the call to :meth:`TreeBuilder.__call__`)
+  (``targets is None`` in the call to :meth:`boxtree.TreeBuilder.__call__`)
 
 * one where a distinction between sources and targets is made.
-  (*targets is not None* in the call to :meth:`TreeBuilder.__call__`)
+  (``targets is not None`` in the call to :meth:`boxtree.TreeBuilder.__call__`)
 
 * one where a distinction between sources and targets is made,
   and where sources and/or targets are considered to have an extent, given by an
   :math:`l^\infty` radius.
   (``targets is not None`` and ``source_radii is not None or target_radii is
-  not None`` in the call to :meth:`TreeBuilder.__call__`)
+  not None`` in the call to :meth:`boxtree.TreeBuilder.__call__`)
 
   If sources have an extent, it is possible to 'link' each source with a number
-  of point sources. It is important to internalize this bit of terminology
-  here: A *source* may consist of multiple *point sources*.
+  of point sources. For this case, it is important to internalize this bit of
+  terminology: A *source* may consist of multiple *point sources*.
+
+.. _extent:
+
+Sources and targets with extent
+-------------------------------
+
+:attr:`Tree.source_radii` and :attr:`Tree.target_radii` specify the
+radii of of :math:`l^\infty` 'circles' (that is, squares) centered at
+:attr:`Tree.sources` and :attr:`Tree.targets` that contain the entire
+extent of that source or target.
+
+:mod:`boxtree.traversal` guarantees that, in generating traversals, all
+interactions to targets within the source extent and from sources within the
+target extent will invoke special (usually direct, non-multipole) evaluation.
 
 .. _particle-orderings:
 
@@ -77,6 +101,34 @@ the point sources have their own orderings:
 
 :attr:`TreeWithLinkedPointSources.user_point_source_ids` helps translate point
 source arrays into tree order for processing.
+
+.. _csr:
+
+CSR-like interaction list storage
+---------------------------------
+
+Many list-like data structures in :mod:`boxtree` consists of
+two arrays, one whose name ends in ``_starts``, and another whose
+name ends in ``_lists``. For example,
+suppose we would like to find the colleagues of box #17 using
+:attr:`boxtree.traversal.FMMTraversalInfo.colleagues_starts`
+and
+:attr:`boxtree.traversal.FMMTraversalInfo.colleagues_lists`.
+
+The following snippet of code achieves this::
+
+    ibox = 17
+    start, end = colleagues_starts[ibox:ibox+2]
+    ibox_colleagues = colleagues_lists[start:end]
+
+This indexing scheme has the following properties:
+
+* If the underlying indexing array (say the list of all boxes) has *n* entries,
+  then the ``_starts`` array has *n+1* entries. The very last entry determines
+  the length of the last list.
+
+* The lists in ``_lists`` are stored contiguously. The start of the next list
+  is automatically the end of the previous one.
 """
 
 # vim: filetype=pyopencl:fdm=marker

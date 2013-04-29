@@ -79,18 +79,13 @@ class TreeBuilder(object):
             If ``None``, *particles* act as targets, too.
             Must have the same (inner) dtype as *particles*.
         :arg source_radii: If not *None*, a :class:`pyopencl.array.Array` of the
-            same dtype as *particles*. The array specifies radii
-            of :math:`l^\infty` 'circles' centered at *particles* that contain
-            the entire extent of each source. Specifying this parameter
-            implies that the return value of this call has
-            :attr:`Tree.sources_have_extent` set to *True*.
+            same dtype as *particles*.
 
             If this is given, *targets* must also be given, i.e. sources and
-            targets must be separate.
+            targets must be separate. See :ref:`extent`.
+
         :arg target_radii: Like *source_radii*, but for targets.
-        :arg stick_out_factor: The fraction of the box diameter by which the
-            :math:`l^\infty` circles given by *source_radii* may stick out
-            the box in which they are contained.
+        :arg stick_out_factor: See :attr:`Tree.stick_out_factor` and :ref:`extent`.
         :arg wait_for: may either be *None* or a list of :class:`pyopencl.Event`
             instances for whose completion this command waits before starting
             exeuction.

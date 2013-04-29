@@ -233,7 +233,10 @@ class FromDeviceGettableRecord(Record):
     """
 
     def get(self):
-        """Return a copy of `self` in which all data lives on the host."""
+        """Return a copy of `self` in which all data lives on the host, i.e.
+        all :class:`pyopencl.array.Array` objects are replaced by corresponding
+        :class:`numpy.ndarray` instances on the host.
+        """
 
         result = {}
         for field_name in self.__class__.fields:

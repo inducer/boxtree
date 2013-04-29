@@ -704,36 +704,61 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
 # {{{ traversal info (output)
 
 class FMMTraversalInfo(FromDeviceGettableRecord):
-    """
+    """Interaction lists needed for a fast-multipole-like linear-time gather of
+    particle interactions.
+
+    Terminology follows this article:
+
+        Carrier, J., Greengard, L. and Rokhlin, V. "A Fast
+        Adaptive Multipole Algorithm for Particle Simulations." SIAM Journal on
+        Scientific and Statistical Computing 9, no. 4 (July 1988): 669-686.
+        `DOI: 10.1137/0909044 <http://dx.doi.org/10.1137/0909044>`_.
+
+    Unless otherwise indicated, all bulk data in this data structure is stored
+    in a :class:`pyopencl.array.Array`. See also :meth:`get`.
+
     .. attribute:: tree
 
         An instance of :class:`boxtree.Tree`.
 
+    .. ------------------------------------------------------------------------
+    .. rubric:: Basic box lists for iteration
+    .. ------------------------------------------------------------------------
+
     .. attribute:: source_boxes
 
-        ``box_id_t [*]`` List of boxes having sources.
+        ``box_id_t [*]``
+
+        List of boxes having sources.
 
     .. attribute:: target_boxes
 
-        ``box_id_t [*]`` List of boxes having sources.
+        ``box_id_t [*]``
+
+        List of boxes having targets.
         If :attr:`boxtree.Tree.sources_are_targets`,
         then ``target_boxes is source_boxes``.
 
     .. attribute:: source_parent_boxes
 
-        ``box_id_t [*]`` List of boxes that are (directly or indirectly) a parent
+        ``box_id_t [*]``
+
+        List of boxes that are (directly or indirectly) a parent
         of one of the :attr:`source_boxes`. These boxes may have sources of their
         own.
 
     .. attribute:: level_start_source_parent_box_nrs
 
         ``box_id_t [nlevels+1]``
+
         Indices into :attr:`source_parent_boxes` indicating where
         each level starts and ends.
 
     .. attribute:: target_or_target_parent_boxes
 
-        ``box_id_t [*]`` List of boxes that are one of the :attr:`target_boxes`
+        ``box_id_t [*]``
+
+        List of boxes that are one of the :attr:`target_boxes`
         or their (direct or indirect) parents.
 
     .. attribute:: ntarget_or_target_parent_boxes
@@ -743,11 +768,15 @@ class FMMTraversalInfo(FromDeviceGettableRecord):
     .. attribute:: level_start_target_or_target_parent_box_nrs
 
         ``box_id_t [nlevels+1]``
-        Indices into :attr:`source_parent_boxes` indicating where
+
+        Indices into :attr:`target_or_target_parent_boxes` indicating where
         each level starts and ends.
 
-    For each of the following data structures, the `starts` part
-    contains indices into the `lists` part.
+    .. ------------------------------------------------------------------------
+    .. rubric:: Colleagues
+    .. ------------------------------------------------------------------------
+
+    Immediately adjacent boxes on the same level. See :ref:`csr`.
 
     .. attribute:: colleagues_starts
 
@@ -757,7 +786,12 @@ class FMMTraversalInfo(FromDeviceGettableRecord):
 
         ``box_id_t [*]``
 
-    **"List 1"**
+    .. ------------------------------------------------------------------------
+    .. rubric:: Neighbor Sources ("List 1")
+    .. ------------------------------------------------------------------------
+
+    List of source boxes immediately adjacent to each target box. Indexed like
+    :attr:`target_boxes`. See :ref:`csr`.
 
     .. attribute:: neighbor_source_boxes_starts
 
@@ -767,7 +801,12 @@ class FMMTraversalInfo(FromDeviceGettableRecord):
 
         ``box_id_t [*]``
 
-    **"List 2"**
+    .. ------------------------------------------------------------------------
+    .. rubric:: Separated Siblings ("List 2")
+    .. ------------------------------------------------------------------------
+
+    Well-separated boxes on the same level.  Indexed like
+    :attr:`target_or_target_parent_boxes`. See :ref:`csr`.
 
     .. attribute:: sep_siblings_starts
 
@@ -777,7 +816,19 @@ class FMMTraversalInfo(FromDeviceGettableRecord):
 
         ``box_id_t [*]``
 
-    **"List 3"**
+    .. ------------------------------------------------------------------------
+    .. rubric:: Separated Smaller Boxes ("List 3")
+    .. ------------------------------------------------------------------------
+
+    Smaller source boxes separated from the target box by their own size.
+
+    If :attr:`boxtree.Tree.targets_have_extent`, then
+    :attr:`sep_close_smaller_starts` will be non-*None*. It records
+    interactions between boxes that would ordinarily be handled
+    through "List 3", but must be evaluated specially/directly
+    because of :ref:`extent`.
+
+    Indexed like :attr:`target_or_target_parent_boxes`.  See :ref:`csr`.
 
     .. attribute:: sep_smaller_starts
 
@@ -795,7 +846,19 @@ class FMMTraversalInfo(FromDeviceGettableRecord):
 
         ``box_id_t [*]`` (or *None*)
 
-    **"List 4"**
+    .. ------------------------------------------------------------------------
+    .. rubric:: Separated Bigger Boxes ("List 4")
+    .. ------------------------------------------------------------------------
+
+    Bigger source boxes separated from the target box by the (smaller) target box's size.
+
+    If :attr:`boxtree.Tree.sources_have_extent`, then
+    :attr:`sep_close_bigger_starts` will be non-*None*. It records
+    interactions between boxes that would ordinarily be handled
+    through "List 4", but must be evaluated specially/directly
+    because of :ref:`extent`.
+
+    Indexed like :attr:`target_or_target_parent_boxes`. See :ref:`csr`.
 
     .. attribute:: sep_bigger_starts
 
@@ -812,13 +875,6 @@ class FMMTraversalInfo(FromDeviceGettableRecord):
     .. attribute:: sep_close_bigger_lists
 
         ``box_id_t [*]`` (or *None*)
-
-    Terminology follows this article:
-
-    Carrier, J., Greengard, L. and Rokhlin, V. "A Fast
-    Adaptive Multipole Algorithm for Particle Simulations." SIAM Journal on
-    Scientific and Statistical Computing 9, no. 4 (July 1988): 669-686.
-    `DOI: 10.1137/0909044 <http://dx.doi.org/10.1137/0909044>`_.
     """
 
     # {{{ debugging aids
@@ -839,8 +895,6 @@ class FMMTraversalInfo(FromDeviceGettableRecord):
 
 class _KernelInfo(Record):
     pass
-
-# {{{ top-level
 
 class FMMTraversalBuilder:
     def __init__(self, context):
@@ -992,7 +1046,7 @@ class FMMTraversalBuilder:
             instances for whose completion this command waits before starting
             exeuction.
         :return: A tuple *(trav, event)*, where *trav* is a new instance of
-            :class:`FMMTraversalInfo`.  and *event* is a :class:`pyopencl.Event`
+            :class:`FMMTraversalInfo` and *event* is a :class:`pyopencl.Event`
             for dependency management.
         """
 
@@ -1208,8 +1262,6 @@ class FMMTraversalBuilder:
                 ), evt
 
     # }}}
-
-# }}}
 
 
 
