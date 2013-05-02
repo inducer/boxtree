@@ -23,7 +23,7 @@ THE SOFTWARE.
 """
 
 import numpy as np
-from pytools import memoize_method, Record
+from pytools import Record, memoize_method, memoize_method_nested
 import pyopencl as cl
 import pyopencl.array
 from pyopencl.elementwise import ElementwiseTemplate
@@ -881,6 +881,160 @@ class FMMTraversalInfo(FromDeviceGettableRecord):
 
         ``box_id_t [*]`` (or *None*)
     """
+
+    # {{{ "close" list merging -> "unified list 1"
+
+    def merge_close_lists(self, queue, debug=False):
+        """Return a new :class:`FMMTraversalInfo` instance with the contents of
+        :attr:`sep_close_smaller_starts` and :attr:`sep_close_bigger_starts`
+        merged into :attr:`neighbor_source_boxes_starts` and these two
+        attributes set to *None*.
+        """
+
+        from boxtree.tools import reverse_index_array
+        target_or_target_parent_boxes_from_all_boxes = reverse_index_array(
+                self.target_or_target_parent_boxes, target_size=self.tree.nboxes,
+                queue=queue)
+        target_or_target_parent_boxes_from_tgt_boxes = cl.array.take(
+                target_or_target_parent_boxes_from_all_boxes,
+                self.target_boxes, queue=queue)
+
+        del target_or_target_parent_boxes_from_all_boxes
+
+        @memoize_method_nested
+        def get_new_nb_sources_knl(write_counts):
+            from pyopencl.elementwise import ElementwiseTemplate
+            return ElementwiseTemplate("""//CL:mako//
+                /* input: */
+                box_id_t *target_or_target_parent_boxes_from_tgt_boxes,
+                box_id_t *neighbor_source_boxes_starts,
+                box_id_t *sep_close_smaller_starts,
+                box_id_t *sep_close_bigger_starts,
+
+                %if not write_counts:
+                    box_id_t *neighbor_source_boxes_lists,
+                    box_id_t *sep_close_smaller_lists,
+                    box_id_t *sep_close_bigger_lists,
+
+                    box_id_t *new_neighbor_source_boxes_starts,
+                %endif
+
+                /* output: */
+
+                %if write_counts:
+                    box_id_t *new_neighbor_source_boxes_counts,
+                %else:
+                    box_id_t *new_neighbor_source_boxes_lists,
+                %endif
+                """,
+                """//CL:mako//
+                box_id_t itgt_box = i;
+                box_id_t itarget_or_target_parent_box =
+                    target_or_target_parent_boxes_from_tgt_boxes[itgt_box];
+
+                box_id_t neighbor_source_boxes_start =
+                    neighbor_source_boxes_starts[itgt_box];
+                box_id_t neighbor_source_boxes_count =
+                    neighbor_source_boxes_starts[itgt_box + 1]
+                    - neighbor_source_boxes_start;
+
+                box_id_t sep_close_smaller_start =
+                    sep_close_smaller_starts[itgt_box];
+                box_id_t sep_close_smaller_count =
+                    sep_close_smaller_starts[itgt_box + 1]
+                    - sep_close_smaller_start;
+
+                box_id_t sep_close_bigger_start =
+                    sep_close_bigger_starts[itarget_or_target_parent_box];
+                box_id_t sep_close_bigger_count =
+                    sep_close_bigger_starts[itarget_or_target_parent_box + 1]
+                    - sep_close_bigger_start;
+
+                %if write_counts:
+                    if (itgt_box == 0)
+                        new_neighbor_source_boxes_counts[0] = 0;
+
+                    new_neighbor_source_boxes_counts[itgt_box + 1] =
+                        neighbor_source_boxes_count
+                        + sep_close_smaller_count
+                        + sep_close_bigger_count
+                        ;
+                %else:
+
+                    box_id_t cur_idx = new_neighbor_source_boxes_starts[itgt_box];
+
+                    #define COPY_FROM(NAME) \
+                        for (box_id_t i = 0; i < NAME##_count; ++i) \
+                            new_neighbor_source_boxes_lists[cur_idx++] = \
+                                NAME##_lists[NAME##_start+i];
+
+                    COPY_FROM(neighbor_source_boxes)
+                    COPY_FROM(sep_close_smaller)
+                    COPY_FROM(sep_close_bigger)
+
+                %endif
+                """).build(queue.context,
+                        type_aliases=(
+                            ("box_id_t", self.tree.box_id_dtype),
+                            ),
+                        var_values=(
+                            ("write_counts", write_counts),
+                            )
+                        )
+
+        ntarget_boxes = len(self.target_boxes)
+        new_neighbor_source_boxes_counts = cl.array.empty(
+                queue, ntarget_boxes+1, self.tree.box_id_dtype)
+        get_new_nb_sources_knl(True)(
+            # input:
+            target_or_target_parent_boxes_from_tgt_boxes,
+            self.neighbor_source_boxes_starts,
+            self.sep_close_smaller_starts,
+            self.sep_close_bigger_starts,
+
+            # output:
+            new_neighbor_source_boxes_counts,
+            range=slice(ntarget_boxes),
+            queue=queue)
+
+        new_neighbor_source_boxes_starts = cl.array.cumsum(
+                new_neighbor_source_boxes_counts)
+        del new_neighbor_source_boxes_counts
+
+        new_neighbor_source_boxes_lists = cl.array.empty(
+                queue,
+                new_neighbor_source_boxes_starts.get_item(ntarget_boxes),
+                self.tree.box_id_dtype)
+
+        new_neighbor_source_boxes_lists.fill(999999999)
+
+        get_new_nb_sources_knl(False)(
+            # input:
+            target_or_target_parent_boxes_from_tgt_boxes,
+
+            self.neighbor_source_boxes_starts,
+            self.sep_close_smaller_starts,
+            self.sep_close_bigger_starts,
+            self.neighbor_source_boxes_lists,
+            self.sep_close_smaller_lists,
+            self.sep_close_bigger_lists,
+
+            new_neighbor_source_boxes_starts,
+
+            # output:
+            new_neighbor_source_boxes_lists,
+            range=slice(ntarget_boxes),
+            queue=queue)
+
+        return self.copy(
+            neighbor_source_boxes_starts=new_neighbor_source_boxes_starts,
+            neighbor_source_boxes_lists=new_neighbor_source_boxes_lists,
+            sep_close_smaller_starts=None,
+            sep_close_smaller_lists=None,
+            sep_close_bigger_starts=None,
+            sep_close_bigger_lists=None)
+
+    # }}}
 
     # {{{ debugging aids
 

@@ -256,6 +256,8 @@ def test_fmm_completeness(ctx_getter, dims, nsources_req, ntargets_req, who_has_
     from boxtree.traversal import FMMTraversalBuilder
     tbuild = FMMTraversalBuilder(ctx)
     trav, _ = tbuild(queue, tree, debug=True)
+    if trav.sep_close_smaller_starts is not None:
+        trav = trav.merge_close_lists(queue)
     trav = trav.get()
     tree = trav.tree
 

@@ -10,6 +10,8 @@ Traversal data structure
 
     .. automethod:: get
 
+    .. automethod:: merge_close_lists
+
 Build Entrypoint
 ----------------
 
