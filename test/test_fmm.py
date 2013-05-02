@@ -194,7 +194,7 @@ class ConstantOneExpansionWrangler:
     (3, 5 * 10**5, 4*10**4, "s", p_normal, p_normal),
     (3, 5 * 10**5, 4*10**4, "st", p_normal, p_normal),
     (3, 5 * 10**5, 4*10**4, "t", p_normal, p_normal),
-    (2, 5 * 10**5, 4*10**4, "st", p_surface, p_uniform),
+    (3, 5 * 10**5, 4*10**4, "st", p_surface, p_uniform),
     ])
 def test_fmm_completeness(ctx_getter, dims, nsources_req, ntargets_req, who_has_extent,
         source_gen, target_gen):

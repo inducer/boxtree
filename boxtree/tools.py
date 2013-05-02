@@ -119,8 +119,7 @@ def make_surface_particle_array(queue, nparticles, dims, dtype, seed=15):
                     y[i] = 0.5* (1*sin(phi) + 1.5*sin(2*phi))
                     """,
                 [
-                    lp.GlobalArg("x", dtype, shape="n"),
-                    lp.GlobalArg("y", dtype, shape="n"),
+                    lp.GlobalArg("x,y", dtype, shape="auto"),
                     lp.ValueArg("n", np.int32),
                     ])
 
@@ -148,9 +147,7 @@ def make_surface_particle_array(queue, nparticles, dims, dtype, seed=15):
                     z[i,j] = 5*sin(theta)
                     """,
                 [
-                    lp.GlobalArg("x", dtype, shape="n,n"),
-                    lp.GlobalArg("y", dtype, shape="n,n"),
-                    lp.GlobalArg("z", dtype, shape="n,n"),
+                    lp.GlobalArg("x,y,z,", dtype, shape="auto"),
                     lp.ValueArg("n", np.int32),
                     ])
 
@@ -188,8 +185,7 @@ def make_uniform_particle_array(queue, nparticles, dims, dtype, seed=15):
                     y[i,j] = -s*xx + c*yy - 2
                     """,
                 [
-                    lp.GlobalArg("x", dtype, shape="n,n"),
-                    lp.GlobalArg("y", dtype, shape="n,n"),
+                    lp.GlobalArg("x,y", dtype, shape="auto"),
                     lp.ValueArg("n", np.int32),
                     ], assumptions="n>0")
 
@@ -232,9 +228,7 @@ def make_uniform_particle_array(queue, nparticles, dims, dtype, seed=15):
                     z[i,j,k] = 4 * (-s2*xxx + c2*zzz) - 2
                     """,
                 [
-                    lp.GlobalArg("x", dtype, shape="n,n,n"),
-                    lp.GlobalArg("y", dtype, shape="n,n,n"),
-                    lp.GlobalArg("z", dtype, shape="n,n,n"),
+                    lp.GlobalArg("x,y,z", dtype, shape="auto"),
                     lp.ValueArg("n", np.int32),
                     ], assumptions="n>0")
 
@@ -243,7 +237,7 @@ def make_uniform_particle_array(queue, nparticles, dims, dtype, seed=15):
 
             return lp.CompiledKernel(context, knl)
 
-        evt, result = get_3d_knl(queue.context, n=n)
+        evt, result = get_3d_knl(queue.context, dtype)(queue, n=n)
 
         result = [x.ravel() for x in result]
 
