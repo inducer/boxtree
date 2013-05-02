@@ -66,6 +66,35 @@ def realloc_array(ary, new_shape, zero_fill, queue, wait_for):
 
 
 
+def reverse_index_array(indices, target_size=None, result_fill_value=None, queue=None):
+    """For an array of *indices*, return a new array *result* that satisfies
+    ``result[indices] == arange(len(indices))
+
+    :arg target_n: The length of the result, or *None* if the result is to
+        have the same length as *indices*.
+    :arg result_fill_value: If not *None*, fill *result* with this value
+        prior to storing reversed indices.
+    """
+
+    queue = queue or indices.queue
+
+    if target_size is None:
+        target_size = len(indices)
+
+    result = cl.array.empty(queue, target_size, indices.dtype)
+
+    if result_fill_value is not None:
+        result.fill(result_fill_value)
+
+    cl.array.multi_put(
+            [cl.array.arange(queue, len(indices), dtype=indices.dtype,
+                allocator=indices.allocator)],
+            indices,
+            out=[result],
+            queue=queue)
+
+    return result
+
 # {{{ particle distribution generators
 
 def make_normal_particle_array(queue, nparticles, dims, dtype, seed=15):

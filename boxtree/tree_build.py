@@ -642,28 +642,10 @@ class TreeBuilder(object):
 
         # {{{ compute source/target particle indices and counts in each box
 
-        # {{{ helper: turn a "to" index list into a "from" index list
-
-        # (= 'transpose'/invert a permutation)
-
-        def reverse_particle_index_array(orig_indices):
-            n = len(orig_indices)
-            result = empty(n, particle_id_dtype)
-            cl.array.multi_put(
-                    [cl.array.arange(queue, n, dtype=particle_id_dtype,
-                        allocator=allocator)],
-                    orig_indices,
-                    out=[result],
-                    queue=queue)
-
-            return result
-
-        # }}}
-
         if targets is None:
+            from boxtree.tools import reverse_index_array
             user_source_ids = user_srcntgt_ids
-            sorted_target_ids = reverse_particle_index_array(
-                    user_srcntgt_ids)
+            sorted_target_ids = reverse_index_array(user_srcntgt_ids)
 
             box_source_starts = box_target_starts = box_srcntgt_starts
             box_source_counts = box_target_counts = box_srcntgt_counts
