@@ -614,22 +614,24 @@ SEP_BIGGER_TEMPLATE = r"""//CL//
 
 void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
 {
-    box_id_t box_id = target_or_target_parent_boxes[itarget_or_target_parent_box];
-    ${load_center("center", "box_id")}
+    box_id_t tgt_ibox = target_or_target_parent_boxes[itarget_or_target_parent_box];
+    ${load_center("center", "tgt_ibox")}
 
-    int box_level = box_levels[box_id];
+    int box_level = box_levels[tgt_ibox];
     // The root box has no parents, so no list 4.
     if (box_level == 0)
         return;
 
-    box_id_t parent_box_id = box_parent_ids[box_id];
+    box_id_t parent_box_id = box_parent_ids[tgt_ibox];
     ${load_center("parent_center", "parent_box_id")}
 
     box_id_t current_parent_box_id = parent_box_id;
     int walk_level = box_level - 1;
 
-    // Look for colleagues of parents that are non-adjacent to box_id.
-    // Walk up the tree from box_id.
+    box_flags_t tgt_box_flags = box_flags[tgt_ibox];
+
+    // Look for colleagues of parents that are non-adjacent to tgt_ibox.
+    // Walk up the tree from tgt_ibox.
 
     // Box 0 (== level 0) doesn't have any colleagues, so we can stop the
     // search for such colleagues there.
@@ -643,7 +645,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
         box_id_t coll_start = colleagues_starts[current_parent_box_id];
         box_id_t coll_stop = colleagues_starts[current_parent_box_id+1];
 
-        // /!\ i is not a box_id, it's an index into colleagues_list.
+        // /!\ i is not a box id, it's an index into colleagues_list.
         for (box_id_t i = coll_start; i < coll_stop; ++i)
         {
             box_id_t colleague_box_id = colleagues_list[i];
@@ -669,7 +671,10 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
                         // overlaps our stick_out region. We're obliged to do
                         // the interaction directly.
 
-                        APPEND_sep_close_bigger(colleague_box_id);
+                        if (tgt_box_flags & BOX_HAS_OWN_TARGETS)
+                        {
+                            APPEND_sep_close_bigger(colleague_box_id);
+                        }
                     }
                     else
                     %endif
