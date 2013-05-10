@@ -29,14 +29,14 @@ Version 2013.1
 .. note::
 
     This version is currently under development. You can get snapshots from
-    PyOpenCL's `git repository <https://github.com/inducer/boxtree>`_
+    boxtree's `git repository <https://github.com/inducer/boxtree>`_
 
 * Initial release.
 
 .. _license:
 
-Licensing
-=========
+License
+=======
 
 Boxtree is licensed to you under the MIT/X Consortium license:
 
