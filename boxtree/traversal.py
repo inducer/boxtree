@@ -1003,7 +1003,7 @@ class FMMTraversalInfo(FromDeviceGettableRecord):
 
         new_neighbor_source_boxes_lists = cl.array.empty(
                 queue,
-                new_neighbor_source_boxes_starts.get_item(ntarget_boxes),
+                int(new_neighbor_source_boxes_starts[ntarget_boxes].get()),
                 self.tree.box_id_dtype)
 
         new_neighbor_source_boxes_lists.fill(999999999)
