@@ -119,7 +119,7 @@ def make_surface_particle_array(queue, nparticles, dims, dtype, seed=15):
                     y[i] = 0.5* (1*sin(phi) + 1.5*sin(2*phi))
                     """,
                 [
-                    lp.GlobalArg("x,y", dtype, shape="auto"),
+                    lp.GlobalArg("x,y", dtype, shape=lp.auto),
                     lp.ValueArg("n", np.int32),
                     ])
 
@@ -147,7 +147,7 @@ def make_surface_particle_array(queue, nparticles, dims, dtype, seed=15):
                     z[i,j] = 5*sin(theta)
                     """,
                 [
-                    lp.GlobalArg("x,y,z,", dtype, shape="auto"),
+                    lp.GlobalArg("x,y,z,", dtype, shape=lp.auto),
                     lp.ValueArg("n", np.int32),
                     ])
 
@@ -185,7 +185,7 @@ def make_uniform_particle_array(queue, nparticles, dims, dtype, seed=15):
                     y[i,j] = -s*xx + c*yy - 2
                     """,
                 [
-                    lp.GlobalArg("x,y", dtype, shape="auto"),
+                    lp.GlobalArg("x,y", dtype, shape=lp.auto),
                     lp.ValueArg("n", np.int32),
                     ], assumptions="n>0")
 
@@ -228,7 +228,7 @@ def make_uniform_particle_array(queue, nparticles, dims, dtype, seed=15):
                     z[i,j,k] = 4 * (-s2*xxx + c2*zzz) - 2
                     """,
                 [
-                    lp.GlobalArg("x,y,z", dtype, shape="auto"),
+                    lp.GlobalArg("x,y,z", dtype, shape=lp.auto),
                     lp.ValueArg("n", np.int32),
                     ], assumptions="n>0")
 
