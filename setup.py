@@ -24,7 +24,7 @@ def main():
           author="Andreas Kloeckner",
           author_email="inform@tiker.net",
           license = "MIT",
-          url="http://wiki.tiker.net/boxtree",
+          url="http://wiki.tiker.net/BoxTree",
           classifiers=[
             'Development Status :: 3 - Alpha',
             'Intended Audience :: Developers',
