@@ -26,7 +26,6 @@ THE SOFTWARE.
 
 
 import numpy as np
-import numpy.linalg as la
 import sys
 import pytest
 import logging
@@ -40,7 +39,10 @@ logger = logging.getLogger(__name__)
 
 # {{{ bounding box test
 
-def test_bounding_box(ctx_getter):
+@pytest.mark.parametrize("dtype", [np.float32, np.float64])
+@pytest.mark.parametrize("dims", [2,3])
+@pytest.mark.parametrize("nparticles", [9, 4096, 10**5])
+def test_bounding_box(ctx_getter, dtype, dims, nparticles):
     logging.basicConfig(level=logging.INFO)
 
     ctx = ctx_getter()
@@ -51,31 +53,27 @@ def test_bounding_box(ctx_getter):
 
     bbf = BoundingBoxFinder(ctx)
 
-    #for dtype in [np.float32, np.float64]:
-    for dtype in [np.float64, np.float32]:
-        for dims in [2, 3]:
-            axis_names = AXIS_NAMES[:dims]
+    axis_names = AXIS_NAMES[:dims]
 
-            for nparticles in [9, 4096, 10**5]:
-                logger.info("%s - %s %s" % (dtype, dims, nparticles))
+    logger.info("%s - %s %s" % (dtype, dims, nparticles))
 
-                particles = make_normal_particle_array(queue, nparticles, dims, dtype)
+    particles = make_normal_particle_array(queue, nparticles, dims, dtype)
 
-                bbox_min = [np.min(x.get()) for x in particles]
-                bbox_max = [np.max(x.get()) for x in particles]
+    bbox_min = [np.min(x.get()) for x in particles]
+    bbox_max = [np.max(x.get()) for x in particles]
 
-                bbox_cl, evt = bbf(particles, radii=None)
-                bbox_cl = bbox_cl.get()
+    bbox_cl, evt = bbf(particles, radii=None)
+    bbox_cl = bbox_cl.get()
 
-                bbox_min_cl = np.empty(dims, dtype)
-                bbox_max_cl = np.empty(dims, dtype)
+    bbox_min_cl = np.empty(dims, dtype)
+    bbox_max_cl = np.empty(dims, dtype)
 
-                for i, ax in enumerate(axis_names):
-                    bbox_min_cl[i] = bbox_cl["min_"+ax]
-                    bbox_max_cl[i] = bbox_cl["max_"+ax]
+    for i, ax in enumerate(axis_names):
+        bbox_min_cl[i] = bbox_cl["min_"+ax]
+        bbox_max_cl[i] = bbox_cl["max_"+ax]
 
-                assert (bbox_min == bbox_min_cl).all()
-                assert (bbox_max == bbox_max_cl).all()
+    assert (bbox_min == bbox_min_cl).all()
+    assert (bbox_max == bbox_max_cl).all()
 
 # }}}
 
