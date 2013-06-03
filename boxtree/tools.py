@@ -23,23 +23,16 @@ THE SOFTWARE.
 """
 
 
-
-
 import numpy as np
 from pytools import Record, memoize_method
 import pyopencl as cl
-import pyopencl.array
+import pyopencl.array  # noqa
 from pyopencl.tools import first_arg_dependent_memoize_nested
 from mako.template import Template
 from pytools.obj_array import make_obj_array
 
 
-
-
-
 AXIS_NAMES = ("x", "y", "z", "w")
-
-
 
 
 def padded_bin(i, l):
@@ -49,7 +42,6 @@ def padded_bin(i, l):
     while len(s) < l:
         s = '0' + s
     return s
-
 
 
 def realloc_array(ary, new_shape, zero_fill, queue, wait_for):
@@ -65,8 +57,8 @@ def realloc_array(ary, new_shape, zero_fill, queue, wait_for):
     return new_ary, evt
 
 
-
-def reverse_index_array(indices, target_size=None, result_fill_value=None, queue=None):
+def reverse_index_array(indices, target_size=None, result_fill_value=None,
+        queue=None):
     """For an array of *indices*, return a new array *result* that satisfies
     ``result[indices] == arange(len(indices))
 
@@ -95,6 +87,7 @@ def reverse_index_array(indices, target_size=None, result_fill_value=None, queue
 
     return result
 
+
 # {{{ particle distribution generators
 
 def make_normal_particle_array(queue, nparticles, dims, dtype, seed=15):
@@ -104,6 +97,7 @@ def make_normal_particle_array(queue, nparticles, dims, dtype, seed=15):
     return make_obj_array([
         rng.normal(queue, nparticles, dtype=dtype)
         for i in range(dims)])
+
 
 def make_surface_particle_array(queue, nparticles, dims, dtype, seed=15):
     import loopy as lp
@@ -245,18 +239,15 @@ def make_uniform_particle_array(queue, nparticles, dims, dtype, seed=15):
     else:
         raise NotImplementedError
 
+
 def make_rotated_uniform_particle_array(queue, nparticles, dims, dtype, seed=15):
     raise NotImplementedError
 
 # }}}
 
 
-
-
 def particle_array_to_host(parray):
     return np.array([x.get() for x in parray], order="F").T
-
-
 
 
 # {{{ host/device data storage
@@ -297,6 +288,7 @@ class FromDeviceGettableRecord(Record):
 
 # }}}
 
+
 # {{{ type mangling
 
 def get_type_moniker(dtype):
@@ -304,9 +296,10 @@ def get_type_moniker(dtype):
 
 # }}}
 
+
 # {{{ gappy-copy-and-map kernel
 
-GAPPY_COPY_TPL =  Template(r"""//CL//
+GAPPY_COPY_TPL = Template(r"""//CL//
 
     typedef ${dtype_to_ctype(dtype)} value_t;
 
@@ -331,13 +324,13 @@ class GappyCopyAndMapKernel:
         from pyopencl.tools import VectorArg
 
         args = [
-                VectorArg(dtype, "input_ary"),
-                VectorArg(dtype, "output_ary"),
-                VectorArg(src_index_dtype, "from_indices")
+                VectorArg(dtype, "input_ary", with_offset=True),
+                VectorArg(dtype, "output_ary", with_offset=True),
+                VectorArg(src_index_dtype, "from_indices", with_offset=True)
                 ]
 
         if map_values:
-            args.append(VectorArg(dtype, "value_map"))
+            args.append(VectorArg(dtype, "value_map", with_offset=True))
 
         from pyopencl.tools import dtype_to_ctype
         src = GAPPY_COPY_TPL.render(

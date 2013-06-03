@@ -28,8 +28,8 @@ import numpy.linalg as la
 import pyopencl as cl
 
 import pytest
-from pyopencl.tools import pytest_generate_tests_for_pyopencl \
-        as pytest_generate_tests
+from pyopencl.tools import (  # noqa
+        pytest_generate_tests_for_pyopencl as pytest_generate_tests)
 
 from boxtree.tools import make_normal_particle_array
 
@@ -223,6 +223,7 @@ def test_tree_connectivity(ctx_getter, dims, sources_are_targets):
 
 # }}}
 
+
 # {{{ visualization helper (not a test)
 
 def plot_traversal(ctx_getter, do_plot=False):
@@ -324,7 +325,6 @@ def plot_traversal(ctx_getter, do_plot=False):
 # }}}
 
 
-
 # You can test individual routines by typing
 # $ python test_traversal.py 'test_routine(cl.create_some_context)'
 
@@ -337,4 +337,3 @@ if __name__ == "__main__":
         main([__file__])
 
 # vim: fdm=marker
-
