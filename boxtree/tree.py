@@ -23,15 +23,12 @@ THE SOFTWARE.
 """
 
 
-
-
 import pyopencl as cl
 import numpy as np
 from boxtree.tools import FromDeviceGettableRecord
 
 import logging
 logger = logging.getLogger(__name__)
-
 
 
 # {{{ box flags
@@ -66,7 +63,8 @@ class box_flags_enum:
     @classmethod
     def stringify_value(cls, val):
         return " ".join(
-                flag_name for flag_name, flag_value in cls.get_flag_names_and_values()
+                flag_name
+                for flag_name, flag_value in cls.get_flag_names_and_values()
                 if val & flag_value)
 
     @classmethod
@@ -77,6 +75,7 @@ class box_flags_enum:
         return "\n\ntypedef %s box_flags_t;\n\n" % dtype_to_ctype(cls.dtype)
 
 # }}}
+
 
 # {{{ tree data structure
 
@@ -188,7 +187,8 @@ class Tree(FromDeviceGettableRecord):
         ``coord_t [dimensions][nsources]``
         (an object array of coordinate arrays)
 
-        Stored in :ref:`tree target order <particle-orderings>`. May be the same array as :attr:`sources`.
+        Stored in :ref:`tree target order <particle-orderings>`. May be the
+        same array as :attr:`sources`.
 
     .. attribute:: target_radii
 
@@ -396,7 +396,7 @@ class Tree(FromDeviceGettableRecord):
         user_point_source_ids = cl.array.empty(
                 queue, npoint_sources, self.particle_id_dtype)
         user_point_source_ids.fill(1)
-        cl.array.multi_put([tree_order_index_user_point_source_starts ],
+        cl.array.multi_put([tree_order_index_user_point_source_starts],
                 dest_indices=tree_order_point_source_starts,
                 out=[user_point_source_ids])
 
@@ -416,7 +416,8 @@ class Tree(FromDeviceGettableRecord):
                 dest_indices=tree_order_point_source_starts,
                 out=[source_boundaries])
 
-        from boxtree.tree_build_kernels import POINT_SOURCE_LINKING_USER_POINT_SOURCE_ID_SCAN_TPL
+        from boxtree.tree_build_kernels import \
+                POINT_SOURCE_LINKING_USER_POINT_SOURCE_ID_SCAN_TPL
 
         logger.debug("point source linking: point source id scan")
 
@@ -507,7 +508,8 @@ class Tree(FromDeviceGettableRecord):
         # user_source_ids : tree order source indices -> user order source indices
         # tree_source_ids : user order source indices -> tree order source indices
 
-        tree_source_ids = self._reverse_index_lookup(self.user_source_ids, self.nsources)
+        tree_source_ids = self._reverse_index_lookup(
+                self.user_source_ids, self.nsources)
         return tree_source_ids[user_indices]
 
     def indices_to_tree_target_order(self, user_indices):
@@ -564,7 +566,8 @@ class TreeWithLinkedPointSources(Tree):
         ``particle_id_t [nsources]``
 
         The array
-        ``point_sources[:][point_source_starts[isrc]:point_source_starts[isrc]+point_source_counts[isrc]]``
+        ``point_sources[:][point_source_starts[isrc]:
+        point_source_starts[isrc]+point_source_counts[isrc]]``
         contains the locations of point sources corresponding to
         the 'original' source with index *isrc*. (Note that this
         expression will not entirely work because :attr:`point_sources`
@@ -589,7 +592,8 @@ class TreeWithLinkedPointSources(Tree):
         ``particle_id_t [nsources]``
 
         Fetching *from* these indices will reorder the sources
-        from user point source order into :ref:`tree point source order <particle-orderings>`.
+        from user point source order into
+        :ref:`tree point source order <particle-orderings>`.
 
     .. attribute:: box_point_source_starts
 
