@@ -35,8 +35,6 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-
-
 # TODO:
 # - Add *restrict where applicable.
 
@@ -91,15 +89,15 @@ logger = logging.getLogger(__name__)
 # -----------------------------------------------------------------------------
 
 
-
-
 class _KernelInfo(Record):
     pass
+
 
 # {{{ data types
 
 @memoize
-def make_morton_bin_count_type(device, dimensions, particle_id_dtype, srcntgts_have_extent):
+def make_morton_bin_count_type(device, dimensions, particle_id_dtype,
+        srcntgts_have_extent):
     fields = []
 
     # Non-child srcntgts are sorted *before* all the child srcntgts.
@@ -236,9 +234,10 @@ SCAN_PREAMBLE_TPL = Template(r"""//CL//
     {
         particle_id_t user_srcntgt_id = user_srcntgt_ids[i];
 
-        // Recall that 'level' is the level currently being built, e.g. 1 at the root.
-        // This should be 0.5 at level 1. (Level 0 is the root.)
-        coord_t next_level_box_size_factor = ((coord_t) 1) / ((coord_t) (1U << level));
+        // Recall that 'level' is the level currently being built, e.g. 1 at
+        // the root.  This should be 0.5 at level 1. (Level 0 is the root.)
+        coord_t next_level_box_size_factor =
+            ((coord_t) 1) / ((coord_t) (1U << level));
 
         %if srcntgts_have_extent:
             bool stop_srcntgt_descent = false;
@@ -273,7 +272,8 @@ SCAN_PREAMBLE_TPL = Template(r"""//CL//
                 // Need to compute center to compare excess with STICK_OUT_FACTOR.
                 coord_t next_level_box_center_${ax} =
                     global_min_${ax}
-                    + global_extent_${ax} * (${ax}_bits + (coord_t) 0.5) * next_level_box_size_factor;
+                    + global_extent_${ax} * (${ax}_bits
+                    + (coord_t) 0.5) * next_level_box_size_factor;
 
                 coord_t next_level_box_stick_out_radius_${ax} =
                     (coord_t) (
@@ -476,7 +476,8 @@ SPLIT_AND_SORT_PREAMBLE_TPL = Template(r"""//CL//
 
 """, strict_undefined=True)
 
-SPLIT_AND_SORT_KERNEL_TPL =  Template(r"""//CL//
+
+SPLIT_AND_SORT_KERNEL_TPL = Template(r"""//CL//
     box_id_t my_box_id = srcntgt_box_ids[i];
     dbg_assert(my_box_id >= 0);
     dbg_assert(my_box_id < nboxes);
@@ -541,7 +542,8 @@ SPLIT_AND_SORT_KERNEL_TPL =  Template(r"""//CL//
         %endfor
 
         dbg_assert(tgt_particle_idx < n);
-        dbg_printf(("   moving %ld -> %d (my_box_id %d, my_box_start %d, my_count %d)\n",
+        dbg_printf(("   moving %ld -> %d "
+            "(my_box_id %d, my_box_start %d, my_count %d)\n",
             i, tgt_particle_idx,
             my_box_id, my_box_start, my_count));
 
@@ -573,7 +575,8 @@ SPLIT_AND_SORT_KERNEL_TPL =  Template(r"""//CL//
                 else
             %endif
             if (${mnr} == my_morton_nr
-                && my_box_morton_bin_counts.pcnt${padded_bin(mnr, dimensions)} == my_count)
+                && my_box_morton_bin_counts.pcnt${padded_bin(mnr, dimensions)}
+                    == my_count)
             {
                 dbg_printf(("   ## splitting\n"));
 
@@ -644,7 +647,8 @@ EXTRACT_NONCHILD_SRCNTGT_COUNT_TPL = ElementwiseTemplate(
             box_nonchild_srcntgt_counts[i] = 0;
         }
         else
-            box_nonchild_srcntgt_counts[i] = box_morton_bin_counts[i].nonchild_srcntgts;
+            box_nonchild_srcntgt_counts[i] =
+                box_morton_bin_counts[i].nonchild_srcntgts;
         """,
     name="extract_nonchild_srcntgt_count")
 
@@ -787,9 +791,10 @@ SRCNTGT_PERMUTER_TPL = ElementwiseTemplate(
 
 # }}}
 
+
 # {{{ box info kernel
 
-BOX_INFO_KERNEL_TPL =  ElementwiseTemplate(
+BOX_INFO_KERNEL_TPL = ElementwiseTemplate(
     arguments="""//CL:mako//
         /* input */
         box_id_t *box_parent_ids,
@@ -954,6 +959,7 @@ BOX_INFO_KERNEL_TPL =  ElementwiseTemplate(
 
 # }}}
 
+
 # {{{ kernel creation top-level
 
 def get_tree_build_kernel_info(context, dimensions, coord_dtype,
@@ -1040,43 +1046,47 @@ def get_tree_build_kernel_info(context, dimensions, coord_dtype,
             [
                 # box-local morton bin counts for each particle at the current level
                 # only valid from scan -> split'n'sort
-                VectorArg(morton_bin_count_dtype, "morton_bin_counts"), # [nsrcntgts]
+
+                VectorArg(morton_bin_count_dtype, "morton_bin_counts"),
+                # [nsrcntgts]
 
                 # (local) morton nrs for each particle at the current level
                 # only valid from scan -> split'n'sort
-                VectorArg(morton_nr_dtype, "morton_nrs"), # [nsrcntgts]
+                VectorArg(morton_nr_dtype, "morton_nrs"),  # [nsrcntgts]
 
                 # segment flags
                 # invariant to sorting once set
                 # (particles are only reordered within a box)
-                VectorArg(np.uint8, "box_start_flags"), # [nsrcntgts]
+                VectorArg(np.uint8, "box_start_flags"),  # [nsrcntgts]
 
-                VectorArg(box_id_dtype, "srcntgt_box_ids"), # [nsrcntgts]
-                VectorArg(box_id_dtype, "split_box_ids"), # [nsrcntgts]
+                VectorArg(box_id_dtype, "srcntgt_box_ids"),  # [nsrcntgts]
+                VectorArg(box_id_dtype, "split_box_ids"),  # [nsrcntgts]
 
                 # per-box morton bin counts
-                VectorArg(morton_bin_count_dtype, "box_morton_bin_counts"), # [nsrcntgts]
+                VectorArg(morton_bin_count_dtype, "box_morton_bin_counts"),
+                # [nsrcntgts]
 
                 # particle# at which each box starts
-                VectorArg(particle_id_dtype, "box_srcntgt_starts"), # [nboxes]
+                VectorArg(particle_id_dtype, "box_srcntgt_starts"),  # [nboxes]
 
                 # number of particles in each box
-                VectorArg(particle_id_dtype,"box_srcntgt_counts"), # [nboxes]
+                VectorArg(particle_id_dtype, "box_srcntgt_counts"),  # [nboxes]
 
                 # pointer to parent box
-                VectorArg(box_id_dtype, "box_parent_ids"), # [nboxes]
+                VectorArg(box_id_dtype, "box_parent_ids"),  # [nboxes]
 
-                # morton nr identifier {quadr,oct}ant of parent in which this box was created
-                VectorArg(morton_nr_dtype, "box_morton_nrs"), # [nboxes]
+                # morton nr identifier {quadr,oct}ant of parent in which this
+                # box was created
+                VectorArg(morton_nr_dtype, "box_morton_nrs"),  # [nboxes]
 
                 # number of boxes total
-                VectorArg(box_id_dtype, "nboxes"), # [1]
+                VectorArg(box_id_dtype, "nboxes"),  # [1]
 
                 ScalarArg(np.int32, "level"),
                 ScalarArg(particle_id_dtype, "max_particles_in_box"),
                 ScalarArg(bbox_dtype, "bbox"),
 
-                VectorArg(particle_id_dtype, "user_srcntgt_ids"), # [nsrcntgts]
+                VectorArg(particle_id_dtype, "user_srcntgt_ids"),  # [nsrcntgts]
                 ]
 
             # particle coordinates
@@ -1134,7 +1144,8 @@ def get_tree_build_kernel_info(context, dimensions, coord_dtype,
             dim=None,
             boundary_morton_nr=None)
 
-    split_and_sort_preamble = SPLIT_AND_SORT_PREAMBLE_TPL.render(**s_and_s_codegen_args)
+    split_and_sort_preamble = \
+            SPLIT_AND_SORT_PREAMBLE_TPL.render(**s_and_s_codegen_args)
 
     split_and_sort_kernel_source = SPLIT_AND_SORT_KERNEL_TPL.render(**codegen_args)
 
@@ -1285,7 +1296,8 @@ def get_tree_build_kernel_info(context, dimensions, coord_dtype,
             split_box_id_scan=split_box_id_scan,
             split_and_sort_kernel=split_and_sort_kernel,
 
-            extract_nonchild_srcntgt_count_kernel=extract_nonchild_srcntgt_count_kernel,
+            extract_nonchild_srcntgt_count_kernel=
+                extract_nonchild_srcntgt_count_kernel,
             find_prune_indices_kernel=find_prune_indices_kernel,
             srcntgt_permuter=srcntgt_permuter,
             source_counter=source_counter,
