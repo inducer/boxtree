@@ -391,7 +391,8 @@ class Tree(FromDeviceGettableRecord):
         # A list of point source starts, indexed in tree order,
         # but giving point source indices in user order.
         tree_order_index_user_point_source_starts = cl.array.take(
-                point_source_starts, self.user_source_ids)
+                point_source_starts, self.user_source_ids,
+                queue=queue)
 
         user_point_source_ids = cl.array.empty(
                 queue, npoint_sources, self.particle_id_dtype)
@@ -441,7 +442,8 @@ class Tree(FromDeviceGettableRecord):
 
         from pytools.obj_array import make_obj_array
         tree_order_point_sources = make_obj_array([
-            cl.array.take(point_sources[i], user_point_source_ids)
+            cl.array.take(point_sources[i], user_point_source_ids,
+                queue=queue)
             for i in range(self.dimensions)
             ])
 
