@@ -35,6 +35,11 @@ class TreePlotter:
         if self.tree.dimensions != 2:
             raise NotImplementedError("can only plot 2D trees for now")
 
+        fill = kwargs.pop("fill", False)
+        edgecolor = kwargs.pop("edgecolor", "black")
+        kwargs["fill"] = fill
+        kwargs["edgecolor"] = edgecolor
+
         for ibox in xrange(self.tree.nboxes):
             self.draw_box(ibox, **kwargs)
 

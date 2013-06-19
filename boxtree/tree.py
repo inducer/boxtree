@@ -314,7 +314,7 @@ class Tree(FromDeviceGettableRecord):
     def plot(self, **kwargs):
         from boxtree.visualization import TreePlotter
         plotter = TreePlotter(self)
-        plotter.draw_tree(fill=False, edgecolor="black", **kwargs)
+        plotter.draw_tree(**kwargs)
         plotter.set_bounding_box()
 
     def get_box_extent(self, ibox):
