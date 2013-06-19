@@ -23,8 +23,6 @@ THE SOFTWARE.
 """
 
 
-
-
 class TreePlotter:
     """Assumes that the tree has data living on the host.
     See :meth:`boxtree.Tree.get`.
@@ -50,7 +48,8 @@ class TreePlotter:
 
     def draw_box(self, ibox, **kwargs):
         """
-        :arg kwargs: keyword arguments to pass on to :class:`matplotlib.patches.PathPatch`,
+        :arg kwargs: keyword arguments to pass on to
+            :class:`matplotlib.patches.PathPatch`,
             e.g. `facecolor='red', edgecolor='yellow', alpha=0.5`
         """
 

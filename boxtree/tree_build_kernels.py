@@ -1154,10 +1154,11 @@ def get_tree_build_kernel_info(context, dimensions, coord_dtype,
             context,
             common_arguments
             + [
-                VectorArg(particle_id_dtype, "new_user_srcntgt_ids"),
-                VectorArg(np.int32, "have_oversize_split_box"),
-                VectorArg(box_id_dtype, "new_srcntgt_box_ids"),
-                VectorArg(box_level_dtype, "box_levels"),
+                VectorArg(particle_id_dtype, "new_user_srcntgt_ids",
+                    with_offset=True),
+                VectorArg(np.int32, "have_oversize_split_box", with_offset=True),
+                VectorArg(box_id_dtype, "new_srcntgt_box_ids", with_offset=True),
+                VectorArg(box_level_dtype, "box_levels", with_offset=True),
                 ],
             str(split_and_sort_kernel_source), name="split_and_sort",
             preamble=(
