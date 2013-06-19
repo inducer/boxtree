@@ -22,10 +22,11 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+
 import numpy as np
 from pytools import memoize_method
 import pyopencl as cl
-import pyopencl.array
+import pyopencl.array  # noqa
 from functools import partial
 from boxtree.tree import Tree
 
@@ -95,7 +96,6 @@ class TreeBuilder(object):
             :class:`Tree`, and *event* is a :class:`pyopencl.Event` for dependency
             management.
         """
-
 
         # {{{ input processing
 
@@ -296,7 +296,7 @@ class TreeBuilder(object):
         # Outside nboxes_guess feeding is solely for debugging purposes,
         # to test the reallocation code.
         nboxes_guess = kwargs.get("nboxes_guess")
-        if nboxes_guess  is None:
+        if nboxes_guess is None:
             nboxes_guess = div_ceil(nsrcntgts, max_particles_in_box) * 2**dimensions
 
         # per-box morton bin counts
@@ -330,7 +330,8 @@ class TreeBuilder(object):
                 wait_for=[evt])
 
         # set parent of root box to itself
-        evt = cl.enqueue_copy(queue, box_parent_ids.data, box_parent_ids.dtype.type(0))
+        evt = cl.enqueue_copy(
+                queue, box_parent_ids.data, box_parent_ids.dtype.type(0))
         prep_events.append(evt)
 
         # }}}
@@ -363,7 +364,8 @@ class TreeBuilder(object):
         # INVARIANTS -- Upon entry to this loop:
         #
         # - level is the level being built.
-        # - the last entry of level_start_box_nrs is the beginning of the level to be built
+        # - the last entry of level_start_box_nrs is the beginning of the level
+        #   to be built
 
         # This while condition prevents entering the loop in case there's just a
         # single box, by how 'level' is set above. Read this as 'while True' with
@@ -394,7 +396,8 @@ class TreeBuilder(object):
             fin_debug("morton count scan")
 
             # writes: box_morton_bin_counts, morton_nrs
-            evt = knl_info.morton_count_scan(*common_args, queue=queue, size=nsrcntgts,
+            evt = knl_info.morton_count_scan(
+                    *common_args, queue=queue, size=nsrcntgts,
                     wait_for=wait_for)
             wait_for = [evt]
 
@@ -464,7 +467,8 @@ class TreeBuilder(object):
                 wait_for = resize_events
 
                 # retry
-                logger.info("nboxes_guess exceeded: enlarged allocations, restarting level")
+                logger.info("nboxes_guess exceeded: "
+                        "enlarged allocations, restarting level")
 
                 continue
 
@@ -506,7 +510,8 @@ class TreeBuilder(object):
             wait_for = [evt]
 
             if debug:
-                level_bl_chunk = box_levels.get()[level_start_box_nrs[-2]:level_start_box_nrs[-1]]
+                level_bl_chunk = box_levels.get()[
+                        level_start_box_nrs[-2]:level_start_box_nrs[-1]]
                 assert ((level_bl_chunk == level) | (level_bl_chunk == 0)).all()
                 del level_bl_chunk
 
@@ -587,7 +592,8 @@ class TreeBuilder(object):
 
             nboxes_post_prune_dev = empty((), dtype=box_id_dtype)
             evt = knl_info.find_prune_indices_kernel(
-                    box_srcntgt_counts, to_box_id, from_box_id, nboxes_post_prune_dev,
+                    box_srcntgt_counts,
+                    to_box_id, from_box_id, nboxes_post_prune_dev,
                     size=nboxes, wait_for=wait_for)
             wait_for = [evt]
 
@@ -626,7 +632,9 @@ class TreeBuilder(object):
 
             # Remap level_start_box_nrs to new box IDs.
             # FIXME: It would be better to do this on the device.
-            level_start_box_nrs = list(to_box_id.get()[np.array(level_start_box_nrs[:-1], box_id_dtype)])
+            level_start_box_nrs = list(
+                    to_box_id.get()
+                    [np.array(level_start_box_nrs[:-1], box_id_dtype)])
             level_start_box_nrs = level_start_box_nrs + [nboxes_post_prune]
 
             wait_for = prune_events
@@ -674,9 +682,11 @@ class TreeBuilder(object):
             wait_for.append(evt)
 
             if srcntgts_have_extent:
-                box_nonchild_source_counts, evt = zeros(nboxes_post_prune, particle_id_dtype)
+                box_nonchild_source_counts, evt = zeros(
+                        nboxes_post_prune, particle_id_dtype)
                 wait_for.append(evt)
-                box_nonchild_target_counts, evt = zeros(nboxes_post_prune, particle_id_dtype)
+                box_nonchild_target_counts, evt = zeros(
+                        nboxes_post_prune, particle_id_dtype)
                 wait_for.append(evt)
 
             fin_debug("source and target index finder")
@@ -687,7 +697,8 @@ class TreeBuilder(object):
                     box_srcntgt_starts, box_srcntgt_counts,
                     source_numbers,
                     )
-                    + ((box_nonchild_srcntgt_counts,) if srcntgts_have_extent else ())
+                    + ((box_nonchild_srcntgt_counts,)
+                        if srcntgts_have_extent else ())
 
                     # output:
                     + (
@@ -727,7 +738,8 @@ class TreeBuilder(object):
 
                 counts = box_srcntgt_counts.get()
                 is_leaf = counts <= max_particles_in_box
-                assert (box_source_counts.get()[is_leaf] + box_target_counts.get()[is_leaf]
+                assert (box_source_counts.get()[is_leaf]
+                        + box_target_counts.get()[is_leaf]
                         == box_srcntgt_counts.get()[is_leaf]).all()
                 del counts
                 del is_leaf
@@ -864,7 +876,8 @@ class TreeBuilder(object):
 
                 bounding_box=(bbox_min, bbox_max),
                 level_start_box_nrs=level_start_box_nrs,
-                level_start_box_nrs_dev=cl.array.to_device(queue, level_start_box_nrs,
+                level_start_box_nrs_dev=cl.array.to_device(
+                    queue, level_start_box_nrs,
                     allocator=allocator),
 
                 sources=sources,
