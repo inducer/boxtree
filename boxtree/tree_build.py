@@ -201,16 +201,10 @@ class TreeBuilder(object):
                     result.fill(0)
 
                 if ary1 is not None and ary1.nbytes:
-                    prep_events.append(
-                            cl.enqueue_copy(queue, result.data, ary1.data,
-                                wait_for=wait_for))
-                    assert ary1.nbytes == dtype.itemsize * nsources
+                    result[:len(ary1)] = ary1
 
                 if ary2 is not None and ary2.nbytes:
-                    prep_events.append(
-                            cl.enqueue_copy(queue, result.data, ary2.data,
-                                dest_offset=dtype.itemsize * nsources,
-                                wait_for=wait_for))
+                    result[nsources:] = ary2
 
                 return result
 
