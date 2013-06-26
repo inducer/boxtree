@@ -28,8 +28,8 @@ import numpy.linalg as la
 import pyopencl as cl
 
 import pytest
-from pyopencl.tools import pytest_generate_tests_for_pyopencl \
-        as pytest_generate_tests
+from pyopencl.tools import (  # noqa
+        pytest_generate_tests_for_pyopencl as pytest_generate_tests)
 
 from boxtree.tools import (
         make_normal_particle_array as p_normal,
@@ -39,8 +39,6 @@ from boxtree.tools import (
 
 import logging
 logger = logging.getLogger(__name__)
-
-
 
 
 # {{{ fmm interaction completeness test
@@ -93,8 +91,8 @@ class ConstantOneExpansionWrangler:
                 if child:
                     mpoles[ibox] += mpoles[child]
 
-    def eval_direct(self, target_boxes, neighbor_sources_starts, neighbor_sources_lists,
-            src_weights):
+    def eval_direct(self, target_boxes, neighbor_sources_starts,
+            neighbor_sources_lists, src_weights):
         pot = self.potential_zeros()
 
         for itgt_box, tgt_ibox in enumerate(target_boxes):
@@ -111,7 +109,6 @@ class ConstantOneExpansionWrangler:
             pot[tgt_pslice] = src_sum
 
         return pot
-
 
     def multipole_to_local(self, target_or_target_parent_boxes,
             starts, lists, mpole_exps):
@@ -178,26 +175,26 @@ class ConstantOneExpansionWrangler:
         return pot
 
 
-
 @pytest.mark.opencl
 @pytest.mark.parametrize(("dims", "nsources_req", "ntargets_req",
-        "who_has_extent", "source_gen", "target_gen"), [
-    (2, 10**5, None, "", p_normal, p_normal),
-    (3, 5 * 10**4, 4*10**4, "", p_normal, p_normal),
-    (2, 5 * 10**5, 4*10**4, "s", p_normal, p_normal),
-    (2, 5 * 10**5, 4*10**4, "st", p_normal, p_normal),
-    (2, 5 * 10**5, 4*10**4, "t", p_normal, p_normal),
-    (2, 5 * 10**5, 4*10**4, "st", p_surface, p_uniform),
+        "who_has_extent", "source_gen", "target_gen"),
+        [
+            (2, 10**5, None, "", p_normal, p_normal),
+            (3, 5 * 10**4, 4*10**4, "", p_normal, p_normal),
+            (2, 5 * 10**5, 4*10**4, "s", p_normal, p_normal),
+            (2, 5 * 10**5, 4*10**4, "st", p_normal, p_normal),
+            (2, 5 * 10**5, 4*10**4, "t", p_normal, p_normal),
+            (2, 5 * 10**5, 4*10**4, "st", p_surface, p_uniform),
 
-    (3, 10**5, None, "", p_normal, p_normal),
-    (3, 5 * 10**4, 4*10**4, "", p_normal, p_normal),
-    (3, 5 * 10**5, 4*10**4, "s", p_normal, p_normal),
-    (3, 5 * 10**5, 4*10**4, "st", p_normal, p_normal),
-    (3, 5 * 10**5, 4*10**4, "t", p_normal, p_normal),
-    (3, 5 * 10**5, 4*10**4, "st", p_surface, p_uniform),
-    ])
-def test_fmm_completeness(ctx_getter, dims, nsources_req, ntargets_req, who_has_extent,
-        source_gen, target_gen):
+            (3, 10**5, None, "", p_normal, p_normal),
+            (3, 5 * 10**4, 4*10**4, "", p_normal, p_normal),
+            (3, 5 * 10**5, 4*10**4, "s", p_normal, p_normal),
+            (3, 5 * 10**5, 4*10**4, "st", p_normal, p_normal),
+            (3, 5 * 10**5, 4*10**4, "t", p_normal, p_normal),
+            (3, 5 * 10**5, 4*10**4, "st", p_surface, p_uniform),
+            ])
+def test_fmm_completeness(ctx_getter, dims, nsources_req, ntargets_req,
+         who_has_extent, source_gen, target_gen):
     """Tests whether the built FMM traversal structures and driver completely
     capture all interactions.
     """
@@ -287,7 +284,7 @@ def test_fmm_completeness(ctx_getter, dims, nsources_req, ntargets_req, who_has_
         for i in xrange(nsources):
             unit_vec = np.zeros(nsources, dtype=dtype)
             unit_vec[i] = 1
-            mat[:,i] = drive_fmm(trav, wrangler, unit_vec)
+            mat[:, i] = drive_fmm(trav, wrangler, unit_vec)
             pb.progress()
         pb.finished()
 
@@ -312,7 +309,6 @@ def test_fmm_completeness(ctx_getter, dims, nsources_req, ntargets_req, who_has_
                     tree.indices_to_tree_target_order(missing_tgts)
             tree_order_missing_srcs = \
                     tree.indices_to_tree_source_order(missing_srcs)
-            from pytools.debug import shell;shell()
 
             src_boxes = [
                     tree.find_box_nr_for_source(i)
@@ -334,8 +330,6 @@ def test_fmm_completeness(ctx_getter, dims, nsources_req, ntargets_req, who_has_
             pt.gca().set_aspect("equal")
 
             pt.show()
-            from pytools.debug import shell; shell()
-
 
     # }}}
 
@@ -349,6 +343,7 @@ def test_fmm_completeness(ctx_getter, dims, nsources_req, ntargets_req, who_has_
     assert good
 
 # }}}
+
 
 # {{{ test Helmholtz fmm with pyfmmlib
 
@@ -415,8 +410,6 @@ def test_pyfmmlib_fmm(ctx_getter):
 # }}}
 
 
-
-
 # You can test individual routines by typing
 # $ python test_fmm.py 'test_routine(cl.create_some_context)'
 
@@ -429,4 +422,3 @@ if __name__ == "__main__":
         main([__file__])
 
 # vim: fdm=marker
-
