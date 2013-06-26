@@ -23,24 +23,23 @@ THE SOFTWARE.
 """
 
 
-
-
 import numpy as np
 import sys
 import pytest
 import logging
 
 import pyopencl as cl
-from pyopencl.tools import pytest_generate_tests_for_pyopencl \
-        as pytest_generate_tests
+from pyopencl.tools import (  # noqa
+        pytest_generate_tests_for_pyopencl as pytest_generate_tests)
 from boxtree.tools import make_normal_particle_array
 
 logger = logging.getLogger(__name__)
 
+
 # {{{ bounding box test
 
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])
-@pytest.mark.parametrize("dims", [2,3])
+@pytest.mark.parametrize("dims", [2, 3])
 @pytest.mark.parametrize("nparticles", [9, 4096, 10**5])
 def test_bounding_box(ctx_getter, dtype, dims, nparticles):
     logging.basicConfig(level=logging.INFO)
@@ -77,9 +76,11 @@ def test_bounding_box(ctx_getter, dtype, dims, nparticles):
 
 # }}}
 
+
 # {{{ test basic tree build
 
-def run_build_test(builder, queue, dims, dtype, nparticles, do_plot, max_particles_in_box=30, **kwargs):
+def run_build_test(builder, queue, dims, dtype, nparticles, do_plot,
+        max_particles_in_box=30, **kwargs):
     dtype = np.dtype(dtype)
 
     if dtype == np.float32:
@@ -141,7 +142,7 @@ def run_build_test(builder, queue, dims, dtype, nparticles, do_plot, max_particl
 
         start = tree.box_source_starts[ibox]
 
-        box_particles = sorted_particles[:,start:start+tree.box_source_counts[ibox]]
+        box_particles = sorted_particles[:, start:start+tree.box_source_counts[ibox]]
         good = (
                 (box_particles < extent_high[:, np.newaxis] + scaled_tol)
                 &
@@ -166,8 +167,6 @@ def run_build_test(builder, queue, dims, dtype, nparticles, do_plot, max_particl
         pt.show()
 
     assert all_good_so_far
-
-
 
 
 @pytest.mark.opencl
@@ -205,7 +204,6 @@ def test_particle_tree(ctx_getter, dtype, dims, do_plot=False):
     # test vanilla tree build
     run_build_test(builder, queue, dims, dtype, 10**5,
             do_plot=do_plot)
-
 
 
 @pytest.mark.opencl
@@ -262,15 +260,19 @@ def test_source_target_tree(ctx_getter, dims, do_plot=False):
     for ibox in xrange(tree.nboxes):
         extent_low, extent_high = tree.get_box_extent(ibox)
 
-        assert (extent_low >= tree.bounding_box[0] - 1e-12*tree.root_extent).all(), ibox
-        assert (extent_high <= tree.bounding_box[1] + 1e-12*tree.root_extent).all(), ibox
+        assert (extent_low >=
+                tree.bounding_box[0] - 1e-12*tree.root_extent).all(), ibox
+        assert (extent_high <=
+                tree.bounding_box[1] + 1e-12*tree.root_extent).all(), ibox
 
         src_start = tree.box_source_starts[ibox]
         tgt_start = tree.box_target_starts[ibox]
 
         for what, particles in [
-                ("sources", sorted_sources[:,src_start:src_start+tree.box_source_counts[ibox]]),
-                ("targets", sorted_targets[:,tgt_start:tgt_start+tree.box_target_counts[ibox]]),
+                ("sources", sorted_sources[:,
+                    src_start:src_start+tree.box_source_counts[ibox]]),
+                ("targets", sorted_targets[:,
+                    tgt_start:tgt_start+tree.box_target_counts[ibox]]),
                 ]:
             good = (
                     (particles < extent_high[:, np.newaxis])
@@ -299,6 +301,7 @@ def test_source_target_tree(ctx_getter, dims, do_plot=False):
     assert all_good_so_far
 
 # }}}
+
 
 # {{{ test sources/targets-with-extent tree
 
@@ -373,8 +376,10 @@ def test_extent_tree(ctx_getter, dims, do_plot=False):
         box_radius = np.max(extent_high-extent_low) * 0.5
         stick_out_dist = tree.stick_out_factor * box_radius
 
-        assert (extent_low >= tree.bounding_box[0] - 1e-12*tree.root_extent).all(), ibox
-        assert (extent_high <= tree.bounding_box[1] + 1e-12*tree.root_extent).all(), ibox
+        assert (extent_low >=
+                tree.bounding_box[0] - 1e-12*tree.root_extent).all(), ibox
+        assert (extent_high <=
+                tree.bounding_box[1] + 1e-12*tree.root_extent).all(), ibox
 
         # {{{ sources
 
@@ -423,7 +428,7 @@ def test_extent_tree(ctx_getter, dims, do_plot=False):
                 unsorted_sources[i][:, np.newaxis]
                 + unsorted_source_radii[:, np.newaxis]
                 * np.random.uniform(
-                     -1, 1, size=(nsources, npoint_sources_per_source))
+                    -1, 1, size=(nsources, npoint_sources_per_source))
                  )
             for i in range(dims)])
 
@@ -438,6 +443,7 @@ def test_extent_tree(ctx_getter, dims, do_plot=False):
     # }}}
 
 # }}}
+
 
 # {{{ geometry query test
 
@@ -499,9 +505,6 @@ def test_geometry_query(ctx_getter, dims, do_plot=False):
         assert sorted(lbl.balls_near_box_lists[start:end]) == sorted(near_circles)
 
 # }}}
-
-
-
 
 
 # You can test individual routines by typing
