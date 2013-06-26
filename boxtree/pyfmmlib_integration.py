@@ -25,18 +25,12 @@ THE SOFTWARE.
 """
 
 
-
-
 import numpy as np
-
-
 
 
 __doc__ = """Integrates :mod:`boxtree` with
 `pyfmmlib <http://pypi.python.org/pypi/pyfmmlib>`_.
 """
-
-
 
 
 class Helmholtz2DExpansionWrangler:
@@ -58,12 +52,12 @@ class Helmholtz2DExpansionWrangler:
     def _get_source_slice(self, ibox):
         pstart = self.tree.box_source_starts[ibox]
         return slice(
-                pstart, pstart + self.tree.box_source_counts[ibox])
+                pstart, pstart + self.tree.box_source_counts_nonchild[ibox])
 
     def _get_target_slice(self, ibox):
         pstart = self.tree.box_target_starts[ibox]
         return slice(
-                pstart, pstart + self.tree.box_target_counts[ibox])
+                pstart, pstart + self.tree.box_target_counts_nonchild[ibox])
 
     def _get_sources(self, pslice):
         # FIXME yuck!
@@ -86,7 +80,7 @@ class Helmholtz2DExpansionWrangler:
         return potentials[self.tree.sorted_target_ids]
 
     def form_multipoles(self, source_boxes, src_weights):
-        rscale = 1 # FIXME
+        rscale = 1  # FIXME
 
         from pyfmmlib import h2dformmp
 
@@ -109,7 +103,7 @@ class Helmholtz2DExpansionWrangler:
     def coarsen_multipoles(self, parent_boxes, start_parent_box, end_parent_box,
             mpoles):
         tree = self.tree
-        rscale = 1 # FIXME
+        rscale = 1  # FIXME
 
         from pyfmmlib import h2dmpmp_vec
 
@@ -126,8 +120,8 @@ class Helmholtz2DExpansionWrangler:
 
                     mpoles[ibox] += new_mp[:, 0]
 
-    def eval_direct(self, target_boxes, neighbor_sources_starts, neighbor_sources_lists,
-            src_weights):
+    def eval_direct(self, target_boxes, neighbor_sources_starts,
+            neighbor_sources_lists, src_weights):
         pot = self.potential_zeros()
 
         from pyfmmlib import hpotgrad2dall_vec
@@ -148,7 +142,8 @@ class Helmholtz2DExpansionWrangler:
 
                 tmp_pot, _, _ = hpotgrad2dall_vec(
                         ifgrad=False, ifhess=False,
-                        sources=self._get_sources(src_pslice), charge=src_weights[src_pslice],
+                        sources=self._get_sources(src_pslice),
+                        charge=src_weights[src_pslice],
                         targets=self._get_targets(tgt_pslice), zk=self.helmholtz_k)
 
                 tgt_result += tmp_pot
@@ -156,7 +151,6 @@ class Helmholtz2DExpansionWrangler:
             pot[tgt_pslice] = tgt_result
 
         return pot
-
 
     def multipole_to_local(self, target_or_target_parent_boxes,
             starts, lists, mpole_exps):
@@ -215,7 +209,7 @@ class Helmholtz2DExpansionWrangler:
         return pot
 
     def form_locals(self, target_or_target_parent_boxes, starts, lists, src_weights):
-        rscale = 1 # FIXME
+        rscale = 1  # FIXME
         local_exps = self.expansion_zeros()
 
         from pyfmmlib import h2dformta
@@ -246,7 +240,7 @@ class Helmholtz2DExpansionWrangler:
         return local_exps
 
     def refine_locals(self, child_boxes, start_child_box, end_child_box, local_exps):
-        rscale = 1 # FIXME
+        rscale = 1  # FIXME
 
         from pyfmmlib import h2dlocloc_vec
 
@@ -266,7 +260,7 @@ class Helmholtz2DExpansionWrangler:
 
     def eval_locals(self, target_boxes, local_exps):
         pot = self.potential_zeros()
-        rscale = 1 # FIXME
+        rscale = 1  # FIXME
 
         from pyfmmlib import h2dtaeval_vec
 

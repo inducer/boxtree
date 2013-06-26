@@ -77,7 +77,7 @@ def test_bounding_box(ctx_getter, dtype, dims, nparticles):
 # }}}
 
 
-# {{{ test basic tree build
+# {{{ test basic (no source/target distinction) tree build
 
 def run_build_test(builder, queue, dims, dtype, nparticles, do_plot,
         max_particles_in_box=30, **kwargs):
@@ -142,7 +142,15 @@ def run_build_test(builder, queue, dims, dtype, nparticles, do_plot,
 
         start = tree.box_source_starts[ibox]
 
-        box_particles = sorted_particles[:, start:start+tree.box_source_counts[ibox]]
+        box_children = tree.box_child_ids[:, ibox]
+        existing_children = box_children[box_children != 0]
+
+        assert (tree.box_source_counts_nonchild[ibox]
+                + np.sum(tree.box_source_counts_cumul[existing_children])
+                == tree.box_source_counts_cumul[ibox])
+
+        box_particles = sorted_particles[:,
+                start:start+tree.box_source_counts_cumul[ibox]]
         good = (
                 (box_particles < extent_high[:, np.newaxis] + scaled_tol)
                 &
@@ -268,11 +276,21 @@ def test_source_target_tree(ctx_getter, dims, do_plot=False):
         src_start = tree.box_source_starts[ibox]
         tgt_start = tree.box_target_starts[ibox]
 
+        box_children = tree.box_child_ids[:, ibox]
+        existing_children = box_children[box_children != 0]
+
+        assert (tree.box_source_counts_nonchild[ibox]
+                + np.sum(tree.box_source_counts_cumul[existing_children])
+                == tree.box_source_counts_cumul[ibox])
+        assert (tree.box_target_counts_nonchild[ibox]
+                + np.sum(tree.box_target_counts_cumul[existing_children])
+                == tree.box_target_counts_cumul[ibox])
+
         for what, particles in [
                 ("sources", sorted_sources[:,
-                    src_start:src_start+tree.box_source_counts[ibox]]),
+                    src_start:src_start+tree.box_source_counts_cumul[ibox]]),
                 ("targets", sorted_targets[:,
-                    tgt_start:tgt_start+tree.box_target_counts[ibox]]),
+                    tgt_start:tgt_start+tree.box_target_counts_cumul[ibox]]),
                 ]:
             good = (
                     (particles < extent_high[:, np.newaxis])
@@ -293,12 +311,11 @@ def test_source_target_tree(ctx_getter, dims, do_plot=False):
             print "BAD BOX %s %d" % (what, ibox)
 
         all_good_so_far = all_good_so_far and all_good_here
+        assert all_good_so_far
 
     if do_plot:
         pt.gca().set_aspect("equal", "datalim")
         pt.show()
-
-    assert all_good_so_far
 
 # }}}
 
@@ -370,6 +387,8 @@ def test_extent_tree(ctx_getter, dims, do_plot=False):
 
     all_good_so_far = True
 
+    # {{{ check sources, targets
+
     for ibox in xrange(tree.nboxes):
         extent_low, extent_high = tree.get_box_extent(ibox)
 
@@ -381,12 +400,20 @@ def test_extent_tree(ctx_getter, dims, do_plot=False):
         assert (extent_high <=
                 tree.bounding_box[1] + 1e-12*tree.root_extent).all(), ibox
 
-        # {{{ sources
+        box_children = tree.box_child_ids[:, ibox]
+        existing_children = box_children[box_children != 0]
+
+        assert (tree.box_source_counts_nonchild[ibox]
+                + np.sum(tree.box_source_counts_cumul[existing_children])
+                == tree.box_source_counts_cumul[ibox])
+        assert (tree.box_target_counts_nonchild[ibox]
+                + np.sum(tree.box_target_counts_cumul[existing_children])
+                == tree.box_target_counts_cumul[ibox])
 
         for what, starts, counts, points, radii in [
-                ("source", tree.box_source_starts, tree.box_source_counts,
+                ("source", tree.box_source_starts, tree.box_source_counts_cumul,
                     sorted_sources, sorted_source_radii),
-                ("target", tree.box_target_starts, tree.box_target_counts,
+                ("target", tree.box_target_starts, tree.box_target_counts_cumul,
                     sorted_targets, sorted_target_radii),
                 ]:
             bstart = starts[ibox]
@@ -410,7 +437,7 @@ def test_extent_tree(ctx_getter, dims, do_plot=False):
             all_good_so_far = all_good_so_far and all_good_here
             assert all_good_here
 
-        # }}}
+    # }}}
 
     assert all_good_so_far
 

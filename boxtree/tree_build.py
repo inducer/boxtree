@@ -315,13 +315,12 @@ class TreeBuilder(object):
 
         # number of particles in each box
         # needs to be globally initialized because empty boxes never get touched
-        box_srcntgt_counts, evt = zeros(nboxes_guess, dtype=particle_id_dtype)
+        box_srcntgt_counts_cumul, evt = zeros(nboxes_guess, dtype=particle_id_dtype)
         prep_events.append(evt)
 
         # Initalize box 0 to contain all particles
-        evt = cl.enqueue_copy(queue, box_srcntgt_counts.data,
-                box_srcntgt_counts.dtype.type(nsrcntgts),
-                wait_for=[evt])
+        evt = box_srcntgt_counts_cumul[0].fill(
+                nsrcntgts, queue=queue, wait_for=[evt])
 
         # set parent of root box to itself
         evt = cl.enqueue_copy(
@@ -378,7 +377,7 @@ class TreeBuilder(object):
             common_args = ((morton_bin_counts, morton_nrs,
                     box_start_flags, srcntgt_box_ids, split_box_ids,
                     box_morton_bin_counts,
-                    box_srcntgt_starts, box_srcntgt_counts,
+                    box_srcntgt_starts, box_srcntgt_counts_cumul,
                     box_parent_ids, box_morton_nrs,
                     nboxes_dev,
                     level, max_particles_in_box, bbox,
@@ -401,7 +400,7 @@ class TreeBuilder(object):
             evt = knl_info.split_box_id_scan(
                     srcntgt_box_ids,
                     box_srcntgt_starts,
-                    box_srcntgt_counts,
+                    box_srcntgt_counts_cumul,
                     max_particles_in_box,
                     box_morton_bin_counts,
                     box_levels,
@@ -448,7 +447,8 @@ class TreeBuilder(object):
                 resize_events.append(evt)
                 box_levels, evt = my_realloc_zeros(box_levels)
                 resize_events.append(evt)
-                box_srcntgt_counts, evt = my_realloc_zeros(box_srcntgt_counts)
+                box_srcntgt_counts_cumul, evt = \
+                        my_realloc_zeros(box_srcntgt_counts_cumul)
                 resize_events.append(evt)
 
                 del my_realloc
@@ -538,12 +538,8 @@ class TreeBuilder(object):
         # {{{ extract number of non-child srcntgts from box morton counts
 
         if srcntgts_have_extent:
-            box_nonchild_srcntgt_counts = empty(nboxes, particle_id_dtype)
+            box_srcntgt_counts_nonchild = empty(nboxes, particle_id_dtype)
             fin_debug("extract non-child srcntgt count")
-
-            # box_morton_bin_counts gets written in morton scan output.
-            # Therefore, newly created boxes in the last level don't
-            # have it initialized.
 
             assert len(level_start_box_nrs) >= 2
             highest_possibly_split_box_nr = level_start_box_nrs[-2]
@@ -551,11 +547,11 @@ class TreeBuilder(object):
             evt = knl_info.extract_nonchild_srcntgt_count_kernel(
                     # input
                     box_morton_bin_counts,
-                    box_srcntgt_counts,
+                    box_srcntgt_counts_cumul,
                     highest_possibly_split_box_nr,
 
                     # output
-                    box_nonchild_srcntgt_counts,
+                    box_srcntgt_counts_nonchild,
 
                     range=slice(nboxes), wait_for=wait_for)
             wait_for = [evt]
@@ -563,8 +559,8 @@ class TreeBuilder(object):
             del highest_possibly_split_box_nr
 
             if debug:
-                assert (box_nonchild_srcntgt_counts.get()
-                        <= box_srcntgt_counts.get()[:nboxes]).all()
+                assert (box_srcntgt_counts_nonchild.get()
+                        <= box_srcntgt_counts_cumul.get()[:nboxes]).all()
 
         # }}}
 
@@ -586,7 +582,7 @@ class TreeBuilder(object):
 
             nboxes_post_prune_dev = empty((), dtype=box_id_dtype)
             evt = knl_info.find_prune_indices_kernel(
-                    box_srcntgt_counts,
+                    box_srcntgt_counts_cumul,
                     to_box_id, from_box_id, nboxes_post_prune_dev,
                     size=nboxes, wait_for=wait_for)
             wait_for = [evt]
@@ -605,11 +601,11 @@ class TreeBuilder(object):
             box_srcntgt_starts, evt = prune_empty(box_srcntgt_starts)
             prune_events.append(evt)
 
-            box_srcntgt_counts, evt = prune_empty(box_srcntgt_counts)
+            box_srcntgt_counts_cumul, evt = prune_empty(box_srcntgt_counts_cumul)
             prune_events.append(evt)
 
             if debug:
-                assert (box_srcntgt_counts.get() > 0).all()
+                assert (box_srcntgt_counts_cumul.get() > 0).all()
 
             srcntgt_box_ids = cl.array.take(to_box_id, srcntgt_box_ids)
 
@@ -620,8 +616,8 @@ class TreeBuilder(object):
             box_levels, evt = prune_empty(box_levels)
             prune_events.append(evt)
             if srcntgts_have_extent:
-                box_nonchild_srcntgt_counts, evt = prune_empty(
-                        box_nonchild_srcntgt_counts)
+                box_srcntgt_counts_nonchild, evt = prune_empty(
+                        box_srcntgt_counts_nonchild)
                 prune_events.append(evt)
 
             # Remap level_start_box_nrs to new box IDs.
@@ -650,7 +646,11 @@ class TreeBuilder(object):
             sorted_target_ids = reverse_index_array(user_srcntgt_ids)
 
             box_source_starts = box_target_starts = box_srcntgt_starts
-            box_source_counts = box_target_counts = box_srcntgt_counts
+            box_source_counts_cumul = box_target_counts_cumul = \
+                    box_srcntgt_counts_cumul
+            if srcntgts_have_extent:
+                box_source_counts_nonchild = box_target_counts_nonchild = \
+                        box_srcntgt_counts_nonchild
         else:
             source_numbers = empty(nsrcntgts, particle_id_dtype)
 
@@ -668,18 +668,21 @@ class TreeBuilder(object):
             # need to use zeros because parent boxes won't be initialized
             box_source_starts, evt = zeros(nboxes_post_prune, particle_id_dtype)
             wait_for.append(evt)
-            box_source_counts, evt = zeros(nboxes_post_prune, particle_id_dtype)
+            box_source_counts_cumul, evt = zeros(
+                    nboxes_post_prune, particle_id_dtype)
             wait_for.append(evt)
-            box_target_starts, evt = zeros(nboxes_post_prune, particle_id_dtype)
+            box_target_starts, evt = zeros(
+                    nboxes_post_prune, particle_id_dtype)
             wait_for.append(evt)
-            box_target_counts, evt = zeros(nboxes_post_prune, particle_id_dtype)
+            box_target_counts_cumul, evt = zeros(
+                    nboxes_post_prune, particle_id_dtype)
             wait_for.append(evt)
 
             if srcntgts_have_extent:
-                box_nonchild_source_counts, evt = zeros(
+                box_source_counts_nonchild, evt = zeros(
                         nboxes_post_prune, particle_id_dtype)
                 wait_for.append(evt)
-                box_nonchild_target_counts, evt = zeros(
+                box_target_counts_nonchild, evt = zeros(
                         nboxes_post_prune, particle_id_dtype)
                 wait_for.append(evt)
 
@@ -688,21 +691,23 @@ class TreeBuilder(object):
                     # input:
                     (
                     user_srcntgt_ids, nsources, srcntgt_box_ids,
-                    box_srcntgt_starts, box_srcntgt_counts,
+                    box_parent_ids,
+
+                    box_srcntgt_starts, box_srcntgt_counts_cumul,
                     source_numbers,
                     )
-                    + ((box_nonchild_srcntgt_counts,)
+                    + ((box_srcntgt_counts_nonchild,)
                         if srcntgts_have_extent else ())
 
                     # output:
                     + (
                     user_source_ids, srcntgt_target_ids, sorted_target_ids,
-                    box_source_starts, box_source_counts,
-                    box_target_starts, box_target_counts,
+                    box_source_starts, box_source_counts_cumul,
+                    box_target_starts, box_target_counts_cumul,
                     )
                     + ((
-                        box_nonchild_source_counts,
-                        box_nonchild_target_counts,
+                        box_source_counts_nonchild,
+                        box_target_counts_nonchild,
                         ) if srcntgts_have_extent else ())
                     ),
                     queue=queue, range=slice(nsrcntgts),
@@ -712,12 +717,10 @@ class TreeBuilder(object):
             if srcntgts_have_extent:
                 if debug:
                     assert (
-                            box_nonchild_srcntgt_counts.get()
+                            box_srcntgt_counts_nonchild.get()
                             ==
-                            (box_nonchild_source_counts
-                            + box_nonchild_target_counts).get()).all()
-
-                del box_nonchild_srcntgt_counts
+                            (box_source_counts_nonchild
+                            + box_target_counts_nonchild).get()).all()
 
             if debug:
                 usi_host = user_source_ids.get()
@@ -730,17 +733,15 @@ class TreeBuilder(object):
                 assert (nsources <= sti_host).all()
                 del sti_host
 
-                counts = box_srcntgt_counts.get()
-                is_leaf = counts <= max_particles_in_box
-                assert (box_source_counts.get()[is_leaf]
-                        + box_target_counts.get()[is_leaf]
-                        == box_srcntgt_counts.get()[is_leaf]).all()
-                del counts
-                del is_leaf
+                assert (box_source_counts_cumul.get()
+                        + box_target_counts_cumul.get()
+                        == box_srcntgt_counts_cumul.get()).all()
 
             del source_numbers
 
         del box_srcntgt_starts
+        if srcntgts_have_extent:
+            del box_srcntgt_counts_nonchild
 
         # }}}
 
@@ -822,20 +823,59 @@ class TreeBuilder(object):
         from boxtree.tree import box_flags_enum
         box_flags = empty(nboxes_post_prune, box_flags_enum.dtype)
 
+        if not srcntgts_have_extent:
+            # If srcntgts_have_extent, then non-child counts have already been
+            # computed, and we have nothing to do here. But if not, then
+            # we must fill these non-child counts. This amounts to copying
+            # the cumulative counts and setting them to zero for non-leaves.
+
+            # {{{ make sure box_{source,target}_counts_nonchild are not defined
+            # (before we overwrite them)
+
+            try:
+                box_source_counts_nonchild
+            except NameError:
+                pass
+            else:
+                assert False
+
+            try:
+                box_target_counts_nonchild
+            except NameError:
+                pass
+            else:
+                assert False
+
+            # }}}
+
+            box_source_counts_nonchild, evt = zeros(
+                    nboxes_post_prune, particle_id_dtype)
+            wait_for.append(evt)
+
+            if sources_are_targets:
+                box_target_counts_nonchild = box_source_counts_nonchild
+            else:
+                box_target_counts_nonchild, evt = zeros(
+                        nboxes_post_prune, particle_id_dtype)
+                wait_for.append(evt)
+
         fin_debug("compute box info")
         evt = knl_info.box_info_kernel(
-                # input:
-                box_parent_ids, box_morton_nrs, bbox, aligned_nboxes,
-                box_srcntgt_counts, box_source_counts, box_target_counts,
-                max_particles_in_box,
-                box_levels, nlevels,
-                # output:
-                box_child_ids, box_centers, box_flags,
                 *(
-                    (
-                        box_nonchild_source_counts,
-                        box_nonchild_target_counts,
-                        ) if srcntgts_have_extent else ()),
+                    # input:
+                    box_parent_ids, box_morton_nrs, bbox, aligned_nboxes,
+
+                    box_srcntgt_counts_cumul,
+                    box_source_counts_cumul, box_target_counts_cumul,
+                    max_particles_in_box,
+                    box_levels, nlevels,
+
+                    # output if srcntgts_have_extent, input+output otherwise
+                    box_source_counts_nonchild, box_target_counts_nonchild,
+
+                    # output:
+                    box_child_ids, box_centers, box_flags,
+                ),
                 range=slice(nboxes_post_prune),
                 wait_for=wait_for)
 
@@ -878,9 +918,11 @@ class TreeBuilder(object):
                 targets=targets,
 
                 box_source_starts=box_source_starts,
-                box_source_counts=box_source_counts,
+                box_source_counts_nonchild=box_source_counts_nonchild,
+                box_source_counts_cumul=box_source_counts_cumul,
                 box_target_starts=box_target_starts,
-                box_target_counts=box_target_counts,
+                box_target_counts_nonchild=box_target_counts_nonchild,
+                box_target_counts_cumul=box_target_counts_cumul,
 
                 box_parent_ids=box_parent_ids,
                 box_child_ids=box_child_ids,

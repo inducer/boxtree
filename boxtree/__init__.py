@@ -25,7 +25,9 @@ THE SOFTWARE.
 from boxtree.tree import Tree, TreeWithLinkedPointSources, box_flags_enum
 from boxtree.tree_build import TreeBuilder
 
-__all__ = ["Tree", "TreeBuilder", "box_flags_enum"]
+__all__ = [
+    "Tree", "TreeWithLinkedPointSources",
+    "TreeBuilder", "box_flags_enum"]
 
 __doc__ = """
 :mod:`boxtree` can do three main things:

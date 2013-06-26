@@ -230,14 +230,23 @@ class Tree(FromDeviceGettableRecord):
         Use together with :attr:`box_source_counts`.
         May be the same array as :attr:`box_target_starts`.
 
-    .. attribute:: box_source_counts
+    .. attribute:: box_source_counts_nonchild
 
         ``particle_id_t [nboxes]``
 
         List of sources in each box. Records number of sources from :attr:`sources`
-        in each box.
+        in each box (excluding those belonging to child boxes).
         Use together with :attr:`box_source_starts`.
-        May be the same array as :attr:`box_target_counts`.
+        May be the same array as :attr:`box_target_counts_nonchild`.
+
+    .. attribute:: box_source_counts_cumul
+
+        ``particle_id_t [nboxes]``
+
+        List of sources in each box. Records number of sources from :attr:`sources`
+        in each box and its children.
+        Use together with :attr:`box_source_starts`.
+        May be the same array as :attr:`box_target_counts_cumul`.
 
     .. attribute:: box_target_starts
 
@@ -248,14 +257,23 @@ class Tree(FromDeviceGettableRecord):
         Use together with :attr:`box_target_counts`.
         May be the same array as :attr:`box_source_starts`.
 
-    .. attribute:: box_target_counts
+    .. attribute:: box_target_counts_nonchild
 
         ``particle_id_t [nboxes]``
 
         List of targets in each box. Records number of sources from :attr:`targets`
-        in each box.
+        in each box (excluding those belonging to child boxes).
         Use together with :attr:`box_target_starts`.
-        May be the same array as :attr:`box_source_counts`.
+        May be the same array as :attr:`box_source_counts_nonchild`.
+
+    .. attribute:: box_target_counts_cumul
+
+        ``particle_id_t [nboxes]``
+
+        List of targets in each box. Records number of sources from :attr:`targets`
+        in each box and its children.
+        Use together with :attr:`box_target_starts`.
+        May be the same array as :attr:`box_source_counts_cumul`.
 
     .. attribute:: box_parent_ids
 
@@ -455,6 +473,7 @@ class Tree(FromDeviceGettableRecord):
             queue.context,
             type_aliases=(
                 ("particle_id_t", self.particle_id_dtype),
+                ("box_id_t", self.box_id_dtype),
                 ),
             )
 
@@ -462,12 +481,18 @@ class Tree(FromDeviceGettableRecord):
 
         box_point_source_starts = cl.array.empty(
                 queue, self.nboxes, self.particle_id_dtype)
-        box_point_source_counts = cl.array.empty(
+        box_point_source_counts_nonchild = cl.array.empty(
+                queue, self.nboxes, self.particle_id_dtype)
+        box_point_source_counts_cumul = cl.array.empty(
                 queue, self.nboxes, self.particle_id_dtype)
 
         knl(
-                box_point_source_starts, box_point_source_counts,
-                self.box_source_starts, self.box_source_counts,
+                box_point_source_starts, box_point_source_counts_nonchild,
+                box_point_source_counts_cumul,
+
+                self.box_source_starts, self.box_source_counts_nonchild,
+                self.box_source_counts_cumul,
+
                 tree_order_point_source_starts,
                 tree_order_point_source_counts,
                 range=slice(self.nboxes), queue=queue)
@@ -490,7 +515,8 @@ class Tree(FromDeviceGettableRecord):
                 point_sources=tree_order_point_sources,
                 user_point_source_ids=user_point_source_ids,
                 box_point_source_starts=box_point_source_starts,
-                box_point_source_counts=box_point_source_counts,
+                box_point_source_counts_nonchild=box_point_source_counts_nonchild,
+                box_point_source_counts_cumul=box_point_source_counts_cumul,
 
                 **tree_attrs)
 
@@ -601,7 +627,11 @@ class TreeWithLinkedPointSources(Tree):
 
         ``particle_id_t [nboxes]``
 
-    .. attribute:: box_point_source_counts
+    .. attribute:: box_point_source_counts_nonchild
+
+        ``particle_id_t [nboxes]``
+
+    .. attribute:: box_point_source_counts_cumul
 
         ``particle_id_t [nboxes]``
     """

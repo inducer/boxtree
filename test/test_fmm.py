@@ -61,12 +61,12 @@ class ConstantOneExpansionWrangler:
     def _get_source_slice(self, ibox):
         pstart = self.tree.box_source_starts[ibox]
         return slice(
-                pstart, pstart + self.tree.box_source_counts[ibox])
+                pstart, pstart + self.tree.box_source_counts_nonchild[ibox])
 
     def _get_target_slice(self, ibox):
         pstart = self.tree.box_target_starts[ibox]
         return slice(
-                pstart, pstart + self.tree.box_target_counts[ibox])
+                pstart, pstart + self.tree.box_target_counts_nonchild[ibox])
 
     def reorder_src_weights(self, src_weights):
         return src_weights[self.tree.user_source_ids]

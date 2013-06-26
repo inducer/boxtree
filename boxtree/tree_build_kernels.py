@@ -147,11 +147,12 @@ TYPE_DECL_PREAMBLE_TPL = Template(r"""//CL//
 GENERIC_PREAMBLE_TPL = Template(r"""//CL//
     #define STICK_OUT_FACTOR ((coord_t) ${stick_out_factor})
 
-    // Use this as dbg_printf(("oh snap: %d\n", stuff));
-    // Note the double parentheses.
+    // Use this as dbg_printf(("oh snap: %d\n", stuff)); Note the double
+    // parentheses.
     //
     // Watch out: 64-bit values on Intel CL must be printed with %ld, or
-    //    subsequent values will print as 0. And you'll be very confused.
+    // subsequent values will print as 0. Things may crash. And you'll be very
+    // confused.
 
     %if enable_printf:
         #define dbg_printf(ARGS) printf ARGS
@@ -339,7 +340,7 @@ SCAN_OUTPUT_STMT_TPL = Template(r"""//CL//
         morton_bin_counts[i] = item;
 
         box_id_t current_box_id = srcntgt_box_ids[i];
-        particle_id_t box_srcntgt_count = box_srcntgt_counts[current_box_id];
+        particle_id_t box_srcntgt_count = box_srcntgt_counts_cumul[current_box_id];
 
         // Am I the last particle in my current box?
         // If so, populate particle count.
@@ -363,7 +364,7 @@ SPLIT_BOX_ID_SCAN_TPL = ScanTemplate(
         /* input */
         box_id_t *srcntgt_box_ids,
         particle_id_t *box_srcntgt_starts,
-        particle_id_t *box_srcntgt_counts,
+        particle_id_t *box_srcntgt_counts_cumul,
         particle_id_t max_particles_in_box,
         morton_counts_t *box_morton_bin_counts,
         box_level_t *box_levels,
@@ -381,7 +382,7 @@ SPLIT_BOX_ID_SCAN_TPL = ScanTemplate(
             box_id_t box_id,
             __global box_id_t *nboxes,
             __global particle_id_t *box_srcntgt_starts,
-            __global particle_id_t *box_srcntgt_counts,
+            __global particle_id_t *box_srcntgt_counts_cumul,
             __global morton_counts_t *box_morton_bin_counts,
             particle_id_t max_particles_in_box,
             __global box_level_t *box_levels,
@@ -420,7 +421,7 @@ SPLIT_BOX_ID_SCAN_TPL = ScanTemplate(
                 %endif
                 &&
                 /* box overfull? */
-                box_srcntgt_counts[box_id] - nonchild_srcntgts_in_box
+                box_srcntgt_counts_cumul[box_id] - nonchild_srcntgts_in_box
                     > max_particles_in_box)
             {
                 result += ${2**dimensions};
@@ -431,7 +432,7 @@ SPLIT_BOX_ID_SCAN_TPL = ScanTemplate(
         """,
     input_expr="""count_new_boxes_needed(
             i, srcntgt_box_ids[i], nboxes,
-            box_srcntgt_starts, box_srcntgt_counts, box_morton_bin_counts,
+            box_srcntgt_starts, box_srcntgt_counts_cumul, box_morton_bin_counts,
             max_particles_in_box, box_levels, level
             )""",
     scan_expr="a + b",
@@ -485,7 +486,7 @@ SPLIT_AND_SORT_KERNEL_TPL = Template(r"""//CL//
     dbg_printf(("postproc %d:\n", i));
     dbg_printf(("   my box id: %d\n", my_box_id));
 
-    particle_id_t box_srcntgt_count = box_srcntgt_counts[my_box_id];
+    particle_id_t box_srcntgt_count = box_srcntgt_counts_cumul[my_box_id];
 
     %if srcntgts_have_extent:
         const particle_id_t nonchild_srcntgt_count =
@@ -598,7 +599,7 @@ SPLIT_AND_SORT_KERNEL_TPL = Template(r"""//CL//
 
                 particle_id_t new_count =
                     my_box_morton_bin_counts.pcnt${padded_bin(mnr, dimensions)};
-                box_srcntgt_counts[new_box_id] = new_count;
+                box_srcntgt_counts_cumul[new_box_id] = new_count;
                 box_levels[new_box_id] = level;
 
                 if (new_count > max_particles_in_box)
@@ -606,7 +607,8 @@ SPLIT_AND_SORT_KERNEL_TPL = Template(r"""//CL//
                     *have_oversize_split_box = 1;
                 }
 
-                dbg_printf(("   box pcount: %d\n", box_srcntgt_counts[new_box_id]));
+                dbg_printf(("   box pcount: %d\n",
+                    box_srcntgt_counts_cumul[new_box_id]));
             }
         %endfor
 
@@ -630,24 +632,28 @@ EXTRACT_NONCHILD_SRCNTGT_COUNT_TPL = ElementwiseTemplate(
     arguments="""//CL//
         /* input */
         morton_counts_t *box_morton_bin_counts,
-        particle_id_t *box_srcntgt_counts,
+        particle_id_t *box_srcntgt_counts_cumul,
         box_id_t highest_possibly_split_box_nr,
 
         /* output */
-        particle_id_t *box_nonchild_srcntgt_counts,
+        particle_id_t *box_srcntgt_counts_nonchild,
         """,
     operation=r"""//CL//
         if (i >= highest_possibly_split_box_nr)
         {
-            box_nonchild_srcntgt_counts[i] = 0;
+            // box_morton_bin_counts gets written in morton scan output.
+            // Therefore, newly created boxes in the last level don't
+            // have it initialized.
+
+            box_srcntgt_counts_nonchild[i] = 0;
         }
-        else if (box_srcntgt_counts[i] == 0)
+        else if (box_srcntgt_counts_cumul[i] == 0)
         {
             // If boxes are empty, box_morton_bin_counts never gets initialized.
-            box_nonchild_srcntgt_counts[i] = 0;
+            box_srcntgt_counts_nonchild[i] = 0;
         }
         else
-            box_nonchild_srcntgt_counts[i] =
+            box_srcntgt_counts_nonchild[i] =
                 box_morton_bin_counts[i].nonchild_srcntgts;
         """,
     name="extract_nonchild_srcntgt_count")
@@ -662,13 +668,14 @@ SOURCE_AND_TARGET_INDEX_FINDER = ElementwiseTemplate(
         particle_id_t *user_srcntgt_ids,
         particle_id_t nsources,
         box_id_t *srcntgt_box_ids,
+        box_id_t *box_parent_ids,
 
         particle_id_t *box_srcntgt_starts,
-        particle_id_t *box_srcntgt_counts,
+        particle_id_t *box_srcntgt_counts_cumul,
         particle_id_t *source_numbers,
 
         %if srcntgts_have_extent:
-            particle_id_t *box_nonchild_srcntgt_counts,
+            particle_id_t *box_srcntgt_counts_nonchild,
         %endif
 
         /* output */
@@ -677,16 +684,19 @@ SOURCE_AND_TARGET_INDEX_FINDER = ElementwiseTemplate(
         particle_id_t *sorted_target_ids,
 
         particle_id_t *box_source_starts,
-        particle_id_t *box_source_counts,
+        particle_id_t *box_source_counts_cumul,
         particle_id_t *box_target_starts,
-        particle_id_t *box_target_counts,
+        particle_id_t *box_target_counts_cumul,
 
         %if srcntgts_have_extent:
-            particle_id_t *box_nonchild_source_counts,
-            particle_id_t *box_nonchild_target_counts,
+            particle_id_t *box_source_counts_nonchild,
+            particle_id_t *box_target_counts_nonchild,
         %endif
         """,
     operation=r"""//CL:mako//
+        ## Splitting sources and targets makes no sense when they're the same.
+        <% assert not sources_are_targets %>
+
         particle_id_t sorted_srcntgt_id = i;
         particle_id_t source_nr = source_numbers[i];
         particle_id_t target_nr = i - source_nr;
@@ -694,9 +704,7 @@ SOURCE_AND_TARGET_INDEX_FINDER = ElementwiseTemplate(
         box_id_t box_id = srcntgt_box_ids[sorted_srcntgt_id];
 
         particle_id_t box_start = box_srcntgt_starts[box_id];
-        particle_id_t box_count = box_srcntgt_counts[box_id];
-
-        int srcntgt_id_in_box = i - box_start;
+        particle_id_t box_count = box_srcntgt_counts_cumul[box_id];
 
         particle_id_t user_srcntgt_id
             = user_srcntgt_ids[sorted_srcntgt_id];
@@ -705,11 +713,27 @@ SOURCE_AND_TARGET_INDEX_FINDER = ElementwiseTemplate(
 
         // {{{ write start and end of box in terms of sources and targets
 
-        // first particle?
-        if (sorted_srcntgt_id == box_start)
+        // first particle for this or the parents' boxes? update starts
         {
-            box_source_starts[box_id] = source_nr;
-            box_target_starts[box_id] = target_nr;
+            particle_id_t walk_box_start = box_start;
+            box_id_t walk_box_id = box_id;
+
+            while (sorted_srcntgt_id == walk_box_start)
+            {
+                box_source_starts[walk_box_id] = source_nr;
+                box_target_starts[walk_box_id] = target_nr;
+
+                box_id_t new_box_id = box_parent_ids[walk_box_id];
+                if (new_box_id == walk_box_id)
+                {
+                    // don't loop at root
+                    dbg_assert(walk_box_id == 0);
+                    break;
+                }
+
+                walk_box_id = new_box_id;
+                walk_box_start = box_srcntgt_starts[walk_box_id];
+            }
         }
 
         %if srcntgts_have_extent:
@@ -718,37 +742,64 @@ SOURCE_AND_TARGET_INDEX_FINDER = ElementwiseTemplate(
             // (Can't be "first child particle", because then the box might
             // not have any child particles!)
 
-            particle_id_t box_nonchild_count = box_nonchild_srcntgt_counts[box_id];
+            particle_id_t box_nonchild_count = box_srcntgt_counts_nonchild[box_id];
 
             if (sorted_srcntgt_id + 1 == box_start + box_nonchild_count)
             {
                 particle_id_t box_start_source_nr = source_numbers[box_start];
                 particle_id_t box_start_target_nr = box_start - box_start_source_nr;
 
-                box_nonchild_source_counts[box_id] =
+                box_source_counts_nonchild[box_id] =
                     source_nr + (particle_id_t) is_source
                     - box_start_source_nr;
 
-                box_nonchild_target_counts[box_id] =
+                box_target_counts_nonchild[box_id] =
                     target_nr + 1 - (particle_id_t) is_source
                     - box_start_target_nr;
             }
+        %elif srcntgts_have_extent:
+            box_source_counts_nonchild[box_id] = 0;
+            box_target_counts_nonchild[box_id] = 0;
         %endif
 
-        // last particle?
-        if (sorted_srcntgt_id + 1 == box_start + box_count)
+        // {{{ last particle for this or the parents' boxes? update counts
+
         {
-            particle_id_t box_start_source_nr = source_numbers[box_start];
-            particle_id_t box_start_target_nr = box_start - box_start_source_nr;
+            particle_id_t walk_box_start = box_start;
+            particle_id_t walk_box_count = box_count;
+            box_id_t walk_box_id = box_id;
 
-            box_source_counts[box_id] =
-                source_nr + (particle_id_t) is_source
-                - box_start_source_nr;
+            while (sorted_srcntgt_id + 1 == walk_box_start + walk_box_count)
+            {
+                particle_id_t box_start_source_nr =
+                    source_numbers[walk_box_start];
+                particle_id_t box_start_target_nr =
+                    walk_box_start - box_start_source_nr;
 
-            box_target_counts[box_id] =
-                target_nr + 1 - (particle_id_t) is_source
-                - box_start_target_nr;
+                box_source_counts_cumul[walk_box_id] =
+                    source_nr + (particle_id_t) is_source
+                    - box_start_source_nr;
+
+                box_target_counts_cumul[walk_box_id] =
+                    target_nr + 1 - (particle_id_t) is_source
+                    - box_start_target_nr;
+
+                box_id_t new_box_id = box_parent_ids[walk_box_id];
+                if (new_box_id == walk_box_id)
+                {
+                    // don't loop at root
+                    dbg_assert(walk_box_id == 0);
+                    break;
+                }
+
+                walk_box_id = new_box_id;
+
+                walk_box_start = box_srcntgt_starts[walk_box_id];
+                walk_box_count = box_srcntgt_counts_cumul[walk_box_id];
+            }
         }
+
+        // }}}
 
         // }}}
 
@@ -801,23 +852,21 @@ BOX_INFO_KERNEL_TPL = ElementwiseTemplate(
         morton_nr_t *box_morton_nrs,
         bbox_t bbox,
         box_id_t aligned_nboxes,
-        particle_id_t *box_srcntgt_counts,
-        particle_id_t *box_source_counts,
-        particle_id_t *box_target_counts,
+        particle_id_t *box_srcntgt_counts_cumul,
+        particle_id_t *box_source_counts_cumul,
+        particle_id_t *box_target_counts_cumul,
         particle_id_t max_particles_in_box,
         box_level_t *box_levels,
         box_level_t nlevels,
+
+        /* output if not srcntgts_have_extent, input+output otherwise */
+        particle_id_t *box_source_counts_nonchild,
+        particle_id_t *box_target_counts_nonchild,
 
         /* output */
         box_id_t *box_child_ids, /* [2**dimensions, aligned_nboxes] */
         coord_t *box_centers, /* [dimensions, aligned_nboxes] */
         box_flags_t *box_flags, /* [nboxes] */
-
-        /* more input */
-        %if srcntgts_have_extent:
-            particle_id_t *box_nonchild_source_counts,
-            particle_id_t *box_nonchild_target_counts,
-        %endif
         """,
     operation=r"""//CL:mako//
         box_id_t box_id = i;
@@ -825,20 +874,31 @@ BOX_INFO_KERNEL_TPL = ElementwiseTemplate(
         /* Note that srcntgt_counts is a cumulative count over all children,
          * up to the point below where it is set to zero for non-leaves.
          *
-         * box_srcntgt_counts is zero (here) exactly for empty leaves because
-         * it gets initialized to zero and never gets set to another value. If
-         * you check above, most box info is only ever initialized *if* there's
-         * a particle in the box, because the sort/build is a repeated scan
-         * over *particles* (not boxes). Thus, no particle -> no work done.
+         * box_srcntgt_counts_cumul is zero (here) exactly for empty leaves
+         * because it gets initialized to zero and never gets set to another
+         * value. If you check above, most box info is only ever initialized
+         * *if* there's a particle in the box, because the sort/build is a
+         * repeated scan over *particles* (not boxes). Thus, no particle -> no
+         * work done.
          */
 
-        particle_id_t particle_count = box_srcntgt_counts[box_id];
+        particle_id_t particle_count = box_srcntgt_counts_cumul[box_id];
+
+        /* Up until this point, last-level (=>leaf) boxes may have their
+         * non-child counts set to zero. (see
+         * EXTRACT_NONCHILD_SRCNTGT_COUNT_TPL)
+         * This is fixed below.
+         *
+         * In addition, upper-level leaves may have only part of their
+         * particles declared non-child (i.e. "not fit for downward propagation")
+         * Here, we reclassify all particles in leaves as non-child.
+         */
 
         %if srcntgts_have_extent:
             const particle_id_t nonchild_source_count =
-                box_nonchild_source_counts[box_id];
+                box_source_counts_nonchild[box_id];
             const particle_id_t nonchild_target_count =
-                box_nonchild_target_counts[box_id];
+                box_target_counts_nonchild[box_id];
         %else:
             const particle_id_t nonchild_source_count = 0;
             const particle_id_t nonchild_target_count = 0;
@@ -853,13 +913,14 @@ BOX_INFO_KERNEL_TPL = ElementwiseTemplate(
 
         if (particle_count == 0)
         {
-            // Lots of stuff uninitialized for empty leaves, prevent
+            // Empty leaf: Lots of stuff uninitialized, prevent
             // damage by quitting now.
 
             // Also, those should have gotten pruned by this point,
             // unless skip_prune is True.
 
             box_flags[box_id] = 0; // no children, no sources, no targets, bye.
+
             PYOPENCL_ELWISE_CONTINUE;
         }
         else if (particle_count - nonchild_srcntgt_count > max_particles_in_box
@@ -881,8 +942,8 @@ BOX_INFO_KERNEL_TPL = ElementwiseTemplate(
                 if (particle_count - nonchild_srcntgt_count)
                     my_box_flags |= BOX_HAS_CHILD_SOURCES | BOX_HAS_CHILD_TARGETS;
             %else:
-                particle_id_t source_count = box_source_counts[box_id];
-                particle_id_t target_count = box_target_counts[box_id];
+                particle_id_t source_count = box_source_counts_cumul[box_id];
+                particle_id_t target_count = box_target_counts_cumul[box_id];
 
                 dbg_assert(source_count >= nonchild_source_count);
                 dbg_assert(target_count >= nonchild_target_count);
@@ -893,11 +954,6 @@ BOX_INFO_KERNEL_TPL = ElementwiseTemplate(
                     my_box_flags |= BOX_HAS_CHILD_TARGETS;
             %endif
 
-            // Update counts to only
-            box_srcntgt_counts[box_id] = nonchild_srcntgt_count;
-            box_source_counts[box_id] = nonchild_source_count;
-            box_target_counts[box_id] = nonchild_target_count;
-
             if (nonchild_source_count)
                 my_box_flags |= BOX_HAS_OWN_SOURCES;
             if (nonchild_target_count)
@@ -907,19 +963,23 @@ BOX_INFO_KERNEL_TPL = ElementwiseTemplate(
         {
             // This box is a leaf, i.e. it has no children.
 
-            dbg_assert(nonchild_source_count == 0);
-
             %if sources_are_targets:
                 if (particle_count)
                     my_box_flags |= BOX_HAS_OWN_SOURCES | BOX_HAS_OWN_TARGETS;
+
+                box_source_counts_nonchild[box_id] = particle_count;
+                dbg_assert(box_source_counts_nonchild == box_target_counts_nonchild);
             %else:
-                particle_id_t my_source_count = box_source_counts[box_id];
+                particle_id_t my_source_count = box_source_counts_cumul[box_id];
                 particle_id_t my_target_count = particle_count - my_source_count;
 
                 if (my_source_count)
                     my_box_flags |= BOX_HAS_OWN_SOURCES;
                 if (my_target_count)
                     my_box_flags |= BOX_HAS_OWN_TARGETS;
+
+                box_source_counts_nonchild[box_id] = my_source_count;
+                box_target_counts_nonchild[box_id] = my_target_count;
             %endif
         }
 
@@ -1070,7 +1130,7 @@ def get_tree_build_kernel_info(context, dimensions, coord_dtype,
                 VectorArg(particle_id_dtype, "box_srcntgt_starts"),  # [nboxes]
 
                 # number of particles in each box
-                VectorArg(particle_id_dtype, "box_srcntgt_counts"),  # [nboxes]
+                VectorArg(particle_id_dtype, "box_srcntgt_counts_cumul"),  # [nboxes]
 
                 # pointer to parent box
                 VectorArg(box_id_dtype, "box_parent_ids"),  # [nboxes]
@@ -1194,18 +1254,18 @@ def get_tree_build_kernel_info(context, dimensions, coord_dtype,
             context, box_id_dtype,
             arguments=[
                 # input
-                VectorArg(particle_id_dtype, "box_srcntgt_counts"),
+                VectorArg(particle_id_dtype, "box_srcntgt_counts_cumul"),
                 # output
                 VectorArg(box_id_dtype, "to_box_id"),
                 VectorArg(box_id_dtype, "from_box_id"),
                 VectorArg(box_id_dtype, "nboxes_post_prune"),
                 ],
-            input_expr="box_srcntgt_counts[i] == 0 ? 1 : 0",
+            input_expr="box_srcntgt_counts_cumul[i] == 0 ? 1 : 0",
             preamble=box_flags_enum.get_c_defines(),
             scan_expr="a+b", neutral="0",
             output_statement="""
                 to_box_id[i] = i-prev_item;
-                if (box_srcntgt_counts[i])
+                if (box_srcntgt_counts_cumul[i])
                     from_box_id[i-prev_item] = i;
                 if (i+1 == N) *nboxes_post_prune = N-item;
                 """)
@@ -1251,16 +1311,20 @@ def get_tree_build_kernel_info(context, dimensions, coord_dtype,
             output_statement="source_numbers[i] = prev_item;",
             name_prefix="source_counter")
 
-    source_and_target_index_finder = SOURCE_AND_TARGET_INDEX_FINDER.build(
-            context,
-            type_aliases=(
-                ("particle_id_t", particle_id_dtype),
-                ("box_id_t", box_id_dtype),
-                ),
-            var_values=(
-                ("srcntgts_have_extent", srcntgts_have_extent),
-                )
-            )
+    if not sources_are_targets:
+        source_and_target_index_finder = SOURCE_AND_TARGET_INDEX_FINDER.build(
+                context,
+                type_aliases=(
+                    ("particle_id_t", particle_id_dtype),
+                    ("box_id_t", box_id_dtype),
+                    ),
+                var_values=(
+                    ("srcntgts_have_extent", srcntgts_have_extent),
+                    ("sources_are_targets", sources_are_targets),
+                    ),
+                more_preamble=generic_preamble)
+    else:
+        source_and_target_index_finder = None
 
     # }}}
 
@@ -1351,32 +1415,41 @@ POINT_SOURCE_LINKING_USER_POINT_SOURCE_ID_SCAN_TPL = ScanTemplate(
 POINT_SOURCE_LINKING_BOX_POINT_SOURCES = ElementwiseTemplate(
     arguments="""//CL//
         particle_id_t *box_point_source_starts,
-        particle_id_t *box_point_source_counts,
+        particle_id_t *box_point_source_counts_nonchild,
+        particle_id_t *box_point_source_counts_cumul,
 
         particle_id_t *box_source_starts,
-        particle_id_t *box_source_counts,
+        particle_id_t *box_source_counts_nonchild,
+        particle_id_t *box_source_counts_cumul,
 
         particle_id_t *tree_order_point_source_starts,
         particle_id_t *tree_order_point_source_counts,
         """,
-    operation=r"""//CL//
-        particle_id_t s_start = box_source_starts[i];
+    operation=r"""//CL:mako//
+        box_id_t ibox = i;
+        particle_id_t s_start = box_source_starts[ibox];
         particle_id_t ps_start = tree_order_point_source_starts[s_start];
-        box_point_source_starts[i] = ps_start;
 
-        particle_id_t s_count = box_source_counts[i];
-        if (s_count == 0)
-        {
-            box_point_source_counts[i] = 0;
-        }
-        else
-        {
-            particle_id_t last_s_in_box = s_start+s_count-1;
-            particle_id_t beyond_last_ps_in_box =
-                tree_order_point_source_starts[last_s_in_box]
-                + tree_order_point_source_counts[last_s_in_box];
-            box_point_source_counts[i] = beyond_last_ps_in_box - ps_start;
-        }
+        box_point_source_starts[ibox] = ps_start;
+
+        %for count_type in ["nonchild", "cumul"]:
+            {
+                particle_id_t s_count = box_source_counts_${count_type}[ibox];
+                if (s_count == 0)
+                {
+                    box_point_source_counts_${count_type}[ibox] = 0;
+                }
+                else
+                {
+                    particle_id_t last_s_in_box = s_start+s_count-1;
+                    particle_id_t beyond_last_ps_in_box =
+                        tree_order_point_source_starts[last_s_in_box]
+                        + tree_order_point_source_counts[last_s_in_box];
+                    box_point_source_counts_${count_type}[ibox] = \
+                            beyond_last_ps_in_box - ps_start;
+                }
+            }
+        %endfor
         """,
     name="box_point_sources")
 
