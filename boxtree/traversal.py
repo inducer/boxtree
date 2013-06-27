@@ -25,15 +25,13 @@ THE SOFTWARE.
 import numpy as np
 from pytools import Record, memoize_method, memoize_method_nested
 import pyopencl as cl
-import pyopencl.array
+import pyopencl.array  # noqa
 from pyopencl.elementwise import ElementwiseTemplate
 from mako.template import Template
 from boxtree.tools import AXIS_NAMES, FromDeviceGettableRecord
 
 import logging
 logger = logging.getLogger(__name__)
-
-
 
 
 # {{{ preamble
@@ -251,7 +249,8 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t box_id)
 
     while (continue_walk)
     {
-        box_id_t child_box_id = box_child_ids[walk_morton_nr * aligned_nboxes + walk_box_id];
+        box_id_t child_box_id = box_child_ids[
+                walk_morton_nr * aligned_nboxes + walk_box_id];
         dbg_printf(("  level: %d walk box id: %d morton: %d child id: %d\n",
             walk_level, walk_box_id, walk_morton_nr, child_box_id));
 
@@ -330,7 +329,9 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
 
     while (continue_walk)
     {
-        box_id_t child_box_id = box_child_ids[walk_morton_nr * aligned_nboxes + walk_box_id];
+        box_id_t child_box_id = box_child_ids[
+                walk_morton_nr * aligned_nboxes + walk_box_id];
+
         dbg_printf(("  walk box id: %d morton: %d child id: %d level: %d\n",
             walk_box_id, walk_morton_nr, child_box_id, walk_level));
 
@@ -458,8 +459,9 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
             // As we descend, we may find a child of an adjacent box that is
             // non-adjacent to box_id.
             //
-            // If neither sources nor targets have extent, then that nonadjacent
-            // child box is added to box_id's sep_smaller ("list 3 far") and that's it.
+            // If neither sources nor targets have extent, then that
+            // nonadjacent child box is added to box_id's sep_smaller ("list 3
+            // far") and that's it.
             //
             // If they have extent, then while they may be separated, the
             // intersection of box_id's and the child box's stick-out region
@@ -468,14 +470,17 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
             // done by direct evaluation. We also need to descend into that
             // child.
 
-            box_id_t child_box_id = box_child_ids[walk_morton_nr * aligned_nboxes + walk_box_id];
+            box_id_t child_box_id = box_child_ids[
+                    walk_morton_nr * aligned_nboxes + walk_box_id];
+
             dbg_printf(("  walk box id: %d morton: %d child id: %d\n",
                 walk_box_id, walk_morton_nr, child_box_id));
 
             box_flags_t child_box_flags = box_flags[child_box_id];
 
-            if (child_box_id
-                    && (child_box_flags & (BOX_HAS_OWN_SOURCES | BOX_HAS_CHILD_SOURCES)))
+            if (child_box_id &&
+                    (child_box_flags &
+                            (BOX_HAS_OWN_SOURCES | BOX_HAS_CHILD_SOURCES)))
             {
                 ${load_center("child_center", "child_box_id")}
 
@@ -498,14 +503,15 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
                     %if sources_have_extent or targets_have_extent:
                         const bool a_or_o_with_stick_out =
                             is_adjacent_or_overlapping(root_extent,
-                                center, level, child_center, box_levels[child_box_id],
-                                true);
+                                center, level, child_center,
+                                box_levels[child_box_id], true);
                     %else:
                         const bool a_or_o_with_stick_out = false;
                     %endif
 
-                    // We're no longer *immediately* adjacent to our target box, but
-                    // our stick-out regions might still have a non-empty intersection.
+                    // We're no longer *immediately* adjacent to our target
+                    // box, but our stick-out regions might still have a
+                    // non-empty intersection.
 
                     if (!a_or_o_with_stick_out)
                     {
@@ -663,7 +669,8 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
                     %if sources_have_extent or targets_have_extent:
                         const bool a_or_o_with_stick_out =
                             is_adjacent_or_overlapping(root_extent,
-                                center, box_level, colleague_center, walk_level, true);
+                                center, box_level, colleague_center,
+                                walk_level, true);
 
                     if (a_or_o_with_stick_out)
                     {
@@ -679,8 +686,10 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
                     else
                     %endif
                     {
-                        bool parent_a_or_o_with_stick_out = is_adjacent_or_overlapping(root_extent,
-                            parent_center, box_level-1, colleague_center, walk_level, true);
+                        bool parent_a_or_o_with_stick_out =
+                            is_adjacent_or_overlapping(root_extent,
+                                parent_center, box_level-1, colleague_center,
+                                walk_level, true);
 
                         if (parent_a_or_o_with_stick_out)
                         {
@@ -705,6 +714,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
 """
 
 # }}}
+
 
 # {{{ traversal info (output)
 
@@ -855,7 +865,8 @@ class FMMTraversalInfo(FromDeviceGettableRecord):
     .. rubric:: Separated Bigger Boxes ("List 4")
     .. ------------------------------------------------------------------------
 
-    Bigger source boxes separated from the target box by the (smaller) target box's size.
+    Bigger source boxes separated from the target box by the (smaller) target
+    box's size.
 
     If :attr:`boxtree.Tree.sources_have_extent`, then
     :attr:`sep_close_bigger_starts` will be non-*None*. It records
@@ -973,7 +984,8 @@ class FMMTraversalInfo(FromDeviceGettableRecord):
                     COPY_FROM(sep_close_bigger)
 
                 %endif
-                """).build(queue.context,
+                """).build(
+                        queue.context,
                         type_aliases=(
                             ("box_id_t", self.tree.box_id_dtype),
                             ),
@@ -1052,8 +1064,10 @@ class FMMTraversalInfo(FromDeviceGettableRecord):
 
 # }}}
 
+
 class _KernelInfo(Record):
     pass
+
 
 class FMMTraversalBuilder:
     def __init__(self, context):
@@ -1158,8 +1172,7 @@ class FMMTraversalBuilder:
                             ],
                             ["sep_close_smaller"]
                             if sources_have_extent or targets_have_extent
-                            else [],
-                            ),
+                            else []),
                 ("sep_bigger", SEP_BIGGER_TEMPLATE,
                         [
                             VectorArg(box_id_dtype, "target_or_target_parent_boxes"),
@@ -1169,8 +1182,7 @@ class FMMTraversalBuilder:
                             ],
                             ["sep_close_bigger"]
                             if sources_have_extent or targets_have_extent
-                            else [],
-                            ),
+                            else []),
                 ]:
             src = Template(
                     TRAVERSAL_PREAMBLE_TEMPLATE
@@ -1369,7 +1381,7 @@ class FMMTraversalBuilder:
                 tree.aligned_nboxes, tree.box_child_ids.data, tree.box_flags.data,
                 target_or_target_parent_boxes.data, tree.box_parent_ids.data,
                 colleagues.starts.data, colleagues.lists.data, wait_for=wait_for)
-        wait_for=[evt]
+        wait_for = [evt]
         sep_bigger = result["sep_bigger"]
 
         if tree.sources_have_extent or tree.targets_have_extent:
