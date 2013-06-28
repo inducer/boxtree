@@ -26,6 +26,7 @@ THE SOFTWARE.
 import pyopencl as cl
 import numpy as np
 from boxtree.tools import FromDeviceGettableRecord
+from cgen import Enum
 
 import logging
 logger = logging.getLogger(__name__)
@@ -33,10 +34,12 @@ logger = logging.getLogger(__name__)
 
 # {{{ box flags
 
-class box_flags_enum:
+class box_flags_enum(Enum):
     """Constants for box flags bit field."""
 
+    c_name = "box_flags_t"
     dtype = np.dtype(np.uint8)
+    c_value_prefix = "BOX_"
 
     HAS_OWN_SOURCES = 1 << 0
     HAS_OWN_TARGETS = 1 << 1
@@ -45,34 +48,6 @@ class box_flags_enum:
     HAS_CHILD_TARGETS = 1 << 3
     HAS_CHILDREN = (HAS_CHILD_SOURCES | HAS_CHILD_TARGETS)
 
-    @classmethod
-    def get_flag_names_and_values(cls):
-        return [(name, getattr(cls, name))
-                for name in sorted(dir(cls))
-                if name[0].isupper()]
-
-    @classmethod
-    def get_c_defines(cls):
-        """Return a string with C defines corresponding to these constants.
-        """
-
-        return "\n".join(
-                "#define BOX_%s %d" % (flag_name, value)
-                for flag_name, value in cls.get_flag_names_and_values())
-
-    @classmethod
-    def stringify_value(cls, val):
-        return " ".join(
-                flag_name
-                for flag_name, flag_value in cls.get_flag_names_and_values()
-                if val & flag_value)
-
-    @classmethod
-    def get_c_typedef(cls):
-        """Returns a typedef to define box_flags_t."""
-
-        from pyopencl.tools import dtype_to_ctype
-        return "\n\ntypedef %s box_flags_t;\n\n" % dtype_to_ctype(cls.dtype)
 
 # }}}
 

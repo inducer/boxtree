@@ -51,6 +51,7 @@ def main():
               "pyopencl>=2013.1",
               "Mako>=0.7.3",
               "pytest>=2.3",
+              "cgen>=2013.1.2",
               ],
 
           # 2to3 invocation
