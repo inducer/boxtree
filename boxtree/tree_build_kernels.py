@@ -245,6 +245,13 @@ SCAN_PREAMBLE_TPL = Template(r"""//CL//
             coord_t srcntgt_radius = srcntgt_radii[user_srcntgt_id];
         %endif
 
+        const coord_t one_half = ((coord_t) 1) / 2;
+        const coord_t box_radius_factor =
+            // AMD CPU seems to like to miscompile this--change with care.
+            // (last seen on 13.4-2)
+            (1. + STICK_OUT_FACTOR)
+            * one_half; // convert diameter to radius
+
         %for ax in axis_names:
             // Most FMMs are isotropic, i.e. global_extent_{x,y,z} are all the same.
             // Nonetheless, the gain from exploiting this assumption seems so
@@ -273,14 +280,14 @@ SCAN_PREAMBLE_TPL = Template(r"""//CL//
                 // Need to compute center to compare excess with STICK_OUT_FACTOR.
                 coord_t next_level_box_center_${ax} =
                     global_min_${ax}
-                    + global_extent_${ax} * (${ax}_bits
-                    + (coord_t) 0.5) * next_level_box_size_factor;
+                    + global_extent_${ax}
+                    * (${ax}_bits + one_half)
+                    * next_level_box_size_factor;
 
                 coord_t next_level_box_stick_out_radius_${ax} =
-                    (coord_t) (
-                        0.5 // convert diameter to radius
-                        * (1 + STICK_OUT_FACTOR))
-                    * global_extent_${ax} * next_level_box_size_factor;
+                    box_radius_factor
+                    * global_extent_${ax}
+                    * next_level_box_size_factor;
 
                 stop_srcntgt_descent = stop_srcntgt_descent ||
                     (srcntgt_${ax} + srcntgt_radius >=
@@ -302,7 +309,9 @@ SCAN_PREAMBLE_TPL = Template(r"""//CL//
 
         %if srcntgts_have_extent:
             if (stop_srcntgt_descent)
+            {
                 level_morton_number = -1;
+            }
         %endif
 
         scan_t result;
@@ -479,18 +488,18 @@ SPLIT_AND_SORT_PREAMBLE_TPL = Template(r"""//CL//
 
 
 SPLIT_AND_SORT_KERNEL_TPL = Template(r"""//CL//
-    box_id_t my_box_id = srcntgt_box_ids[i];
-    dbg_assert(my_box_id >= 0);
-    dbg_assert(my_box_id < nboxes);
+    box_id_t ibox = srcntgt_box_ids[i];
+    dbg_assert(ibox >= 0);
+    dbg_assert(ibox < nboxes);
 
     dbg_printf(("postproc %d:\n", i));
-    dbg_printf(("   my box id: %d\n", my_box_id));
+    dbg_printf(("   my box id: %d\n", ibox));
 
-    particle_id_t box_srcntgt_count = box_srcntgt_counts_cumul[my_box_id];
+    particle_id_t box_srcntgt_count = box_srcntgt_counts_cumul[ibox];
 
     %if srcntgts_have_extent:
         const particle_id_t nonchild_srcntgt_count =
-            box_morton_bin_counts[my_box_id].nonchild_srcntgts;
+            box_morton_bin_counts[ibox].nonchild_srcntgts;
 
     %else:
         const particle_id_t nonchild_srcntgt_count = 0;
@@ -510,7 +519,7 @@ SPLIT_AND_SORT_KERNEL_TPL = Template(r"""//CL//
         ## have an extent, this could happen. Prevent running the
         ## split code for such particles.
 
-        int box_level = box_levels[my_box_id];
+        int box_level = box_levels[ibox];
         do_split_box = do_split_box && box_level + 1 == level;
     %endif
 
@@ -519,14 +528,14 @@ SPLIT_AND_SORT_KERNEL_TPL = Template(r"""//CL//
         morton_nr_t my_morton_nr = morton_nrs[i];
         dbg_printf(("   my morton nr: %d\n", my_morton_nr));
 
-        morton_counts_t my_box_morton_bin_counts = box_morton_bin_counts[my_box_id];
+        morton_counts_t my_box_morton_bin_counts = box_morton_bin_counts[ibox];
 
         morton_counts_t my_morton_bin_counts = morton_bin_counts[i];
         particle_id_t my_count = get_count(my_morton_bin_counts, my_morton_nr);
 
         // {{{ compute this srcntgt's new index
 
-        particle_id_t my_box_start = box_srcntgt_starts[my_box_id];
+        particle_id_t my_box_start = box_srcntgt_starts[ibox];
         particle_id_t tgt_particle_idx = my_box_start + my_count-1;
         %if srcntgts_have_extent:
             tgt_particle_idx +=
@@ -544,9 +553,9 @@ SPLIT_AND_SORT_KERNEL_TPL = Template(r"""//CL//
 
         dbg_assert(tgt_particle_idx < n);
         dbg_printf(("   moving %ld -> %d "
-            "(my_box_id %d, my_box_start %d, my_count %d)\n",
+            "(ibox %d, my_box_start %d, my_count %d)\n",
             i, tgt_particle_idx,
-            my_box_id, my_box_start, my_count));
+            ibox, my_box_start, my_count));
 
         new_user_srcntgt_ids[tgt_particle_idx] = user_srcntgt_ids[i];
 
@@ -558,7 +567,7 @@ SPLIT_AND_SORT_KERNEL_TPL = Template(r"""//CL//
 
         %if srcntgts_have_extent:
             if (my_morton_nr == -1)
-                new_box_id = my_box_id;
+                new_box_id = ibox;
         %endif
 
         dbg_printf(("   new_box_id: %d\n", new_box_id));
@@ -594,7 +603,7 @@ SPLIT_AND_SORT_KERNEL_TPL = Template(r"""//CL//
 
                 box_start_flags[new_box_start] = 1;
                 box_srcntgt_starts[new_box_id] = new_box_start;
-                box_parent_ids[new_box_id] = my_box_id;
+                box_parent_ids[new_box_id] = ibox;
                 box_morton_nrs[new_box_id] = my_morton_nr;
 
                 particle_id_t new_count =
@@ -618,7 +627,7 @@ SPLIT_AND_SORT_KERNEL_TPL = Template(r"""//CL//
     {
         // Not splitting? Copy over existing particle info.
         new_user_srcntgt_ids[i] = user_srcntgt_ids[i];
-        new_srcntgt_box_ids[i] = my_box_id;
+        new_srcntgt_box_ids[i] = ibox;
     }
 """, strict_undefined=True)
 
@@ -869,6 +878,8 @@ BOX_INFO_KERNEL_TPL = ElementwiseTemplate(
         box_flags_t *box_flags, /* [nboxes] */
         """,
     operation=r"""//CL:mako//
+        const coord_t one_half = ((coord_t) 1) / 2;
+
         box_id_t box_id = i;
 
         /* Note that srcntgt_counts is a cumulative count over all children,
@@ -990,7 +1001,9 @@ BOX_INFO_KERNEL_TPL = ElementwiseTemplate(
         box_child_ids[parent_id + aligned_nboxes*morton_nr] = box_id;
 
         /* walk up to root to find center */
-        coord_vec_t center = 0;
+        %for idim in range(dimensions):
+            coord_t center_${idim} = 0;
+        %endfor
 
         box_id_t walk_parent_id = parent_id;
         box_id_t current_box_id = box_id;
@@ -998,9 +1011,13 @@ BOX_INFO_KERNEL_TPL = ElementwiseTemplate(
         while (walk_parent_id != current_box_id)
         {
             %for idim in range(dimensions):
-                center.s${idim} = 0.5*(
-                    center.s${idim}
-                    - 0.5 + (bool) (walk_morton_nr & ${2**(dimensions-1-idim)}));
+                {
+                    bool has_bit = (walk_morton_nr & ${2**(dimensions-1-idim)});
+                    center_${idim} = one_half*(
+                        center_${idim}
+                        - one_half
+                        + has_bit);
+                }
             %endfor
 
             current_box_id = walk_parent_id;
@@ -1012,7 +1029,7 @@ BOX_INFO_KERNEL_TPL = ElementwiseTemplate(
         %for idim in range(dimensions):
         {
             box_centers[box_id + aligned_nboxes*${idim}] =
-                bbox.min_${AXIS_NAMES[idim]} + extent*(0.5+center.s${idim});
+                bbox.min_${AXIS_NAMES[idim]} + extent*(one_half+center_${idim});
         }
         %endfor
     """)

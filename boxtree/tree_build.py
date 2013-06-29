@@ -364,7 +364,7 @@ class TreeBuilder(object):
         # single box, by how 'level' is set above. Read this as 'while True' with
         # an edge case.
 
-        logger.debug("entering level loop")
+        logger.debug("entering level loop with %s srcntgts" % nsrcntgts)
 
         while level:
             if debug:
@@ -485,6 +485,7 @@ class TreeBuilder(object):
 
                 level -= 1
 
+                logger.debug("no new boxes created this loop trip")
                 break
 
             level_start_box_nrs.append(nboxes_new)
@@ -518,6 +519,7 @@ class TreeBuilder(object):
             del new_srcntgt_box_ids
 
             if not int(have_oversize_split_box.get()):
+                logger.debug("no overfull boxes left")
                 break
 
             level += 1
