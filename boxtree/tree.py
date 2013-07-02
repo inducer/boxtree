@@ -127,7 +127,7 @@ class Tree(FromDeviceGettableRecord):
         A :class:`numpy.ndarray` of box ids
         indicating the ID at which each level starts. Levels
         are contiguous in box ID space. To determine
-        how many boxes there are in each level, check
+        how many boxes there are in each level,
         access the start of the next level. This array is
         built so that this works even for the last level.
 
