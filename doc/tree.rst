@@ -12,18 +12,16 @@ Tree data structure
 
 .. autoclass:: Tree()
 
-    **Methods**
+    .. rubric:: Methods
 
     .. automethod:: get
-
-    .. automethod:: link_point_sources
 
 Tree with linked point sources
 ------------------------------
 
 .. autoclass:: TreeWithLinkedPointSources()
 
-    **Methods**
+    .. rubric:: Methods
 
     .. automethod:: get
 
