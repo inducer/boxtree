@@ -23,15 +23,11 @@ THE SOFTWARE.
 """
 
 
-
-
-import pyopencl as cl
+import pyopencl as cl  # noqa
 from boxtree.tools import get_type_moniker
 from pytools import memoize, memoize_method
 from pyopencl.reduction import ReductionTemplate
 import numpy as np
-
-
 
 
 @memoize
@@ -51,8 +47,6 @@ def make_bounding_box_dtype(device, dimensions, coord_dtype):
     dtype = get_or_register_dtype(name, dtype)
 
     return dtype, c_decl
-
-
 
 
 BBOX_REDUCTION_TPL = ReductionTemplate(
@@ -124,8 +118,6 @@ BBOX_REDUCTION_TPL = ReductionTemplate(
             )
             """,
     name_prefix="bounding_box")
-
-
 
 
 class BoundingBoxFinder:
