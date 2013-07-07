@@ -23,19 +23,15 @@ THE SOFTWARE.
 """
 
 
-
-
 from pytools import memoize_method, Record
 import numpy as np
 import pyopencl as cl
-import pyopencl.array
+import pyopencl.array  # noqa
 from mako.template import Template
 from boxtree.tools import AXIS_NAMES, FromDeviceGettableRecord
 
 import logging
 logger = logging.getLogger(__name__)
-
-
 
 
 # {{{ output
@@ -49,7 +45,8 @@ class LeavesToBallsLookup(FromDeviceGettableRecord):
     .. attribute:: balls_near_box_starts
 
         Indices into :attr:`balls_near_box_lists`.
-        ``balls_near_box_lists[balls_near_box_starts[ibox]:balls_near_box_starts[ibox]+1]``
+        ``balls_near_box_lists[balls_near_box_starts[ibox]:
+        balls_near_box_starts[ibox]+1]``
         results in a list of balls that overlap leaf box *ibox*.
 
         .. note:: Only leaf boxes have non-empty entries in this table. Nonetheless,
@@ -80,7 +77,8 @@ void generate(LIST_ARG_DECL USER_ARG_DECL ball_id_t ball_nr)
 
     while (continue_walk)
     {
-        box_id_t child_box_id = box_child_ids[walk_morton_nr * aligned_nboxes + walk_box_id];
+        box_id_t child_box_id = box_child_ids[
+            walk_morton_nr * aligned_nboxes + walk_box_id];
         dbg_printf(("  walk box id: %d morton: %d child id: %d level: %d\n",
             walk_box_id, walk_morton_nr, child_box_id, walk_level));
 
@@ -96,7 +94,8 @@ void generate(LIST_ARG_DECL USER_ARG_DECL ball_id_t ball_nr)
 
                 coord_t max_dist = 0;
                 %for i in range(dimensions):
-                    max_dist = fmax(max_dist, fabs(ball_center.s${i} - child_center.s${i}));
+                    max_dist = fmax(max_dist,
+                        fabs(ball_center.s${i} - child_center.s${i}));
                 %endfor
 
                 is_overlapping = max_dist <= size_sum;
@@ -125,8 +124,10 @@ void generate(LIST_ARG_DECL USER_ARG_DECL ball_id_t ball_nr)
 }
 """
 
+
 class _KernelInfo(Record):
     pass
+
 
 class LeavesToBallsLookupBuilder(object):
     """Given a set of :math:`l^\infty` "balls", this class helps build a
@@ -167,7 +168,6 @@ class LeavesToBallsLookupBuilder(object):
                 + BALLS_TO_LEAVES_TEMPLATE,
                 strict_undefined=True).render(**render_vars)
 
-
         from pyopencl.tools import VectorArg, ScalarArg
         from pyopencl.algorithm import ListOfListsBuilder
         result = ListOfListsBuilder(self.context,
@@ -184,7 +184,9 @@ class LeavesToBallsLookupBuilder(object):
                     ScalarArg(coord_dtype, "root_extent"),
                     ScalarArg(box_id_dtype, "aligned_nboxes"),
                     VectorArg(coord_dtype, "ball_radii"),
-                    ] + [VectorArg(coord_dtype, "ball_"+ax) for ax in AXIS_NAMES[:dimensions]],
+                    ] + [
+                        VectorArg(coord_dtype, "ball_"+ax)
+                        for ax in AXIS_NAMES[:dimensions]],
                 name_prefix="circles_to_balls",
                 count_sharing={
                     # /!\ This makes a promise that APPEND_ball_numbers will
@@ -214,7 +216,7 @@ class LeavesToBallsLookupBuilder(object):
             instances for whose completion this command waits before starting
             exeuction.
         :returns: a tuple *(lbl, event)*, where *lbl* is an instance of
-            :class:`LeavesToBallsLookup`, and *event* is a :class:`pyopencl.Event` 
+            :class:`LeavesToBallsLookup`, and *event* is a :class:`pyopencl.Event`
             for dependency management.
         """
 
@@ -224,7 +226,7 @@ class LeavesToBallsLookupBuilder(object):
         if ball_radii.dtype != tree.coord_dtype:
             raise TypeError("ball_radii dtype must match tree.coord_dtype")
 
-        ball_id_dtype = tree.particle_id_dtype # ?
+        ball_id_dtype = tree.particle_id_dtype  # ?
 
         from pytools import div_ceil
         max_levels = div_ceil(tree.nlevels, 10) * 10
