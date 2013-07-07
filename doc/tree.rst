@@ -19,7 +19,9 @@ Tree data structure
 Tree with linked point sources
 ------------------------------
 
-.. autoclass:: TreeWithLinkedPointSources()
+.. currentmodule:: boxtree.tree
+
+.. autoclass:: TreeWithLinkedPointSources
 
     .. rubric:: Methods
 
@@ -27,6 +29,8 @@ Tree with linked point sources
 
 Build Entrypoint
 ----------------
+
+.. currentmodule:: boxtree
 
 .. autoclass:: TreeBuilder
 

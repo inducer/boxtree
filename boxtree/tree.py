@@ -109,9 +109,11 @@ class Tree(FromDeviceGettableRecord):
         given by :attr:`source_radii` may stick out the box in which they are
         contained. A scalar.
 
-    .. attribute:: nlevels
+    .. attribute:: nsources
 
-        the number of levels
+    .. attribute:: ntargets
+
+    .. attribute:: nlevels
 
     .. attribute:: bounding_box
 
@@ -202,7 +204,8 @@ class Tree(FromDeviceGettableRecord):
 
         List of sources in each box. Records start indices in :attr:`sources`
         for each box.
-        Use together with :attr:`box_source_counts`.
+        Use together with :attr:`box_source_counts_nonchild`
+        or :attr:`box_source_counts_cumul`.
         May be the same array as :attr:`box_target_starts`.
 
     .. attribute:: box_source_counts_nonchild
@@ -229,7 +232,8 @@ class Tree(FromDeviceGettableRecord):
 
         List of targets in each box. Records start indices in :attr:`targets`
         for each box.
-        Use together with :attr:`box_target_counts`.
+        Use together with :attr:`box_target_counts_nonchild`
+        or :attr:`box_target_counts_cumul`.
         May be the same array as :attr:`box_source_starts`.
 
     .. attribute:: box_target_counts_nonchild
