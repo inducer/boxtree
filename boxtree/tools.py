@@ -354,7 +354,8 @@ class GappyCopyAndMapKernel:
         result = cl.array.empty(queue, new_size, ary.dtype, allocator=allocator)
 
         kernel = self._get_kernel(ary.dtype, src_indices.dtype,
-                map_values=map_values is not None)
+                # map_values:
+                map_values is not None)
 
         args = (ary, result, src_indices)
         if map_values is not None:

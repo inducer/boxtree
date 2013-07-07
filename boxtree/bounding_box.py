@@ -163,7 +163,9 @@ class BoundingBoxFinder:
         else:
             radii_tuple = (radii,)
 
-        knl = self.get_kernel(dimensions, coord_dtype, have_radii=radii is not None)
+        knl = self.get_kernel(dimensions, coord_dtype,
+                # have_radii:
+                radii is not None)
         return knl(*(tuple(particles) + radii_tuple),
                 wait_for=wait_for, return_event=True)
 

@@ -1389,6 +1389,7 @@ def get_tree_build_kernel_info(context, dimensions, coord_dtype,
 
 # }}}
 
+
 # {{{ point source linking kernels
 
 # scan over (non-point) source ids in tree order
