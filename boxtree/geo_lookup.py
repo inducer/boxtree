@@ -265,7 +265,7 @@ class LeavesToBallsLookupBuilder(object):
         return LeavesToBallsLookup(
                 tree=tree,
                 balls_near_box_starts=balls_near_box_starts,
-                balls_near_box_lists=balls_near_box_lists), evt
+                balls_near_box_lists=balls_near_box_lists).with_queue(None), evt
 
 # }}}
 

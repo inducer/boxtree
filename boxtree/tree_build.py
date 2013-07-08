@@ -938,7 +938,7 @@ class TreeBuilder(object):
                 _is_pruned=is_pruned,
 
                 **extra_tree_attrs
-                ), evt
+                ).with_queue(None), evt
 
         # }}}
 

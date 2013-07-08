@@ -1430,7 +1430,7 @@ class FMMTraversalBuilder:
 
                 sep_close_bigger_starts=sep_close_bigger_starts,
                 sep_close_bigger_lists=sep_close_bigger_lists,
-                ), evt
+                ).with_queue(None), evt
 
     # }}}
 

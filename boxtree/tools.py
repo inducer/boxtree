@@ -259,12 +259,7 @@ class DeviceDataRecord(Record):
     instances on the host.
     """
 
-    def get(self):
-        """Return a copy of `self` in which all data lives on the host, i.e.
-        all :class:`pyopencl.array.Array` objects are replaced by corresponding
-        :class:`numpy.ndarray` instances on the host.
-        """
-
+    def _transform_arrays(self, f):
         result = {}
         for field_name in self.__class__.fields:
             try:
@@ -274,17 +269,47 @@ class DeviceDataRecord(Record):
             else:
                 if isinstance(attr, np.ndarray) and attr.dtype == object:
                     from pytools.obj_array import with_object_array_or_scalar
-                    result[field_name] = with_object_array_or_scalar(
-                            lambda x: x.get(), attr)
+                    result[field_name] = with_object_array_or_scalar(f, attr)
                 else:
-                    try:
-                        get_meth = attr.get
-                    except AttributeError:
-                        continue
-
-                    result[field_name] = get_meth()
+                    result[field_name] = f(attr)
 
         return self.copy(**result)
+
+    def get(self):
+        """Return a copy of `self` in which all data lives on the host, i.e.
+        all :class:`pyopencl.array.Array` objects are replaced by corresponding
+        :class:`numpy.ndarray` instances on the host.
+        """
+
+        def try_get(attr):
+            try:
+                get_meth = attr.get
+            except AttributeError:
+                return attr
+
+            return get_meth()
+
+        return self._transform_arrays(try_get)
+
+    def with_queue(self, queue):
+        """Return a copy of `self` in
+        all :class:`pyopencl.array.Array` objects are assigned to
+        :class:`pyopencl.CommandQueue` *queue*.
+        """
+
+        def try_with_queue(attr):
+            if isinstance(attr, cl.array.Array):
+                attr.finish()
+
+            try:
+                wq_meth = attr.with_queue
+            except AttributeError:
+                return attr
+
+            ary = wq_meth(queue)
+            return ary
+
+        return self._transform_arrays(try_with_queue)
 
 # }}}
 
