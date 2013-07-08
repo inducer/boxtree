@@ -463,8 +463,8 @@ def test_extent_tree(ctx_getter, dims, do_plot=False):
             0, (nsources+1)*npoint_sources_per_source, npoint_sources_per_source,
             dtype=tree.particle_id_dtype)
 
-    from boxtree.tree import TreeWithLinkedPointSources
-    dev_tree = TreeWithLinkedPointSources(queue, dev_tree,
+    from boxtree.tree import link_point_sources
+    dev_tree = link_point_sources(queue, dev_tree,
             point_source_starts, point_sources,
             debug=True)
 

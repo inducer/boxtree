@@ -27,6 +27,29 @@ Tree with linked point sources
 
     .. automethod:: get
 
+.. autofunction:: link_point_sources
+
+Filtering the lists of targets
+------------------------------
+
+.. currentmodule:: boxtree.tree
+
+.. autoclass:: FilteredTargetListsInUserOrder
+
+    .. rubric:: Methods
+
+    .. automethod:: get
+
+.. autofunction:: filter_target_lists_in_user_order
+
+.. autoclass:: FilteredTargetListsInTreeOrder
+
+    .. rubric:: Methods
+
+    .. automethod:: get
+
+.. autofunction:: filter_target_lists_in_tree_order
+
 Build Entrypoint
 ----------------
 
