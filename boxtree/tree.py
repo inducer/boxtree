@@ -25,7 +25,7 @@ THE SOFTWARE.
 
 import pyopencl as cl
 import numpy as np
-from boxtree.tools import FromDeviceGettableRecord
+from boxtree.tools import DeviceDataRecord
 from cgen import Enum
 
 import logging
@@ -54,7 +54,7 @@ class box_flags_enum(Enum):
 
 # {{{ tree data structure
 
-class Tree(FromDeviceGettableRecord):
+class Tree(DeviceDataRecord):
     """A quad/octree consisting of particles sorted into a hierarchy of boxes.
     Optionally, particles may be designated 'sources' and 'targets'. They
     may also be assigned radii which restrict the minimum size of the box

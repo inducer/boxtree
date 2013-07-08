@@ -28,7 +28,7 @@ import numpy as np
 import pyopencl as cl
 import pyopencl.array  # noqa
 from mako.template import Template
-from boxtree.tools import AXIS_NAMES, FromDeviceGettableRecord
+from boxtree.tools import AXIS_NAMES, DeviceDataRecord
 
 import logging
 logger = logging.getLogger(__name__)
@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 
 # {{{ output
 
-class LeavesToBallsLookup(FromDeviceGettableRecord):
+class LeavesToBallsLookup(DeviceDataRecord):
     """
     .. attribute:: tree
 

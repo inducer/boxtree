@@ -28,7 +28,7 @@ import pyopencl as cl
 import pyopencl.array  # noqa
 from pyopencl.elementwise import ElementwiseTemplate
 from mako.template import Template
-from boxtree.tools import AXIS_NAMES, FromDeviceGettableRecord
+from boxtree.tools import AXIS_NAMES, DeviceDataRecord
 
 import logging
 logger = logging.getLogger(__name__)
@@ -718,7 +718,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
 
 # {{{ traversal info (output)
 
-class FMMTraversalInfo(FromDeviceGettableRecord):
+class FMMTraversalInfo(DeviceDataRecord):
     """Interaction lists needed for a fast-multipole-like linear-time gather of
     particle interactions.
 

@@ -252,7 +252,7 @@ def particle_array_to_host(parray):
 
 # {{{ host/device data storage
 
-class FromDeviceGettableRecord(Record):
+class DeviceDataRecord(Record):
     """A record of array-type data. Some of this data may live in
     :class:`pyopencl.array.Array` objects. :meth:`get` can then be
     called to convert all these device arrays into :mod:`numpy.ndarray`
