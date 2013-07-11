@@ -232,7 +232,8 @@ class ExpansionWranglerInterface:
 
     def form_multipoles(self, source_boxes, src_weights):
         """Return an expansions array (compatible with :meth:`expansion_zeros`)
-        containing multipole expansions in *source_boxes* due with *src_weights*.
+        containing multipole expansions in *source_boxes* due to sources
+        with *src_weights*.
         All other expansions must be zero.
         """
 
