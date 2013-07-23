@@ -52,8 +52,10 @@ class ConstantOneExpansionWrangler:
     def __init__(self, tree):
         self.tree = tree
 
-    def expansion_zeros(self):
+    def multipole_expansion_zeros(self):
         return np.zeros(self.tree.nboxes, dtype=np.float64)
+
+    local_expansion_zeros = multipole_expansion_zeros
 
     def potential_zeros(self):
         return np.zeros(self.tree.ntargets, dtype=np.float64)
@@ -75,7 +77,7 @@ class ConstantOneExpansionWrangler:
         return potentials[self.tree.sorted_target_ids]
 
     def form_multipoles(self, source_boxes, src_weights):
-        mpoles = self.expansion_zeros()
+        mpoles = self.multipole_expansion_zeros()
         for ibox in source_boxes:
             pslice = self._get_source_slice(ibox)
             mpoles[ibox] += np.sum(src_weights[pslice])
@@ -112,7 +114,7 @@ class ConstantOneExpansionWrangler:
 
     def multipole_to_local(self, target_or_target_parent_boxes,
             starts, lists, mpole_exps):
-        local_exps = self.expansion_zeros()
+        local_exps = self.local_expansion_zeros()
 
         for itgt_box, tgt_ibox in enumerate(target_or_target_parent_boxes):
             start, end = starts[itgt_box:itgt_box+2]
@@ -143,7 +145,7 @@ class ConstantOneExpansionWrangler:
         return pot
 
     def form_locals(self, target_or_target_parent_boxes, starts, lists, src_weights):
-        local_exps = self.expansion_zeros()
+        local_exps = self.local_expansion_zeros()
 
         for itgt_box, tgt_ibox in enumerate(target_or_target_parent_boxes):
             start, end = starts[itgt_box:itgt_box+2]

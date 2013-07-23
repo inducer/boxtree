@@ -204,7 +204,13 @@ class ExpansionWranglerInterface:
     :class:`boxtree.Tree` instance.
     """
 
-    def expansion_zeros(self):
+    def multipole_expansion_zeros(self):
+        """Return an expansions array (which must support addition)
+        capable of holding one multipole or local expansion for every
+        box in the tree.
+        """
+
+    def local_expansion_zeros(self):
         """Return an expansions array (which must support addition)
         capable of holding one multipole or local expansion for every
         box in the tree.
@@ -231,7 +237,8 @@ class ExpansionWranglerInterface:
         """
 
     def form_multipoles(self, source_boxes, src_weights):
-        """Return an expansions array (compatible with :meth:`expansion_zeros`)
+        """Return an expansions array (compatible with
+        :meth:`multipole_expansion_zeros`)
         containing multipole expansions in *source_boxes* due to sources
         with *src_weights*.
         All other expansions must be zero.
@@ -263,7 +270,8 @@ class ExpansionWranglerInterface:
         array of local expansions.  *starts* and *lists* use :ref:`csr`, and
         *starts* is indexed like *target_or_target_parent_boxes*.
 
-        :returns: a new (local) expansion array, see :meth:`expansion_zeros`.
+        :returns: a new (local) expansion array, see
+        :meth:`local_expansion_zeros`.
         """
 
     def eval_multipoles(self, target_boxes, starts, lists, mpole_exps):
@@ -282,7 +290,8 @@ class ExpansionWranglerInterface:
         use :ref:`csr` and *starts* is indexed like
         *target_or_target_parent_boxes*.
 
-        :returns: a new local expansion array, see :meth:`expansion_zeros`.
+        :returns: a new local expansion array, see
+        :meth:`local_expansion_zeros`.
         """
         pass
 

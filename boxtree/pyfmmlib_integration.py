@@ -43,8 +43,10 @@ class Helmholtz2DExpansionWrangler:
         self.helmholtz_k = helmholtz_k
         self.nterms = nterms
 
-    def expansion_zeros(self):
+    def multipole_expansion_zeros(self):
         return np.zeros((self.tree.nboxes, 2*self.nterms+1), dtype=np.complex128)
+
+    local_expansion_zeros = multipole_expansion_zeros
 
     def potential_zeros(self):
         return np.zeros(self.tree.ntargets, dtype=np.complex128)
@@ -84,7 +86,7 @@ class Helmholtz2DExpansionWrangler:
 
         from pyfmmlib import h2dformmp
 
-        mpoles = self.expansion_zeros()
+        mpoles = self.multipole_expansion_zeros()
         for src_ibox in source_boxes:
             pslice = self._get_source_slice(src_ibox)
 
@@ -155,7 +157,7 @@ class Helmholtz2DExpansionWrangler:
     def multipole_to_local(self, target_or_target_parent_boxes,
             starts, lists, mpole_exps):
         tree = self.tree
-        local_exps = self.expansion_zeros()
+        local_exps = self.local_expansion_zeros()
 
         rscale = 1
 
@@ -210,7 +212,7 @@ class Helmholtz2DExpansionWrangler:
 
     def form_locals(self, target_or_target_parent_boxes, starts, lists, src_weights):
         rscale = 1  # FIXME
-        local_exps = self.expansion_zeros()
+        local_exps = self.local_expansion_zeros()
 
         from pyfmmlib import h2dformta
 
