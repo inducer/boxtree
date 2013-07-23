@@ -84,11 +84,10 @@ class ConstantOneExpansionWrangler:
 
         return mpoles
 
-    def coarsen_multipoles(self, parent_boxes, start_parent_box, end_parent_box,
-            mpoles):
+    def coarsen_multipoles(self, parent_boxes, mpoles):
         tree = self.tree
 
-        for ibox in parent_boxes[start_parent_box:end_parent_box]:
+        for ibox in parent_boxes:
             for child in tree.box_child_ids[:, ibox]:
                 if child:
                     mpoles[ibox] += mpoles[child]
@@ -161,8 +160,8 @@ class ConstantOneExpansionWrangler:
 
         return local_exps
 
-    def refine_locals(self, child_boxes, start_child_box, end_child_box, local_exps):
-        for ibox in child_boxes[start_child_box:end_child_box]:
+    def refine_locals(self, child_boxes, local_exps):
+        for ibox in child_boxes:
             local_exps[ibox] += local_exps[self.tree.box_parent_ids[ibox]]
 
         return local_exps

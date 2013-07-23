@@ -102,14 +102,13 @@ class Helmholtz2DExpansionWrangler:
 
         return mpoles
 
-    def coarsen_multipoles(self, parent_boxes, start_parent_box, end_parent_box,
-            mpoles):
+    def coarsen_multipoles(self, parent_boxes, mpoles):
         tree = self.tree
         rscale = 1  # FIXME
 
         from pyfmmlib import h2dmpmp_vec
 
-        for ibox in parent_boxes[start_parent_box:end_parent_box]:
+        for ibox in parent_boxes:
             parent_center = tree.box_centers[:, ibox]
             for child in tree.box_child_ids[:, ibox]:
                 if child:
@@ -241,12 +240,12 @@ class Helmholtz2DExpansionWrangler:
 
         return local_exps
 
-    def refine_locals(self, child_boxes, start_child_box, end_child_box, local_exps):
+    def refine_locals(self, child_boxes, local_exps):
         rscale = 1  # FIXME
 
         from pyfmmlib import h2dlocloc_vec
 
-        for tgt_ibox in child_boxes[start_child_box:end_child_box]:
+        for tgt_ibox in child_boxes:
             tgt_center = self.tree.box_centers[:, tgt_ibox]
             src_ibox = self.tree.box_parent_ids[tgt_ibox]
             src_center = self.tree.box_centers[:, src_ibox]

@@ -76,7 +76,7 @@ def drive_fmm(traversal, expansion_wrangler, src_weights):
         start_parent_box, end_parent_box = \
                 traversal.level_start_source_parent_box_nrs[lev:lev+2]
         wrangler.coarsen_multipoles(
-                traversal.source_parent_boxes, start_parent_box, end_parent_box,
+                traversal.source_parent_boxes[start_parent_box:end_parent_box],
                 mpole_exps)
 
     # mpole_exps is called Phi in [1]
@@ -168,8 +168,8 @@ def drive_fmm(traversal, expansion_wrangler, src_weights):
         start_box, end_box = \
                 traversal.level_start_target_or_target_parent_box_nrs[lev:lev+2]
         wrangler.refine_locals(
-                traversal.target_or_target_parent_boxes,
-                start_box, end_box, local_exps)
+                traversal.target_or_target_parent_boxes[start_box:end_box],
+                local_exps)
 
     # }}}
 
@@ -244,9 +244,8 @@ class ExpansionWranglerInterface:
         All other expansions must be zero.
         """
 
-    def coarsen_multipoles(self, parent_boxes, start_parent_box, end_parent_box,
-            mpoles):
-        """For each box in ``parent_boxes[start_parent_box:end_parent_box]``,
+    def coarsen_multipoles(self, parent_boxes, mpoles):
+        """For each box in *parent_boxes*,
         gather (and translate) the box's children's multipole expansions in
         *mpole* and add the resulting expansion into the box's multipole
         expansion in *mpole*.
@@ -295,8 +294,8 @@ class ExpansionWranglerInterface:
         """
         pass
 
-    def refine_locals(self, child_boxes, start_child_box, end_child_box, local_exps):
-        """For each box in *child_boxes[start_child_box:end_child_box]*,
+    def refine_locals(self, child_boxes, local_exps):
+        """For each box in *child_boxes*,
         translate the box's parent's local expansion in *local_exps* and add
         the resulting expansion into the box's local expansion in *local_exps*.
 
