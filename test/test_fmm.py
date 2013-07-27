@@ -176,7 +176,6 @@ class ConstantOneExpansionWrangler:
         return pot
 
 
-@pytest.mark.opencl
 @pytest.mark.parametrize(("dims", "nsources_req", "ntargets_req",
         "who_has_extent", "source_gen", "target_gen"),
         [
@@ -348,7 +347,6 @@ def test_fmm_completeness(ctx_getter, dims, nsources_req, ntargets_req,
 
 # {{{ test Helmholtz fmm with pyfmmlib
 
-@pytest.mark.opencl
 def test_pyfmmlib_fmm(ctx_getter):
     logging.basicConfig(level=logging.INFO)
 
