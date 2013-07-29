@@ -351,7 +351,7 @@ class Tree(DeviceDataRecord):
         crit = (
                 (self.box_target_starts <= itarget)
                 &
-                (itarget < self.box_target_starts + self.box_target_counts))
+                (itarget < self.box_target_starts + self.box_target_counts_nonchild))
 
         return int(np.where(crit)[0])
 
@@ -362,7 +362,7 @@ class Tree(DeviceDataRecord):
         crit = (
                 (self.box_source_starts <= isource)
                 &
-                (isource < self.box_source_starts + self.box_source_counts))
+                (isource < self.box_source_starts + self.box_source_counts_nonchild))
 
         return int(np.where(crit)[0])
 
