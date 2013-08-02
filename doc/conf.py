@@ -27,7 +27,7 @@ import sys, os
 extensions = [
     'sphinx.ext.autodoc',
     'sphinx.ext.intersphinx',
-    'sphinx.ext.pngmath',
+    'sphinx.ext.mathjax',
     #'sphinx.ext.viewcode',
     ]
 

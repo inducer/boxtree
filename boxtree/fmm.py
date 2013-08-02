@@ -270,7 +270,7 @@ class ExpansionWranglerInterface:
         *starts* is indexed like *target_or_target_parent_boxes*.
 
         :returns: a new (local) expansion array, see
-        :meth:`local_expansion_zeros`.
+            :meth:`local_expansion_zeros`.
         """
 
     def eval_multipoles(self, target_boxes, starts, lists, mpole_exps):
@@ -290,7 +290,7 @@ class ExpansionWranglerInterface:
         *target_or_target_parent_boxes*.
 
         :returns: a new local expansion array, see
-        :meth:`local_expansion_zeros`.
+            :meth:`local_expansion_zeros`.
         """
         pass
 
