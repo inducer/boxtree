@@ -1473,4 +1473,65 @@ POINT_SOURCE_LINKING_BOX_POINT_SOURCES = ElementwiseTemplate(
 
 # }}}
 
+
+# {{{ target filtering
+
+TREE_ORDER_TARGET_FILTER_SCAN_TPL = ScanTemplate(
+    arguments=r"""//CL:mako//
+        /* input */
+        unsigned char *tree_order_flags,
+
+        /* output */
+        particle_id_t *filtered_from_unfiltered_target_index,
+        particle_id_t *unfiltered_from_filtered_target_index,
+        particle_id_t *nfiltered_targets
+        """,
+    input_expr="tree_order_flags[i] ? 1 : 0",
+    scan_expr="a + b",
+    neutral="0",
+    output_statement="""//CL//
+        filtered_from_unfiltered_target_index[i] = prev_item;
+        if (item != prev_item)
+            unfiltered_from_filtered_target_index[prev_item] = i;
+
+        // Am I the last particle overall? If so, write count
+        if (i+1 == N)
+            *nfiltered_targets = item;
+        """)
+
+TREE_ORDER_TARGET_FILTER_INDEX_TPL = ElementwiseTemplate(
+    arguments="""//CL//
+        /* input */
+        particle_id_t *box_target_starts,
+        particle_id_t *box_target_counts_nonchild,
+        particle_id_t *filtered_from_unfiltered_target_index,
+
+        /* output */
+        particle_id_t *box_target_starts_filtered,
+        particle_id_t *box_target_counts_nonchild_filtered,
+        """,
+    operation=r"""//CL//
+        particle_id_t unfiltered_start = box_target_starts[i];
+        particle_id_t unfiltered_count = box_target_counts_nonchild[i];
+
+        particle_id_t filtered_start =
+            filtered_from_unfiltered_target_index[unfiltered_start];
+        box_target_starts_filtered[i] = filtered_start;
+
+        if (unfiltered_count > 0)
+        {
+            particle_id_t unfiltered_last =
+                unfiltered_start + unfiltered_count - 1;
+            particle_id_t filtered_last =
+                filtered_from_unfiltered_target_index[unfiltered_last];
+            box_target_counts_nonchild_filtered[i] =
+                filtered_last - filtered_start;
+        }
+        else
+            box_target_counts_nonchild_filtered[i] = 0;
+        """,
+    name="tree_order_target_filter_index_finder")
+
+# }}}
+
 # vim: foldmethod=marker:filetype=pyopencl

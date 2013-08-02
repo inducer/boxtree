@@ -712,28 +712,44 @@ class FilteredTargetListsInTreeOrder(DeviceDataRecord):
     :attr:`boxtree.Tree.box_target_counts_cumul`).This subset is
     specified by an array of *flags* in user target order.
 
-    The list consists of target numbers in (sorted) tree target order.
-    See also :class:`FilteredTargetListsInUserOrder`.
+    Unlike :class:`FilteredTargetListsInUserOrder`, this does not create a
+    CSR-like list of targets, but instead creates a new numbering of targets
+    that only counts the filtered targets. This allows all targets in a
+    box to be placed consecutively, which may help performance.
+    :attr:
+
 
     .. attribute:: nfiltered_targets
 
-    .. attribute:: target_starts
-
-        ``particle_id_t [nboxes+1]``
-
-        Filtered list of targets in each box. Records start indices in
-        :attr:`boxtree.Tree.targets` for each box.  Use together with
-        :attr:`target_counts_nonchild`. The lists for each box are
-        contiguous, so that ``target_starts[ibox+1]`` records the
-        end of the target list for *ibox*.
-
-    .. attribute:: target_lists
+    .. attribute:: box_target_starts
 
         ``particle_id_t [nboxes]``
 
-        Filtered list of targets in each box. Records number of sources from
-        :attr:`boxtree.Tree.targets` in each box (excluding those belonging to
-        child boxes).  Use together with :attr:`target_starts`.
+        Filtered list of targets in each box, like
+        :attr:`boxtree.Tree.box_target_starts`.  Records start indices in
+        :attr:`targets` for each box.  Use together with
+        :attr:`box_target_counts_nonchild`.
+
+    .. attribute:: box_target_counts_nonchild
+
+        ``particle_id_t [nboxes]``
+
+        Filtered list of targets in each box, like
+        :attr:`boxtree.Tree.box_target_counts_nonchild`.
+        Records number of sources from :attr:`targets` in each box
+        (excluding those belonging to child boxes).
+        Use together with :attr:`box_target_starts`.
+
+    .. attribute:: targets
+
+        ``coord_t [dimensions][nsources]``
+        (an object array of coordinate arrays)
+
+    .. attribute:: unfiltered_from_filtered_target_indices
+
+        Storing *to* these indices will reorder the targets
+        from *filtered* tree target order into 'regular'
+        :ref:`tree target order <particle-orderings>`.
     """
 
 
@@ -749,43 +765,71 @@ def filter_target_lists_in_tree_order(queue, tree, flags):
     tree_order_flags = cl.array.empty(queue, tree.ntargets, np.int8)
     tree_order_flags[tree.sorted_target_ids] = flags
 
-    from pyopencl.tools import VectorArg, dtype_to_ctype
-    from pyopencl.algorithm import ListOfListsBuilder
-    from mako.template import Template
-    builder = ListOfListsBuilder(queue.context,
-        [("filt_tgt_list", tree.particle_id_dtype)], Template("""//CL//
-        typedef ${dtype_to_ctype(particle_id_dtype)} particle_id_t;
+    from boxtree.tree_build_kernels import (
+            TREE_ORDER_TARGET_FILTER_SCAN_TPL,
+            TREE_ORDER_TARGET_FILTER_INDEX_TPL)
 
-        void generate(LIST_ARG_DECL USER_ARG_DECL index_type i)
-        {
-            particle_id_t b_t_start = box_target_starts[i];
-            particle_id_t b_t_count = box_target_counts_nonchild[i];
+    scan_knl = TREE_ORDER_TARGET_FILTER_SCAN_TPL.build(
+        queue.context,
+        type_aliases=(
+            ("scan_t", tree.particle_id_dtype),
+            ("particle_id_t", tree.particle_id_dtype),
+            ),
+        )
+    filtered_from_unfiltered_target_index = cl.array.empty(
+            queue, tree.ntargets, tree.particle_id_dtype)
+    unfiltered_from_filtered_target_index = cl.array.empty(
+            queue, tree.ntargets, tree.particle_id_dtype)
 
-            for (particle_id_t j = b_t_start; j < b_t_start+b_t_count; ++j)
-            {
-                if (tree_order_flags[j])
-                {
-                    APPEND_filt_tgt_list(j);
-                }
-            }
-        }
-        """, strict_undefined=True).render(
-            dtype_to_ctype=dtype_to_ctype,
-            particle_id_dtype=tree.particle_id_dtype
-            ), arg_decls=[
-                VectorArg(tree_order_flags.dtype, "tree_order_flags"),
-                VectorArg(tree.particle_id_dtype, "box_target_starts"),
-                VectorArg(tree.particle_id_dtype, "box_target_counts_nonchild"),
-            ])
+    nfiltered_targets = cl.array.empty(queue, 1, tree.particle_id_dtype)
+    scan_knl(tree_order_flags,
+            filtered_from_unfiltered_target_index,
+            unfiltered_from_filtered_target_index,
+            nfiltered_targets,
+            queue=queue)
 
-    result, evt = builder(queue, tree.nboxes,
-            tree_order_flags.data,
-            tree.box_target_starts.data, tree.box_target_counts_nonchild.data)
+    nfiltered_targets = int(nfiltered_targets.get())
+
+    unfiltered_from_filtered_target_index = \
+            unfiltered_from_filtered_target_index[:nfiltered_targets]
+
+    from pytools.obj_array import make_obj_array
+    filtered_targets = make_obj_array([
+        targets_i.with_queue(queue)[unfiltered_from_filtered_target_index]
+        for targets_i in tree.targets
+        ])
+
+    index_knl = TREE_ORDER_TARGET_FILTER_INDEX_TPL.build(
+        queue.context,
+        type_aliases=(
+            ("particle_id_t", tree.particle_id_dtype),
+            ),
+        )
+
+    box_target_starts_filtered = \
+            cl.array.empty_like(tree.box_target_starts)
+    box_target_counts_nonchild_filtered = \
+            cl.array.empty_like(tree.box_target_counts_nonchild)
+
+    index_knl(
+            # input
+            tree.box_target_starts,
+            tree.box_target_counts_nonchild,
+            filtered_from_unfiltered_target_index,
+
+            # output
+            box_target_starts_filtered,
+            box_target_counts_nonchild_filtered,
+
+            queue=queue)
 
     return FilteredTargetListsInTreeOrder(
-            nfiltered_targets=result["filt_tgt_list"].count,
-            target_starts=result["filt_tgt_list"].starts,
-            target_lists=result["filt_tgt_list"].lists,
+            nfiltered_targets=nfiltered_targets,
+            box_target_starts=box_target_starts_filtered,
+            box_target_counts_nonchild=box_target_counts_nonchild_filtered,
+            unfiltered_from_filtered_target_index=
+            unfiltered_from_filtered_target_index,
+            targets=filtered_targets,
             ).with_queue(None)
 
 # }}}
