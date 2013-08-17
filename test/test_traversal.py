@@ -68,8 +68,8 @@ def test_tree_connectivity(ctx_getter, dims, sources_are_targets):
     from boxtree.traversal import FMMTraversalBuilder
     tg = FMMTraversalBuilder(ctx)
     trav, _ = tg(queue, tree, debug=True)
-    tree = tree.get()
-    trav = trav.get()
+    tree = tree.get(queue=queue)
+    trav = trav.get(queue=queue)
 
     levels = tree.box_levels
     parents = tree.box_parent_ids.T

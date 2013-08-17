@@ -107,7 +107,7 @@ def run_build_test(builder, queue, dims, dtype, nparticles, do_plot,
     tree, _ = builder(queue, particles,
             max_particles_in_box=max_particles_in_box, debug=True,
             **kwargs)
-    tree = tree.get()
+    tree = tree.get(queue=queue)
 
     sorted_particles = np.array(list(tree.sources))
 
@@ -242,7 +242,7 @@ def test_source_target_tree(ctx_getter, dims, do_plot=False):
     queue.finish()
     tree, _ = tb(queue, sources, targets=targets,
             max_particles_in_box=10, debug=True)
-    tree = tree.get()
+    tree = tree.get(queue=queue)
 
     sorted_sources = np.array(list(tree.sources))
     sorted_targets = np.array(list(tree.targets))
@@ -357,7 +357,7 @@ def test_extent_tree(ctx_getter, dims, do_plot=False):
 
     logger.info("transfer tree, check orderings")
 
-    tree = dev_tree.get()
+    tree = dev_tree.get(queue=queue)
 
     sorted_sources = np.array(list(tree.sources))
     sorted_targets = np.array(list(tree.targets))
@@ -508,8 +508,8 @@ def test_geometry_query(ctx_getter, dims, do_plot=False):
     lbl, _ = lblb(queue, tree, ball_centers, ball_radii)
 
     # get data to host for test
-    tree = tree.get()
-    lbl = lbl.get()
+    tree = tree.get(queue=queue)
+    lbl = lbl.get(queue=queue)
     ball_centers = np.array([x.get() for x in ball_centers]).T
     ball_radii = ball_radii.get()
 

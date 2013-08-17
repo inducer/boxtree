@@ -255,7 +255,7 @@ def test_fmm_completeness(ctx_getter, dims, nsources_req, ntargets_req,
     trav, _ = tbuild(queue, tree, debug=True)
     if trav.sep_close_smaller_starts is not None:
         trav = trav.merge_close_lists(queue)
-    trav = trav.get()
+    trav = trav.get(queue=queue)
     tree = trav.tree
 
     weights = np.random.randn(nsources)
@@ -381,7 +381,7 @@ def test_pyfmmlib_fmm(ctx_getter):
     tbuild = FMMTraversalBuilder(ctx)
     trav, _ = tbuild(queue, tree, debug=True)
 
-    trav = trav.get()
+    trav = trav.get(queue=queue)
 
     from pyopencl.clrandom import RanluxGenerator
     rng = RanluxGenerator(queue, seed=20)
