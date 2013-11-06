@@ -34,19 +34,25 @@ Filtering the lists of targets
 
 .. currentmodule:: boxtree.tree
 
+Data structures
+^^^^^^^^^^^^^^^
+
 .. autoclass:: FilteredTargetListsInUserOrder
 
     .. rubric:: Methods
 
     .. automethod:: get
 
-.. autofunction:: filter_target_lists_in_user_order
-
 .. autoclass:: FilteredTargetListsInTreeOrder
 
     .. rubric:: Methods
 
     .. automethod:: get
+
+Functions
+^^^^^^^^^
+
+.. autofunction:: filter_target_lists_in_user_order
 
 .. autofunction:: filter_target_lists_in_tree_order
 

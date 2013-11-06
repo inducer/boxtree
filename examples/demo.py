@@ -41,8 +41,9 @@ import matplotlib.pyplot as pt
 pt.plot(particles[0].get(), particles[1].get(), "x")
 
 from boxtree.visualization import TreePlotter
-plotter = TreePlotter(tree.get())
+plotter = TreePlotter(tree.get(queue=queue))
 plotter.draw_tree(fill=False, edgecolor="black")
 plotter.draw_box_numbers()
 plotter.set_bounding_box()
+pt.gca().set_aspect("equal")
 pt.savefig("tree.png")

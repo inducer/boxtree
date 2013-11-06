@@ -161,7 +161,7 @@ class Tree(DeviceDataRecord):
 
     .. attribute:: targets
 
-        ``coord_t [dimensions][nsources]``
+        ``coord_t [dimensions][ntargets]``
         (an object array of coordinate arrays)
 
         Stored in :ref:`tree target order <particle-orderings>`. May be the
@@ -617,7 +617,7 @@ def link_point_sources(queue, tree, point_source_starts, point_sources,
 class FilteredTargetListsInUserOrder(DeviceDataRecord):
     """This class builds subsets of the list of targets in each box (as given by
     :attr:`boxtree.Tree.box_target_starts` and
-    :attr:`boxtree.Tree.box_target_counts_cumul`).This subset is
+    :attr:`boxtree.Tree.box_target_counts_cumul`). This subset is
     specified by an array of *flags* in user target order.
 
     The list consists of target numbers in user target order.
@@ -714,10 +714,8 @@ class FilteredTargetListsInTreeOrder(DeviceDataRecord):
 
     Unlike :class:`FilteredTargetListsInUserOrder`, this does not create a
     CSR-like list of targets, but instead creates a new numbering of targets
-    that only counts the filtered targets. This allows all targets in a
-    box to be placed consecutively, which may help performance.
-    :attr:
-
+    that only counts the filtered targets. This allows all targets in a box to
+    be placed consecutively, which is intended to help traversal performance.
 
     .. attribute:: nfiltered_targets
 
@@ -742,7 +740,7 @@ class FilteredTargetListsInTreeOrder(DeviceDataRecord):
 
     .. attribute:: targets
 
-        ``coord_t [dimensions][nsources]``
+        ``coord_t [dimensions][nfiltered_targets]``
         (an object array of coordinate arrays)
 
     .. attribute:: unfiltered_from_filtered_target_indices
@@ -833,6 +831,5 @@ def filter_target_lists_in_tree_order(queue, tree, flags):
             ).with_queue(None)
 
 # }}}
-
 
 # vim: filetype=pyopencl:fdm=marker
