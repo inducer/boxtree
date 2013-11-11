@@ -774,26 +774,26 @@ def filter_target_lists_in_tree_order(queue, tree, flags):
             ("particle_id_t", tree.particle_id_dtype),
             ),
         )
-    filtered_from_unfiltered_target_index = cl.array.empty(
+    filtered_from_unfiltered_target_indices = cl.array.empty(
             queue, tree.ntargets, tree.particle_id_dtype)
-    unfiltered_from_filtered_target_index = cl.array.empty(
+    unfiltered_from_filtered_target_indices = cl.array.empty(
             queue, tree.ntargets, tree.particle_id_dtype)
 
     nfiltered_targets = cl.array.empty(queue, 1, tree.particle_id_dtype)
     scan_knl(tree_order_flags,
-            filtered_from_unfiltered_target_index,
-            unfiltered_from_filtered_target_index,
+            filtered_from_unfiltered_target_indices,
+            unfiltered_from_filtered_target_indices,
             nfiltered_targets,
             queue=queue)
 
     nfiltered_targets = int(nfiltered_targets.get())
 
-    unfiltered_from_filtered_target_index = \
-            unfiltered_from_filtered_target_index[:nfiltered_targets]
+    unfiltered_from_filtered_target_indices = \
+            unfiltered_from_filtered_target_indices[:nfiltered_targets]
 
     from pytools.obj_array import make_obj_array
     filtered_targets = make_obj_array([
-        targets_i.with_queue(queue)[unfiltered_from_filtered_target_index]
+        targets_i.with_queue(queue)[unfiltered_from_filtered_target_indices]
         for targets_i in tree.targets
         ])
 
@@ -813,7 +813,7 @@ def filter_target_lists_in_tree_order(queue, tree, flags):
             # input
             tree.box_target_starts,
             tree.box_target_counts_nonchild,
-            filtered_from_unfiltered_target_index,
+            filtered_from_unfiltered_target_indices,
 
             # output
             box_target_starts_filtered,
@@ -825,8 +825,8 @@ def filter_target_lists_in_tree_order(queue, tree, flags):
             nfiltered_targets=nfiltered_targets,
             box_target_starts=box_target_starts_filtered,
             box_target_counts_nonchild=box_target_counts_nonchild_filtered,
-            unfiltered_from_filtered_target_index=
-            unfiltered_from_filtered_target_index,
+            unfiltered_from_filtered_target_indices=
+            unfiltered_from_filtered_target_indices,
             targets=filtered_targets,
             ).with_queue(None)
 
