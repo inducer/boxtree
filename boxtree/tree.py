@@ -615,10 +615,13 @@ def link_point_sources(queue, tree, point_source_starts, point_sources,
 # {{{ filtered target lists
 
 class FilteredTargetListsInUserOrder(DeviceDataRecord):
-    """This class builds subsets of the list of targets in each box (as given by
-    :attr:`boxtree.Tree.box_target_starts` and
-    :attr:`boxtree.Tree.box_target_counts_cumul`). This subset is
-    specified by an array of *flags* in user target order.
+    """Use :func:`filter_target_lists_in_user_order` to create instances of this
+    class.
+
+    This class represents subsets of the list of targets in each box (as given
+    by :attr:`boxtree.Tree.box_target_starts` and
+    :attr:`boxtree.Tree.box_target_counts_cumul`). This subset is specified by
+    an array of *flags* in user target order.
 
     The list consists of target numbers in user target order.
     See also :class:`FilteredTargetListsInTreeOrder`.
@@ -707,7 +710,10 @@ def filter_target_lists_in_user_order(queue, tree, flags):
 
 
 class FilteredTargetListsInTreeOrder(DeviceDataRecord):
-    """This class builds subsets of the list of targets in each box (as given by
+    """Use :func:`filter_target_lists_in_tree_order` to create instances of this
+    class.
+
+    This class represents subsets of the list of targets in each box (as given by
     :attr:`boxtree.Tree.box_target_starts` and
     :attr:`boxtree.Tree.box_target_counts_cumul`).This subset is
     specified by an array of *flags* in user target order.

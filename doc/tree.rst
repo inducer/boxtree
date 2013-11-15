@@ -37,13 +37,13 @@ Filtering the lists of targets
 Data structures
 ^^^^^^^^^^^^^^^
 
-.. autoclass:: FilteredTargetListsInUserOrder
+.. autoclass:: FilteredTargetListsInUserOrder()
 
     .. rubric:: Methods
 
     .. automethod:: get
 
-.. autoclass:: FilteredTargetListsInTreeOrder
+.. autoclass:: FilteredTargetListsInTreeOrder()
 
     .. rubric:: Methods
 
