@@ -315,7 +315,8 @@ def test_fmm_completeness(ctx_getter, dims, nsources_req, ntargets_req,
     host_tree = host_trav.tree
 
     if filter_kind:
-        flags = rng.uniform(queue, ntargets, np.int32, a=0, b=2).astype(np.int8)
+        flags = rng.uniform(queue, ntargets or nsources, np.int32, a=0, b=2) \
+                .astype(np.int8)
         if filter_kind == "user":
             from boxtree.tree import filter_target_lists_in_user_order
             filtered_targets = filter_target_lists_in_user_order(queue, tree, flags)
