@@ -332,7 +332,7 @@ def test_fmm_completeness(ctx_getter, dims, nsources_req, ntargets_req,
     else:
         wrangler = ConstantOneExpansionWrangler(host_tree)
 
-    if ntargets is None:
+    if ntargets is None and not filter_kind:
         # This check only works for targets == sources.
         assert (wrangler.reorder_potentials(
                 wrangler.reorder_src_weights(weights)) == weights).all()
