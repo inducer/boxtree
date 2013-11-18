@@ -634,7 +634,7 @@ class FilteredTargetListsInUserOrder(DeviceDataRecord):
 
         Filtered list of targets in each box. Records start indices in
         :attr:`boxtree.Tree.targets` for each box.  Use together with
-        :attr:`target_counts_nonchild`. The lists for each box are
+        :attr:`target_lists`. The lists for each box are
         contiguous, so that ``target_starts[ibox+1]`` records the
         end of the target list for *ibox*.
 
@@ -642,9 +642,11 @@ class FilteredTargetListsInUserOrder(DeviceDataRecord):
 
         ``particle_id_t [nboxes]``
 
-        Filtered list of targets in each box. Records number of sources from
+        Filtered list of targets in each box. Records number of targets from
         :attr:`boxtree.Tree.targets` in each box (excluding those belonging to
         child boxes).  Use together with :attr:`target_starts`.
+
+        Target numbers are stored in user order, as the class name suggests.
     """
 
 
@@ -820,6 +822,8 @@ def filter_target_lists_in_tree_order(queue, tree, flags):
             tree.box_target_starts,
             tree.box_target_counts_nonchild,
             filtered_from_unfiltered_target_indices,
+            tree.ntargets,
+            nfiltered_targets,
 
             # output
             box_target_starts_filtered,

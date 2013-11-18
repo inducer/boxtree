@@ -43,7 +43,7 @@ logger = logging.getLogger(__name__)
 
 # {{{ fmm interaction completeness test
 
-class ConstantOneExpansionWrangler:
+class ConstantOneExpansionWrangler(object):
     """This implements the 'analytical routines' for a Green's function that is
     constant 1 everywhere. For 'charges' of 'ones', this should get every particle
     a copy of the particle count.
@@ -176,25 +176,76 @@ class ConstantOneExpansionWrangler:
         return pot
 
 
-@pytest.mark.parametrize(("dims", "nsources_req", "ntargets_req",
-        "who_has_extent", "source_gen", "target_gen"),
-        [
-            (2, 10**5, None, "", p_normal, p_normal),
-            (3, 5 * 10**4, 4*10**4, "", p_normal, p_normal),
-            (2, 5 * 10**5, 4*10**4, "s", p_normal, p_normal),
-            (2, 5 * 10**5, 4*10**4, "st", p_normal, p_normal),
-            (2, 5 * 10**5, 4*10**4, "t", p_normal, p_normal),
-            (2, 5 * 10**5, 4*10**4, "st", p_surface, p_uniform),
+class ConstantOneExpansionWranglerWithFilteredTargetsInTreeOrder(
+        ConstantOneExpansionWrangler):
+    def __init__(self, tree, filtered_targets):
+        ConstantOneExpansionWrangler.__init__(self, tree)
+        self.filtered_targets = filtered_targets
 
-            (3, 10**5, None, "", p_normal, p_normal),
-            (3, 5 * 10**4, 4*10**4, "", p_normal, p_normal),
-            (3, 5 * 10**5, 4*10**4, "s", p_normal, p_normal),
-            (3, 5 * 10**5, 4*10**4, "st", p_normal, p_normal),
-            (3, 5 * 10**5, 4*10**4, "t", p_normal, p_normal),
-            (3, 5 * 10**5, 4*10**4, "st", p_surface, p_uniform),
+    def potential_zeros(self):
+        return np.zeros(self.filtered_targets.nfiltered_targets, dtype=np.float64)
+
+    def _get_target_slice(self, ibox):
+        pstart = self.filtered_targets.box_target_starts[ibox]
+        return slice(
+                pstart, pstart
+                + self.filtered_targets.box_target_counts_nonchild[ibox])
+
+    def reorder_potentials(self, potentials):
+        tree_order_all_potentials = np.zeros(self.tree.ntargets, potentials.dtype)
+        tree_order_all_potentials[
+                self.filtered_targets.unfiltered_from_filtered_target_indices] \
+                = potentials
+
+        return tree_order_all_potentials[self.tree.sorted_target_ids]
+
+
+class ConstantOneExpansionWranglerWithFilteredTargetsInUserOrder(
+        ConstantOneExpansionWrangler):
+    def __init__(self, tree, filtered_targets):
+        ConstantOneExpansionWrangler.__init__(self, tree)
+        self.filtered_targets = filtered_targets
+
+    def _get_target_slice(self, ibox):
+        user_target_ids = self.filtered_targets.target_lists[
+                self.filtered_targets.target_starts[ibox]:
+                self.filtered_targets.target_starts[ibox+1]]
+        return self.tree.sorted_target_ids[user_target_ids]
+
+
+@pytest.mark.parametrize(("dims", "nsources_req", "ntargets_req",
+        "who_has_extent", "source_gen", "target_gen", "filter_kind"),
+        [
+            (2, 10**5, None, "", p_normal, p_normal, None),
+            (3, 5 * 10**4, 4*10**4, "", p_normal, p_normal, None),
+            (2, 5 * 10**5, 4*10**4, "s", p_normal, p_normal, None),
+            (2, 5 * 10**5, 4*10**4, "st", p_normal, p_normal, None),
+            (2, 5 * 10**5, 4*10**4, "t", p_normal, p_normal, None),
+            (2, 5 * 10**5, 4*10**4, "st", p_surface, p_uniform, None),
+
+            (3, 10**5, None, "", p_normal, p_normal, None),
+            (3, 5 * 10**4, 4*10**4, "", p_normal, p_normal, None),
+            (3, 5 * 10**5, 4*10**4, "s", p_normal, p_normal, None),
+            (3, 5 * 10**5, 4*10**4, "st", p_normal, p_normal, None),
+            (3, 5 * 10**5, 4*10**4, "t", p_normal, p_normal, None),
+            (3, 5 * 10**5, 4*10**4, "st", p_surface, p_uniform, None),
+
+            (2, 10**5, None, "", p_normal, p_normal, "user"),
+            (3, 5 * 10**4, 4*10**4, "", p_normal, p_normal, "user"),
+            (2, 5 * 10**5, 4*10**4, "s", p_normal, p_normal, "user"),
+            (2, 5 * 10**5, 4*10**4, "st", p_normal, p_normal, "user"),
+            (2, 5 * 10**5, 4*10**4, "t", p_normal, p_normal, "user"),
+            (2, 5 * 10**5, 4*10**4, "st", p_surface, p_uniform, "user"),
+
+            (2, 10**5, None, "", p_normal, p_normal, "tree"),
+            (3, 5 * 10**4, 4*10**4, "", p_normal, p_normal, "tree"),
+            (2, 5 * 10**5, 4*10**4, "s", p_normal, p_normal, "tree"),
+            (2, 5 * 10**5, 4*10**4, "st", p_normal, p_normal, "tree"),
+            (2, 5 * 10**5, 4*10**4, "t", p_normal, p_normal, "tree"),
+            (2, 5 * 10**5, 4*10**4, "st", p_surface, p_uniform, "tree"),
             ])
 def test_fmm_completeness(ctx_getter, dims, nsources_req, ntargets_req,
-         who_has_extent, source_gen, target_gen):
+         who_has_extent, source_gen, target_gen, filter_kind):
     """Tests whether the built FMM traversal structures and driver completely
     capture all interactions.
     """
@@ -255,22 +306,38 @@ def test_fmm_completeness(ctx_getter, dims, nsources_req, ntargets_req,
     trav, _ = tbuild(queue, tree, debug=True)
     if trav.sep_close_smaller_starts is not None:
         trav = trav.merge_close_lists(queue)
-    trav = trav.get(queue=queue)
-    tree = trav.tree
 
     weights = np.random.randn(nsources)
     #weights = np.ones(nsources)
     weights_sum = np.sum(weights)
 
-    from boxtree.fmm import drive_fmm
-    wrangler = ConstantOneExpansionWrangler(tree)
+    host_trav = trav.get(queue=queue)
+    host_tree = host_trav.tree
+
+    if filter_kind:
+        flags = rng.uniform(queue, ntargets, np.int32, a=0, b=2).astype(np.int8)
+        if filter_kind == "user":
+            from boxtree.tree import filter_target_lists_in_user_order
+            filtered_targets = filter_target_lists_in_user_order(queue, tree, flags)
+            wrangler = ConstantOneExpansionWranglerWithFilteredTargetsInUserOrder(
+                    host_tree, filtered_targets.get(queue=queue))
+        elif filter_kind == "tree":
+            from boxtree.tree import filter_target_lists_in_tree_order
+            filtered_targets = filter_target_lists_in_tree_order(queue, tree, flags)
+            wrangler = ConstantOneExpansionWranglerWithFilteredTargetsInTreeOrder(
+                    host_tree, filtered_targets.get(queue=queue))
+        else:
+            raise ValueError("unsupported value of 'filter_kind'")
+    else:
+        wrangler = ConstantOneExpansionWrangler(host_tree)
 
     if ntargets is None:
         # This check only works for targets == sources.
         assert (wrangler.reorder_potentials(
                 wrangler.reorder_src_weights(weights)) == weights).all()
 
-    pot = drive_fmm(trav, wrangler, weights)
+    from boxtree.fmm import drive_fmm
+    pot = drive_fmm(host_trav, wrangler, weights)
 
     # {{{ build, evaluate matrix (and identify missing interactions)
 
@@ -284,7 +351,7 @@ def test_fmm_completeness(ctx_getter, dims, nsources_req, ntargets_req,
         for i in xrange(nsources):
             unit_vec = np.zeros(nsources, dtype=dtype)
             unit_vec[i] = 1
-            mat[:, i] = drive_fmm(trav, wrangler, unit_vec)
+            mat[:, i] = drive_fmm(host_trav, wrangler, unit_vec)
             pb.progress()
         pb.finished()
 
@@ -300,32 +367,32 @@ def test_fmm_completeness(ctx_getter, dims, nsources_req, ntargets_req,
 
         if 1 and len(missing_tgts):
             from boxtree.visualization import TreePlotter
-            plotter = TreePlotter(tree)
+            plotter = TreePlotter(host_tree)
             plotter.draw_tree(fill=False, edgecolor="black")
             plotter.draw_box_numbers()
             plotter.set_bounding_box()
 
             tree_order_missing_tgts = \
-                    tree.indices_to_tree_target_order(missing_tgts)
+                    host_tree.indices_to_tree_target_order(missing_tgts)
             tree_order_missing_srcs = \
-                    tree.indices_to_tree_source_order(missing_srcs)
+                    host_tree.indices_to_tree_source_order(missing_srcs)
 
             src_boxes = [
-                    tree.find_box_nr_for_source(i)
+                    host_tree.find_box_nr_for_source(i)
                     for i in tree_order_missing_srcs]
             tgt_boxes = [
-                    tree.find_box_nr_for_target(i)
+                    host_tree.find_box_nr_for_target(i)
                     for i in tree_order_missing_tgts]
             print src_boxes
             print tgt_boxes
 
             pt.plot(
-                    tree.targets[0][tree_order_missing_tgts],
-                    tree.targets[1][tree_order_missing_tgts],
+                    host_tree.targets[0][tree_order_missing_tgts],
+                    host_tree.targets[1][tree_order_missing_tgts],
                     "rv")
             pt.plot(
-                    tree.sources[0][tree_order_missing_srcs],
-                    tree.sources[1][tree_order_missing_srcs],
+                    host_tree.sources[0][tree_order_missing_srcs],
+                    host_tree.sources[1][tree_order_missing_srcs],
                     "go")
             pt.gca().set_aspect("equal")
 
@@ -333,11 +400,31 @@ def test_fmm_completeness(ctx_getter, dims, nsources_req, ntargets_req,
 
     # }}}
 
+    if filter_kind:
+        pot = pot[flags.get() > 0]
+
     rel_err = la.norm((pot - weights_sum) / nsources)
     good = rel_err < 1e-8
     if 0 and not good:
         import matplotlib.pyplot as pt
         pt.plot(pot-weights_sum)
+        pt.show()
+
+    if 0 and not good:
+        import matplotlib.pyplot as pt
+        filt_targets = [
+                host_tree.targets[0][flags.get() > 0],
+                host_tree.targets[1][flags.get() > 0],
+                ]
+        host_tree.plot()
+        bad = np.abs(pot - weights_sum) >= 1e-3
+        bad_targets = [
+                filt_targets[0][bad],
+                filt_targets[1][bad],
+                ]
+        print bad_targets[0].shape
+        pt.plot(filt_targets[0], filt_targets[1], "x")
+        pt.plot(bad_targets[0], bad_targets[1], "v")
         pt.show()
 
     assert good

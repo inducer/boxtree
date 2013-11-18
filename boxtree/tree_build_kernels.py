@@ -1505,6 +1505,8 @@ TREE_ORDER_TARGET_FILTER_INDEX_TPL = ElementwiseTemplate(
         particle_id_t *box_target_starts,
         particle_id_t *box_target_counts_nonchild,
         particle_id_t *filtered_from_unfiltered_target_index,
+        particle_id_t ntargets,
+        particle_id_t nfiltered_targets,
 
         /* output */
         particle_id_t *box_target_starts_filtered,
@@ -1520,12 +1522,23 @@ TREE_ORDER_TARGET_FILTER_INDEX_TPL = ElementwiseTemplate(
 
         if (unfiltered_count > 0)
         {
-            particle_id_t unfiltered_last =
-                unfiltered_start + unfiltered_count - 1;
-            particle_id_t filtered_last =
-                filtered_from_unfiltered_target_index[unfiltered_last];
+            particle_id_t unfiltered_post_last =
+                unfiltered_start + unfiltered_count;
+
+            particle_id_t filtered_post_last;
+            if (unfiltered_post_last < ntargets)
+            {
+                filtered_post_last =
+                    filtered_from_unfiltered_target_index[unfiltered_post_last];
+            }
+            else
+            {
+                // The above access would be out of bounds in this case.
+                filtered_post_last = nfiltered_targets;
+            }
+
             box_target_counts_nonchild_filtered[i] =
-                filtered_last - filtered_start;
+                filtered_post_last - filtered_start;
         }
         else
             box_target_counts_nonchild_filtered[i] = 0;
