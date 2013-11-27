@@ -374,7 +374,7 @@ class Tree(DeviceDataRecord):
 # {{{ tree with linked point sources
 
 class TreeWithLinkedPointSources(Tree):
-    """In this :class:`Tree` subclass, the sources of the original tree are
+    """In this :class:`boxtree.Tree` subclass, the sources of the original tree are
     linked with extent are expanded into point sources which are linked to the
     extent-having sources in the original tree. (In an FMM context, they may
     stand in for the 'underlying' source for the purpose of the far-field
