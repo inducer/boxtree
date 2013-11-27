@@ -690,30 +690,30 @@ class TreeBuilder(object):
 
             fin_debug("source and target index finder")
             evt = knl_info.source_and_target_index_finder(*(
-                    # input:
-                    (
+                # input:
+                (
                     user_srcntgt_ids, nsources, srcntgt_box_ids,
                     box_parent_ids,
 
                     box_srcntgt_starts, box_srcntgt_counts_cumul,
                     source_numbers,
-                    )
-                    + ((box_srcntgt_counts_nonchild,)
-                        if srcntgts_have_extent else ())
+                )
+                + ((box_srcntgt_counts_nonchild,)
+                    if srcntgts_have_extent else ())
 
-                    # output:
-                    + (
+                # output:
+                + (
                     user_source_ids, srcntgt_target_ids, sorted_target_ids,
                     box_source_starts, box_source_counts_cumul,
                     box_target_starts, box_target_counts_cumul,
                     )
-                    + ((
-                        box_source_counts_nonchild,
-                        box_target_counts_nonchild,
-                        ) if srcntgts_have_extent else ())
-                    ),
-                    queue=queue, range=slice(nsrcntgts),
-                    wait_for=wait_for)
+                + ((
+                    box_source_counts_nonchild,
+                    box_target_counts_nonchild,
+                    ) if srcntgts_have_extent else ())
+                ),
+                queue=queue, range=slice(nsrcntgts),
+                wait_for=wait_for)
             wait_for = [evt]
 
             if srcntgts_have_extent:
