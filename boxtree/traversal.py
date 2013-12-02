@@ -1128,7 +1128,9 @@ class FMMTraversalBuilder:
                         str(src),
                         arg_decls=[
                             VectorArg(box_flags_enum.dtype, "box_flags"),
-                            ], debug=debug, name_prefix="sources_and_parents")
+                            ],
+                        debug=debug,
+                        name_prefix="sources_parents_and_targets")
 
         result["level_start_box_nrs_extractor"] = \
                 LEVEL_START_BOX_NR_EXTRACTOR_TEMPLATE.build(self.context,
@@ -1328,6 +1330,7 @@ class FMMTraversalBuilder:
                 tree.box_centers.data, tree.root_extent, tree.box_levels.data,
                 tree.aligned_nboxes, tree.box_child_ids.data, tree.box_flags.data,
                 target_boxes.data, wait_for=wait_for)
+
         wait_for = [evt]
         neighbor_source_boxes = result["neighbor_source_boxes"]
 
