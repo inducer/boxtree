@@ -70,8 +70,8 @@ class ConstantOneExpansionWrangler(object):
         return slice(
                 pstart, pstart + self.tree.box_target_counts_nonchild[ibox])
 
-    def reorder_src_weights(self, src_weights):
-        return src_weights[self.tree.user_source_ids]
+    def reorder_sources(self, source_array):
+        return source_array[self.tree.user_source_ids]
 
     def reorder_potentials(self, potentials):
         return potentials[self.tree.sorted_target_ids]
@@ -335,7 +335,7 @@ def test_fmm_completeness(ctx_getter, dims, nsources_req, ntargets_req,
     if ntargets is None and not filter_kind:
         # This check only works for targets == sources.
         assert (wrangler.reorder_potentials(
-                wrangler.reorder_src_weights(weights)) == weights).all()
+                wrangler.reorder_sources(weights)) == weights).all()
 
     from boxtree.fmm import drive_fmm
     pot = drive_fmm(host_trav, wrangler, weights)

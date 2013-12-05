@@ -56,7 +56,7 @@ def drive_fmm(traversal, expansion_wrangler, src_weights):
 
     logger.debug("reorder source weights")
 
-    src_weights = wrangler.reorder_src_weights(src_weights)
+    src_weights = wrangler.reorder_sources(src_weights)
 
     # {{{ "Step 2.1:" Construct local multipoles
 
@@ -224,10 +224,10 @@ class ExpansionWranglerInterface:
         the potential, or arbitrary other per-target output data.
         """
 
-    def reorder_src_weights(self, src_weights):
-        """Return a copy of *source_weights* in
+    def reorder_sources(self, source_array):
+        """Return a copy of *source_array* in
         :ref:`tree source order <particle-orderings>`.
-        *source_weights* is in user source order.
+        *source_array* is in user source order.
         """
 
     def reorder_potentials(self, potentials):

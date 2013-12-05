@@ -75,8 +75,8 @@ class Helmholtz2DExpansionWrangler:
             for idim in range(self.tree.dimensions)
             ], order="F")
 
-    def reorder_src_weights(self, src_weights):
-        return src_weights[self.tree.user_source_ids]
+    def reorder_sources(self, source_array):
+        return source_array[self.tree.user_source_ids]
 
     def reorder_potentials(self, potentials):
         return potentials[self.tree.sorted_target_ids]
