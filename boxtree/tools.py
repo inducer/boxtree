@@ -105,7 +105,7 @@ def make_surface_particle_array(queue, nparticles, dims, dtype, seed=15):
     if dims == 2:
         @first_arg_dependent_memoize_nested
         def get_2d_knl(context, dtype):
-            knl = lp.make_kernel(context.devices[0],
+            knl = lp.make_kernel(
                 "{[i]: 0<=i<n}",
                 """
                     <> phi = 2*M_PI/n * i
@@ -131,7 +131,7 @@ def make_surface_particle_array(queue, nparticles, dims, dtype, seed=15):
 
         @first_arg_dependent_memoize_nested
         def get_3d_knl(context, dtype):
-            knl = lp.make_kernel(context.devices[0],
+            knl = lp.make_kernel(
                 "{[i,j]: 0<=i,j<n}",
                 """
                     <> phi = 2*M_PI/n * i
@@ -167,7 +167,7 @@ def make_uniform_particle_array(queue, nparticles, dims, dtype, seed=15):
 
         @first_arg_dependent_memoize_nested
         def get_2d_knl(context, dtype):
-            knl = lp.make_kernel(context.devices[0],
+            knl = lp.make_kernel(
                 "{[i,j]: 0<=i,j<n}",
                 """
                     <> xx = 4*i/(n-1)
@@ -198,7 +198,7 @@ def make_uniform_particle_array(queue, nparticles, dims, dtype, seed=15):
 
         @first_arg_dependent_memoize_nested
         def get_3d_knl(context, dtype):
-            knl = lp.make_kernel(context.devices[0],
+            knl = lp.make_kernel(
                 "{[i,j,k]: 0<=i,j,k<n}",
                 """
                     <> xx = i/(n-1)
