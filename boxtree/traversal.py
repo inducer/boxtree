@@ -1287,7 +1287,7 @@ class FMMTraversalBuilder:
 
             # Postprocess result for unoccupied levels
             prev_start = len(box_list)
-            for ilev in xrange(tree.nlevels-1, -1, -1):
+            for ilev in range(tree.nlevels-1, -1, -1):
                 result[ilev] = prev_start = \
                         min(result[ilev], prev_start)
 

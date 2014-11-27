@@ -5,12 +5,6 @@
 def main():
     from setuptools import setup
 
-    try:
-        from distutils.command.build_py import build_py_2to3 as build_py
-    except ImportError:
-        # 2.x
-        from distutils.command.build_py import build_py
-
     version_dict = {}
     init_filename = "boxtree/version.py"
     exec(compile(open(init_filename, "r").read(), init_filename, "exec"),
@@ -52,10 +46,7 @@ def main():
               "Mako>=0.7.3",
               "pytest>=2.3",
               "cgen>=2013.1.2",
-              ],
-
-          # 2to3 invocation
-          cmdclass={'build_py': build_py})
+              ])
 
 
 if __name__ == '__main__':

@@ -1,6 +1,8 @@
+from __future__ import absolute_import
 # STARTEXAMPLE
 import pyopencl as cl
 import numpy as np
+from six.moves import range
 
 ctx = cl.create_some_context()
 queue = cl.CommandQueue(ctx)

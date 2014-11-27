@@ -1,4 +1,7 @@
 from __future__ import division
+from __future__ import absolute_import
+import six
+from six.moves import range
 
 __copyright__ = "Copyright (C) 2013 Andreas Kloeckner"
 
@@ -1357,7 +1360,7 @@ def get_tree_build_kernel_info(context, dimensions, coord_dtype,
             ("box_flags_t", box_flags_enum.dtype),
             ("box_level_t", box_level_dtype),
             )
-    codegen_args_tuples = tuple(codegen_args.iteritems())
+    codegen_args_tuples = tuple(six.iteritems(codegen_args))
     box_info_kernel = BOX_INFO_KERNEL_TPL.build(
             context,
             type_aliases,

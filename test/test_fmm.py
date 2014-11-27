@@ -1,4 +1,7 @@
 from __future__ import division
+from __future__ import absolute_import
+from __future__ import print_function
+from six.moves import range
 
 __copyright__ = "Copyright (C) 2013 Andreas Kloeckner"
 
@@ -349,7 +352,7 @@ def test_fmm_completeness(ctx_getter, dims, nsources_req, ntargets_req,
         logging.getLogger().setLevel(logging.WARNING)
 
         pb = ProgressBar("matrix", nsources)
-        for i in xrange(nsources):
+        for i in range(nsources):
             unit_vec = np.zeros(nsources, dtype=dtype)
             unit_vec[i] = 1
             mat[:, i] = drive_fmm(host_trav, wrangler, unit_vec)
@@ -384,8 +387,8 @@ def test_fmm_completeness(ctx_getter, dims, nsources_req, ntargets_req,
             tgt_boxes = [
                     host_tree.find_box_nr_for_target(i)
                     for i in tree_order_missing_tgts]
-            print src_boxes
-            print tgt_boxes
+            print(src_boxes)
+            print(tgt_boxes)
 
             pt.plot(
                     host_tree.targets[0][tree_order_missing_tgts],
@@ -423,7 +426,7 @@ def test_fmm_completeness(ctx_getter, dims, nsources_req, ntargets_req,
                 filt_targets[0][bad],
                 filt_targets[1][bad],
                 ]
-        print bad_targets[0].shape
+        print(bad_targets[0].shape)
         pt.plot(filt_targets[0], filt_targets[1], "x")
         pt.plot(bad_targets[0], bad_targets[1], "v")
         pt.show()

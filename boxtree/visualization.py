@@ -1,4 +1,7 @@
 from __future__ import division
+from __future__ import absolute_import
+from six.moves import range
+from six.moves import zip
 
 __copyright__ = "Copyright (C) 2012 Andreas Kloeckner"
 
@@ -40,7 +43,7 @@ class TreePlotter:
         kwargs["fill"] = fill
         kwargs["edgecolor"] = edgecolor
 
-        for ibox in xrange(self.tree.nboxes):
+        for ibox in range(self.tree.nboxes):
             self.draw_box(ibox, **kwargs)
 
     def set_bounding_box(self):
@@ -82,7 +85,7 @@ class TreePlotter:
 
         tree = self.tree
 
-        for ibox in xrange(tree.nboxes):
+        for ibox in range(tree.nboxes):
             x, y = tree.box_centers[:, ibox]
             lev = int(tree.box_levels[ibox])
             pt.text(x, y, str(ibox), fontsize=20*1.15**(-lev),

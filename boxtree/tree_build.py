@@ -1,4 +1,7 @@
 from __future__ import division
+from __future__ import absolute_import
+from six.moves import range
+from six.moves import zip
 
 __copyright__ = "Copyright (C) 2012 Andreas Kloeckner"
 
@@ -764,7 +767,7 @@ class TreeBuilder(object):
 
         else:
             sources = make_obj_array([
-                empty(nsources, coord_dtype) for i in xrange(dimensions)])
+                empty(nsources, coord_dtype) for i in range(dimensions)])
             fin_debug("srcntgt permuter (sources)")
             evt = knl_info.srcntgt_permuter(
                     user_source_ids,
@@ -774,7 +777,7 @@ class TreeBuilder(object):
             wait_for = [evt]
 
             targets = make_obj_array([
-                empty(ntargets, coord_dtype) for i in xrange(dimensions)])
+                empty(ntargets, coord_dtype) for i in range(dimensions)])
             fin_debug("srcntgt permuter (targets)")
             evt = knl_info.srcntgt_permuter(
                     srcntgt_target_ids,

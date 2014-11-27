@@ -1,4 +1,6 @@
 from __future__ import division
+from __future__ import absolute_import
+from six.moves import range
 
 __copyright__ = "Copyright (C) 2013 Andreas Kloeckner"
 
@@ -78,7 +80,7 @@ def test_tree_connectivity(ctx_getter, dims, sources_are_targets):
 
     # {{{ parent and child relations, levels match up
 
-    for ibox in xrange(1, tree.nboxes):
+    for ibox in range(1, tree.nboxes):
         # /!\ Not testing box 0, has no parents
         parent = parents[ibox]
 
@@ -159,7 +161,7 @@ def test_tree_connectivity(ctx_getter, dims, sources_are_targets):
         assert (trav.target_or_target_parent_boxes == np.arange(
                 tree.nboxes, dtype=tree.box_id_dtype)).all()
 
-        for ibox in xrange(tree.nboxes):
+        for ibox in range(tree.nboxes):
             start, end = trav.sep_bigger_starts[ibox:ibox+2]
 
             for jbox in trav.sep_bigger_lists[start:end]:

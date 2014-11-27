@@ -1,3 +1,4 @@
+from __future__ import absolute_import
 # -*- coding: utf-8 -*-
 #
 # boxtree documentation build configuration file.
@@ -55,7 +56,7 @@ copyright = u'2013, Andreas Kloeckner'
 #
 # The short X.Y version.
 ver_dic = {}
-execfile("../boxtree/version.py", ver_dic)
+exec(compile(open("../boxtree/version.py").read(), "../boxtree/version.py", 'exec'), ver_dic)
 version = ".".join(str(x) for x in ver_dic["VERSION"])
 # The full version, including alpha/beta/rc tags.
 release = ver_dic["VERSION_TEXT"]

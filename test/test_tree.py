@@ -1,4 +1,8 @@
 from __future__ import division
+from __future__ import absolute_import
+from __future__ import print_function
+import six
+from six.moves import range
 
 __copyright__ = "Copyright (C) 2012 Andreas Kloeckner"
 
@@ -93,7 +97,7 @@ def run_build_test(builder, queue, dims, dtype, nparticles, do_plot,
     logger.info(75*"-")
     logger.info("%dD %s - %d particles - max %d per box - %s" % (
             dims, dtype.type.__name__, nparticles, max_particles_in_box,
-            " - ".join("%s: %s" % (k, v) for k, v in kwargs.iteritems())))
+            " - ".join("%s: %s" % (k, v) for k, v in six.iteritems(kwargs))))
     logger.info(75*"-")
 
     particles = make_normal_particle_array(queue, nparticles, dims, dtype)
@@ -126,7 +130,7 @@ def run_build_test(builder, queue, dims, dtype, nparticles, do_plot,
     from boxtree import box_flags_enum as bfe
 
     scaled_tol = tol*tree.root_extent
-    for ibox in xrange(tree.nboxes):
+    for ibox in range(tree.nboxes):
 
         # Empty boxes exist in non-pruned trees--which themselves are undocumented.
         # These boxes will fail these tests.
@@ -166,7 +170,7 @@ def run_build_test(builder, queue, dims, dtype, nparticles, do_plot,
             plotter.draw_box(ibox, edgecolor="red")
 
         if not all_good_here:
-            print "BAD BOX", ibox
+            print("BAD BOX", ibox)
 
         all_good_so_far = all_good_so_far and all_good_here
 
@@ -265,7 +269,7 @@ def test_source_target_tree(ctx_getter, dims, do_plot=False):
         plotter.draw_tree(fill=False, edgecolor="black", zorder=10)
         plotter.set_bounding_box()
 
-    for ibox in xrange(tree.nboxes):
+    for ibox in range(tree.nboxes):
         extent_low, extent_high = tree.get_box_extent(ibox)
 
         assert (extent_low >=
@@ -308,7 +312,7 @@ def test_source_target_tree(ctx_getter, dims, do_plot=False):
                 pt.show()
 
         if not all_good_here:
-            print "BAD BOX %s %d" % (what, ibox)
+            print("BAD BOX %s %d" % (what, ibox))
 
         all_good_so_far = all_good_so_far and all_good_here
         assert all_good_so_far
@@ -389,7 +393,7 @@ def test_extent_tree(ctx_getter, dims, do_plot=False):
 
     # {{{ check sources, targets
 
-    for ibox in xrange(tree.nboxes):
+    for ibox in range(tree.nboxes):
         extent_low, extent_high = tree.get_box_extent(ibox)
 
         box_radius = np.max(extent_high-extent_low) * 0.5
@@ -432,7 +436,7 @@ def test_extent_tree(ctx_getter, dims, do_plot=False):
             all_good_here = good.all()
 
             if not all_good_here:
-                print "BAD BOX %s %d level %d" % (what, ibox, tree.box_levels[ibox])
+                print("BAD BOX %s %d level %d" % (what, ibox, tree.box_levels[ibox]))
 
             all_good_so_far = all_good_so_far and all_good_here
             assert all_good_here
@@ -515,7 +519,7 @@ def test_geometry_query(ctx_getter, dims, do_plot=False):
 
     from boxtree import box_flags_enum
 
-    for ibox in xrange(tree.nboxes):
+    for ibox in range(tree.nboxes):
         # We only want leaves here.
         if tree.box_flags[ibox] & box_flags_enum.HAS_CHILDREN:
             continue

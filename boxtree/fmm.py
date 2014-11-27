@@ -72,7 +72,7 @@ def drive_fmm(traversal, expansion_wrangler, src_weights):
 
     logger.debug("propagate multipoles upward")
 
-    for lev in xrange(tree.nlevels-1, -1, -1):
+    for lev in range(tree.nlevels-1, -1, -1):
         start_parent_box, end_parent_box = \
                 traversal.level_start_source_parent_box_nrs[lev:lev+2]
         wrangler.coarsen_multipoles(
@@ -164,7 +164,7 @@ def drive_fmm(traversal, expansion_wrangler, src_weights):
 
     logger.debug("propagate local_exps downward")
 
-    for lev in xrange(1, tree.nlevels):
+    for lev in range(1, tree.nlevels):
         start_box, end_box = \
                 traversal.level_start_target_or_target_parent_box_nrs[lev:lev+2]
         wrangler.refine_locals(
