@@ -181,42 +181,107 @@ def run_build_test(builder, queue, dims, dtype, nparticles, do_plot,
     assert all_good_so_far
 
 
-@pytest.mark.opencl
-@pytest.mark.parametrize("dtype", [np.float64, np.float32])
-@pytest.mark.parametrize("dims", [2, 3])
-def test_particle_tree(ctx_getter, dtype, dims, do_plot=False):
-    logging.basicConfig(level=logging.INFO)
+def particle_tree_test_decorator(f):
+    f = pytest.mark.opencl(f)
+    f = pytest.mark.parametrize("dtype", [np.float64, np.float32])(f)
+    f = pytest.mark.parametrize("dims", [2, 3])(f)
 
+    def wrapper(*args, **kwargs):
+        logging.basicConfig(level=logging.INFO)
+        f(*args, **kwargs)
+
+    return f
+
+
+@particle_tree_test_decorator
+def test_single_boxparticle_tree(ctx_getter, dtype, dims, do_plot=False):
     ctx = ctx_getter()
     queue = cl.CommandQueue(ctx)
 
     from boxtree import TreeBuilder
     builder = TreeBuilder(ctx)
 
-    # test single-box corner case
     run_build_test(builder, queue, dims,
-            dtype, 4, do_plot=False)
+            dtype, 4, do_plot=do_plot)
 
-    # test bi-level corner case
+
+@particle_tree_test_decorator
+def test_two_level_particle_tree(ctx_getter, dtype, dims, do_plot=False):
+    ctx = ctx_getter()
+    queue = cl.CommandQueue(ctx)
+
+    from boxtree import TreeBuilder
+    builder = TreeBuilder(ctx)
+
     run_build_test(builder, queue, dims,
-            dtype, 50, do_plot=False)
+            dtype, 50, do_plot=do_plot)
+
+
+@particle_tree_test_decorator
+def test_unpruned_particle_tree(ctx_getter, dtype, dims, do_plot=False):
+    ctx = ctx_getter()
+    queue = cl.CommandQueue(ctx)
+
+    from boxtree import TreeBuilder
+    builder = TreeBuilder(ctx)
 
     # test unpruned tree build
     run_build_test(builder, queue, dims, dtype, 10**5,
-            do_plot=False, skip_prune=True)
+            do_plot=do_plot, skip_prune=True)
 
-    # exercise reallocation code
+
+@particle_tree_test_decorator
+def test_particle_tree_with_reallocations(ctx_getter, dtype, dims, do_plot=False):
+    ctx = ctx_getter()
+    queue = cl.CommandQueue(ctx)
+
+    from boxtree import TreeBuilder
+    builder = TreeBuilder(ctx)
+
     run_build_test(builder, queue, dims, dtype, 10**5,
-            do_plot=False, nboxes_guess=5)
+            do_plot=do_plot, nboxes_guess=5)
 
-    # test many empty leaves corner case
+
+@particle_tree_test_decorator
+def test_particle_tree_with_many_empty_leaves(
+        ctx_getter, dtype, dims, do_plot=False):
+    ctx = ctx_getter()
+    queue = cl.CommandQueue(ctx)
+
+    from boxtree import TreeBuilder
+    builder = TreeBuilder(ctx)
+
     run_build_test(builder, queue, dims, dtype, 10**5,
-            do_plot=False, max_particles_in_box=5)
+            do_plot=do_plot, max_particles_in_box=5)
 
-    # test vanilla tree build
+
+@particle_tree_test_decorator
+def test_vanilla_particle_tree(ctx_getter, dtype, dims, do_plot=False):
+    ctx = ctx_getter()
+    queue = cl.CommandQueue(ctx)
+
+    from boxtree import TreeBuilder
+    builder = TreeBuilder(ctx)
+
     run_build_test(builder, queue, dims, dtype, 10**5,
             do_plot=do_plot)
 
+
+@particle_tree_test_decorator
+def test_non_adaptive_particle_tree(ctx_getter, dtype, dims, do_plot=False):
+    ctx = ctx_getter()
+    queue = cl.CommandQueue(ctx)
+
+    from boxtree import TreeBuilder
+    builder = TreeBuilder(ctx)
+
+    run_build_test(builder, queue, dims, dtype, 10**4,
+            do_plot=do_plot, non_adaptive=True)
+
+# }}}
+
+
+# {{{ source/target tree
 
 @pytest.mark.opencl
 @pytest.mark.parametrize("dims", [2, 3])
@@ -239,6 +304,7 @@ def test_source_target_tree(ctx_getter, dims, do_plot=False):
         import matplotlib.pyplot as pt
         pt.plot(sources[0].get(), sources[1].get(), "rx")
         pt.plot(targets[0].get(), targets[1].get(), "g+")
+        pt.show()
 
     from boxtree import TreeBuilder
     tb = TreeBuilder(ctx)

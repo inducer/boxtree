@@ -432,9 +432,16 @@ SPLIT_BOX_ID_SCAN_TPL = ScanTemplate(
                     box_levels[box_id] + 1 == level
                 %endif
                 &&
-                /* box overfull? */
-                box_srcntgt_counts_cumul[box_id] - nonchild_srcntgts_in_box
-                    > max_particles_in_box)
+                %if adaptive:
+                    /* box overfull? */
+                    box_srcntgt_counts_cumul[box_id] - nonchild_srcntgts_in_box
+                        > max_particles_in_box
+                %else:
+                    /* box non-empty? */
+                    box_srcntgt_counts_cumul[box_id] - nonchild_srcntgts_in_box
+                        > 0
+                %endif
+                )
             {
                 result += ${2**dimensions};
             }
@@ -508,9 +515,15 @@ SPLIT_AND_SORT_KERNEL_TPL = Template(r"""//CL//
         const particle_id_t nonchild_srcntgt_count = 0;
     %endif
 
-    bool do_split_box =
-        box_srcntgt_count - nonchild_srcntgt_count
-        > max_particles_in_box;
+    %if adaptive:
+        bool do_split_box =
+            box_srcntgt_count - nonchild_srcntgt_count
+            > max_particles_in_box;
+    %else:
+        bool do_split_box =
+            box_srcntgt_count - nonchild_srcntgt_count
+            > 0;
+    %endif
 
     %if srcntgts_have_extent:
         ## Only do split-box processing for srcntgts that were touched
@@ -614,6 +627,8 @@ SPLIT_AND_SORT_KERNEL_TPL = Template(r"""//CL//
                 box_srcntgt_counts_cumul[new_box_id] = new_count;
                 box_levels[new_box_id] = level;
 
+                // For a non-adaptive run, max_particles_in_box drives the
+                // level loop.
                 if (new_count > max_particles_in_box)
                 {
                     *have_oversize_split_box = 1;
@@ -937,7 +952,12 @@ BOX_INFO_KERNEL_TPL = ElementwiseTemplate(
 
             PYOPENCL_ELWISE_CONTINUE;
         }
-        else if (particle_count - nonchild_srcntgt_count > max_particles_in_box
+        else if (
+            %if adaptive:
+                particle_count - nonchild_srcntgt_count > max_particles_in_box
+            %else:
+                particle_count - nonchild_srcntgt_count > 0
+            %endif
             && box_levels[box_id] + 1 < nlevels)
         {
             // This box has children, it is not a leaf.
@@ -1045,7 +1065,8 @@ BOX_INFO_KERNEL_TPL = ElementwiseTemplate(
 def get_tree_build_kernel_info(context, dimensions, coord_dtype,
         particle_id_dtype, box_id_dtype,
         sources_are_targets, srcntgts_have_extent,
-        stick_out_factor, morton_nr_dtype, box_level_dtype):
+        stick_out_factor, morton_nr_dtype, box_level_dtype,
+        adaptive):
 
     logger.info("start building tree build kernels")
 
@@ -1091,6 +1112,8 @@ def get_tree_build_kernel_info(context, dimensions, coord_dtype,
             dtype_to_ctype=dtype_to_ctype,
             AXIS_NAMES=AXIS_NAMES,
             box_flags_enum=box_flags_enum,
+
+            adaptive=adaptive,
 
             sources_are_targets=sources_are_targets,
             srcntgts_have_extent=srcntgts_have_extent,
@@ -1180,13 +1203,14 @@ def get_tree_build_kernel_info(context, dimensions, coord_dtype,
     morton_count_scan = GenericScanKernel(
             context, morton_bin_count_dtype,
             arguments=common_arguments,
-            input_expr="scan_t_from_particle(%s)"
+            input_expr=(
+                "scan_t_from_particle(%s)"
                 % ", ".join([
                     "i", "level", "&bbox", "morton_nrs",
                     "user_srcntgt_ids",
                     ]
                     + ["%s" % ax for ax in axis_names]
-                    + (["srcntgt_radii"] if srcntgts_have_extent else [])),
+                    + (["srcntgt_radii"] if srcntgts_have_extent else []))),
             scan_expr="scan_t_add(a, b, across_seg_boundary)",
             neutral="scan_t_neutral()",
             is_segment_start_expr="box_start_flags[i]",
@@ -1211,6 +1235,7 @@ def get_tree_build_kernel_info(context, dimensions, coord_dtype,
             var_values=(
                 ("dimensions", dimensions),
                 ("srcntgts_have_extent", srcntgts_have_extent),
+                ("adaptive", adaptive),
                 ),
             more_preamble=generic_preamble)
 
@@ -1381,8 +1406,8 @@ def get_tree_build_kernel_info(context, dimensions, coord_dtype,
             split_box_id_scan=split_box_id_scan,
             split_and_sort_kernel=split_and_sort_kernel,
 
-            extract_nonchild_srcntgt_count_kernel=
-                extract_nonchild_srcntgt_count_kernel,
+            extract_nonchild_srcntgt_count_kernel=(
+                extract_nonchild_srcntgt_count_kernel),
             find_prune_indices_kernel=find_prune_indices_kernel,
             srcntgt_permuter=srcntgt_permuter,
             source_counter=source_counter,
