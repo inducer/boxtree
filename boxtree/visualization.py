@@ -92,7 +92,4 @@ class TreePlotter:
                     ha="center", va="center",
                     bbox=dict(facecolor='white', alpha=0.5, lw=0))
 
-
-
-
 # vim: filetype=pyopencl:fdm=marker
