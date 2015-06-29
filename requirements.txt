@@ -1,2 +1,2 @@
 numpy
-git+git://github.com/pyopencl/pyopencl
+git+git://github.com/pyopencl/pyopencl@cffi
