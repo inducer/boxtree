@@ -331,7 +331,7 @@ class TreeBuilder(object):
 
         # set parent of root box to itself
         evt = cl.enqueue_copy(
-                queue, box_parent_ids.data, box_parent_ids.dtype.type(0))
+                queue, box_parent_ids.data, np.zeros((), dtype=box_parent_ids.dtype))
         prep_events.append(evt)
 
         # }}}
