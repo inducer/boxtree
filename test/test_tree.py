@@ -94,6 +94,11 @@ def run_build_test(builder, queue, dims, dtype, nparticles, do_plot,
     else:
         raise RuntimeError("unsupported dtype: %s" % dtype)
 
+    if (dtype == np.float32
+            and dims == 2
+            and queue.device.platform.name == "Portable Computing Language"):
+        pytest.xfail("2D float doesn't work on POCL")
+
     logger.info(75*"-")
     logger.info("%dD %s - %d particles - max %d per box - %s" % (
             dims, dtype.type.__name__, nparticles, max_particles_in_box,
