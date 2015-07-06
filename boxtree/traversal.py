@@ -566,7 +566,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
 #     |  |          |          |
 #     B  |    O !   |    O !   |
 #
-# Note that once a parent is no longer adjacent, it's children won't be either.
+# Note that once a parent is no longer adjacent, its children won't be either.
 #
 # (X: yes, O:no, exclamation marks denote that this *must* be the case. Entries
 # without exclamation mark are choices for this case)
@@ -601,7 +601,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
 # "so": adjacent or overlapping when stick-out is taken into account (to A)
 # "adj": adjacent to A without stick-out
 #
-# Note that once a parent is no longer "adj" or "so", it's children won't be
+# Note that once a parent is no longer "adj" or "so", its children won't be
 # either.  Also note that "adj" => "so". (And there by "not so" => "not adj".)
 #
 # (X: yes, O:no, ?: doesn't matter, exclamation marks denote that this *must*
@@ -1410,8 +1410,8 @@ class FMMTraversalBuilder:
                 level_start_source_parent_box_nrs=level_start_source_parent_box_nrs,
 
                 target_or_target_parent_boxes=target_or_target_parent_boxes,
-                level_start_target_or_target_parent_box_nrs=
-                    level_start_target_or_target_parent_box_nrs,
+                level_start_target_or_target_parent_box_nrs=(
+                    level_start_target_or_target_parent_box_nrs),
 
                 colleagues_starts=colleagues.starts,
                 colleagues_lists=colleagues.lists,
@@ -1436,8 +1436,5 @@ class FMMTraversalBuilder:
                 ).with_queue(None), evt
 
     # }}}
-
-
-
 
 # vim: filetype=pyopencl:fdm=marker
