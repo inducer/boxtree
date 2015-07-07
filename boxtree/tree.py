@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 
 # {{{ box flags
 
-class box_flags_enum(Enum):
+class box_flags_enum(Enum):  # noqa
     """Constants for box flags bit field."""
 
     c_name = "box_flags_t"
@@ -835,8 +835,8 @@ def filter_target_lists_in_tree_order(queue, tree, flags):
             nfiltered_targets=nfiltered_targets,
             box_target_starts=box_target_starts_filtered,
             box_target_counts_nonchild=box_target_counts_nonchild_filtered,
-            unfiltered_from_filtered_target_indices=
-            unfiltered_from_filtered_target_indices,
+            unfiltered_from_filtered_target_indices=(
+                unfiltered_from_filtered_target_indices),
             targets=filtered_targets,
             ).with_queue(None)
 
