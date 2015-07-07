@@ -98,14 +98,20 @@ class _KernelInfo(Record):
 
 # {{{ data types
 
+refine_weight_dtype = np.dtype(np.float32)
+
+
 @memoize
 def make_morton_bin_count_type(device, dimensions, particle_id_dtype,
         srcntgts_have_extent):
     fields = []
 
+    fields.append(("refine_weight", refine_weight_dtype))
+
     # Non-child srcntgts are sorted *before* all the child srcntgts.
     if srcntgts_have_extent:
         fields.append(("nonchild_srcntgts", particle_id_dtype))
+        fields.append(("nonchild_refine_weight", refine_weight_dtype))
 
     from boxtree.tools import padded_bin
     for mnr in range(2**dimensions):
@@ -135,6 +141,7 @@ def make_morton_bin_count_type(device, dimensions, particle_id_dtype,
 TYPE_DECL_PREAMBLE_TPL = Template(r"""//CL//
     typedef ${dtype_to_ctype(morton_bin_count_dtype)} morton_counts_t;
     typedef morton_counts_t scan_t;
+    typedef ${dtype_to_ctype(refine_weight_dtype)} refine_weight_t;
     typedef ${dtype_to_ctype(bbox_dtype)} bbox_t;
     typedef ${dtype_to_ctype(coord_dtype)} coord_t;
     typedef ${dtype_to_ctype(coord_vec_dtype)} coord_vec_t;
@@ -189,9 +196,13 @@ SCAN_PREAMBLE_TPL = Template(r"""//CL//
     scan_t scan_t_neutral()
     {
         scan_t result;
+        result.refine_weight = 0;
+
         %if srcntgts_have_extent:
             result.nonchild_srcntgts = 0;
+            result.nonchild_refine_weight = 0;
         %endif
+
         %for mnr in range(2**dimensions):
             result.pcnt${padded_bin(mnr, dimensions)} = 0;
         %endfor
@@ -205,8 +216,11 @@ SCAN_PREAMBLE_TPL = Template(r"""//CL//
     {
         if (!across_seg_boundary)
         {
+            b.refine_weight += a.refine_weight;
+
             %if srcntgts_have_extent:
                 b.nonchild_srcntgts += a.nonchild_srcntgts;
+                b.nonchild_refine_weight += a.nonchild_refine_weight;
             %endif
 
             %for mnr in range(2**dimensions):
@@ -228,6 +242,7 @@ SCAN_PREAMBLE_TPL = Template(r"""//CL//
         bbox_t const *bbox,
         global morton_nr_t *morton_nrs, // output/side effect
         global particle_id_t *user_srcntgt_ids
+        global refine_weight_t *refine_weights,
         %for ax in axis_names:
             , global const coord_t *${ax}
         %endfor
@@ -321,6 +336,7 @@ SCAN_PREAMBLE_TPL = Template(r"""//CL//
         %if srcntgts_have_extent:
             result.nonchild_srcntgts = (level_morton_number == -1);
         %endif
+        result.refine_weight = refine_weights[user_srcntgt_id];
         %for mnr in range(2**dimensions):
             <% field = "pcnt"+padded_bin(mnr, dimensions) %>
             result.${field} = (level_morton_number == ${mnr});
@@ -377,8 +393,8 @@ SPLIT_BOX_ID_SCAN_TPL = ScanTemplate(
         box_id_t *srcntgt_box_ids,
         particle_id_t *box_srcntgt_starts,
         particle_id_t *box_srcntgt_counts_cumul,
-        particle_id_t max_particles_in_box,
         morton_counts_t *box_morton_bin_counts,
+        refine_weight_t *refine_weights,
         box_level_t *box_levels,
         box_level_t level,
 
@@ -396,7 +412,6 @@ SPLIT_BOX_ID_SCAN_TPL = ScanTemplate(
             __global particle_id_t *box_srcntgt_starts,
             __global particle_id_t *box_srcntgt_counts_cumul,
             __global morton_counts_t *box_morton_bin_counts,
-            particle_id_t max_particles_in_box,
             __global box_level_t *box_levels,
             box_level_t level
             )
@@ -408,10 +423,10 @@ SPLIT_BOX_ID_SCAN_TPL = ScanTemplate(
                 result += *nboxes;
 
             %if srcntgts_have_extent:
-                const particle_id_t nonchild_srcntgts_in_box =
-                    box_morton_bin_counts[box_id].nonchild_srcntgts;
+                const particle_id_t nonchild_refine_weight =
+                    box_morton_bin_counts[box_id].nonchild_refine_weight;
             %else:
-                const particle_id_t nonchild_srcntgts_in_box = 0;
+                const particle_id_t nonchild_refine_weight = 0;
             %endif
 
             particle_id_t first_particle_in_my_box =
@@ -434,11 +449,11 @@ SPLIT_BOX_ID_SCAN_TPL = ScanTemplate(
                 &&
                 %if adaptive:
                     /* box overfull? */
-                    box_srcntgt_counts_cumul[box_id] - nonchild_srcntgts_in_box
-                        > max_particles_in_box
+                    XXXXbox_srcntgt_counts_cumul[box_id] - nonchild_refine_weight
+                        > 1
                 %else:
                     /* box non-empty? */
-                    box_srcntgt_counts_cumul[box_id] - nonchild_srcntgts_in_box
+                    XXXXbox_srcntgt_counts_cumul[box_id] - nonchild_refine_weight
                         > 0
                 %endif
                 )
@@ -452,7 +467,7 @@ SPLIT_BOX_ID_SCAN_TPL = ScanTemplate(
     input_expr="""count_new_boxes_needed(
             i, srcntgt_box_ids[i], nboxes,
             box_srcntgt_starts, box_srcntgt_counts_cumul, box_morton_bin_counts,
-            max_particles_in_box, box_levels, level
+            box_levels, level
             )""",
     scan_expr="a + b",
     neutral="0",
@@ -882,7 +897,6 @@ BOX_INFO_KERNEL_TPL = ElementwiseTemplate(
         particle_id_t *box_srcntgt_counts_cumul,
         particle_id_t *box_source_counts_cumul,
         particle_id_t *box_target_counts_cumul,
-        particle_id_t max_particles_in_box,
         box_level_t *box_levels,
         box_level_t nlevels,
 
@@ -1105,6 +1119,7 @@ def get_tree_build_kernel_info(context, dimensions, coord_dtype,
             coord_dtype=coord_dtype,
             coord_vec_dtype=coord_vec_dtype,
             bbox_dtype=bbox_dtype,
+            refine_weight_dtype=refine_weight_dtype,
             particle_id_dtype=particle_id_dtype,
             morton_bin_count_dtype=morton_bin_count_dtype,
             morton_nr_dtype=morton_nr_dtype,
@@ -1169,6 +1184,9 @@ def get_tree_build_kernel_info(context, dimensions, coord_dtype,
                 VectorArg(morton_bin_count_dtype, "box_morton_bin_counts"),
                 # [nsrcntgts]
 
+                VectorArg(refine_weight_dtype, "refine_weights"),
+                # [nsrcntgts]
+
                 # particle# at which each box starts
                 VectorArg(particle_id_dtype, "box_srcntgt_starts"),  # [nboxes]
 
@@ -1186,7 +1204,6 @@ def get_tree_build_kernel_info(context, dimensions, coord_dtype,
                 VectorArg(box_id_dtype, "nboxes"),  # [1]
 
                 ScalarArg(np.int32, "level"),
-                ScalarArg(particle_id_dtype, "max_particles_in_box"),
                 ScalarArg(bbox_dtype, "bbox"),
 
                 VectorArg(particle_id_dtype, "user_srcntgt_ids"),  # [nsrcntgts]
@@ -1208,6 +1225,7 @@ def get_tree_build_kernel_info(context, dimensions, coord_dtype,
                 % ", ".join([
                     "i", "level", "&bbox", "morton_nrs",
                     "user_srcntgt_ids",
+                    "refine_weights",
                     ]
                     + ["%s" % ax for ax in axis_names]
                     + (["srcntgt_radii"] if srcntgts_have_extent else []))),

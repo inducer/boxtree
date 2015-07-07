@@ -1,7 +1,4 @@
-from __future__ import division
-from __future__ import absolute_import
-from six.moves import range
-from six.moves import zip
+from __future__ import division, absolute_import
 
 __copyright__ = "Copyright (C) 2012 Andreas Kloeckner"
 
@@ -25,6 +22,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+from six.moves import range, zip
 
 import numpy as np
 from pytools import memoize_method
@@ -72,9 +70,10 @@ class TreeBuilder(object):
 
     # {{{ run control
 
-    def __call__(self, queue, particles, max_particles_in_box,
+    def __call__(self, queue, particles, max_particles_in_box=None,
             allocator=None, debug=False, targets=None,
             source_radii=None, target_radii=None, stick_out_factor=0.25,
+            refine_weights=None,
             wait_for=None, non_adaptive=False,
             **kwargs):
         """
@@ -85,12 +84,14 @@ class TreeBuilder(object):
             Must have the same (inner) dtype as *particles*.
         :arg source_radii: If not *None*, a :class:`pyopencl.array.Array` of the
             same dtype as *particles*.
-
             If this is given, *targets* must also be given, i.e. sources and
             targets must be separate. See :ref:`extent`.
 
         :arg target_radii: Like *source_radii*, but for targets.
         :arg stick_out_factor: See :attr:`Tree.stick_out_factor` and :ref:`extent`.
+        :arg refine_weights: If not *None*, a :class:`pyopencl.array.Array` of the
+            type :class:`numpy.float32`. A box will be split if it has a cumulative
+            refine_weight greater than 1.
         :arg wait_for: may either be *None* or a list of :class:`pyopencl.Event`
             instances for whose completion this command waits before starting
             exeuction.
@@ -160,7 +161,7 @@ class TreeBuilder(object):
 
         def zeros(shape, dtype):
             result = (cl.array.empty(queue, shape, dtype, allocator=allocator)
-                    .fill(0, wait_for=wait_for))
+                    .fill(0))
             event, = result.events
             return result, event
 
@@ -240,6 +241,35 @@ class TreeBuilder(object):
 
         # }}}
 
+        # {{{ process refine_weights
+
+        from boxtree.tree_build_kernels import refine_weight_dtype
+
+        if max_particles_in_box is not None and refine_weights is not None:
+            raise ValueError("may only specify one of max_particles_in_box and "
+                    "refine_weights")
+        elif max_particles_in_box is None or refine_weights is None:
+            raise ValueError("must specify at least one of max_particles_in_box and "
+                    "refine_weights")
+        elif max_particles_in_box is None:
+            refine_weights = (
+                    cl.array.empty(
+                        queue, nsrcntgts, refine_weight_dtype, allocator=allocator)
+                    .fill(refine_weight_dtype.type(1/max_particles_in_box)))
+            refine_weights, evt = cl.a
+            event, = refine_weights.events
+            prep_events.append(event)
+        elif refine_weights is not None:
+            if refine_weights.dtype != refine_weight_dtype:
+                raise TypeError("refine_weights must have dtype '%s'"
+                        % refine_weight_dtype)
+
+        total_refine_weight = cl.array.sum(refine_weights).get()
+
+        del max_particles_in_box
+
+        # }}}
+
         # {{{ find and process bounding box
 
         bbox, _ = self.bbox_finder(srcntgts, srcntgt_radii, wait_for=wait_for)
@@ -298,7 +328,8 @@ class TreeBuilder(object):
         # to test the reallocation code.
         nboxes_guess = kwargs.get("nboxes_guess")
         if nboxes_guess is None:
-            nboxes_guess = div_ceil(nsrcntgts, max_particles_in_box) * 2**dimensions
+            nboxes_guess = (
+                    (1 + int(total_refine_weight / 2)) * 2**dimensions)
 
         # per-box morton bin counts
         box_morton_bin_counts = empty(nboxes_guess,
@@ -356,7 +387,7 @@ class TreeBuilder(object):
 
         from time import time
         start_time = time()
-        if nsrcntgts > max_particles_in_box:
+        if total_refine_weight > 1:
             level = 1
         else:
             level = 0
@@ -384,10 +415,11 @@ class TreeBuilder(object):
             common_args = ((morton_bin_counts, morton_nrs,
                     box_start_flags, srcntgt_box_ids, split_box_ids,
                     box_morton_bin_counts,
+                    refine_weights,
                     box_srcntgt_starts, box_srcntgt_counts_cumul,
                     box_parent_ids, box_morton_nrs,
                     nboxes_dev,
-                    level, max_particles_in_box, bbox,
+                    level, bbox,
                     user_srcntgt_ids)
                     + tuple(srcntgts)
                     + ((srcntgt_radii,) if srcntgts_have_extent else ())
@@ -408,8 +440,8 @@ class TreeBuilder(object):
                     srcntgt_box_ids,
                     box_srcntgt_starts,
                     box_srcntgt_counts_cumul,
-                    max_particles_in_box,
                     box_morton_bin_counts,
+                    refine_weights,
                     box_levels,
                     level,
 
@@ -876,7 +908,6 @@ class TreeBuilder(object):
 
                     box_srcntgt_counts_cumul,
                     box_source_counts_cumul, box_target_counts_cumul,
-                    max_particles_in_box,
                     box_levels, nlevels,
 
                     # output if srcntgts_have_extent, input+output otherwise
