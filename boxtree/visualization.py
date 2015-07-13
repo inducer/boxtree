@@ -92,4 +92,47 @@ class TreePlotter:
                     ha="center", va="center",
                     bbox=dict(facecolor='white', alpha=0.5, lw=0))
 
+    def get_tikz_for_tree(self):
+        if self.tree.dimensions != 2:
+            raise NotImplementedError("can only plot 2D trees for now")
+
+        lines = []
+
+        lines.append(r"\def\nboxes{%d}" % self.tree.nboxes)
+        lines.append(r"\def\lastboxnr{%d}" % (self.tree.nboxes-1))
+        for ibox in range(self.tree.nboxes):
+            el, eh = self.tree.get_box_extent(ibox)
+
+            c = self.tree.box_centers[:, ibox]
+
+            lines.append(
+                    r"\coordinate (boxl%d) at (%r, %r);"
+                    % (ibox, float(el[0]), float(el[1])))
+            lines.append(
+                    r"\coordinate (boxh%d) at (%r, %r);"
+                    % (ibox, float(eh[0]), float(eh[1])))
+            lines.append(
+                    r"\coordinate (boxc%d) at (%r, %r);"
+                    % (ibox, float(c[0]), float(c[1])))
+            lines.append(
+                    r"\def\boxsize%d{%r}"
+                    % (ibox, float(eh[0]-eh[1])))
+            lines.append(
+                    r"\def\boxlevel%d{%r}"
+                    % (ibox, self.tree.box_levels[ibox]))
+
+        lines.append(
+                r"\def\boxpath#1{(boxl#1) rectangle (boxh#1)}")
+        lines.append(
+                r"\def\drawboxes{"
+                r"\foreach \ibox in {0,...,\lastboxnr}{"
+                r"\draw \boxpath{\ibox};"
+                r"}}")
+        lines.append(
+                r"\def\drawboxnrs{"
+                r"\foreach \ibox in {0,...,\lastboxnr}{"
+                r"\node [font=\tiny] at (boxc\ibox) {\ibox};"
+                r"}}")
+        return "\n".join(lines)
+
 # vim: filetype=pyopencl:fdm=marker
