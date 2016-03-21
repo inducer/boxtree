@@ -23,7 +23,7 @@ THE SOFTWARE.
 """
 
 import numpy as np
-from pytools import Record, memoize_method, memoize_method_nested
+from pytools import Record, memoize_method, memoize_in
 import pyopencl as cl
 import pyopencl.array  # noqa
 from pyopencl.elementwise import ElementwiseTemplate
@@ -912,7 +912,7 @@ class FMMTraversalInfo(DeviceDataRecord):
 
         del target_or_target_parent_boxes_from_all_boxes
 
-        @memoize_method_nested
+        @memoize_in(self, "merge_close_lists_kernel")
         def get_new_nb_sources_knl(write_counts):
             from pyopencl.elementwise import ElementwiseTemplate
             return ElementwiseTemplate("""//CL:mako//
