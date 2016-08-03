@@ -97,7 +97,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL ball_id_t ball_nr)
         {
             bool is_overlapping;
 
-            ${check_ball_overlap(
+            ${check_l_infty_ball_overlap(
                 "is_overlapping", "child_box_id", "ball_radius", "ball_center")}
 
             if (is_overlapping)
