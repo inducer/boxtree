@@ -551,6 +551,7 @@ def test_extent_tree(ctx_getter, dims, do_plot=False):
 # {{{ geometry query test
 
 @pytest.mark.opencl
+@pytest.mark.geo_lookup
 @pytest.mark.parametrize("dims", [2, 3])
 def test_geometry_query(ctx_getter, dims, do_plot=False):
     logging.basicConfig(level=logging.INFO)
@@ -613,6 +614,7 @@ def test_geometry_query(ctx_getter, dims, do_plot=False):
 # {{{ area query test
 
 @pytest.mark.opencl
+@pytest.mark.area_query
 @pytest.mark.parametrize("dims", [2, 3])
 def test_area_query(ctx_getter, dims, do_plot=False):
     logging.basicConfig(level=logging.INFO)
