@@ -127,7 +127,8 @@ typedef ${dtype_to_ctype(vec_types[coord_dtype, dimensions])} coord_vec_t;
     walk_morton_nr = 0;
 </%def>
 
-<%def name="check_ball_overlap(is_overlapping, box_id, ball_radius, ball_center)">
+<%def name="check_l_infty_ball_overlap(
+        is_overlapping, box_id, ball_radius, ball_center)">
     {
         ${load_center("box_center", box_id)}
         int box_level = box_levels[${box_id}];

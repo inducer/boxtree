@@ -110,7 +110,8 @@ typedef ${dtype_to_ctype(peer_list_idx_dtype)} peer_list_idx_t;
     {
         bool is_overlapping;
 
-        ${check_ball_overlap("is_overlapping", box_id, "ball_radius", "ball_center")}
+        ${check_l_infty_ball_overlap(
+            "is_overlapping", box_id, "ball_radius", "ball_center")}
 
         if (is_overlapping)
         {
