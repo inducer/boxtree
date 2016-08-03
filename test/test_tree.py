@@ -610,6 +610,75 @@ def test_geometry_query(ctx_getter, dims, do_plot=False):
 # }}}
 
 
+# {{{ area query test
+
+@pytest.mark.opencl
+@pytest.mark.parametrize("dims", [2, 3])
+def test_area_query(ctx_getter, dims, do_plot=False):
+    logging.basicConfig(level=logging.INFO)
+
+    ctx = ctx_getter()
+    queue = cl.CommandQueue(ctx)
+
+    nparticles = 10**5
+    dtype = np.float64
+
+    particles = make_normal_particle_array(queue, nparticles, dims, dtype)
+
+    if do_plot:
+        import matplotlib.pyplot as pt
+        pt.plot(particles[0].get(), particles[1].get(), "x")
+
+    from boxtree import TreeBuilder
+    tb = TreeBuilder(ctx)
+
+    queue.finish()
+    tree, _ = tb(queue, particles, max_particles_in_box=30, debug=True)
+
+    nballs = 10**4
+    ball_centers = make_normal_particle_array(queue, nballs, dims, dtype)
+    ball_radii = cl.array.empty(queue, nballs, dtype).fill(0.1)
+
+    from boxtree.area_query import AreaQueryBuilder
+    aqb = AreaQueryBuilder(ctx)
+
+    area_query, _ = aqb(queue, tree, ball_centers, ball_radii)
+
+    # Get data to host for test.
+    tree = tree.get(queue=queue)
+    area_query = area_query.get(queue=queue)
+    ball_centers = np.array([x.get() for x in ball_centers]).T
+    ball_radii = ball_radii.get()
+
+    from boxtree import box_flags_enum
+
+    leaf_boxes = np.array([ibox for ibox in range(tree.nboxes)
+        if tree.box_flags[ibox] & ~box_flags_enum.HAS_CHILDREN])
+
+    leaf_box_radii = np.empty(len(leaf_boxes))
+    leaf_box_centers = np.empty((len(leaf_boxes), dims))
+
+    for idx, leaf_box in enumerate(leaf_boxes):
+        box_center = tree.box_centers[:, leaf_box]
+        ext_l, ext_h = tree.get_box_extent(leaf_box)
+        leaf_box_radii[idx] = np.max(ext_h - ext_l) * 0.5
+        leaf_box_centers[idx] = box_center
+
+    for ball_nr, (ball_center, ball_radius) \
+            in enumerate(zip(ball_centers, ball_radii)):
+        linf_box_dists = np.max(np.abs(ball_center - leaf_box_centers), axis=-1)
+        near_leaves_indices, \
+            = np.where(linf_box_dists < ball_radius + leaf_box_radii)
+        near_leaves = leaf_boxes[near_leaves_indices]
+
+        start, end = area_query.leaves_near_ball_starts[ball_nr:ball_nr+2]
+        found = area_query.leaves_near_ball_lists[start:end]
+        actual = near_leaves
+        assert sorted(found) == sorted(actual)
+
+# }}}
+
+
 # You can test individual routines by typing
 # $ python test_tree.py 'test_routine(cl.create_some_context)'
 
