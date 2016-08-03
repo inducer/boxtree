@@ -388,8 +388,8 @@ class AreaQueryBuilder(object):
         :arg wait_for: may either be *None* or a list of :class:`pyopencl.Event`
             instances for whose completion this command waits before starting
             exeuction.
-        :returns: a tuple *(lbl, event)*, where *lbl* is an instance of
-            :class:`LeavesToBallsLookup`, and *event* is a :class:`pyopencl.Event`
+        :returns: a tuple *(aq, event)*, where *lbl* is an instance of
+            :class:`AreaQuery`, and *event* is a :class:`pyopencl.Event`
             for dependency management.
         """
 
