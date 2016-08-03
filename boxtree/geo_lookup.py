@@ -86,20 +86,8 @@ void generate(LIST_ARG_DECL USER_ARG_DECL ball_id_t ball_nr)
         {
             bool is_overlapping;
 
-            {
-                ${load_center("child_center", "child_box_id")}
-                int child_level = box_levels[child_box_id];
-
-                coord_t size_sum = LEVEL_TO_RAD(child_level) + ball_radius;
-
-                coord_t max_dist = 0;
-                %for i in range(dimensions):
-                    max_dist = fmax(max_dist,
-                        fabs(ball_center.s${i} - child_center.s${i}));
-                %endfor
-
-                is_overlapping = max_dist <= size_sum;
-            }
+            ${check_ball_overlap(
+                "is_overlapping", "child_box_id", "ball_radius", "ball_center")}
 
             if (is_overlapping)
             {
@@ -229,6 +217,7 @@ class LeavesToBallsLookupBuilder(object):
         ball_id_dtype = tree.particle_id_dtype  # ?
 
         from pytools import div_ceil
+        # Avoid generating too many kernels.
         max_levels = div_ceil(tree.nlevels, 10) * 10
 
         b2l_knl = self.get_balls_to_leaves_kernel(
