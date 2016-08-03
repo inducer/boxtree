@@ -371,7 +371,7 @@ class AreaQueryBuilder(object):
             peer_list_idx_dtype=peer_list_idx_dtype,
             ball_id_dtype=ball_id_dtype,
             debug=False,
-            # Not used
+            # Not used (but required by TRAVERSAL_PREAMBLE_TEMPLATE)
             stick_out_factor=0)
 
         from pyopencl.tools import VectorArg, ScalarArg
@@ -535,7 +535,7 @@ class PeerListFinder(object):
             AXIS_NAMES=AXIS_NAMES,
             box_flags_enum=box_flags_enum,
             debug=False,
-            # Not used
+            # Not used (but required by TRAVERSAL_PREAMBLE_TEMPLATE)
             stick_out_factor=0,
             # For calls to the helper is_adjacent_or_overlapping()
             targets_have_extent=False,
