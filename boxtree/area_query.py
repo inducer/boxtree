@@ -35,6 +35,27 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+__doc__ = """
+Area queries (Balls -> overlapping leaves)
+------------------------------------------
+
+.. autoclass:: AreaQueryBuilder
+
+.. autoclass:: AreaQueryResult
+
+
+Peer Lists
+^^^^^^^^^^
+
+Area queries are implemented using peer lists.
+
+.. autoclass:: PeerListFinder
+
+.. autoclass:: PeerListLookup
+
+"""
+
+
 # {{{ output
 
 class PeerListLookup(DeviceDataRecord):
@@ -50,10 +71,14 @@ class PeerListLookup(DeviceDataRecord):
         contains the list of peer boxes of box `box_id`.
 
     .. attribute:: peer_lists
+
+    .. automethod:: get
+
+    .. versionadded:: 2016.1
     """
 
 
-class AreaQuery(DeviceDataRecord):
+class AreaQueryResult(DeviceDataRecord):
     """
     .. attribute:: tree
 
@@ -67,6 +92,10 @@ class AreaQuery(DeviceDataRecord):
         results in a list of leaf boxes that intersect `ball_nr`.
 
     .. attribute:: leaves_near_ball_lists
+
+    .. automethod:: get
+
+    .. versionadded:: 2016.1
     """
 
 # }}}
@@ -299,9 +328,15 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t box_id)
 # }}}
 
 
+# {{{ area query build
+
 class AreaQueryBuilder(object):
     """Given a set of :math:`l^\infty` "balls", this class helps build a
     look-up table from ball to leaf boxes that intersect with the ball.
+
+    .. versionadded:: 2016.1
+
+    .. automethod:: __call__
     """
     def __init__(self, context):
         self.context = context
@@ -393,7 +428,7 @@ class AreaQueryBuilder(object):
             instances for whose completion this command waits before starting
             exeuction.
         :returns: a tuple *(aq, event)*, where *lbl* is an instance of
-            :class:`AreaQuery`, and *event* is a :class:`pyopencl.Event`
+            :class:`AreaQueryResult`, and *event* is a :class:`pyopencl.Event`
             for dependency management.
         """
 
@@ -435,11 +470,15 @@ class AreaQueryBuilder(object):
 
         logger.info("area query: done")
 
-        return AreaQuery(
+        return AreaQueryResult(
                 tree=tree,
                 leaves_near_ball_starts=result["leaves"].starts,
                 leaves_near_ball_lists=result["leaves"].lists).with_queue(None), evt
 
+# }}}
+
+
+# {{{ peer list build
 
 class PeerListFinder(object):
     """This class builds a look-up table from box numbers to peer boxes. The
@@ -457,6 +496,10 @@ class PeerListFinder(object):
 
     .. [1] Rachh, Manas, Andreas Klöckner, and Michael O'Neil. "Fast
        algorithms for Quadrature by Expansion I: Globally valid expansions."
+
+    .. versionadded:: 2016.1
+
+    .. automethod:: __call__
     """
 
     def __init__(self, context):
@@ -557,5 +600,6 @@ class PeerListFinder(object):
                 peer_list_starts=result["peers"].starts,
                 peer_lists=result["peers"].lists).with_queue(None), evt
 
+# }}}
 
 # vim: filetype=pyopencl:fdm=marker

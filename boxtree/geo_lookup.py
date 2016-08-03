@@ -33,6 +33,15 @@ from boxtree.tools import AXIS_NAMES, DeviceDataRecord
 import logging
 logger = logging.getLogger(__name__)
 
+__doc__ = """
+Leaves -> overlapping balls
+---------------------------
+
+.. autoclass:: LeavesToBallsLookupBuilder
+
+.. autoclass:: LeavesToBallsLookup
+"""
+
 
 # {{{ output
 
@@ -53,6 +62,8 @@ class LeavesToBallsLookup(DeviceDataRecord):
             this list is indexed by the global box index.
 
     .. attribute:: balls_near_box_lists
+
+    .. automethod:: get
     """
 
 # }}}
@@ -120,6 +131,9 @@ class _KernelInfo(Record):
 class LeavesToBallsLookupBuilder(object):
     """Given a set of :math:`l^\infty` "balls", this class helps build a
     look-up table from leaf boxes to balls that overlap with each leaf box.
+
+    .. automethod:: __call__
+
     """
     def __init__(self, context):
         self.context = context
