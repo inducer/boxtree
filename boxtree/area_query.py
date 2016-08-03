@@ -178,7 +178,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL ball_id_t ball_nr)
 
         if (!(box_flags[peer_box] & BOX_HAS_CHILDREN))
         {
-             ${add_box_to_list_if_overlaps_ball("peer_box")}
+            ${add_box_to_list_if_overlaps_ball("peer_box")}
         }
         else
         {
