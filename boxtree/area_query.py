@@ -369,6 +369,10 @@ class AreaQueryBuilder(object):
 
     # }}}
 
+    @memoize_method
+    def get_peer_list_finder(self):
+        return PeerListFinder(self.context)
+
     def __call__(self, queue, tree, ball_centers, ball_radii, peer_lists=None,
                  wait_for=None):
         """
@@ -406,8 +410,8 @@ class AreaQueryBuilder(object):
         max_levels = div_ceil(tree.nlevels, 10) * 10
 
         if peer_lists is None:
-            peer_lists, evt = PeerListFinder(self.context)(
-                queue, tree, wait_for=wait_for)
+            peer_list_finder = self.get_peer_list_finder()
+            peer_lists, evt = peer_list_finder(queue, tree, wait_for=wait_for)
             wait_for = [evt]
 
         if len(peer_lists.peer_list_starts) != tree.nboxes + 1:
