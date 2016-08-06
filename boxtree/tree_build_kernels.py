@@ -88,13 +88,13 @@ logger = logging.getLogger(__name__)
 #   into.  The very first entry here gets initialized to the number of boxes
 #   present at the previous level.
 #
-# Using this data, the stages of the algorithm proceeds as follow:
+# Using this data, the stages of the algorithm proceed as follow:
 #
 # 1. Count the number of particles in each subbox. This stage uses a segmented
 #    (per-box) scan to fill "pcnt" and "pwt".
 #
 # 2. Using a global (non-segmented) scan over the particles, make a decision
-#    whether to refine each box and compute the total number of new boxes
+#    whether to refine each box, and compute the total number of new boxes
 #    needed. This stage also computes the split_box_id for each particle. If a
 #    box knows it needs to be subdivided, its first particle asks for 2**d new
 #    boxes.
