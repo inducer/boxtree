@@ -338,13 +338,13 @@ class TreeBuilder(object):
         # you *must* also write reallocation code down below for the case when
         # nboxes_guess was too low.
 
-        nboxes_guess = kwargs.get("nboxes_guess")
         # Outside nboxes_guess feeding is solely for debugging purposes,
         # to test the reallocation code.
+        nboxes_guess = kwargs.get("nboxes_guess")
         if nboxes_guess is None:
-            nboxes_guess = 2**dimensions * int(
+            nboxes_guess = 2**dimensions * (
                     (max_leaf_refine_weight + total_refine_weight - 1)
-                    / max_leaf_refine_weight)
+                    // max_leaf_refine_weight)
 
         assert nboxes_guess > 0
 
