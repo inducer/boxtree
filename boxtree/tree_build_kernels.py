@@ -436,6 +436,12 @@ SPLIT_BOX_ID_SCAN_TPL = ScanTemplate(
         box_id_t *split_box_ids,
         """,
     preamble=r"""//CL:mako//
+        inline int my_add_sat(int a, int b)
+        {
+            long result = (long) a + b;
+            return (result > INT_MAX) ? INT_MAX : result;
+        }
+
         scan_t count_new_boxes_needed(
             particle_id_t i,
             box_id_t box_id,
@@ -468,7 +474,7 @@ SPLIT_BOX_ID_SCAN_TPL = ScanTemplate(
             // Get box refine weight.
             refine_weight_t box_refine_weight = 0;
             %for mnr in range(2**dimensions):
-                box_refine_weight = add_sat(box_refine_weight,
+                box_refine_weight = my_add_sat(box_refine_weight,
                     box_morton_bin_counts[box_id].pwt${padded_bin(mnr, dimensions)});
             %endfor
 
