@@ -227,8 +227,7 @@ SCAN_PREAMBLE_TPL = Template(r"""//CL//
 
     inline int my_add_sat(int a, int b)
     {
-        long result = (long) a + b;
-        return (result > INT_MAX) ? INT_MAX : result;
+        return a + b;
     }
 
     // {{{ scan 'add' operation
@@ -438,8 +437,7 @@ SPLIT_BOX_ID_SCAN_TPL = ScanTemplate(
     preamble=r"""//CL:mako//
         inline int my_add_sat(int a, int b)
         {
-            long result = (long) a + b;
-            return (result > INT_MAX) ? INT_MAX : result;
+            return a + b;
         }
 
         scan_t count_new_boxes_needed(
