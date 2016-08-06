@@ -947,6 +947,8 @@ class TreeBuilder(object):
 
         # }}}
 
+        del box_has_children
+
         # {{{ build output
 
         extra_tree_attrs = {}
@@ -965,7 +967,6 @@ class TreeBuilder(object):
                 sources_are_targets=sources_are_targets,
                 sources_have_extent=sources_have_extent,
                 targets_have_extent=targets_have_extent,
-                box_has_children=box_has_children,
 
                 particle_id_dtype=knl_info.particle_id_dtype,
                 box_id_dtype=knl_info.box_id_dtype,
