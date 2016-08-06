@@ -73,21 +73,34 @@ logger = logging.getLogger(__name__)
 # HOW DOES THE PRIMARY SCAN WORK?
 # -------------------------------
 #
-# This code sorts particles into an nD-tree of boxes. It does this by doing a
-# (parallel) scan over particles and a (local, i.e. independent for each particle)
-# postprocessing step for each level.
+# This code sorts particles into an nD-tree of boxes.  It does this by doing two
+# succesive (parallel) scans over particles and a (local, i.e. independent for
+# each particle) postprocessing step for each level.
 #
-# The following information is being pushed around by the scan, which
-# proceeds over particles:
+# The following information is being pushed around by the scans, which
+# proceed over particles:
 #
-# - a cumulative count ("counts") of particles in each subbox ("morton_nr") at
-#   the current level, should the current box need to be subdivided.
+# - a cumulative count ("pcnt") and weight ("pwt") of particles in each subbox
+#   ("morton_nr") at the current level, should the current box need to be
+#   subdivided.
 #
-# - the "split_box_id". The very first entry here gets intialized to
-#   the number of boxes present at the previous level. If a box knows it needs to
-#   be subdivided, its first particle asks for 2**d new boxes. This gets scanned
-#   over by summing globally (unsegmented-ly). The splits are then realized in
-#   the post-processing step.
+# - the "split_box_id". This is the box number that the particle gets pushed
+#   into.  The very first entry here gets initialized to the number of boxes
+#   present at the previous level.
+#
+# Using this data, the stages of the algorithm proceeds as follow:
+#
+# 1. Count the number of particles in each subbox. This stage uses a segmented
+#    (per-box) scan to fill "pcnt" and "pwt".
+#
+# 2. Using a global (non-segmented) scan over the particles, make a decision
+#    whether to refine each box and compute the total number of new boxes
+#    needed. This stage also computes the split_box_id for each particle. If a
+#    box knows it needs to be subdivided, its first particle asks for 2**d new
+#    boxes.
+#
+# 3. Realize the splitting determined in #2. This stage proceeds in an
+#    element-wise fashion over the boxes at the current level.
 #
 # -----------------------------------------------------------------------------
 
