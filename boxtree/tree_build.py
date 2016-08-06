@@ -269,9 +269,10 @@ class TreeBuilder(object):
                         % refine_weight_dtype)
 
         if max_leaf_refine_weight < cl.array.max(refine_weights).get():
-            raise ValueError("woops")
-        if max_leaf_refine_weight <= 0:
-            raise ValueError("max_leaf_refine_weight must be positive")
+            raise ValueError(
+                    "entries of refine_weights cannot exceed max_leaf_refine_weight")
+        if max_leaf_refine_weight < 0:
+            raise ValueError("max_leaf_refine_weight must be nonnegative")
 
         total_refine_weight = cl.array.sum(refine_weights).get()
 
