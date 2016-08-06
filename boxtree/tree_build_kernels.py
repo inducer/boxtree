@@ -88,7 +88,7 @@ logger = logging.getLogger(__name__)
 #   into.  The very first entry here gets initialized to the number of boxes
 #   present at the previous level.
 #
-# Using this data, the stages of the algorithm proceed as follow:
+# Using this data, the stages of the algorithm proceed as follows:
 #
 # 1. Count the number of particles in each subbox. This stage uses a segmented
 #    (per-box) scan to fill "pcnt" and "pwt".
