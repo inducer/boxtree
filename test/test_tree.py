@@ -306,10 +306,6 @@ def test_explicit_refine_weights_particle_tree(ctx_getter, dtype, dims,
 
     nparticles = 10**5
 
-    if (dims == 3
-            and queue.device.platform.name == "Portable Computing Language"):
-        pytest.xfail("suspected compiler issue with POCL")
-
     from pyopencl.clrandom import PhiloxGenerator
     import random
     random.seed(10)

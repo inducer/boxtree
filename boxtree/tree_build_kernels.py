@@ -225,6 +225,12 @@ SCAN_PREAMBLE_TPL = Template(r"""//CL//
 
     // }}}
 
+    inline int my_add_sat(int a, int b)
+    {
+        long result = (long) a + b;
+        return (result > INT_MAX) ? INT_MAX : result;
+    }
+
     // {{{ scan 'add' operation
     scan_t scan_t_add(scan_t a, scan_t b, bool across_seg_boundary)
     {
@@ -240,9 +246,11 @@ SCAN_PREAMBLE_TPL = Template(r"""//CL//
             %endfor
             %for mnr in range(2**dimensions):
                 <% field = "pwt"+padded_bin(mnr, dimensions) %>
-                // XXX: This add_sat() seems to be miscompiled on POCL.
-                // Replace with + to make it work.
-                b.${field} = add_sat(a.${field}, b.${field});
+                // XXX: The use of add_sat() seems to be causing trouble
+                // with multiple compilers.
+                // 1. POCL will miscompile and not work/crash.
+                // 2. Intel will seemingly go into an infinite loop.
+                b.${field} = my_add_sat(a.${field}, b.${field});
             %endfor
         }
 
