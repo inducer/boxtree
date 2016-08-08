@@ -33,6 +33,15 @@ from boxtree.tools import AXIS_NAMES, DeviceDataRecord
 import logging
 logger = logging.getLogger(__name__)
 
+__doc__ = """
+Leaves -> overlapping balls
+---------------------------
+
+.. autoclass:: LeavesToBallsLookupBuilder
+
+.. autoclass:: LeavesToBallsLookup
+"""
+
 
 # {{{ output
 
@@ -53,6 +62,8 @@ class LeavesToBallsLookup(DeviceDataRecord):
             this list is indexed by the global box index.
 
     .. attribute:: balls_near_box_lists
+
+    .. automethod:: get
     """
 
 # }}}
@@ -86,20 +97,8 @@ void generate(LIST_ARG_DECL USER_ARG_DECL ball_id_t ball_nr)
         {
             bool is_overlapping;
 
-            {
-                ${load_center("child_center", "child_box_id")}
-                int child_level = box_levels[child_box_id];
-
-                coord_t size_sum = LEVEL_TO_RAD(child_level) + ball_radius;
-
-                coord_t max_dist = 0;
-                %for i in range(dimensions):
-                    max_dist = fmax(max_dist,
-                        fabs(ball_center.s${i} - child_center.s${i}));
-                %endfor
-
-                is_overlapping = max_dist <= size_sum;
-            }
+            ${check_l_infty_ball_overlap(
+                "is_overlapping", "child_box_id", "ball_radius", "ball_center")}
 
             if (is_overlapping)
             {
@@ -132,6 +131,9 @@ class _KernelInfo(Record):
 class LeavesToBallsLookupBuilder(object):
     """Given a set of :math:`l^\infty` "balls", this class helps build a
     look-up table from leaf boxes to balls that overlap with each leaf box.
+
+    .. automethod:: __call__
+
     """
     def __init__(self, context):
         self.context = context
@@ -229,6 +231,7 @@ class LeavesToBallsLookupBuilder(object):
         ball_id_dtype = tree.particle_id_dtype  # ?
 
         from pytools import div_ceil
+        # Avoid generating too many kernels.
         max_levels = div_ceil(tree.nlevels, 10) * 10
 
         b2l_knl = self.get_balls_to_leaves_kernel(

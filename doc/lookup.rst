@@ -1,14 +1,8 @@
 Tree-based geometric lookup
 ===========================
 
-.. module:: boxtree.geo_lookup
+.. automodule:: boxtree.geo_lookup
 
-.. autoclass:: LeavesToBallsLookupBuilder
-
-    .. automethod:: __call__
-
-.. autoclass:: LeavesToBallsLookup
-
-    .. automethod:: get
+.. automodule:: boxtree.area_query
 
 .. vim: sw=4

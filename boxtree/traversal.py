@@ -23,7 +23,7 @@ THE SOFTWARE.
 """
 
 import numpy as np
-from pytools import Record, memoize_method, memoize_method_nested
+from pytools import Record, memoize_method, memoize_in
 import pyopencl as cl
 import pyopencl.array  # noqa
 from pyopencl.elementwise import ElementwiseTemplate
@@ -77,6 +77,13 @@ typedef ${dtype_to_ctype(vec_types[coord_dtype, dimensions])} coord_vec_t;
     bool continue_walk = true;
 </%def>
 
+<%def name="walk_reset(start_box_id)">
+    walk_level = 0;
+    walk_box_id = ${start_box_id};
+    walk_morton_nr = 0;
+    continue_walk = true;
+</%def>
+
 <%def name="walk_advance()">
     while (true)
     {
@@ -118,6 +125,24 @@ typedef ${dtype_to_ctype(vec_types[coord_dtype, dimensions])} coord_vec_t;
 
     walk_box_id = ${new_box};
     walk_morton_nr = 0;
+</%def>
+
+<%def name="check_l_infty_ball_overlap(
+        is_overlapping, box_id, ball_radius, ball_center)">
+    {
+        ${load_center("box_center", box_id)}
+        int box_level = box_levels[${box_id}];
+
+        coord_t size_sum = LEVEL_TO_RAD(box_level) + ${ball_radius};
+
+        coord_t max_dist = 0;
+        %for i in range(dimensions):
+            max_dist = fmax(max_dist,
+                fabs(${ball_center}.s${i} - box_center.s${i}));
+        %endfor
+
+        ${is_overlapping} = max_dist <= size_sum;
+    }
 </%def>
 
 """
@@ -912,7 +937,7 @@ class FMMTraversalInfo(DeviceDataRecord):
 
         del target_or_target_parent_boxes_from_all_boxes
 
-        @memoize_method_nested
+        @memoize_in(self, "merge_close_lists_kernel")
         def get_new_nb_sources_knl(write_counts):
             from pyopencl.elementwise import ElementwiseTemplate
             return ElementwiseTemplate("""//CL:mako//

@@ -24,6 +24,8 @@ THE SOFTWARE.
 
 from six.moves import range, zip
 
+from six.moves import range, zip
+
 import numpy as np
 from pytools import memoize_method
 import pyopencl as cl
@@ -94,7 +96,7 @@ class TreeBuilder(object):
             refine_weight greater than 1.
         :arg wait_for: may either be *None* or a list of :class:`pyopencl.Event`
             instances for whose completion this command waits before starting
-            exeuction.
+            execution.
         :arg non_adaptive: If *True*, return a tree in which all leaf boxes are
             on the same (last) level. The tree is pruned, in the sense that empty
             boxes have been eliminated.

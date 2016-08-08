@@ -256,7 +256,7 @@ class ExpansionWranglerInterface:
     def eval_direct(self, target_boxes, neighbor_sources_starts,
             neighbor_sources_lists, src_weights):
         """For each box in *target_boxes*, evaluate the influence of the
-        neigbor sources due to *src_weights*, which use :ref:`csr` and are
+        neighbor sources due to *src_weights*, which use :ref:`csr` and are
         indexed like *target_boxes*.
 
         :returns: a new potential array, see :meth:`potential_zeros`.
