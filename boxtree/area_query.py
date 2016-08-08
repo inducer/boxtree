@@ -86,8 +86,8 @@ class AreaQueryResult(DeviceDataRecord):
 
     .. attribute:: leaves_near_ball_starts
 
-        Indices into :attr:`query_lists`.
-        ``query_lists[leaves_near_ball_starts[ball_nr]:
+        Indices into :attr:`leaves_near_ball_lists`.
+        ``leaves_near_ball_lists[leaves_near_ball_starts[ball_nr]:
         leaves_near_ball_starts[ball_nr]+1]``
         results in a list of leaf boxes that intersect `ball_nr`.
 
