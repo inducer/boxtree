@@ -276,7 +276,8 @@ class TreeBuilder(object):
         if max_leaf_refine_weight <= 0:
             raise ValueError("max_leaf_refine_weight must be positive")
 
-        total_refine_weight = cl.array.sum(refine_weights).get()
+        total_refine_weight = cl.array.sum(
+                refine_weights, dtype=np.dtype(np.int64)).get()
 
         del max_particles_in_box
         del specified_max_particles_in_box
