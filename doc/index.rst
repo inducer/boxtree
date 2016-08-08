@@ -25,7 +25,7 @@ included in the demo file), you can see what's going on:
 .. image:: images/tree.png
 
 More importantly, perhaps, than being able to draw the tree, the :class:`boxtree.Tree`
-data structure is now accesible via the ``tree`` variable above, and the connecitivity
+data structure is now accessible via the ``tree`` variable above, and the connectivity
 information needed for an FMM-like traversal is available in ``trav`` as
 a :class:`boxtree.traversal.FMMTraversalInfo`.
 

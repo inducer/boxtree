@@ -92,7 +92,7 @@ class TreeBuilder(object):
         :arg stick_out_factor: See :attr:`Tree.stick_out_factor` and :ref:`extent`.
         :arg wait_for: may either be *None* or a list of :class:`pyopencl.Event`
             instances for whose completion this command waits before starting
-            exeuction.
+            execution.
         :arg non_adaptive: If *True*, return a tree in which all leaf boxes are
             on the same (last) level. The tree is pruned, in the sense that empty
             boxes have been eliminated.
