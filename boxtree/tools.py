@@ -115,7 +115,8 @@ def make_surface_particle_array(queue, nparticles, dims, dtype, seed=15):
                 [
                     lp.GlobalArg("x,y", dtype, shape=lp.auto),
                     lp.ValueArg("n", np.int32),
-                    ])
+                    ],
+                name="make_surface_dist")
 
             knl = lp.split_iname(knl, "i", 128, outer_tag="g.0", inner_tag="l.0")
 
