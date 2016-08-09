@@ -276,8 +276,8 @@ def test_fmm_completeness(ctx_getter, dims, nsources_req, ntargets_req,
         pytest.skip("loo.py not available, but needed for particle array "
                 "generation")
 
-    from pyopencl.clrandom import RanluxGenerator
-    rng = RanluxGenerator(queue, seed=13)
+    from pyopencl.clrandom import PhiloxGenerator
+    rng = PhiloxGenerator(queue.context, seed=12)
     if sources_have_extent:
         source_radii = 2**rng.uniform(queue, nsources, dtype=dtype,
                 a=-10, b=0)
@@ -472,8 +472,8 @@ def test_pyfmmlib_fmm(ctx_getter):
 
     trav = trav.get(queue=queue)
 
-    from pyopencl.clrandom import RanluxGenerator
-    rng = RanluxGenerator(queue, seed=20)
+    from pyopencl.clrandom import PhiloxGenerator
+    rng = PhiloxGenerator(queue.context, seed=20)
 
     weights = rng.uniform(queue, nsources, dtype=np.float64).get()
     #weights = np.ones(nsources)

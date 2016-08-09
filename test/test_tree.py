@@ -415,8 +415,8 @@ def test_extent_tree(ctx_getter, dims, do_plot=False):
     targets = make_normal_particle_array(queue, ntargets, dims, dtype,
             seed=19)
 
-    from pyopencl.clrandom import RanluxGenerator
-    rng = RanluxGenerator(queue, seed=13)
+    from pyopencl.clrandom import PhiloxGenerator
+    rng = PhiloxGenerator(queue.context, seed=13)
     source_radii = 2**rng.uniform(queue, nsources, dtype=dtype,
             a=-10, b=0)
     target_radii = 2**rng.uniform(queue, ntargets, dtype=dtype,

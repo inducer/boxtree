@@ -91,8 +91,8 @@ def reverse_index_array(indices, target_size=None, result_fill_value=None,
 # {{{ particle distribution generators
 
 def make_normal_particle_array(queue, nparticles, dims, dtype, seed=15):
-    from pyopencl.clrandom import RanluxGenerator
-    rng = RanluxGenerator(queue, seed=seed)
+    from pyopencl.clrandom import PhiloxGenerator
+    rng = PhiloxGenerator(queue.context, seed=seed)
 
     return make_obj_array([
         rng.normal(queue, nparticles, dtype=dtype)

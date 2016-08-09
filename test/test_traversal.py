@@ -237,8 +237,8 @@ def plot_traversal(ctx_getter, do_plot=False):
         nparticles = 10**4
         dtype = np.float64
 
-        from pyopencl.clrandom import RanluxGenerator
-        rng = RanluxGenerator(queue, seed=15)
+        from pyopencl.clrandom import PhiloxGenerator
+        rng = PhiloxGenerator(queue.context, seed=15)
 
         from pytools.obj_array import make_obj_array
         particles = make_obj_array([
