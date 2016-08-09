@@ -98,6 +98,7 @@ def run_build_test(builder, queue, dims, dtype, nparticles, do_plot,
     if (dtype == np.float32
             and dims == 2
             and queue.device.platform.name == "Portable Computing Language"):
+        # arg list lenghts disagree
         pytest.xfail("2D float doesn't work on POCL")
 
     logger.info(75*"-")
@@ -222,7 +223,7 @@ def particle_tree_test_decorator(f):
 
 
 @particle_tree_test_decorator
-def test_single_boxparticle_tree(ctx_getter, dtype, dims, do_plot=False):
+def test_single_box_particle_tree(ctx_getter, dtype, dims, do_plot=False):
     ctx = ctx_getter()
     queue = cl.CommandQueue(ctx)
 
@@ -462,8 +463,8 @@ def test_extent_tree(ctx_getter, dims, do_plot=False):
     targets = make_normal_particle_array(queue, ntargets, dims, dtype,
             seed=19)
 
-    from pyopencl.clrandom import RanluxGenerator
-    rng = RanluxGenerator(queue, seed=13)
+    from pyopencl.clrandom import PhiloxGenerator
+    rng = PhiloxGenerator(queue.context, seed=13)
     source_radii = 2**rng.uniform(queue, nsources, dtype=dtype,
             a=-10, b=0)
     target_radii = 2**rng.uniform(queue, ntargets, dtype=dtype,
