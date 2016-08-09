@@ -24,8 +24,6 @@ THE SOFTWARE.
 
 from six.moves import range, zip
 
-from six.moves import range, zip
-
 import numpy as np
 from pytools import memoize_method
 import pyopencl as cl
