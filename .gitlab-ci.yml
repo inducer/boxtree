@@ -1,4 +1,4 @@
-Python 3.5 Titan Black:
+Python 3.5 Titan X:
   script:
   - py_version=2.7
   - export PYOPENCL_TEST=nvi:titan
@@ -7,7 +7,7 @@ Python 3.5 Titan Black:
   - ". ./build-and-test-py-project.sh"
   tags:
   - python3.5
-  - nvidia-titan-black
+  - nvidia-titan-x
   except:
   - tags
 Python 3.5 K40:
