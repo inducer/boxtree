@@ -85,14 +85,21 @@ class TreeBuilder(object):
             Must have the same (inner) dtype as *particles*.
         :arg source_radii: If not *None*, a :class:`pyopencl.array.Array` of the
             same dtype as *particles*.
+
             If this is given, *targets* must also be given, i.e. sources and
             targets must be separate. See :ref:`extent`.
 
         :arg target_radii: Like *source_radii*, but for targets.
         :arg stick_out_factor: See :attr:`Tree.stick_out_factor` and :ref:`extent`.
         :arg refine_weights: If not *None*, a :class:`pyopencl.array.Array` of the
-            type :class:`numpy.float32`. A box will be split if it has a cumulative
-            refine_weight greater than 1.
+            type :class:`numpy.int32`. A box will be split if it has a cumulative
+            refine_weight greater than *max_leaf_refine_weight*. If this is given,
+            *max_leaf_refine_weight* must also be given.
+        :arg max_leaf_refine_weight: If not *None*, specifies the maximum weight
+            of a leaf box.
+        :arg max_particles_in_box: If not *None*, specifies the maximum number
+            of particles in a leaf box. If this is given, both
+            *refine_weights* and *max_leaf_refine_weight* must be *None*.
         :arg wait_for: may either be *None* or a list of :class:`pyopencl.Event`
             instances for whose completion this command waits before starting
             execution.
@@ -162,7 +169,7 @@ class TreeBuilder(object):
 
         def zeros(shape, dtype):
             result = (cl.array.empty(queue, shape, dtype, allocator=allocator)
-                    .fill(0))
+                    .fill(0, wait_for=wait_for))
             event, = result.events
             return result, event
 
