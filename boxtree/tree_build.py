@@ -94,7 +94,8 @@ class TreeBuilder(object):
         :arg refine_weights: If not *None*, a :class:`pyopencl.array.Array` of the
             type :class:`numpy.int32`. A box will be split if it has a cumulative
             refine_weight greater than *max_leaf_refine_weight*. If this is given,
-            *max_leaf_refine_weight* must also be given.
+            *max_leaf_refine_weight* must also be given and *max_particles_in_box*
+            must be *None*.
         :arg max_leaf_refine_weight: If not *None*, specifies the maximum weight
             of a leaf box.
         :arg max_particles_in_box: If not *None*, specifies the maximum number
