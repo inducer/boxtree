@@ -73,21 +73,34 @@ logger = logging.getLogger(__name__)
 # HOW DOES THE PRIMARY SCAN WORK?
 # -------------------------------
 #
-# This code sorts particles into an nD-tree of boxes. It does this by doing a
-# (parallel) scan over particles and a (local, i.e. independent for each particle)
-# postprocessing step for each level.
+# This code sorts particles into an nD-tree of boxes.  It does this by doing two
+# succesive (parallel) scans over particles and a (local, i.e. independent for
+# each particle) postprocessing step for each level.
 #
-# The following information is being pushed around by the scan, which
-# proceeds over particles:
+# The following information is being pushed around by the scans, which
+# proceed over particles:
 #
-# - a cumulative count ("counts") of particles in each subbox ("morton_nr") at
-#   the current level, should the current box need to be subdivided.
+# - a cumulative count ("pcnt") and weight ("pwt") of particles in each subbox
+#   ("morton_nr") at the current level, should the current box need to be
+#   subdivided.
 #
-# - the "split_box_id". The very first entry here gets intialized to
-#   the number of boxes present at the previous level. If a box knows it needs to
-#   be subdivided, its first particle asks for 2**d new boxes. This gets scanned
-#   over by summing globally (unsegmented-ly). The splits are then realized in
-#   the post-processing step.
+# - the "split_box_id". This is the box number that the particle gets pushed
+#   into.  The very first entry here gets initialized to the number of boxes
+#   present at the previous level.
+#
+# Using this data, the stages of the algorithm proceed as follows:
+#
+# 1. Count the number of particles in each subbox. This stage uses a segmented
+#    (per-box) scan to fill "pcnt" and "pwt".
+#
+# 2. Using a global (non-segmented) scan over the particles, make a decision
+#    whether to refine each box, and compute the total number of new boxes
+#    needed. This stage also computes the split_box_id for each particle. If a
+#    box knows it needs to be subdivided, its first particle asks for 2**d new
+#    boxes.
+#
+# 3. Realize the splitting determined in #2. This stage proceeds in an
+#    element-wise fashion over the boxes at the current level.
 #
 # -----------------------------------------------------------------------------
 
@@ -97,6 +110,9 @@ class _KernelInfo(Record):
 
 
 # {{{ data types
+
+refine_weight_dtype = np.dtype(np.int32)
+
 
 @memoize
 def make_morton_bin_count_type(device, dimensions, particle_id_dtype,
@@ -110,6 +126,9 @@ def make_morton_bin_count_type(device, dimensions, particle_id_dtype,
     from boxtree.tools import padded_bin
     for mnr in range(2**dimensions):
         fields.append(("pcnt%s" % padded_bin(mnr, dimensions), particle_id_dtype))
+    # Morton bin weight totals
+    for mnr in range(2**dimensions):
+        fields.append(("pwt%s" % padded_bin(mnr, dimensions), refine_weight_dtype))
 
     dtype = np.dtype(fields)
 
@@ -135,6 +154,7 @@ def make_morton_bin_count_type(device, dimensions, particle_id_dtype,
 TYPE_DECL_PREAMBLE_TPL = Template(r"""//CL//
     typedef ${dtype_to_ctype(morton_bin_count_dtype)} morton_counts_t;
     typedef morton_counts_t scan_t;
+    typedef ${dtype_to_ctype(refine_weight_dtype)} refine_weight_t;
     typedef ${dtype_to_ctype(bbox_dtype)} bbox_t;
     typedef ${dtype_to_ctype(coord_dtype)} coord_t;
     typedef ${dtype_to_ctype(coord_vec_dtype)} coord_vec_t;
@@ -189,16 +209,27 @@ SCAN_PREAMBLE_TPL = Template(r"""//CL//
     scan_t scan_t_neutral()
     {
         scan_t result;
+
         %if srcntgts_have_extent:
             result.nonchild_srcntgts = 0;
         %endif
+
         %for mnr in range(2**dimensions):
             result.pcnt${padded_bin(mnr, dimensions)} = 0;
+        %endfor
+        %for mnr in range(2**dimensions):
+            result.pwt${padded_bin(mnr, dimensions)} = 0;
         %endfor
         return result;
     }
 
     // }}}
+
+    inline int my_add_sat(int a, int b)
+    {
+        long result = (long) a + b;
+        return (result > INT_MAX) ? INT_MAX : result;
+    }
 
     // {{{ scan 'add' operation
     scan_t scan_t_add(scan_t a, scan_t b, bool across_seg_boundary)
@@ -212,6 +243,16 @@ SCAN_PREAMBLE_TPL = Template(r"""//CL//
             %for mnr in range(2**dimensions):
                 <% field = "pcnt"+padded_bin(mnr, dimensions) %>
                 b.${field} = a.${field} + b.${field};
+            %endfor
+            %for mnr in range(2**dimensions):
+                <% field = "pwt"+padded_bin(mnr, dimensions) %>
+                // XXX: The use of add_sat() seems to be causing trouble
+                // with multiple compilers. For d=3:
+                // 1. POCL will miscompile and either give wrong
+                //    results or crash.
+                // 2. Intel will use a large amount of memory.
+                // Versions tested: POCL 0.13, Intel OpenCL 16.1
+                b.${field} = my_add_sat(a.${field}, b.${field});
             %endfor
         }
 
@@ -227,7 +268,8 @@ SCAN_PREAMBLE_TPL = Template(r"""//CL//
         const int level,
         bbox_t const *bbox,
         global morton_nr_t *morton_nrs, // output/side effect
-        global particle_id_t *user_srcntgt_ids
+        global particle_id_t *user_srcntgt_ids,
+        global refine_weight_t *refine_weights
         %for ax in axis_names:
             , global const coord_t *${ax}
         %endfor
@@ -325,6 +367,11 @@ SCAN_PREAMBLE_TPL = Template(r"""//CL//
             <% field = "pcnt"+padded_bin(mnr, dimensions) %>
             result.${field} = (level_morton_number == ${mnr});
         %endfor
+        %for mnr in range(2**dimensions):
+            <% field = "pwt"+padded_bin(mnr, dimensions) %>
+            result.${field} = (level_morton_number == ${mnr}) ?
+                    refine_weights[user_srcntgt_id] : 0;
+        %endfor
         morton_nrs[i] = level_morton_number;
 
         return result;
@@ -377,8 +424,9 @@ SPLIT_BOX_ID_SCAN_TPL = ScanTemplate(
         box_id_t *srcntgt_box_ids,
         particle_id_t *box_srcntgt_starts,
         particle_id_t *box_srcntgt_counts_cumul,
-        particle_id_t max_particles_in_box,
         morton_counts_t *box_morton_bin_counts,
+        refine_weight_t *refine_weights,
+        refine_weight_t max_leaf_refine_weight,
         box_level_t *box_levels,
         box_level_t level,
 
@@ -386,18 +434,20 @@ SPLIT_BOX_ID_SCAN_TPL = ScanTemplate(
         box_id_t *nboxes,
 
         /* output */
+        int *box_has_children,
         box_id_t *split_box_ids,
         """,
     preamble=r"""//CL:mako//
         scan_t count_new_boxes_needed(
             particle_id_t i,
             box_id_t box_id,
+            refine_weight_t max_leaf_refine_weight,
             __global box_id_t *nboxes,
             __global particle_id_t *box_srcntgt_starts,
             __global particle_id_t *box_srcntgt_counts_cumul,
             __global morton_counts_t *box_morton_bin_counts,
-            particle_id_t max_particles_in_box,
             __global box_level_t *box_levels,
+            __global int *box_has_children, // output/side effect
             box_level_t level
             )
         {
@@ -407,6 +457,9 @@ SPLIT_BOX_ID_SCAN_TPL = ScanTemplate(
             if (i == 0)
                 result += *nboxes;
 
+            particle_id_t first_particle_in_my_box =
+                box_srcntgt_starts[box_id];
+
             %if srcntgts_have_extent:
                 const particle_id_t nonchild_srcntgts_in_box =
                     box_morton_bin_counts[box_id].nonchild_srcntgts;
@@ -414,8 +467,12 @@ SPLIT_BOX_ID_SCAN_TPL = ScanTemplate(
                 const particle_id_t nonchild_srcntgts_in_box = 0;
             %endif
 
-            particle_id_t first_particle_in_my_box =
-                box_srcntgt_starts[box_id];
+            // Get box refine weight.
+            refine_weight_t box_refine_weight = 0;
+            %for mnr in range(2**dimensions):
+                box_refine_weight = add_sat(box_refine_weight,
+                    box_morton_bin_counts[box_id].pwt${padded_bin(mnr, dimensions)});
+            %endfor
 
             // Add 2**d to make enough room for a split of the current box
             // This will be the split_box_id for *all* particles in this box,
@@ -427,32 +484,34 @@ SPLIT_BOX_ID_SCAN_TPL = ScanTemplate(
                     // If srcntgts have extent, then prior-level boxes
                     // will keep asking for more boxes to be allocated.
                     // Prevent that.
-
                     &&
                     box_levels[box_id] + 1 == level
                 %endif
                 &&
                 %if adaptive:
                     /* box overfull? */
-                    box_srcntgt_counts_cumul[box_id] - nonchild_srcntgts_in_box
-                        > max_particles_in_box
+                    box_refine_weight
+                        > max_leaf_refine_weight
                 %else:
                     /* box non-empty? */
+                    /* Note: Refine weights are allowed to be 0,
+                       so check # of particles directly. */
                     box_srcntgt_counts_cumul[box_id] - nonchild_srcntgts_in_box
                         > 0
                 %endif
                 )
             {
                 result += ${2**dimensions};
+                box_has_children[box_id] = 1;
             }
 
             return result;
         }
         """,
     input_expr="""count_new_boxes_needed(
-            i, srcntgt_box_ids[i], nboxes,
+            i, srcntgt_box_ids[i], max_leaf_refine_weight, nboxes,
             box_srcntgt_starts, box_srcntgt_counts_cumul, box_morton_bin_counts,
-            max_particles_in_box, box_levels, level
+            box_levels, box_has_children, level
             )""",
     scan_expr="a + b",
     neutral="0",
@@ -505,26 +564,7 @@ SPLIT_AND_SORT_KERNEL_TPL = Template(r"""//CL//
     dbg_printf(("postproc %d:\n", i));
     dbg_printf(("   my box id: %d\n", ibox));
 
-    particle_id_t box_srcntgt_count = box_srcntgt_counts_cumul[ibox];
-
-    %if srcntgts_have_extent:
-        const particle_id_t nonchild_srcntgt_count =
-            box_morton_bin_counts[ibox].nonchild_srcntgts;
-
-    %else:
-        const particle_id_t nonchild_srcntgt_count = 0;
-    %endif
-
-    %if adaptive:
-        bool do_split_box =
-            box_srcntgt_count - nonchild_srcntgt_count
-            > max_particles_in_box;
-    %else:
-        bool do_split_box =
-            box_srcntgt_count - nonchild_srcntgt_count
-            > 0;
-    %endif
-
+    bool do_split_box = box_has_children[ibox];
     %if srcntgts_have_extent:
         ## Only do split-box processing for srcntgts that were touched
         ## on the immediately preceding level.
@@ -627,9 +667,11 @@ SPLIT_AND_SORT_KERNEL_TPL = Template(r"""//CL//
                 box_srcntgt_counts_cumul[new_box_id] = new_count;
                 box_levels[new_box_id] = level;
 
-                // For a non-adaptive run, max_particles_in_box drives the
-                // level loop.
-                if (new_count > max_particles_in_box)
+                refine_weight_t new_weight =
+                    my_box_morton_bin_counts.pwt${padded_bin(mnr, dimensions)};
+
+                // This drives the level loop.
+                if (new_weight > max_leaf_refine_weight)
                 {
                     *have_oversize_split_box = 1;
                 }
@@ -882,7 +924,7 @@ BOX_INFO_KERNEL_TPL = ElementwiseTemplate(
         particle_id_t *box_srcntgt_counts_cumul,
         particle_id_t *box_source_counts_cumul,
         particle_id_t *box_target_counts_cumul,
-        particle_id_t max_particles_in_box,
+        int *box_has_children,
         box_level_t *box_levels,
         box_level_t nlevels,
 
@@ -952,23 +994,9 @@ BOX_INFO_KERNEL_TPL = ElementwiseTemplate(
 
             PYOPENCL_ELWISE_CONTINUE;
         }
-        else if (
-            %if adaptive:
-                particle_count - nonchild_srcntgt_count > max_particles_in_box
-            %else:
-                particle_count - nonchild_srcntgt_count > 0
-            %endif
-            && box_levels[box_id] + 1 < nlevels)
+        else if (box_has_children[box_id])
         {
             // This box has children, it is not a leaf.
-
-            // That second condition there covers a weird corner case.  It's
-            // obviously true--a last-level box won't have children.  But why
-            // is it necessary? It turns out that nonchild_srcntgt_count is not
-            // available (i.e. zero) for boxes on the last level. So these boxes
-            // look like they got split if they have enough non-child srcntgts,
-            // to the first part of the 'if' condition. But in fact they weren't,
-            // because of their non-child srcntgts.
 
             my_box_flags |= BOX_HAS_CHILDREN;
 
@@ -1105,6 +1133,7 @@ def get_tree_build_kernel_info(context, dimensions, coord_dtype,
             coord_dtype=coord_dtype,
             coord_vec_dtype=coord_vec_dtype,
             bbox_dtype=bbox_dtype,
+            refine_weight_dtype=refine_weight_dtype,
             particle_id_dtype=particle_id_dtype,
             morton_bin_count_dtype=morton_bin_count_dtype,
             morton_nr_dtype=morton_nr_dtype,
@@ -1169,6 +1198,11 @@ def get_tree_build_kernel_info(context, dimensions, coord_dtype,
                 VectorArg(morton_bin_count_dtype, "box_morton_bin_counts"),
                 # [nsrcntgts]
 
+                VectorArg(refine_weight_dtype, "refine_weights"),
+                # [nsrcntgts]
+
+                ScalarArg(refine_weight_dtype, "max_leaf_refine_weight"),
+
                 # particle# at which each box starts
                 VectorArg(particle_id_dtype, "box_srcntgt_starts"),  # [nboxes]
 
@@ -1186,7 +1220,6 @@ def get_tree_build_kernel_info(context, dimensions, coord_dtype,
                 VectorArg(box_id_dtype, "nboxes"),  # [1]
 
                 ScalarArg(np.int32, "level"),
-                ScalarArg(particle_id_dtype, "max_particles_in_box"),
                 ScalarArg(bbox_dtype, "bbox"),
 
                 VectorArg(particle_id_dtype, "user_srcntgt_ids"),  # [nsrcntgts]
@@ -1208,6 +1241,7 @@ def get_tree_build_kernel_info(context, dimensions, coord_dtype,
                 % ", ".join([
                     "i", "level", "&bbox", "morton_nrs",
                     "user_srcntgt_ids",
+                    "refine_weights",
                     ]
                     + ["%s" % ax for ax in axis_names]
                     + (["srcntgt_radii"] if srcntgts_have_extent else []))),
@@ -1231,11 +1265,13 @@ def get_tree_build_kernel_info(context, dimensions, coord_dtype,
                 ("box_id_t", box_id_dtype),
                 ("morton_counts_t", morton_bin_count_dtype),
                 ("box_level_t", box_level_dtype),
+                ("refine_weight_t", refine_weight_dtype),
                 ),
             var_values=(
                 ("dimensions", dimensions),
                 ("srcntgts_have_extent", srcntgts_have_extent),
                 ("adaptive", adaptive),
+                ("padded_bin", padded_bin),
                 ),
             more_preamble=generic_preamble)
 
@@ -1264,6 +1300,7 @@ def get_tree_build_kernel_info(context, dimensions, coord_dtype,
                 VectorArg(np.int32, "have_oversize_split_box", with_offset=True),
                 VectorArg(box_id_dtype, "new_srcntgt_box_ids", with_offset=True),
                 VectorArg(box_level_dtype, "box_levels", with_offset=True),
+                VectorArg(np.int32, "box_has_children", with_offset=True),
                 ],
             str(split_and_sort_kernel_source), name="split_and_sort",
             preamble=(

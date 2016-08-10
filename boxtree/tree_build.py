@@ -71,9 +71,10 @@ class TreeBuilder(object):
 
     # {{{ run control
 
-    def __call__(self, queue, particles, max_particles_in_box,
+    def __call__(self, queue, particles, max_particles_in_box=None,
             allocator=None, debug=False, targets=None,
             source_radii=None, target_radii=None, stick_out_factor=0.25,
+            refine_weights=None, max_leaf_refine_weight=None,
             wait_for=None, non_adaptive=False,
             **kwargs):
         """
@@ -90,6 +91,16 @@ class TreeBuilder(object):
 
         :arg target_radii: Like *source_radii*, but for targets.
         :arg stick_out_factor: See :attr:`Tree.stick_out_factor` and :ref:`extent`.
+        :arg refine_weights: If not *None*, a :class:`pyopencl.array.Array` of the
+            type :class:`numpy.int32`. A box will be split if it has a cumulative
+            refine_weight greater than *max_leaf_refine_weight*. If this is given,
+            *max_leaf_refine_weight* must also be given and *max_particles_in_box*
+            must be *None*.
+        :arg max_leaf_refine_weight: If not *None*, specifies the maximum weight
+            of a leaf box.
+        :arg max_particles_in_box: If not *None*, specifies the maximum number
+            of particles in a leaf box. If this is given, both
+            *refine_weights* and *max_leaf_refine_weight* must be *None*.
         :arg wait_for: may either be *None* or a list of :class:`pyopencl.Event`
             instances for whose completion this command waits before starting
             execution.
@@ -239,6 +250,50 @@ class TreeBuilder(object):
 
         # }}}
 
+        # {{{ process refine_weights
+
+        from boxtree.tree_build_kernels import refine_weight_dtype
+
+        specified_max_particles_in_box = max_particles_in_box is not None
+        specified_refine_weights = refine_weights is not None and \
+            max_leaf_refine_weight is not None
+
+        if specified_max_particles_in_box and specified_refine_weights:
+            raise ValueError("may only specify one of max_particles_in_box and "
+                    "refine_weights/max_leaf_refine_weight")
+        elif not specified_max_particles_in_box and not specified_refine_weights:
+            raise ValueError("must specify either max_particles_in_box or "
+                    "refine_weights/max_leaf_refine_weight")
+        elif specified_max_particles_in_box:
+            refine_weights = (
+                cl.array.empty(
+                    queue, nsrcntgts, refine_weight_dtype, allocator=allocator)
+                .fill(1))
+            event, = refine_weights.events
+            prep_events.append(event)
+            max_leaf_refine_weight = max_particles_in_box
+        elif specified_refine_weights:
+            if refine_weights.dtype != refine_weight_dtype:
+                raise TypeError("refine_weights must have dtype '%s'"
+                        % refine_weight_dtype)
+
+        if max_leaf_refine_weight < cl.array.max(refine_weights).get():
+            raise ValueError(
+                    "entries of refine_weights cannot exceed max_leaf_refine_weight")
+        if 0 > cl.array.min(refine_weights).get():
+            raise ValueError("all entries of refine_weights must be nonnegative")
+        if max_leaf_refine_weight <= 0:
+            raise ValueError("max_leaf_refine_weight must be positive")
+
+        total_refine_weight = cl.array.sum(
+                refine_weights, dtype=np.dtype(np.int64)).get()
+
+        del max_particles_in_box
+        del specified_max_particles_in_box
+        del specified_refine_weights
+
+        # }}}
+
         # {{{ find and process bounding box
 
         bbox, _ = self.bbox_finder(srcntgts, srcntgt_radii, wait_for=wait_for)
@@ -297,7 +352,11 @@ class TreeBuilder(object):
         # to test the reallocation code.
         nboxes_guess = kwargs.get("nboxes_guess")
         if nboxes_guess is None:
-            nboxes_guess = div_ceil(nsrcntgts, max_particles_in_box) * 2**dimensions
+            nboxes_guess = 2**dimensions * (
+                    (max_leaf_refine_weight + total_refine_weight - 1)
+                    // max_leaf_refine_weight)
+
+        assert nboxes_guess > 0
 
         # per-box morton bin counts
         box_morton_bin_counts = empty(nboxes_guess,
@@ -325,8 +384,12 @@ class TreeBuilder(object):
         prep_events.append(evt)
 
         # Initalize box 0 to contain all particles
-        evt = box_srcntgt_counts_cumul[0].fill(
+        box_srcntgt_counts_cumul[0].fill(
                 nsrcntgts, queue=queue, wait_for=[evt])
+
+        # box -> whether the box has a child
+        box_has_children, evt = zeros(nboxes_guess, dtype=np.dtype(np.int32))
+        prep_events.append(evt)
 
         # set parent of root box to itself
         evt = cl.enqueue_copy(
@@ -355,7 +418,7 @@ class TreeBuilder(object):
 
         from time import time
         start_time = time()
-        if nsrcntgts > max_particles_in_box:
+        if total_refine_weight > max_leaf_refine_weight:
             level = 1
         else:
             level = 0
@@ -383,10 +446,12 @@ class TreeBuilder(object):
             common_args = ((morton_bin_counts, morton_nrs,
                     box_start_flags, srcntgt_box_ids, split_box_ids,
                     box_morton_bin_counts,
+                    refine_weights,
+                    max_leaf_refine_weight,
                     box_srcntgt_starts, box_srcntgt_counts_cumul,
                     box_parent_ids, box_morton_nrs,
                     nboxes_dev,
-                    level, max_particles_in_box, bbox,
+                    level, bbox,
                     user_srcntgt_ids)
                     + tuple(srcntgts)
                     + ((srcntgt_radii,) if srcntgts_have_extent else ())
@@ -407,8 +472,9 @@ class TreeBuilder(object):
                     srcntgt_box_ids,
                     box_srcntgt_starts,
                     box_srcntgt_counts_cumul,
-                    max_particles_in_box,
                     box_morton_bin_counts,
+                    refine_weights,
+                    max_leaf_refine_weight,
                     box_levels,
                     level,
 
@@ -416,6 +482,7 @@ class TreeBuilder(object):
                     nboxes_dev,
 
                     # output:
+                    box_has_children,
                     split_box_ids,
                     queue=queue, size=nsrcntgts, wait_for=wait_for)
             wait_for = [evt]
@@ -455,6 +522,8 @@ class TreeBuilder(object):
                 resize_events.append(evt)
                 box_srcntgt_counts_cumul, evt = \
                         my_realloc_zeros(box_srcntgt_counts_cumul)
+                resize_events.append(evt)
+                box_has_children, evt = my_realloc_zeros(box_has_children)
                 resize_events.append(evt)
 
                 del my_realloc
@@ -502,8 +571,8 @@ class TreeBuilder(object):
             split_and_sort_args = (
                     common_args
                     + (new_user_srcntgt_ids, have_oversize_split_box,
-                        new_srcntgt_box_ids, box_levels))
-
+                        new_srcntgt_box_ids, box_levels,
+                        box_has_children))
             fin_debug("split and sort")
 
             evt = knl_info.split_and_sort_kernel(*split_and_sort_args,
@@ -627,6 +696,9 @@ class TreeBuilder(object):
                 box_srcntgt_counts_nonchild, evt = prune_empty(
                         box_srcntgt_counts_nonchild)
                 prune_events.append(evt)
+
+            box_has_children, evt = prune_empty(box_has_children)
+            prune_events.append(evt)
 
             # Remap level_start_box_nrs to new box IDs.
             # FIXME: It would be better to do this on the device.
@@ -875,8 +947,7 @@ class TreeBuilder(object):
 
                     box_srcntgt_counts_cumul,
                     box_source_counts_cumul, box_target_counts_cumul,
-                    max_particles_in_box,
-                    box_levels, nlevels,
+                    box_has_children, box_levels, nlevels,
 
                     # output if srcntgts_have_extent, input+output otherwise
                     box_source_counts_nonchild, box_target_counts_nonchild,
@@ -888,6 +959,8 @@ class TreeBuilder(object):
                 wait_for=wait_for)
 
         # }}}
+
+        del box_has_children
 
         # {{{ build output
 
