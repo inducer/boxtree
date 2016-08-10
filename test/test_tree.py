@@ -84,7 +84,8 @@ def test_bounding_box(ctx_getter, dtype, dims, nparticles):
 # {{{ test basic (no source/target distinction) tree build
 
 def run_build_test(builder, queue, dims, dtype, nparticles, do_plot,
-        max_particles_in_box=30, **kwargs):
+        max_particles_in_box=None, max_leaf_refine_weight=None,
+        refine_weights=None, **kwargs):
     dtype = np.dtype(dtype)
 
     if dtype == np.float32:
@@ -101,8 +102,13 @@ def run_build_test(builder, queue, dims, dtype, nparticles, do_plot,
         pytest.xfail("2D float doesn't work on POCL")
 
     logger.info(75*"-")
-    logger.info("%dD %s - %d particles - max %d per box - %s" % (
+    if max_particles_in_box is not None:
+        logger.info("%dD %s - %d particles - max %d per box - %s" % (
             dims, dtype.type.__name__, nparticles, max_particles_in_box,
+            " - ".join("%s: %s" % (k, v) for k, v in six.iteritems(kwargs))))
+    else:
+        logger.info("%dD %s - %d particles - max leaf weight %d  - %s" % (
+            dims, dtype.type.__name__, nparticles, max_leaf_refine_weight,
             " - ".join("%s: %s" % (k, v) for k, v in six.iteritems(kwargs))))
     logger.info(75*"-")
 
@@ -115,8 +121,10 @@ def run_build_test(builder, queue, dims, dtype, nparticles, do_plot,
     queue.finish()
 
     tree, _ = builder(queue, particles,
-            max_particles_in_box=max_particles_in_box, debug=True,
-            **kwargs)
+                      max_particles_in_box=max_particles_in_box,
+                      refine_weights=refine_weights,
+                      max_leaf_refine_weight=max_leaf_refine_weight,
+                      debug=True, **kwargs)
     tree = tree.get(queue=queue)
 
     sorted_particles = np.array(list(tree.sources))
@@ -124,6 +132,9 @@ def run_build_test(builder, queue, dims, dtype, nparticles, do_plot,
     unsorted_particles = np.array([pi.get() for pi in particles])
     assert (sorted_particles
             == unsorted_particles[:, tree.user_source_ids]).all()
+
+    if refine_weights is not None:
+        refine_weights_reordered = refine_weights.get()[tree.user_source_ids]
 
     all_good_so_far = True
 
@@ -137,7 +148,6 @@ def run_build_test(builder, queue, dims, dtype, nparticles, do_plot,
 
     scaled_tol = tol*tree.root_extent
     for ibox in range(tree.nboxes):
-
         # Empty boxes exist in non-pruned trees--which themselves are undocumented.
         # These boxes will fail these tests.
         if not (tree.box_flags[ibox] & bfe.HAS_OWN_SRCNTGTS):
@@ -178,6 +188,23 @@ def run_build_test(builder, queue, dims, dtype, nparticles, do_plot,
         if not all_good_here:
             print("BAD BOX", ibox)
 
+        if not (tree.box_flags[ibox] & bfe.HAS_CHILDREN):
+            # Check that leaf particle density is as promised.
+            nparticles_in_box = tree.box_source_counts_cumul[ibox]
+            if max_particles_in_box is not None:
+                if nparticles_in_box > max_particles_in_box:
+                    print("too many particles ({0} > {1}); box {2}".format(
+                        nparticles_in_box, max_particles_in_box, ibox))
+                    all_good_here = False
+            else:
+                assert refine_weights is not None
+                box_weight = np.sum(
+                    refine_weights_reordered[start:start+nparticles_in_box])
+                if box_weight > max_leaf_refine_weight:
+                    print("refine weight exceeded ({0} > {1}); box {2}".format(
+                        box_weight, max_leaf_refine_weight, ibox))
+                    all_good_here = False
+
         all_good_so_far = all_good_so_far and all_good_here
 
     if do_plot:
@@ -192,10 +219,6 @@ def particle_tree_test_decorator(f):
     f = pytest.mark.parametrize("dtype", [np.float64, np.float32])(f)
     f = pytest.mark.parametrize("dims", [2, 3])(f)
 
-    def wrapper(*args, **kwargs):
-        logging.basicConfig(level=logging.INFO)
-        f(*args, **kwargs)
-
     return f
 
 
@@ -208,7 +231,7 @@ def test_single_box_particle_tree(ctx_getter, dtype, dims, do_plot=False):
     builder = TreeBuilder(ctx)
 
     run_build_test(builder, queue, dims,
-            dtype, 4, do_plot=do_plot)
+            dtype, 4, max_particles_in_box=30, do_plot=do_plot)
 
 
 @particle_tree_test_decorator
@@ -220,7 +243,7 @@ def test_two_level_particle_tree(ctx_getter, dtype, dims, do_plot=False):
     builder = TreeBuilder(ctx)
 
     run_build_test(builder, queue, dims,
-            dtype, 50, do_plot=do_plot)
+            dtype, 50, max_particles_in_box=30, do_plot=do_plot)
 
 
 @particle_tree_test_decorator
@@ -233,7 +256,7 @@ def test_unpruned_particle_tree(ctx_getter, dtype, dims, do_plot=False):
 
     # test unpruned tree build
     run_build_test(builder, queue, dims, dtype, 10**5,
-            do_plot=do_plot, skip_prune=True)
+            do_plot=do_plot, max_particles_in_box=30, skip_prune=True)
 
 
 @particle_tree_test_decorator
@@ -245,7 +268,7 @@ def test_particle_tree_with_reallocations(ctx_getter, dtype, dims, do_plot=False
     builder = TreeBuilder(ctx)
 
     run_build_test(builder, queue, dims, dtype, 10**5,
-            do_plot=do_plot, nboxes_guess=5)
+            max_particles_in_box=30, do_plot=do_plot, nboxes_guess=5)
 
 
 @particle_tree_test_decorator
@@ -258,7 +281,7 @@ def test_particle_tree_with_many_empty_leaves(
     builder = TreeBuilder(ctx)
 
     run_build_test(builder, queue, dims, dtype, 10**5,
-            do_plot=do_plot, max_particles_in_box=5)
+            max_particles_in_box=5, do_plot=do_plot)
 
 
 @particle_tree_test_decorator
@@ -270,6 +293,30 @@ def test_vanilla_particle_tree(ctx_getter, dtype, dims, do_plot=False):
     builder = TreeBuilder(ctx)
 
     run_build_test(builder, queue, dims, dtype, 10**5,
+            max_particles_in_box=30, do_plot=do_plot)
+
+
+@particle_tree_test_decorator
+def test_explicit_refine_weights_particle_tree(ctx_getter, dtype, dims,
+            do_plot=False):
+    ctx = ctx_getter()
+    queue = cl.CommandQueue(ctx)
+
+    from boxtree import TreeBuilder
+    builder = TreeBuilder(ctx)
+
+    nparticles = 10**5
+
+    from pyopencl.clrandom import PhiloxGenerator
+    import random
+    random.seed(10)
+    rng = PhiloxGenerator(ctx)
+    refine_weights = cl.array.empty(queue, nparticles, np.int32)
+    evt = rng.fill_uniform(refine_weights, a=1, b=10)
+    cl.wait_for_events([evt])
+
+    run_build_test(builder, queue, dims, dtype, nparticles,
+            refine_weights=refine_weights, max_leaf_refine_weight=100,
             do_plot=do_plot)
 
 
@@ -282,7 +329,7 @@ def test_non_adaptive_particle_tree(ctx_getter, dtype, dims, do_plot=False):
     builder = TreeBuilder(ctx)
 
     run_build_test(builder, queue, dims, dtype, 10**4,
-            do_plot=do_plot, non_adaptive=True)
+            max_particles_in_box=30, do_plot=do_plot, non_adaptive=True)
 
 # }}}
 
