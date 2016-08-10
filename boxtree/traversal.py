@@ -787,6 +787,13 @@ class FMMTraversalInfo(DeviceDataRecord):
         of one of the :attr:`source_boxes`. These boxes may have sources of their
         own.
 
+    .. attribute:: level_start_source_box_nrs
+
+        ``box_id_t [nlevels+1]``
+
+        Indices into :attr:`source_boxes` indicating where
+        each level starts and ends.
+
     .. attribute:: level_start_source_parent_box_nrs
 
         ``box_id_t [nlevels+1]``
@@ -804,6 +811,13 @@ class FMMTraversalInfo(DeviceDataRecord):
     .. attribute:: ntarget_or_target_parent_boxes
 
         Number of :attr:`target_or_target_parent_boxes`.
+
+    .. attribute:: level_start_target_box_nrs
+
+        ``box_id_t [nlevels+1]``
+
+        Indices into :attr:`target_boxes` indicating where
+        each level starts and ends.
 
     .. attribute:: level_start_target_or_target_parent_box_nrs
 
@@ -1251,7 +1265,7 @@ class FMMTraversalBuilder:
         if not tree._is_pruned:
             raise ValueError("tree must be pruned for traversal generation")
 
-        # Generated code shouldn't depend on tje *exact* number of tree levels.
+        # Generated code shouldn't depend on the *exact* number of tree levels.
         # So round up to the next multiple of 5.
         from pytools import div_ceil
         max_levels = div_ceil(tree.nlevels, 5) * 5
@@ -1318,17 +1332,27 @@ class FMMTraversalBuilder:
 
             return result, evt
 
+        fin_debug("finding level starts in source boxes array")
+        level_start_source_box_nrs, evt_s = \
+                extract_level_start_box_nrs(
+                        source_boxes, wait_for=wait_for)
+
         fin_debug("finding level starts in source parent boxes array")
-        level_start_source_parent_box_nrs, evt_s = \
+        level_start_source_parent_box_nrs, evt_sp = \
                 extract_level_start_box_nrs(
                         source_parent_boxes, wait_for=wait_for)
 
+        fin_debug("finding level starts in target boxes array")
+        level_start_target_box_nrs, evt_t = \
+                extract_level_start_box_nrs(
+                        target_boxes, wait_for=wait_for)
+
         fin_debug("finding level starts in target or target parent boxes array")
-        level_start_target_or_target_parent_box_nrs, evt_t = \
+        level_start_target_or_target_parent_box_nrs, evt_tp = \
                 extract_level_start_box_nrs(
                         target_or_target_parent_boxes, wait_for=wait_for)
 
-        wait_for = [evt_s, evt_t]
+        wait_for = [evt_s, evt_sp, evt_t, evt_tp]
 
         # }}}
 
@@ -1430,6 +1454,9 @@ class FMMTraversalBuilder:
 
                 source_boxes=source_boxes,
                 target_boxes=target_boxes,
+
+                level_start_source_box_nrs=level_start_source_box_nrs,
+                level_start_target_box_nrs=level_start_target_box_nrs,
 
                 source_parent_boxes=source_parent_boxes,
                 level_start_source_parent_box_nrs=level_start_source_parent_box_nrs,

@@ -45,8 +45,6 @@ def drive_fmm(traversal, expansion_wrangler, src_weights):
 
     Returns the potentials computed by *expansion_wrangler*.
     """
-    tree = traversal.tree
-
     wrangler = expansion_wrangler
 
     # Interface guidelines: Attributes of the tree are assumed to be known
@@ -61,8 +59,8 @@ def drive_fmm(traversal, expansion_wrangler, src_weights):
     # {{{ "Step 2.1:" Construct local multipoles
 
     logger.debug("construct local multipoles")
-
     mpole_exps = wrangler.form_multipoles(
+            traversal.level_start_source_box_nrs,
             traversal.source_boxes,
             src_weights)
 
@@ -71,13 +69,10 @@ def drive_fmm(traversal, expansion_wrangler, src_weights):
     # {{{ "Step 2.2:" Propagate multipoles upward
 
     logger.debug("propagate multipoles upward")
-
-    for lev in range(tree.nlevels-1, -1, -1):
-        start_parent_box, end_parent_box = \
-                traversal.level_start_source_parent_box_nrs[lev:lev+2]
-        wrangler.coarsen_multipoles(
-                traversal.source_parent_boxes[start_parent_box:end_parent_box],
-                mpole_exps)
+    wrangler.coarsen_multipoles(
+            traversal.level_start_source_parent_box_nrs,
+            traversal.source_parent_boxes,
+            mpole_exps)
 
     # mpole_exps is called Phi in [1]
 
@@ -86,7 +81,6 @@ def drive_fmm(traversal, expansion_wrangler, src_weights):
     # {{{ "Stage 3:" Direct evaluation from neighbor source boxes ("list 1")
 
     logger.debug("direct evaluation from neighbor source boxes ('list 1')")
-
     potentials = wrangler.eval_direct(
             traversal.target_boxes,
             traversal.neighbor_source_boxes_starts,
@@ -100,8 +94,8 @@ def drive_fmm(traversal, expansion_wrangler, src_weights):
     # {{{ "Stage 4:" translate separated siblings' ("list 2") mpoles to local
 
     logger.debug("translate separated siblings' ('list 2') mpoles to local")
-
     local_exps = wrangler.multipole_to_local(
+            traversal.level_start_target_or_target_parent_box_nrs,
             traversal.target_or_target_parent_boxes,
             traversal.sep_siblings_starts,
             traversal.sep_siblings_lists,
@@ -119,6 +113,7 @@ def drive_fmm(traversal, expansion_wrangler, src_weights):
     # contribution *out* of the downward-propagating local expansions)
 
     potentials = potentials + wrangler.eval_multipoles(
+            traversal.level_start_target_box_nrs,
             traversal.target_boxes,
             traversal.sep_smaller_starts,
             traversal.sep_smaller_lists,
@@ -143,6 +138,7 @@ def drive_fmm(traversal, expansion_wrangler, src_weights):
     logger.debug("form locals for separated bigger mpoles ('list 4 far')")
 
     local_exps = local_exps + wrangler.form_locals(
+            traversal.level_start_target_or_target_parent_box_nrs,
             traversal.target_or_target_parent_boxes,
             traversal.sep_bigger_starts,
             traversal.sep_bigger_lists,
@@ -164,12 +160,10 @@ def drive_fmm(traversal, expansion_wrangler, src_weights):
 
     logger.debug("propagate local_exps downward")
 
-    for lev in range(1, tree.nlevels):
-        start_box, end_box = \
-                traversal.level_start_target_or_target_parent_box_nrs[lev:lev+2]
-        wrangler.refine_locals(
-                traversal.target_or_target_parent_boxes[start_box:end_box],
-                local_exps)
+    wrangler.refine_locals(
+            traversal.level_start_target_or_target_parent_box_nrs,
+            traversal.target_or_target_parent_boxes,
+            local_exps)
 
     # }}}
 
@@ -178,6 +172,7 @@ def drive_fmm(traversal, expansion_wrangler, src_weights):
     logger.debug("evaluate locals")
 
     potentials = potentials + wrangler.eval_locals(
+            traversal.level_start_target_box_nrs,
             traversal.target_boxes,
             local_exps)
 
