@@ -341,6 +341,8 @@ def test_source_target_tree(ctx_getter, dims, do_plot=False):
         plotter.draw_tree(fill=False, edgecolor="black", zorder=10)
         plotter.set_bounding_box()
 
+    tol = 1e-15
+
     for ibox in range(tree.nboxes):
         extent_low, extent_high = tree.get_box_extent(ibox)
 
@@ -369,12 +371,13 @@ def test_source_target_tree(ctx_getter, dims, do_plot=False):
                     tgt_start:tgt_start+tree.box_target_counts_cumul[ibox]]),
                 ]:
             good = (
-                    (particles < extent_high[:, np.newaxis])
+                    (particles < extent_high[:, np.newaxis] + tol)
                     &
-                    (extent_low[:, np.newaxis] <= particles)
+                    (extent_low[:, np.newaxis] - tol <= particles)
                     ).all(axis=0)
 
             all_good_here = good.all()
+
             if do_plot and not all_good_here:
                 pt.plot(
                         particles[0, np.where(~good)[0]],
