@@ -100,7 +100,7 @@ logger = logging.getLogger(__name__)
 #    boxes.
 #
 # 3. Realize the splitting determined in #2. This stage proceeds in an
-#    element-wise fashion over the boxes at the current level.
+#    element-wise fashion over the particles.
 #
 # -----------------------------------------------------------------------------
 
