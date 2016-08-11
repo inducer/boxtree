@@ -81,7 +81,7 @@ class Helmholtz2DExpansionWrangler:
     def reorder_potentials(self, potentials):
         return potentials[self.tree.sorted_target_ids]
 
-    def form_multipoles(self, source_boxes, src_weights):
+    def form_multipoles(self, level_start_source_box_nrs, source_boxes, src_weights):
         rscale = 1  # FIXME
 
         from pyfmmlib import h2dformmp
@@ -102,24 +102,31 @@ class Helmholtz2DExpansionWrangler:
 
         return mpoles
 
-    def coarsen_multipoles(self, parent_boxes, mpoles):
+    def coarsen_multipoles(self, level_start_source_parent_box_nrs,
+            source_parent_boxes, mpoles):
         tree = self.tree
         rscale = 1  # FIXME
 
         from pyfmmlib import h2dmpmp_vec
 
-        for ibox in parent_boxes:
-            parent_center = tree.box_centers[:, ibox]
-            for child in tree.box_child_ids[:, ibox]:
-                if child:
-                    child_center = tree.box_centers[:, child]
+        # 2 is the last relevant source_level.
+        # 1 is the last relevant target_level.
+        # (Nobody needs a multipole on level 0, i.e. for the root box.)
+        for source_level in range(tree.nlevels-1, 1, -1):
+            start, stop = level_start_source_parent_box_nrs[
+                            source_level:source_level+2]
+            for ibox in source_parent_boxes[start:stop]:
+                parent_center = tree.box_centers[:, ibox]
+                for child in tree.box_child_ids[:, ibox]:
+                    if child:
+                        child_center = tree.box_centers[:, child]
 
-                    new_mp = h2dmpmp_vec(
-                            self.helmholtz_k,
-                            rscale, child_center, mpoles[child],
-                            rscale, parent_center, self.nterms)
+                        new_mp = h2dmpmp_vec(
+                                self.helmholtz_k,
+                                rscale, child_center, mpoles[child],
+                                rscale, parent_center, self.nterms)
 
-                    mpoles[ibox] += new_mp[:, 0]
+                        mpoles[ibox] += new_mp[:, 0]
 
     def eval_direct(self, target_boxes, neighbor_sources_starts,
             neighbor_sources_lists, src_weights):
@@ -153,7 +160,9 @@ class Helmholtz2DExpansionWrangler:
 
         return pot
 
-    def multipole_to_local(self, target_or_target_parent_boxes,
+    def multipole_to_local(self,
+            level_start_target_or_target_parent_box_nrs,
+            target_or_target_parent_boxes,
             starts, lists, mpole_exps):
         tree = self.tree
         local_exps = self.local_expansion_zeros()
@@ -181,8 +190,8 @@ class Helmholtz2DExpansionWrangler:
 
         return local_exps
 
-    def eval_multipoles(self, target_boxes, sep_smaller_nonsiblings_starts,
-            sep_smaller_nonsiblings_lists, mpole_exps):
+    def eval_multipoles(self, level_start_target_box_nrs, target_boxes,
+            starts, lists, mpole_exps):
         pot = self.potential_zeros()
 
         rscale = 1
@@ -195,8 +204,8 @@ class Helmholtz2DExpansionWrangler:
                 continue
 
             tgt_pot = 0
-            start, end = sep_smaller_nonsiblings_starts[itgt_box:itgt_box+2]
-            for src_ibox in sep_smaller_nonsiblings_lists[start:end]:
+            start, end = starts[itgt_box:itgt_box+2]
+            for src_ibox in lists[start:end]:
 
                 tmp_pot, _, _ = h2dmpeval_vec(self.helmholtz_k, rscale, self.
                         tree.box_centers[:, src_ibox], mpole_exps[src_ibox],
@@ -209,7 +218,9 @@ class Helmholtz2DExpansionWrangler:
 
         return pot
 
-    def form_locals(self, target_or_target_parent_boxes, starts, lists, src_weights):
+    def form_locals(self,
+            level_start_target_or_target_parent_box_nrs,
+            target_or_target_parent_boxes, starts, lists, src_weights):
         rscale = 1  # FIXME
         local_exps = self.local_expansion_zeros()
 
@@ -240,26 +251,31 @@ class Helmholtz2DExpansionWrangler:
 
         return local_exps
 
-    def refine_locals(self, child_boxes, local_exps):
+    def refine_locals(self, level_start_target_or_target_parent_box_nrs,
+            target_or_target_parent_boxes, local_exps):
         rscale = 1  # FIXME
 
         from pyfmmlib import h2dlocloc_vec
 
-        for tgt_ibox in child_boxes:
-            tgt_center = self.tree.box_centers[:, tgt_ibox]
-            src_ibox = self.tree.box_parent_ids[tgt_ibox]
-            src_center = self.tree.box_centers[:, src_ibox]
+        for target_lev in range(1, self.tree.nlevels):
+            start, stop = level_start_target_or_target_parent_box_nrs[
+                    target_lev:target_lev+2]
 
-            tmp_loc_exp = h2dlocloc_vec(
-                        self.helmholtz_k,
-                        rscale, src_center, local_exps[src_ibox],
-                        rscale, tgt_center, self.nterms)[:, 0]
+            for tgt_ibox in target_or_target_parent_boxes[start:stop]:
+                tgt_center = self.tree.box_centers[:, tgt_ibox]
+                src_ibox = self.tree.box_parent_ids[tgt_ibox]
+                src_center = self.tree.box_centers[:, src_ibox]
 
-            local_exps[tgt_ibox] += tmp_loc_exp
+                tmp_loc_exp = h2dlocloc_vec(
+                            self.helmholtz_k,
+                            rscale, src_center, local_exps[src_ibox],
+                            rscale, tgt_center, self.nterms)[:, 0]
+
+                local_exps[tgt_ibox] += tmp_loc_exp
 
         return local_exps
 
-    def eval_locals(self, target_boxes, local_exps):
+    def eval_locals(self, level_start_target_box_nrs, target_boxes, local_exps):
         pot = self.potential_zeros()
         rscale = 1  # FIXME
 

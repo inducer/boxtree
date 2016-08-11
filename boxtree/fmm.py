@@ -231,7 +231,7 @@ class ExpansionWranglerInterface:
         *source_weights* is in tree target order.
         """
 
-    def form_multipoles(self, source_boxes, src_weights):
+    def form_multipoles(self, level_start_source_box_nrs, source_boxes, src_weights):
         """Return an expansions array (compatible with
         :meth:`multipole_expansion_zeros`)
         containing multipole expansions in *source_boxes* due to sources
@@ -239,8 +239,9 @@ class ExpansionWranglerInterface:
         All other expansions must be zero.
         """
 
-    def coarsen_multipoles(self, parent_boxes, mpoles):
-        """For each box in *parent_boxes*,
+    def coarsen_multipoles(self, level_start_source_parent_box_nrs,
+            source_parent_boxes, mpoles):
+        """For each box in *source_parent_boxes*,
         gather (and translate) the box's children's multipole expansions in
         *mpole* and add the resulting expansion into the box's multipole
         expansion in *mpole*.
@@ -257,7 +258,9 @@ class ExpansionWranglerInterface:
         :returns: a new potential array, see :meth:`potential_zeros`.
         """
 
-    def multipole_to_local(self, target_or_target_parent_boxes,
+    def multipole_to_local(self,
+            level_start_target_or_target_parent_box_nrs,
+            target_or_target_parent_boxes,
             starts, lists, mpole_exps):
         """For each box in *target_or_target_parent_boxes*, translate and add
         the influence of the multipole expansion in *mpole_exps* into a new
@@ -268,7 +271,8 @@ class ExpansionWranglerInterface:
             :meth:`local_expansion_zeros`.
         """
 
-    def eval_multipoles(self, target_boxes, starts, lists, mpole_exps):
+    def eval_multipoles(self, level_start_target_box_nrs, target_boxes,
+            starts, lists, mpole_exps):
         """For each box in *target_boxes*, evaluate the multipole expansion in
         *mpole_exps* in the nearby boxes given in *starts* and *lists*, and
         return a new potential array.  *starts* and *lists* use :ref:`csr` and
@@ -277,7 +281,9 @@ class ExpansionWranglerInterface:
         :returns: a new potential array, see :meth:`potential_zeros`.
         """
 
-    def form_locals(self, target_or_target_parent_boxes, starts, lists, src_weights):
+    def form_locals(self,
+            level_start_target_or_target_parent_box_nrs,
+            target_or_target_parent_boxes, starts, lists, src_weights):
         """For each box in *target_or_target_parent_boxes*, form local
         expansions due to the sources in the nearby boxes given in *starts* and
         *lists*, and return a new local expansion array.  *starts* and *lists*
@@ -289,7 +295,8 @@ class ExpansionWranglerInterface:
         """
         pass
 
-    def refine_locals(self, child_boxes, local_exps):
+    def refine_locals(self, level_start_target_or_target_parent_box_nrs,
+            target_or_target_parent_boxes, local_exps):
         """For each box in *child_boxes*,
         translate the box's parent's local expansion in *local_exps* and add
         the resulting expansion into the box's local expansion in *local_exps*.
@@ -297,7 +304,7 @@ class ExpansionWranglerInterface:
         :returns: *local_exps*
         """
 
-    def eval_locals(self, target_boxes, local_exps):
+    def eval_locals(self, level_start_target_box_nrs, target_boxes, local_exps):
         """For each box in *target_boxes*, evaluate the local expansion in
         *local_exps* and return a new potential array.
 

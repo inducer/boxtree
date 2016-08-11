@@ -77,7 +77,7 @@ class ConstantOneExpansionWrangler(object):
     def reorder_potentials(self, potentials):
         return potentials[self.tree.sorted_target_ids]
 
-    def form_multipoles(self, source_boxes, src_weights):
+    def form_multipoles(self, level_start_source_box_nrs, source_boxes, src_weights):
         mpoles = self.multipole_expansion_zeros()
         for ibox in source_boxes:
             pslice = self._get_source_slice(ibox)
@@ -85,13 +85,20 @@ class ConstantOneExpansionWrangler(object):
 
         return mpoles
 
-    def coarsen_multipoles(self, parent_boxes, mpoles):
+    def coarsen_multipoles(self, level_start_source_parent_box_nrs,
+            source_parent_boxes, mpoles):
         tree = self.tree
 
-        for ibox in parent_boxes:
-            for child in tree.box_child_ids[:, ibox]:
-                if child:
-                    mpoles[ibox] += mpoles[child]
+        # 2 is the last relevant source_level.
+        # 1 is the last relevant target_level.
+        # (Nobody needs a multipole on level 0, i.e. for the root box.)
+        for source_level in range(tree.nlevels-1, 1, -1):
+            start, stop = level_start_source_parent_box_nrs[
+                            source_level:source_level+2]
+            for ibox in source_parent_boxes[start:stop]:
+                for child in tree.box_child_ids[:, ibox]:
+                    if child:
+                        mpoles[ibox] += mpoles[child]
 
     def eval_direct(self, target_boxes, neighbor_sources_starts,
             neighbor_sources_lists, src_weights):
@@ -112,7 +119,9 @@ class ConstantOneExpansionWrangler(object):
 
         return pot
 
-    def multipole_to_local(self, target_or_target_parent_boxes,
+    def multipole_to_local(self,
+            level_start_target_or_target_parent_box_nrs,
+            target_or_target_parent_boxes,
             starts, lists, mpole_exps):
         local_exps = self.local_expansion_zeros()
 
@@ -128,7 +137,8 @@ class ConstantOneExpansionWrangler(object):
 
         return local_exps
 
-    def eval_multipoles(self, target_boxes, sep_smaller_nonsiblings_starts,
+    def eval_multipoles(self, level_start_target_box_nrs, target_boxes,
+            sep_smaller_nonsiblings_starts,
             sep_smaller_nonsiblings_lists, mpole_exps):
         pot = self.potential_zeros()
 
@@ -144,7 +154,9 @@ class ConstantOneExpansionWrangler(object):
 
         return pot
 
-    def form_locals(self, target_or_target_parent_boxes, starts, lists, src_weights):
+    def form_locals(self,
+            level_start_target_or_target_parent_box_nrs,
+            target_or_target_parent_boxes, starts, lists, src_weights):
         local_exps = self.local_expansion_zeros()
 
         for itgt_box, tgt_ibox in enumerate(target_or_target_parent_boxes):
@@ -161,13 +173,18 @@ class ConstantOneExpansionWrangler(object):
 
         return local_exps
 
-    def refine_locals(self, child_boxes, local_exps):
-        for ibox in child_boxes:
-            local_exps[ibox] += local_exps[self.tree.box_parent_ids[ibox]]
+    def refine_locals(self, level_start_target_or_target_parent_box_nrs,
+            target_or_target_parent_boxes, local_exps):
+
+        for target_lev in range(1, self.tree.nlevels):
+            start, stop = level_start_target_or_target_parent_box_nrs[
+                    target_lev:target_lev+2]
+            for ibox in target_or_target_parent_boxes[start:stop]:
+                local_exps[ibox] += local_exps[self.tree.box_parent_ids[ibox]]
 
         return local_exps
 
-    def eval_locals(self, target_boxes, local_exps):
+    def eval_locals(self, level_start_target_box_nrs, target_boxes, local_exps):
         pot = self.potential_zeros()
 
         for ibox in target_boxes:
