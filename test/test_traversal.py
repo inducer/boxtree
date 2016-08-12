@@ -1,6 +1,4 @@
-from __future__ import division
-from __future__ import absolute_import
-from six.moves import range
+from __future__ import division, absolute_import
 
 __copyright__ = "Copyright (C) 2013 Andreas Kloeckner"
 
@@ -24,6 +22,8 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+
+from six.moves import range
 
 import numpy as np
 import numpy.linalg as la
@@ -223,6 +223,25 @@ def test_tree_connectivity(ctx_getter, dims, sources_are_targets):
 
     # }}}
 
+    # {{{ level_start_*_box_nrs lists make sense
+
+    for name, ref_array in [
+            ("level_start_source_box_nrs", trav.source_boxes),
+            ("level_start_source_parent_box_nrs", trav.source_parent_boxes),
+            ("level_start_target_box_nrs", trav.target_boxes),
+            ("level_start_target_or_target_parent_box_nrs",
+                trav.target_or_target_parent_boxes)
+            ]:
+        level_starts = getattr(trav, name)
+        for lev in range(tree.nlevels):
+            start, stop = level_starts[lev:lev+2]
+
+            box_nrs = ref_array[start:stop]
+
+            assert (tree.box_levels[box_nrs] == lev).all(), name
+
+    # }}}
+
 # }}}
 
 
@@ -245,8 +264,8 @@ def plot_traversal(ctx_getter, do_plot=False):
             rng.normal(queue, nparticles, dtype=dtype)
             for i in range(dims)])
 
-        #if do_plot:
-            #pt.plot(particles[0].get(), particles[1].get(), "x")
+        # if do_plot:
+        #     pt.plot(particles[0].get(), particles[1].get(), "x")
 
         from boxtree import TreeBuilder
         tb = TreeBuilder(ctx)
