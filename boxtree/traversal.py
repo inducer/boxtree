@@ -238,12 +238,22 @@ LEVEL_START_BOX_NR_EXTRACTOR_TEMPLATE = ElementwiseTemplate(
         // assert(i > 0);
 
         box_id_t my_box_id = box_list[i];
-        box_id_t prev_box_id = box_list[i-1];
-
         int my_level = box_levels[my_box_id];
-        box_id_t my_level_start = level_start_box_nrs[my_level];
 
-        if (prev_box_id < my_level_start && my_level_start <= my_box_id)
+        bool is_level_leading_box;
+        if (i == 0)
+            is_level_leading_box = true;
+        else
+        {
+            box_id_t prev_box_id = box_list[i-1];
+            box_id_t my_level_start = level_start_box_nrs[my_level];
+
+            is_level_leading_box = (
+                    prev_box_id < my_level_start
+                    && my_level_start <= my_box_id);
+        }
+
+        if (is_level_leading_box)
             list_level_start_box_nrs[my_level] = i;
     """,
     name="extract_level_start_box_nrs")
@@ -1315,14 +1325,10 @@ class FMMTraversalBuilder:
                     tree.box_levels,
                     box_list,
                     result,
-                    range=slice(1, len(box_list)),
+                    range=slice(0, len(box_list)),
                     queue=queue, wait_for=wait_for)
 
             result = result.get()
-
-            # We skipped box 0 above. This is always true, whether
-            # box 0 (=level 0) is a leaf or a parent.
-            result[0] = 0
 
             # Postprocess result for unoccupied levels
             prev_start = len(box_list)
