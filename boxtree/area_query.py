@@ -44,6 +44,14 @@ Area queries (Balls -> overlapping leaves)
 .. autoclass:: AreaQueryResult
 
 
+Inverse of area query (Leaves -> overlapping balls)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+.. autoclass:: LeavesToBallsLookupBuilder
+
+.. autoclass:: LeavesToBallsLookup
+
+
 Peer Lists
 ^^^^^^^^^^
 
@@ -96,6 +104,28 @@ class AreaQueryResult(DeviceDataRecord):
     .. automethod:: get
 
     .. versionadded:: 2016.1
+    """
+
+
+class LeavesToBallsLookup(DeviceDataRecord):
+    """
+    .. attribute:: tree
+
+        The :class:`boxtree.Tree` instance used to build this lookup.
+
+    .. attribute:: balls_near_box_starts
+
+        Indices into :attr:`balls_near_box_lists`.
+        ``balls_near_box_lists[balls_near_box_starts[ibox]:
+        balls_near_box_starts[ibox]+1]``
+        results in a list of balls that overlap leaf box *ibox*.
+
+        .. note:: Only leaf boxes have non-empty entries in this table. Nonetheless,
+            this list is indexed by the global box index.
+
+    .. attribute:: balls_near_box_lists
+
+    .. automethod:: get
     """
 
 # }}}
@@ -326,6 +356,42 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t box_id)
 
 """
 
+
+from pyopencl.elementwise import ElementwiseTemplate
+
+
+STARTS_EXPANDER_TEMPLATE = ElementwiseTemplate(
+    arguments=r"""
+        idx_t *dst,
+        idx_t *starts,
+        idx_t starts_len
+    """,
+    operation=r"""//CL//
+    /* Find my index in starts, place the index in dst. */
+    idx_t l_idx = 0, r_idx = starts_len - 1, my_idx;
+
+    for (;;)
+    {
+        my_idx = (l_idx + r_idx) / 2;
+
+        if (starts[my_idx] <= i && i < starts[my_idx + 1])
+        {
+            dst[i] = my_idx;
+            break;
+        }
+
+        if (starts[my_idx] > i)
+        {
+            r_idx = my_idx;
+        }
+        else
+        {
+            l_idx = my_idx;
+        }
+    }
+    """,
+    name="starts_expander")
+
 # }}}
 
 
@@ -472,8 +538,108 @@ class AreaQueryBuilder(object):
                 leaves_near_ball_starts=result["leaves"].starts,
                 leaves_near_ball_lists=result["leaves"].lists).with_queue(None), evt
 
+
 # }}}
 
+# {{{ area query transpose (leaves-to-balls) lookup build
+
+class LeavesToBallsLookupBuilder(object):
+    """Given a set of :math:`l^\infty` "balls", this class helps build a
+    look-up table from leaf boxes to balls that overlap with each leaf box.
+
+    .. automethod:: __call__
+
+    """
+    def __init__(self, context):
+        self.context = context
+
+        from pyopencl.algorithm import KeyValueSorter
+        self.key_value_sorter = KeyValueSorter(context)
+        self.area_query_builder = AreaQueryBuilder(context)
+
+    @memoize_method
+    def get_starts_expander_kernel(self, idx_dtype):
+        """
+        Expands a "starts" array into a length starts[-1] array of increasing
+        indices:
+
+        Eg: [0 2 5 6] => [0 0 1 1 1 2]
+
+        """
+        return STARTS_EXPANDER_TEMPLATE.build(
+                self.context,
+                type_aliases=(("idx_t", idx_dtype),))
+
+    def __call__(self, queue, tree, ball_centers, ball_radii, peer_lists=None,
+                 wait_for=None):
+        """
+        :arg queue: a :class:`pyopencl.CommandQueue`
+        :arg tree: a :class:`boxtree.Tree`.
+        :arg ball_centers: an object array of coordinate
+            :class:`pyopencl.array.Array` instances.
+            Their *dtype* must match *tree*'s
+            :attr:`boxtree.Tree.coord_dtype`.
+        :arg ball_radii: a
+            :class:`pyopencl.array.Array`
+            of positive numbers.
+            Its *dtype* must match *tree*'s
+            :attr:`boxtree.Tree.coord_dtype`.
+        :arg peer_lists: may either be *None* or an instance of
+            :class:`PeerListLookup` associated with `tree`.
+        :arg wait_for: may either be *None* or a list of :class:`pyopencl.Event`
+            instances for whose completion this command waits before starting
+            execution.
+        :returns: a tuple *(lbl, event)*, where *lbl* is an instance of
+            :class:`LeavesToBallsLookup`, and *event* is a :class:`pyopencl.Event`
+            for dependency management.
+        """
+
+        from pytools import single_valued
+        if single_valued(bc.dtype for bc in ball_centers) != tree.coord_dtype:
+            raise TypeError("ball_centers dtype must match tree.coord_dtype")
+        if ball_radii.dtype != tree.coord_dtype:
+            raise TypeError("ball_radii dtype must match tree.coord_dtype")
+
+        logger.info("leaves-to-balls lookup: run area query")
+
+        area_query, evt = self.area_query_builder(
+                queue, tree, ball_centers, ball_radii, peer_lists, wait_for)
+        wait_for = [evt]
+
+        logger.info("leaves-to-balls lookup: expand starts")
+
+        nkeys = len(area_query.leaves_near_ball_lists)
+        nballs = len(area_query.leaves_near_ball_starts)
+
+        starts_expander_knl = self.get_starts_expander_kernel(tree.box_id_dtype)
+        expanded_starts = cl.array.empty(queue, nkeys, tree.box_id_dtype)
+        evt = starts_expander_knl(
+            expanded_starts,
+            area_query.leaves_near_ball_starts.with_queue(queue),
+            nballs + 1)
+        wait_for = [evt]
+
+        logger.info("leaves-to-balls lookup: key-value sort")
+
+        balls_near_box_starts, balls_near_box_lists, evt \
+                = self.key_value_sorter(
+                        queue,
+                        # keys
+                        area_query.leaves_near_ball_lists.with_queue(queue),
+                        # values
+                        expanded_starts,
+                        nkeys, starts_dtype=tree.box_id_dtype,
+                        wait_for=wait_for)
+
+        logger.info("leaves-to-balls lookup: built")
+
+        return LeavesToBallsLookup(
+                tree=tree,
+                balls_near_box_starts=balls_near_box_starts,
+                balls_near_box_lists=balls_near_box_lists).with_queue(None), evt
+
+
+# }}}
 
 # {{{ peer list build
 
