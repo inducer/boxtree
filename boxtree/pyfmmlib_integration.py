@@ -191,30 +191,32 @@ class Helmholtz2DExpansionWrangler:
         return local_exps
 
     def eval_multipoles(self, level_start_target_box_nrs, target_boxes,
-            starts, lists, mpole_exps):
+            sep_smaller_nonsiblings_by_level, mpole_exps):
         pot = self.potential_zeros()
 
         rscale = 1
 
         from pyfmmlib import h2dmpeval_vec
-        for itgt_box, tgt_ibox in enumerate(target_boxes):
-            tgt_pslice = self._get_target_slice(tgt_ibox)
 
-            if tgt_pslice.stop - tgt_pslice.start == 0:
-                continue
+        for ssn in sep_smaller_nonsiblings_by_level:
+            for itgt_box, tgt_ibox in enumerate(target_boxes):
+                tgt_pslice = self._get_target_slice(tgt_ibox)
 
-            tgt_pot = 0
-            start, end = starts[itgt_box:itgt_box+2]
-            for src_ibox in lists[start:end]:
+                if tgt_pslice.stop - tgt_pslice.start == 0:
+                    continue
 
-                tmp_pot, _, _ = h2dmpeval_vec(self.helmholtz_k, rscale, self.
-                        tree.box_centers[:, src_ibox], mpole_exps[src_ibox],
-                        self._get_targets(tgt_pslice),
-                        ifgrad=False, ifhess=False)
+                tgt_pot = 0
+                start, end = ssn.starts[itgt_box:itgt_box+2]
+                for src_ibox in ssn.lists[start:end]:
 
-                tgt_pot = tgt_pot + tmp_pot
+                    tmp_pot, _, _ = h2dmpeval_vec(self.helmholtz_k, rscale, self.
+                            tree.box_centers[:, src_ibox], mpole_exps[src_ibox],
+                            self._get_targets(tgt_pslice),
+                            ifgrad=False, ifhess=False)
 
-            pot[tgt_pslice] += tgt_pot
+                    tgt_pot = tgt_pot + tmp_pot
+
+                pot[tgt_pslice] += tgt_pot
 
         return pot
 

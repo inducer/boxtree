@@ -138,19 +138,20 @@ class ConstantOneExpansionWrangler(object):
         return local_exps
 
     def eval_multipoles(self, level_start_target_box_nrs, target_boxes,
-            sep_smaller_nonsiblings_starts,
-            sep_smaller_nonsiblings_lists, mpole_exps):
+            sep_smaller_nonsiblings_by_level, mpole_exps):
         pot = self.potential_zeros()
 
-        for itgt_box, tgt_ibox in enumerate(target_boxes):
-            tgt_pslice = self._get_target_slice(tgt_ibox)
+        for ssn in sep_smaller_nonsiblings_by_level:
+            for itgt_box, tgt_ibox in enumerate(target_boxes):
+                tgt_pslice = self._get_target_slice(tgt_ibox)
 
-            contrib = 0
-            start, end = sep_smaller_nonsiblings_starts[itgt_box:itgt_box+2]
-            for src_ibox in sep_smaller_nonsiblings_lists[start:end]:
-                contrib += mpole_exps[src_ibox]
+                contrib = 0
 
-            pot[tgt_pslice] += contrib
+                start, end = ssn.starts[itgt_box:itgt_box+2]
+                for src_ibox in ssn.lists[start:end]:
+                    contrib += mpole_exps[src_ibox]
+
+                pot[tgt_pslice] += contrib
 
         return pot
 

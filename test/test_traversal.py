@@ -141,12 +141,14 @@ def test_tree_connectivity(ctx_getter, dims, sources_are_targets):
 
         # {{{ list 4 <= list 3
         for itarget_box, ibox in enumerate(trav.target_boxes):
-            start, end = trav.sep_smaller_starts[itarget_box:itarget_box+2]
 
-            for jbox in trav.sep_smaller_lists[start:end]:
-                rstart, rend = trav.sep_bigger_starts[jbox:jbox+2]
+            for ssn in trav.sep_smaller_by_level:
+                start, end = ssn.starts[itarget_box:itarget_box+2]
 
-                assert ibox in trav.sep_bigger_lists[rstart:rend], (ibox, jbox)
+                for jbox in ssn.lists[start:end]:
+                    rstart, rend = trav.sep_bigger_starts[jbox:jbox+2]
+
+                    assert ibox in trav.sep_bigger_lists[rstart:rend], (ibox, jbox)
 
         # }}}
 
@@ -173,8 +175,11 @@ def test_tree_connectivity(ctx_getter, dims, sources_are_targets):
                 jtgt_box = box_to_target_box_index[jbox]
                 assert jtgt_box != -1
 
-                rstart, rend = trav.sep_smaller_starts[jtgt_box:jtgt_box+2]
-                good = ibox in trav.sep_smaller_lists[rstart:rend]
+                good = False
+
+                for ssn in trav.sep_smaller_by_level:
+                    rstart, rend = ssn.starts[jtgt_box:jtgt_box+2]
+                    good = good or ibox in ssn.lists[rstart:rend]
 
                 if not good:
                     from boxtree.visualization import TreePlotter
@@ -202,16 +207,17 @@ def test_tree_connectivity(ctx_getter, dims, sources_are_targets):
     # {{{ sep_smaller satisfies relative level assumption
 
     for itarget_box, ibox in enumerate(trav.target_boxes):
-        start, end = trav.sep_smaller_starts[itarget_box:itarget_box+2]
+        for ssn in trav.sep_smaller_by_level:
+            start, end = ssn.starts[itarget_box:itarget_box+2]
 
-        for jbox in trav.sep_smaller_lists[start:end]:
-            assert levels[ibox] < levels[jbox]
+            for jbox in ssn.lists[start:end]:
+                assert levels[ibox] < levels[jbox]
 
     logger.info("list 3 satisfies relative level assumption")
 
     # }}}
 
-    # {{{ sep_smaller satisfies relative level assumption
+    # {{{ sep_bigger satisfies relative level assumption
 
     for itgt_box, tgt_ibox in enumerate(trav.target_or_target_parent_boxes):
         start, end = trav.sep_bigger_starts[itgt_box:itgt_box+2]

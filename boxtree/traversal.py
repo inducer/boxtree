@@ -519,8 +519,10 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
             {
                 ${load_center("child_center", "child_box_id")}
 
+                int child_level = box_levels[child_box_id];
+
                 bool a_or_o = is_adjacent_or_overlapping(root_extent,
-                    center, level, child_center, box_levels[child_box_id], false);
+                    center, level, child_center, child_level, false);
 
                 if (a_or_o)
                 {
@@ -529,8 +531,13 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
                         // We want to descend into this box. Put the current state
                         // on the stack.
 
-                        ${walk_push("child_box_id")}
-                        continue;
+                        if (child_level <= sep_smaller_source_level
+                                || sep_smaller_source_level == -1)
+                        {
+                            ${walk_push("child_box_id")}
+                            continue;
+                        }
+                        // otherwise there's no point to descending further.
                     }
                 }
                 else
@@ -539,7 +546,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
                         const bool a_or_o_with_stick_out =
                             is_adjacent_or_overlapping(root_extent,
                                 center, level, child_center,
-                                box_levels[child_box_id], true);
+                                child_level, true);
                     %else:
                         const bool a_or_o_with_stick_out = false;
                     %endif
@@ -550,15 +557,22 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
 
                     if (!a_or_o_with_stick_out)
                     {
-                        APPEND_sep_smaller(child_box_id);
+                        if (sep_smaller_source_level == child_level)
+                            APPEND_sep_smaller(child_box_id);
                     }
                     else
                     {
                     %if sources_have_extent or targets_have_extent:
-                        if (child_box_flags & BOX_HAS_OWN_SOURCES)
-                        {
+                        // sep_smaller_source_level == -1 means "only build
+                        // build list 3 close", with sources on any level.
+                        // This kernel will be run once per source level to
+                        // generate per-level list 3, and once
+                        // (not per level) to generate list 3 close.
+
+                        if (
+                               (child_box_flags & BOX_HAS_OWN_SOURCES)
+                               && (sep_smaller_source_level == -1))
                             APPEND_sep_close_smaller(child_box_id);
-                        }
 
                         if (child_box_flags & BOX_HAS_CHILD_SOURCES)
                         {
@@ -894,13 +908,15 @@ class FMMTraversalInfo(DeviceDataRecord):
 
     Indexed like :attr:`target_or_target_parent_boxes`.  See :ref:`csr`.
 
-    .. attribute:: sep_smaller_starts
+    .. attribute:: sep_smaller_by_level
 
-        ``box_id_t [ntargets+1]``
+        A list of :attr:`boxtree.Tree.nlevels` (corresponding to the levels on
+        which each listed source box resides) objects, each of which has
+        attributes *count*, *starts* and *lists*, which form a CSR list of List
+        3source boxes.
 
-    .. attribute:: sep_smaller_lists
-
-        ``box_id_t [*]``
+        *starts* has shape/type ``box_id_t [ntargets+1]``. *lists* is of type
+        ``box_id_t``.
 
     .. attribute:: sep_close_smaller_starts
 
@@ -1220,6 +1236,7 @@ class FMMTraversalBuilder:
                             VectorArg(box_id_dtype, "target_boxes"),
                             VectorArg(box_id_dtype, "colleagues_starts"),
                             VectorArg(box_id_dtype, "colleagues_list"),
+                            ScalarArg(box_id_dtype, "sep_smaller_source_level"),
                             ],
                             ["sep_close_smaller"]
                             if sources_have_extent or targets_have_extent
@@ -1230,6 +1247,7 @@ class FMMTraversalBuilder:
                             VectorArg(box_id_dtype, "box_parent_ids"),
                             VectorArg(box_id_dtype, "colleagues_starts"),
                             VectorArg(box_id_dtype, "colleagues_list"),
+                            #ScalarArg(box_id_dtype, "sep_bigger_source_level"),
                             ],
                             ["sep_close_bigger"]
                             if sources_have_extent or targets_have_extent
@@ -1406,23 +1424,43 @@ class FMMTraversalBuilder:
 
         # }}}
 
+        with_extent = tree.sources_have_extent or tree.targets_have_extent
+
         # {{{ separated smaller ("list 3")
 
         fin_debug("finding separated smaller ('list 3')")
 
-        result, evt = knl_info.sep_smaller_builder(
+        sep_smaller_base_args = (
                 queue, len(target_boxes),
                 tree.box_centers.data, tree.root_extent, tree.box_levels.data,
                 tree.aligned_nboxes, tree.box_child_ids.data, tree.box_flags.data,
                 target_boxes.data,
-                colleagues.starts.data, colleagues.lists.data,
-                wait_for=wait_for)
-        wait_for = [evt]
-        sep_smaller = result["sep_smaller"]
+                colleagues.starts.data, colleagues.lists.data)
 
-        if tree.sources_have_extent or tree.targets_have_extent:
+        wait_for = []
+        sep_smaller_by_level = []
+
+        for ilevel in range(tree.nlevels):
+            fin_debug("finding separated smaller ('list 3 level %d')" % ilevel)
+
+            result, evt = knl_info.sep_smaller_builder(
+                    *(sep_smaller_base_args + (ilevel,)),
+                    omit_lists=("sep_close_smaller",) if with_extent else (),
+                    wait_for=wait_for)
+
+            sep_smaller_by_level.append(result["sep_smaller"])
+            wait_for.append(evt)
+
+        if with_extent:
+            fin_debug("finding separated smaller close ('list 3 close')")
+            result, evt = knl_info.sep_smaller_builder(
+                    *(sep_smaller_base_args + (-1,)),
+                    omit_lists=("sep_smaller",),
+                    wait_for=wait_for)
             sep_close_smaller_starts = result["sep_close_smaller"].starts
             sep_close_smaller_lists = result["sep_close_smaller"].lists
+
+            wait_for.append(evt)
         else:
             sep_close_smaller_starts = None
             sep_close_smaller_lists = None
@@ -1442,7 +1480,7 @@ class FMMTraversalBuilder:
         wait_for = [evt]
         sep_bigger = result["sep_bigger"]
 
-        if tree.sources_have_extent or tree.targets_have_extent:
+        if with_extent:
             sep_close_bigger_starts = result["sep_close_bigger"].starts
             sep_close_bigger_lists = result["sep_close_bigger"].lists
         else:
@@ -1480,8 +1518,7 @@ class FMMTraversalBuilder:
                 sep_siblings_starts=sep_siblings.starts,
                 sep_siblings_lists=sep_siblings.lists,
 
-                sep_smaller_starts=sep_smaller.starts,
-                sep_smaller_lists=sep_smaller.lists,
+                sep_smaller_by_level=sep_smaller_by_level,
 
                 sep_close_smaller_starts=sep_close_smaller_starts,
                 sep_close_smaller_lists=sep_close_smaller_lists,

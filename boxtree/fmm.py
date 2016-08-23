@@ -115,8 +115,7 @@ def drive_fmm(traversal, expansion_wrangler, src_weights):
     potentials = potentials + wrangler.eval_multipoles(
             traversal.level_start_target_box_nrs,
             traversal.target_boxes,
-            traversal.sep_smaller_starts,
-            traversal.sep_smaller_lists,
+            traversal.sep_smaller_by_level,
             mpole_exps)
 
     # these potentials are called beta in [1]
