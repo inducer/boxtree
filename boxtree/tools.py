@@ -262,17 +262,29 @@ class DeviceDataRecord(Record):
 
     def _transform_arrays(self, f):
         result = {}
+
+        def transform_val(val):
+            from pyopencl.algorithm import BuiltList
+            if isinstance(val, np.ndarray) and val.dtype == object:
+                from pytools.obj_array import with_object_array_or_scalar
+                return with_object_array_or_scalar(f, val)
+            elif isinstance(val, list):
+                return [transform_val(i) for i in val]
+            elif isinstance(val, BuiltList):
+                return BuiltList(
+                        count=val.count,
+                        starts=f(val.starts),
+                        lists=f(val.lists))
+            else:
+                return f(val)
+
         for field_name in self.__class__.fields:
             try:
                 attr = getattr(self, field_name)
             except AttributeError:
                 pass
             else:
-                if isinstance(attr, np.ndarray) and attr.dtype == object:
-                    from pytools.obj_array import with_object_array_or_scalar
-                    result[field_name] = with_object_array_or_scalar(f, attr)
-                else:
-                    result[field_name] = f(attr)
+                result[field_name] = transform_val(attr)
 
         return self.copy(**result)
 
