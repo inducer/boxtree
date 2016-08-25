@@ -776,12 +776,15 @@ class TreeBuilder(object):
                     srcntgt_box_ids, evt = renumber_array(srcntgt_box_ids)
                     resize_events.append(evt)
 
-                del my_realloc
                 del my_realloc_zeros
-                del my_realloc_zeros_and_renumber
                 del my_realloc_nocopy
                 del my_realloc_zeros_nocopy
                 del renumber_array
+
+                # Can't del on Py2.7 - these are used in generator expressions
+                # above, which are nested scopes
+                my_realloc = None
+                my_realloc_zeros_and_renumber = None
 
                 # retry
                 logger.info("nboxes_guess exceeded: "
