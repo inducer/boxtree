@@ -855,7 +855,7 @@ class TreeBuilder(object):
                 + box_centers)
 
             evt = knl_info.box_splitter_kernel(*box_splitter_args,
-                    range=range(level_start_box_nrs[-1]),
+                    range=slice(level_start_box_nrs[-1]),
                     wait_for=wait_for)
 
             wait_for = [evt]
@@ -892,7 +892,7 @@ class TreeBuilder(object):
                    new_user_srcntgt_ids, new_srcntgt_box_ids))
 
             evt = knl_info.particle_renumberer_kernel(*particle_renumberer_args,
-                    range=range(nsrcntgts), wait_for=wait_for)
+                    range=slice(nsrcntgts), wait_for=wait_for)
 
             wait_for = [evt]
 
