@@ -674,10 +674,7 @@ def test_area_query(ctx_getter, dims, do_plot=False):
     nparticles = 10**5
     dtype = np.float64
 
-    from boxtree.tools import make_surface_particle_array
-    particles = make_surface_particle_array(queue, nparticles, dims, dtype, seed=15)
-
-    #particles = make_normal_particle_array(queue, nparticles, dims, dtype)
+    particles = make_normal_particle_array(queue, nparticles, dims, dtype)
 
     if do_plot:
         import matplotlib.pyplot as pt
