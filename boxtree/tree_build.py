@@ -837,7 +837,8 @@ class TreeBuilder(object):
                             level_start:level_start + level_nboxes]).get())
                     assert leaf_count == nleaves_actual
 
-            del new_level_leaf_counts
+            # Can't del in Py2.7 - see note below
+            new_level_leaf_counts = None
 
             # }}}
 
