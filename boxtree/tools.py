@@ -44,15 +44,18 @@ def padded_bin(i, l):
     return s
 
 
-def realloc_array(ary, new_shape, zero_fill, queue, wait_for):
-    new_ary = cl.array.empty(queue, shape=new_shape, dtype=ary.dtype,
-            allocator=ary.allocator)
+# NOTE: Order of positional args should match GappyCopyAndMapKernel.__call__()
+def realloc_array(queue, allocator, new_shape, ary, zero_fill=False, wait_for=[]):
     if zero_fill:
-        new_ary.fill(0, wait_for=wait_for)
-        wait_for = new_ary.events
+        array_maker = cl.array.zeros
+    else:
+        array_maker = cl.array.empty
+
+    new_ary = array_maker(queue, shape=new_shape, dtype=ary.dtype,
+                          allocator=allocator)
 
     evt = cl.enqueue_copy(queue, new_ary.data, ary.data, byte_count=ary.nbytes,
-            wait_for=wait_for)
+                          wait_for=wait_for + new_ary.events)
 
     return new_ary, evt
 
@@ -341,14 +344,22 @@ GAPPY_COPY_TPL = Template(r"""//CL//
 
     typedef ${dtype_to_ctype(dtype)} value_t;
 
-    value_t val = input_ary[from_indices[i]];
+    %if from_indices:
+        value_t val = input_ary[from_indices[i]];
+    %else:
+        value_t val = input_ary[i];
+    %endif
 
     // Optionally, noodle values through a lookup table.
     %if map_values:
         val = value_map[val];
     %endif
 
-    output_ary[i] = val;
+    %if to_indices:
+        output_ary[to_indices[i]] = val;
+    %else:
+        output_ary[i] = val;
+    %endif
 
 """, strict_undefined=True)
 
@@ -358,14 +369,20 @@ class GappyCopyAndMapKernel:
         self.context = context
 
     @memoize_method
-    def _get_kernel(self, dtype, src_index_dtype, map_values=False):
+    def _get_kernel(self, dtype, src_index_dtype, dst_index_dtype,
+                    have_src_indices, have_dst_indices, map_values):
         from pyopencl.tools import VectorArg
 
         args = [
                 VectorArg(dtype, "input_ary", with_offset=True),
                 VectorArg(dtype, "output_ary", with_offset=True),
-                VectorArg(src_index_dtype, "from_indices", with_offset=True)
-                ]
+               ]
+
+        if have_src_indices:
+            args.append(VectorArg(src_index_dtype, "from_indices", with_offset=True))
+
+        if have_dst_indices:
+            args.append(VectorArg(dst_index_dtype, "to_indices", with_offset=True))
 
         if map_values:
             args.append(VectorArg(dtype, "value_map", with_offset=True))
@@ -374,34 +391,113 @@ class GappyCopyAndMapKernel:
         src = GAPPY_COPY_TPL.render(
                 dtype=dtype,
                 dtype_to_ctype=dtype_to_ctype,
+                from_dtype=src_index_dtype,
+                to_dtype=dst_index_dtype,
+                from_indices=have_src_indices,
+                to_indices=have_dst_indices,
                 map_values=map_values)
 
         from pyopencl.elementwise import ElementwiseKernel
         return ElementwiseKernel(self.context,
                 args, str(src), name="gappy_copy_and_map")
 
-    def __call__(self, queue, allocator, new_size,
-            src_indices, ary, map_values=None, wait_for=None):
+    # NOTE: Order of positional args should match realloc_array()
+    def __call__(self, queue, allocator, new_shape, ary, src_indices=None,
+                 dst_indices=None, map_values=None, zero_fill=False,
+                 wait_for=None, range=None, debug=False):
         """Compresses box info arrays after empty leaf pruning and, optionally,
         maps old box IDs to new box IDs (if the array being operated on contains
         box IDs).
         """
 
-        assert len(ary) >= new_size
+        have_src_indices = src_indices is not None
+        have_dst_indices = dst_indices is not None
+        have_map_values = map_values is not None
 
-        result = cl.array.empty(queue, new_size, ary.dtype, allocator=allocator)
+        if not (have_src_indices or have_dst_indices):
+            raise ValueError("must specify at least one of src or dest indices")
 
-        kernel = self._get_kernel(ary.dtype, src_indices.dtype,
-                # map_values:
-                map_values is not None)
+        if range is None:
+            if have_src_indices and have_dst_indices:
+                raise ValueError(
+                    "must supply range when passing both src and dest indices")
+            elif have_src_indices:
+                range = slice(src_indices.shape[0])
+                if debug:
+                    assert int(cl.array.max(src_indices).get()) < len(ary)
+            elif have_dst_indices:
+                range = slice(dst_indices.shape[0])
+                if debug:
+                    assert int(cl.array.max(dst_indices).get()) < new_shape
 
-        args = (ary, result, src_indices)
-        if map_values is not None:
-            args += (map_values,)
+        if zero_fill:
+            array_maker = cl.array.zeros
+        else:
+            array_maker = cl.array.empty
 
-        evt = kernel(*args, queue=queue, range=slice(new_size), wait_for=wait_for)
+        result = array_maker(queue, new_shape, ary.dtype, allocator=allocator)
+
+        kernel = self._get_kernel(ary.dtype,
+                                  src_indices.dtype if have_src_indices else None,
+                                  dst_indices.dtype if have_dst_indices else None,
+                                  have_src_indices,
+                                  have_dst_indices,
+                                  have_map_values)
+
+        args = (ary, result)
+        args += (src_indices,) if have_src_indices else ()
+        args += (dst_indices,) if have_dst_indices else ()
+        args += (map_values,) if have_map_values else ()
+
+        evt = kernel(*args, queue=queue, range=range, wait_for=wait_for)
 
         return result, evt
+
+# }}}
+
+
+# {{{ map values through table
+
+from pyopencl.elementwise import ElementwiseTemplate
+
+
+MAP_VALUES_TPL = ElementwiseTemplate(
+    arguments="""//CL//
+        dst_value_t *dst,
+        src_value_t *src,
+        dst_value_t *map_values
+        """,
+    operation=r"""//CL//
+        dst[i] = map_values[src[i]];
+        """,
+    name="map_values")
+
+
+class MapValuesKernel(object):
+
+    def __init__(self, context):
+        self.context = context
+
+    @memoize_method
+    def _get_kernel(self, dst_dtype, src_dtype):
+        type_aliases = (
+            ("src_value_t", src_dtype),
+            ("dst_value_t", dst_dtype)
+            )
+
+        return MAP_VALUES_TPL.build(self.context, type_aliases)
+
+    def __call__(self, map_values, src, dst=None):
+        """
+        Map the entries of the array `src` through the table `map_values`.
+        """
+        if dst is None:
+            dst = src
+
+        kernel = self._get_kernel(dst.dtype, src.dtype)
+        evt = kernel(dst, src, map_values)
+
+        return dst, evt
 
 # }}}
 

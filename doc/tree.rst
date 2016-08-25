@@ -3,6 +3,24 @@ Tree building
 
 .. currentmodule:: boxtree
 
+.. _tree-kinds:
+
+Supported tree kinds
+--------------------
+
+The following tree kinds are supported:
+
+- *Nonadaptive* trees have all leaves on the same (last) level.
+
+- *Adaptive* trees differ from nonadaptive trees in that they may have leaves on
+  more than one level. Adaptive trees have the option of being
+  *level-restricted*: in a level-restricted tree, neighboring leaves differ by
+  at most one level.
+
+All trees returned by the tree builder are pruned so that empty leaves have been
+removed. If a level-restricted tree is requested, the tree gets constructed in
+such a way that the version of the tree before pruning is also level-restricted.
+
 Tree data structure
 -------------------
 

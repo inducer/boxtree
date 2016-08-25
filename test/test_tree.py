@@ -329,7 +329,7 @@ def test_non_adaptive_particle_tree(ctx_getter, dtype, dims, do_plot=False):
     builder = TreeBuilder(ctx)
 
     run_build_test(builder, queue, dims, dtype, 10**4,
-            max_particles_in_box=30, do_plot=do_plot, non_adaptive=True)
+            max_particles_in_box=30, do_plot=do_plot, kind="non-adaptive")
 
 # }}}
 
@@ -655,8 +655,6 @@ def test_geometry_query(ctx_getter, dims, do_plot=False):
         near_circles, = np.where(linf_circle_dists - ball_radii < box_rad)
 
         start, end = lbl.balls_near_box_starts[ibox:ibox+2]
-        #print sorted(lbl.balls_near_box_lists[start:end])
-        #print sorted(near_circles)
         assert sorted(lbl.balls_near_box_lists[start:end]) == sorted(near_circles)
 
 # }}}
@@ -676,7 +674,10 @@ def test_area_query(ctx_getter, dims, do_plot=False):
     nparticles = 10**5
     dtype = np.float64
 
-    particles = make_normal_particle_array(queue, nparticles, dims, dtype)
+    from boxtree.tools import make_surface_particle_array
+    particles = make_surface_particle_array(queue, nparticles, dims, dtype, seed=15)
+
+    #particles = make_normal_particle_array(queue, nparticles, dims, dtype)
 
     if do_plot:
         import matplotlib.pyplot as pt
@@ -728,6 +729,85 @@ def test_area_query(ctx_getter, dims, do_plot=False):
         found = area_query.leaves_near_ball_lists[start:end]
         actual = near_leaves
         assert sorted(found) == sorted(actual)
+
+# }}}
+
+
+# {{{ level restriction test
+
+@pytest.mark.opencl
+@pytest.mark.parametrize("lookbehind", [0, 1])
+@pytest.mark.parametrize("skip_prune", [True, False])
+@pytest.mark.parametrize("dims", [2, 3])
+def test_level_restriction(ctx_getter, dims, skip_prune, lookbehind, do_plot=False):
+    ctx = ctx_getter()
+    queue = cl.CommandQueue(ctx)
+
+    nparticles = 10**5
+    dtype = np.float64
+
+    from boxtree.tools import make_surface_particle_array
+    particles = make_surface_particle_array(queue, nparticles, dims, dtype, seed=15)
+
+    if do_plot:
+        import matplotlib.pyplot as pt
+        pt.plot(particles[0].get(), particles[1].get(), "x")
+
+    from boxtree import TreeBuilder
+    tb = TreeBuilder(ctx)
+
+    queue.finish()
+    tree_dev, _ = tb(queue, particles, kind="adaptive-level-restricted",
+                     max_particles_in_box=30, debug=True,
+                     skip_prune=skip_prune, lr_lookbehind=lookbehind)
+
+    def find_neighbors(leaf_box_centers, leaf_box_radii):
+        # We use an area query with a ball that is slightly larger than
+        # the size of a leaf box to find the neighboring leaves.
+        #
+        # Note that since this comes from an area query, the self box will be
+        # included in the neighbor list.
+        from boxtree.area_query import AreaQueryBuilder
+        aqb = AreaQueryBuilder(ctx)
+
+        ball_radii = cl.array.to_device(queue,
+            np.min(leaf_box_radii) / 2 + leaf_box_radii)
+        leaf_box_centers = [
+            cl.array.to_device(queue, axis) for axis in leaf_box_centers]
+
+        area_query, _ = aqb(queue, tree_dev, leaf_box_centers, ball_radii)
+        area_query = area_query.get(queue=queue)
+        return (area_query.leaves_near_ball_starts,
+                area_query.leaves_near_ball_lists)
+
+    # Get data to host for test.
+    tree = tree_dev.get(queue=queue)
+
+    # Find leaf boxes.
+    from boxtree import box_flags_enum
+    leaf_boxes = np.array([ibox for ibox in range(tree.nboxes)
+        if not (tree.box_flags[ibox] & box_flags_enum.HAS_CHILDREN)])
+
+    leaf_box_radii = np.empty(len(leaf_boxes))
+    leaf_box_centers = np.empty((dims, len(leaf_boxes)))
+
+    for idx, leaf_box in enumerate(leaf_boxes):
+        box_center = tree.box_centers[:, leaf_box]
+        ext_l, ext_h = tree.get_box_extent(leaf_box)
+        leaf_box_radii[idx] = np.max(ext_h - ext_l) * 0.5
+        leaf_box_centers[:, idx] = box_center
+
+    neighbor_starts, neighbor_and_self_lists = find_neighbors(
+        leaf_box_centers, leaf_box_radii)
+
+    # Check level restriction.
+    for leaf_idx, leaf in enumerate(leaf_boxes):
+        neighbors = neighbor_and_self_lists[
+            neighbor_starts[leaf_idx]:neighbor_starts[leaf_idx+1]]
+        neighbor_levels = np.array(tree.box_levels[neighbors], dtype=int)
+        leaf_level = int(tree.box_levels[leaf])
+        assert (np.abs(neighbor_levels - leaf_level) <= 1).all(), \
+                (neighbor_levels, leaf_level)
 
 # }}}
 

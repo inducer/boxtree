@@ -36,36 +36,7 @@ logger = logging.getLogger(__name__)
 
 # {{{ preamble
 
-TRAVERSAL_PREAMBLE_TEMPLATE = r"""//CL//
-${box_flags_enum.get_c_defines()}
-${box_flags_enum.get_c_typedef()}
-
-typedef ${dtype_to_ctype(box_id_dtype)} box_id_t;
-%if particle_id_dtype is not None:
-    typedef ${dtype_to_ctype(particle_id_dtype)} particle_id_t;
-%endif
-typedef ${dtype_to_ctype(coord_dtype)} coord_t;
-typedef ${dtype_to_ctype(vec_types[coord_dtype, dimensions])} coord_vec_t;
-
-#define NLEVELS ${max_levels}
-#define STICK_OUT_FACTOR ((coord_t) ${stick_out_factor})
-
-<%def name="load_center(name, box_id)">
-    coord_vec_t ${name};
-    %for i in range(dimensions):
-        ${name}.${AXIS_NAMES[i]} = box_centers[aligned_nboxes * ${i} + ${box_id}];
-    %endfor
-</%def>
-
-#define LEVEL_TO_RAD(level) \
-        (root_extent * 1 / (coord_t) (1 << (level + 1)))
-
-%if 0:
-    #define dbg_printf(ARGS) printf ARGS
-%else:
-    #define dbg_printf(ARGS) /* */
-%endif
-
+TRAVERSAL_PREAMBLE_MAKO_DEFS = r"""//CL:mako//
 <%def name="walk_init(start_box_id)">
     box_id_t box_stack[NLEVELS];
     int morton_nr_stack[NLEVELS];
@@ -127,6 +98,13 @@ typedef ${dtype_to_ctype(vec_types[coord_dtype, dimensions])} coord_vec_t;
     walk_morton_nr = 0;
 </%def>
 
+<%def name="load_center(name, box_id)">
+    coord_vec_t ${name};
+    %for i in range(dimensions):
+        ${name}.${AXIS_NAMES[i]} = box_centers[aligned_nboxes * ${i} + ${box_id}];
+    %endfor
+</%def>
+
 <%def name="check_l_infty_ball_overlap(
         is_overlapping, box_id, ball_radius, ball_center)">
     {
@@ -144,8 +122,37 @@ typedef ${dtype_to_ctype(vec_types[coord_dtype, dimensions])} coord_vec_t;
         ${is_overlapping} = max_dist <= size_sum;
     }
 </%def>
-
 """
+
+
+TRAVERSAL_PREAMBLE_TYPEDEFS_AND_DEFINES = r"""//CL//
+${box_flags_enum.get_c_defines()}
+${box_flags_enum.get_c_typedef()}
+
+typedef ${dtype_to_ctype(box_id_dtype)} box_id_t;
+%if particle_id_dtype is not None:
+    typedef ${dtype_to_ctype(particle_id_dtype)} particle_id_t;
+%endif
+typedef ${dtype_to_ctype(coord_dtype)} coord_t;
+typedef ${dtype_to_ctype(vec_types[coord_dtype, dimensions])} coord_vec_t;
+
+#define NLEVELS ${max_levels}
+#define STICK_OUT_FACTOR ((coord_t) ${stick_out_factor})
+
+#define LEVEL_TO_RAD(level) \
+        (root_extent * 1 / (coord_t) (1 << (level + 1)))
+
+%if 0:
+    #define dbg_printf(ARGS) printf ARGS
+%else:
+    #define dbg_printf(ARGS) /* */
+%endif
+"""
+
+
+TRAVERSAL_PREAMBLE_TEMPLATE = (
+    TRAVERSAL_PREAMBLE_MAKO_DEFS +
+    TRAVERSAL_PREAMBLE_TYPEDEFS_AND_DEFINES)
 
 # }}}
 
