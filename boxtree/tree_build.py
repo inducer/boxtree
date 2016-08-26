@@ -597,7 +597,7 @@ class TreeBuilder(object):
             # 1. Compute the minimal necessary size of each level.
             # 2. If level restricting, add padding to the lower level.
             # 3. Check if there is enough existing space for each level.
-            # 4. If any does not have space, reallocate all levels:
+            # 4. If any level does not have space, reallocate all levels:
             #    4a. Compute new sizes of upper levels
             #    4b. If level restricting, add padding to all levels.
 
