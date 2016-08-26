@@ -628,8 +628,11 @@ class TreeBuilder(object):
 
             # {{{ prepare for reallocation/renumbering
 
-            if (knl_info.level_restrict and (nboxes_guess < nboxes_minimal)) \
-                    or needs_renumbering:
+            if needs_renumbering:
+                assert knl_info.level_restrict
+
+                # {{{ compute new level_start_box_nrs
+
                 # Represents the amount of padding needed for upper levels.
                 upper_level_padding = np.zeros(level, dtype=int)
 
@@ -650,6 +653,12 @@ class TreeBuilder(object):
                 new_level_start_box_nrs[1:] = np.cumsum(
                     new_level_used_box_counts[:-1]
                     + new_upper_level_unused_box_counts)
+
+                assert not (level_start_box_nrs == new_level_start_box_nrs).all()
+
+                # }}}
+
+                # {{{ set up reallocators
 
                 old_box_count = level_start_box_nrs[-1]
                 # Where should I put this box?
@@ -675,6 +684,8 @@ class TreeBuilder(object):
                         range=slice(old_box_count), debug=debug)
                 renumber_array = partial(self.map_values_kernel, dst_box_id)
 
+                # }}}
+
                 # Update level_start_box_nrs. This will be the
                 # level_start_box_nrs for the reallocated data.
 
@@ -684,9 +695,7 @@ class TreeBuilder(object):
                 level_start_box_nrs_updated = True
                 wait_for.extend(level_start_box_nrs_dev.events)
 
-                nboxes_new = (
-                    level_start_box_nrs[-1]
-                    + minimal_new_level_length)
+                nboxes_new = level_start_box_nrs[-1] + minimal_new_level_length
 
                 del new_level_start_box_nrs
             else:
