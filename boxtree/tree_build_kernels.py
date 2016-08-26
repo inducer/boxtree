@@ -1540,7 +1540,7 @@ def get_tree_build_kernel_info(context, dimensions, coord_dtype,
             VectorArg(box_id_dtype, "level_box_counts"),  # [nlevels]
             ],
         input_expr="1",
-        is_segment_start_expr="i + 1 == N || box_levels[i] != box_levels[i + 1]",
+        is_segment_start_expr="i == 0 || box_levels[i] != box_levels[i - 1]",
         scan_expr="across_seg_boundary ? b : a + b",
         neutral="0",
         output_statement=r"""//CL//
