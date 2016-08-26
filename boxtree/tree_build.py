@@ -668,10 +668,11 @@ class TreeBuilder(object):
                 wait_for.extend(dst_box_id.events)
 
                 realloc_array = partial(self.gappy_copy_and_map,
-                        dst_indices=dst_box_id, range=slice(old_box_count))
+                        dst_indices=dst_box_id, range=slice(old_box_count),
+                        debug=debug)
                 realloc_and_renumber_array = partial(self.gappy_copy_and_map,
                         dst_indices=dst_box_id, map_values=dst_box_id,
-                        range=slice(old_box_count))
+                        range=slice(old_box_count), debug=debug)
                 renumber_array = partial(self.map_values_kernel, dst_box_id)
 
                 # Update level_start_box_nrs. This will be the
@@ -1118,7 +1119,7 @@ class TreeBuilder(object):
             prune_empty = partial(self.gappy_copy_and_map,
                     queue, allocator, nboxes_post_prune,
                     src_indices=src_box_id,
-                    range=slice(nboxes_post_prune))
+                    range=slice(nboxes_post_prune), debug=debug)
 
             box_srcntgt_starts, evt = prune_empty(box_srcntgt_starts)
             prune_events.append(evt)
