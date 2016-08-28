@@ -702,9 +702,7 @@ def test_area_query(ctx_getter, dims, do_plot=False):
     ball_radii = ball_radii.get()
 
     from boxtree import box_flags_enum
-
-    leaf_boxes = np.array([ibox for ibox in range(tree.nboxes)
-        if tree.box_flags[ibox] & ~box_flags_enum.HAS_CHILDREN])
+    leaf_boxes, = (tree.box_flags & box_flags_enum.HAS_CHILDREN == 0).nonzero()
 
     leaf_box_radii = np.empty(len(leaf_boxes))
     leaf_box_centers = np.empty((len(leaf_boxes), dims))
@@ -782,8 +780,7 @@ def test_level_restriction(ctx_getter, dims, skip_prune, lookbehind, do_plot=Fal
 
     # Find leaf boxes.
     from boxtree import box_flags_enum
-    leaf_boxes = np.array([ibox for ibox in range(tree.nboxes)
-        if not (tree.box_flags[ibox] & box_flags_enum.HAS_CHILDREN)])
+    leaf_boxes, = (tree.box_flags & box_flags_enum.HAS_CHILDREN == 0).nonzero()
 
     leaf_box_radii = np.empty(len(leaf_boxes))
     leaf_box_centers = np.empty((dims, len(leaf_boxes)))

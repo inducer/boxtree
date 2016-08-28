@@ -464,7 +464,9 @@ SPLIT_BOX_ID_SCAN_TPL = ScanTemplate(
             __global morton_counts_t *box_morton_bin_counts,
             __global box_id_t *level_start_box_ids,
             __global box_id_t *level_used_box_counts,
-            __global int *box_force_split,
+            %if level_restrict:
+                __global int *box_force_split,
+            %endif
             __global int *have_oversize_split_box, // output/side effect
             __global int *box_has_children // output/side effect
             )
@@ -509,8 +511,11 @@ SPLIT_BOX_ID_SCAN_TPL = ScanTemplate(
                     box_srcntgt_counts_cumul[box_id] - nonchild_srcntgts_in_box
                         >= 0
                 %endif
-                ) ||
-                box_force_split[box_id])
+                )
+                %if level_restrict:
+                    || box_force_split[box_id]
+                %endif
+                )
             {
                 result += ${2**dimensions};
                 box_has_children[box_id] = 1;
@@ -531,12 +536,21 @@ SPLIT_BOX_ID_SCAN_TPL = ScanTemplate(
             return result;
         }
         """,
-    input_expr="""count_new_boxes_needed(
-            i, box_levels[i], last_level, max_leaf_refine_weight,
-            box_srcntgt_counts_cumul, box_morton_bin_counts,
-            level_start_box_ids, level_used_box_counts,
-            box_force_split, have_oversize_split_box,
-            box_has_children
+    input_expr=r"""//CL:mako//
+            count_new_boxes_needed(
+                i,
+                box_levels[i],
+                last_level,
+                max_leaf_refine_weight,
+                box_srcntgt_counts_cumul,
+                box_morton_bin_counts,
+                level_start_box_ids,
+                level_used_box_counts,
+                %if level_restrict:
+                    box_force_split,
+                %endif
+                have_oversize_split_box,
+                box_has_children
             )""",
     scan_expr="across_seg_boundary ? b : a + b",
     neutral="0",
@@ -556,8 +570,11 @@ BOX_SPLITTER_KERNEL_TPL = Template(r"""//CL//
     box_id_t ibox = i;
 
     bool do_split_box =
-       (box_has_children[ibox] && box_levels[ibox] + 1 == level) ||
-       box_force_split[ibox];
+       (box_has_children[ibox] && box_levels[ibox] + 1 == level)
+       %if level_restrict:
+           || box_force_split[ibox]
+       %endif
+       ;
 
     if (!do_split_box)
     {
@@ -654,8 +671,11 @@ PARTICLE_RENUMBERER_KERNEL_TPL = Template(r"""//CL//
     dbg_printf(("postproc %d:\n", i));
     dbg_printf(("   my box id: %d\n", ibox));
 
-    bool do_split_box = (box_has_children[ibox] && box_levels[ibox] + 1 == level) ||
-        box_force_split[ibox];
+    bool do_split_box = (box_has_children[ibox] && box_levels[ibox] + 1 == level)
+       %if level_restrict:
+           || box_force_split[ibox]
+       %endif
+       ;
 
     if (!do_split_box)
     {
@@ -821,7 +841,7 @@ LEVEL_RESTRICT_TPL = Template(
 """, strict_undefined=True)
 
 
-def build_level_restrict_kernel(context, generic_preamble,
+def build_level_restrict_kernel(context, preamble_with_dtype_decls,
             dimensions, axis_names, box_id_dtype, coord_dtype,
             box_level_dtype, max_levels):
     from pyopencl.tools import VectorArg, ScalarArg
@@ -866,7 +886,7 @@ def build_level_restrict_kernel(context, generic_preamble,
             operation=LEVEL_RESTRICT_TPL.render(**render_vars),
             name="level_restrict",
             preamble=(
-                str(generic_preamble) +
+                str(preamble_with_dtype_decls) +
                 Template(r"""
                     #define LEVEL_TO_RAD(level) \
                         (root_extent * 1 / (coord_t) (1 << (level + 1)))
@@ -1272,6 +1292,7 @@ def get_tree_build_kernel_info(context, dimensions, coord_dtype,
             box_flags_enum=box_flags_enum,
 
             adaptive=adaptive,
+            level_restrict=level_restrict,
 
             sources_are_targets=sources_are_targets,
             srcntgts_have_extent=srcntgts_have_extent,
@@ -1397,6 +1418,7 @@ def get_tree_build_kernel_info(context, dimensions, coord_dtype,
                 ("srcntgts_have_extent", srcntgts_have_extent),
                 ("adaptive", adaptive),
                 ("padded_bin", padded_bin),
+                ("level_restrict", level_restrict),
                 ),
             more_preamble=generic_preamble)
 

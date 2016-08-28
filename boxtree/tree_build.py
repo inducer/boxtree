@@ -411,13 +411,15 @@ class TreeBuilder(object):
         box_srcntgt_counts_cumul[0].fill(
                 nsrcntgts, queue=queue, wait_for=[evt])
 
-        # box -> whether the box has a child. FIXME: use bools
+        # box -> whether the box has a child. FIXME: use smaller integer type
         box_has_children, evt = zeros(nboxes_guess, dtype=np.dtype(np.int32))
         prep_events.append(evt)
 
         # box -> whether the box needs a splitting to enforce level restriction.
         # FIXME: use bools
-        force_split_box, evt = zeros(nboxes_guess, dtype=np.dtype(np.int32))
+        force_split_box, evt = zeros(nboxes_guess
+                                     if knl_info.level_restrict
+                                     else 0, dtype=np.dtype(np.int32))
         prep_events.append(evt)
 
         # set parent of root box to itself
@@ -447,6 +449,8 @@ class TreeBuilder(object):
         have_oversize_split_box, evt = zeros((), np.int32)
         prep_events.append(evt)
 
+        # True if and only if the level restrict kernel found a box to split in
+        # order to enforce level restriction.
         have_upper_level_split_box, evt = zeros((), np.int32)
         prep_events.append(evt)
 
@@ -459,8 +463,8 @@ class TreeBuilder(object):
         # Level 0 starts at 0 and always contains box 0 and nothing else.
         # Level 1 therefore starts at 1.
         level_start_box_nrs = [0, 1]
-        level_start_box_nrs_dev[0].fill(0)
-        level_start_box_nrs_dev[1].fill(1)
+        level_start_box_nrs_dev[0] = 0
+        level_start_box_nrs_dev[1] = 1
         wait_for.extend(level_start_box_nrs_dev.events)
 
         # This counts the number of boxes that have been used per level. Note
@@ -469,7 +473,7 @@ class TreeBuilder(object):
         # are pre-allocated for a level than used since we may decide to split
         # parent level boxes later).
         level_used_box_counts = [1]
-        level_used_box_counts_dev[0].fill(1)
+        level_used_box_counts_dev[0] = 1
         wait_for.extend(level_used_box_counts_dev.events)
 
         # level -> number of leaf boxes on level. Initially the root node is a
@@ -511,8 +515,6 @@ class TreeBuilder(object):
 
             if level > np.iinfo(self.box_level_dtype).max:
                 raise RuntimeError("level count exceeded maximum")
-
-            cl.wait_for_events(wait_for)
 
             common_args = ((morton_bin_counts, morton_nrs,
                     box_start_flags,
@@ -573,17 +575,18 @@ class TreeBuilder(object):
                     int(split_box_ids[last_box_on_prev_level].get())
                     - level_start_box_id)
 
-            new_level_leaf_counts = np.empty(level + 1, dtype=int)
             # New leaf count =
             #   old leaf count
             #   + nr. new boxes from splitting parent's leaves
             #   - nr. new boxes from splitting current level's leaves / 2**d
             level_used_box_counts_diff = (new_level_used_box_counts
                     - np.append(level_used_box_counts, [0]))
-            new_level_leaf_counts[:-1] = (level_leaf_counts
+            new_level_leaf_counts = (level_leaf_counts
                     + level_used_box_counts_diff[:-1]
                     - level_used_box_counts_diff[1:] // 2 ** dimensions)
-            new_level_leaf_counts[-1] = level_used_box_counts_diff[-1]
+            new_level_leaf_counts = np.append(
+                    new_level_leaf_counts,
+                    [level_used_box_counts_diff[-1]])
             del level_used_box_counts_diff
 
             # }}}
@@ -594,10 +597,11 @@ class TreeBuilder(object):
             # procedure.
 
             # The algorithm for deciding on level sizes is as follows:
-            # 1. Compute the minimal necessary size of each level.
-            # 2. If level restricting, add padding to the lower level.
+            # 1. Compute the minimal necessary size of each level, including the
+            #    new level being created.
+            # 2. If level restricting, add padding to the new level being created.
             # 3. Check if there is enough existing space for each level.
-            # 4. If any level does not have space, reallocate all levels:
+            # 4. If any level does not have sufficient space, reallocate all levels:
             #    4a. Compute new sizes of upper levels
             #    4b. If level restricting, add padding to all levels.
 
@@ -746,8 +750,9 @@ class TreeBuilder(object):
                         box_morton_bin_counts)
                 resize_events.append(evt)
 
-                force_split_box, evt = my_realloc_zeros(force_split_box)
-                resize_events.append(evt)
+                if force_split_box:
+                    force_split_box, evt = my_realloc_zeros(force_split_box)
+                    resize_events.append(evt)
 
                 box_srcntgt_starts, evt = my_realloc_zeros(box_srcntgt_starts)
                 resize_events.append(evt)
@@ -852,7 +857,6 @@ class TreeBuilder(object):
 
             # }}}
 
-            # XXX
             del nboxes_new
             del new_level_used_box_counts
 
@@ -944,6 +948,7 @@ class TreeBuilder(object):
 
                 # Upward pass - check if leaf boxes at higher levels need
                 # further splitting.
+                assert len(force_split_box) > 0
                 force_split_box.fill(0)
                 wait_for.extend(force_split_box.events)
 
@@ -953,9 +958,10 @@ class TreeBuilder(object):
                     boxes_split = []
 
                 for upper_level, upper_level_start, upper_level_box_count in zip(
-                        # After the new level has been created, only only boxes
-                        # at (level - 2) or above need to be rechecked for
-                        # splitting.
+                        # We just built level. Our parent level doesn't need to
+                        # be rechecked for splitting because the smallest boxes
+                        # in the tree (ours) already have a 2-to-1 ratio with
+                        # that. Start checking at the level above our parent.
                         range(level - 2, 0, -1),
                         # At this point, the last entry in level_start_box_nrs
                         # already refers to (level + 1).
