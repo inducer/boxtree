@@ -416,7 +416,7 @@ class TreeBuilder(object):
         prep_events.append(evt)
 
         # box -> whether the box needs a splitting to enforce level restriction.
-        # FIXME: use bools
+        # FIXME: use smaller integer type
         force_split_box, evt = zeros(nboxes_guess
                                      if knl_info.level_restrict
                                      else 0, dtype=np.dtype(np.int32))
