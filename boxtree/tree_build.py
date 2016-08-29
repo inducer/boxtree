@@ -750,7 +750,8 @@ class TreeBuilder(object):
                         box_morton_bin_counts)
                 resize_events.append(evt)
 
-                if force_split_box:
+                # force_split_box is unused unless level restriction is enabled.
+                if knl_info.level_restrict:
                     force_split_box, evt = my_realloc_zeros(force_split_box)
                     resize_events.append(evt)
 
