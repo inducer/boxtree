@@ -50,8 +50,9 @@ class TreeBuilder(object):
         # This is used to map box IDs and compress box lists in empty leaf
         # pruning.
 
-        from boxtree.tools import GappyCopyAndMapKernel
+        from boxtree.tools import GappyCopyAndMapKernel, MapValuesKernel
         self.gappy_copy_and_map = GappyCopyAndMapKernel(self.context)
+        self.map_values_kernel = MapValuesKernel(self.context)
 
     morton_nr_dtype = np.dtype(np.int8)
     box_level_dtype = np.dtype(np.uint8)
@@ -60,26 +61,34 @@ class TreeBuilder(object):
     def get_kernel_info(self, dimensions, coord_dtype,
             particle_id_dtype, box_id_dtype,
             sources_are_targets, srcntgts_have_extent,
-            stick_out_factor, adaptive):
+            stick_out_factor, kind):
 
         from boxtree.tree_build_kernels import get_tree_build_kernel_info
         return get_tree_build_kernel_info(self.context, dimensions, coord_dtype,
             particle_id_dtype, box_id_dtype,
             sources_are_targets, srcntgts_have_extent,
             stick_out_factor, self.morton_nr_dtype, self.box_level_dtype,
-            adaptive=adaptive)
+            kind=kind)
 
     # {{{ run control
 
-    def __call__(self, queue, particles, max_particles_in_box=None,
-            allocator=None, debug=False, targets=None,
-            source_radii=None, target_radii=None, stick_out_factor=0.25,
-            refine_weights=None, max_leaf_refine_weight=None,
-            wait_for=None, non_adaptive=False,
-            **kwargs):
+    def __call__(self, queue, particles, kind="adaptive",
+            max_particles_in_box=None, allocator=None, debug=False,
+            targets=None, source_radii=None, target_radii=None,
+            stick_out_factor=0.25, refine_weights=None,
+            max_leaf_refine_weight=None, wait_for=None, **kwargs):
         """
         :arg queue: a :class:`pyopencl.CommandQueue` instance
         :arg particles: an object array of (XYZ) point coordinate arrays.
+        :arg kind: One of the following strings:
+
+            - 'adaptive'
+            - 'adaptive-level-restricted'
+            - 'non-adaptive'
+
+            'adaptive' requests an adaptive tree without level restriction.  See
+            :ref:`tree-kinds` for further explanation.
+
         :arg targets: an object array of (XYZ) point coordinate arrays or ``None``.
             If ``None``, *particles* act as targets, too.
             Must have the same (inner) dtype as *particles*.
@@ -104,9 +113,6 @@ class TreeBuilder(object):
         :arg wait_for: may either be *None* or a list of :class:`pyopencl.Event`
             instances for whose completion this command waits before starting
             execution.
-        :arg non_adaptive: If *True*, return a tree in which all leaf boxes are
-            on the same (last) level. The tree is pruned, in the sense that empty
-            boxes have been eliminated.
         :arg kwargs: Used internally for debugging.
 
         :returns: a tuple ``(tree, event)``, where *tree* is an instance of
@@ -115,6 +121,9 @@ class TreeBuilder(object):
         """
 
         # {{{ input processing
+
+        if kind not in ["adaptive", "adaptive-level-restricted", "non-adaptive"]:
+            raise ValueError("unknown tree kind \"{0}\"".format(kind))
 
         # we'll modify this below, so copy it
         if wait_for is None:
@@ -169,15 +178,14 @@ class TreeBuilder(object):
         empty = partial(cl.array.empty, queue, allocator=allocator)
 
         def zeros(shape, dtype):
-            result = (cl.array.empty(queue, shape, dtype, allocator=allocator)
-                    .fill(0, wait_for=wait_for))
+            result = cl.array.zeros(queue, shape, dtype, allocator=allocator)
             event, = result.events
             return result, event
 
         knl_info = self.get_kernel_info(dimensions, coord_dtype,
                 particle_id_dtype, box_id_dtype,
                 sources_are_targets, srcntgts_have_extent,
-                stick_out_factor, adaptive=not non_adaptive)
+                stick_out_factor, kind=kind)
 
         # {{{ combine sources and targets into one array, if necessary
 
@@ -315,8 +323,6 @@ class TreeBuilder(object):
 
         # }}}
 
-        from pytools import div_ceil
-
         # {{{ allocate data
 
         logger.debug("allocating memory")
@@ -337,16 +343,6 @@ class TreeBuilder(object):
         prep_events.append(evt)
         srcntgt_box_ids, evt = zeros(nsrcntgts, dtype=box_id_dtype)
         prep_events.append(evt)
-        split_box_ids, evt = zeros(nsrcntgts, dtype=box_id_dtype)
-        prep_events.append(evt)
-
-        # number of boxes total, and a guess
-        nboxes_dev = empty((), dtype=box_id_dtype)
-        nboxes_dev.fill(1)
-
-        # /!\ If you're allocating an array here that depends on nboxes_guess,
-        # you *must* also write reallocation code down below for the case when
-        # nboxes_guess was too low.
 
         # Outside nboxes_guess feeding is solely for debugging purposes,
         # to test the reallocation code.
@@ -358,9 +354,26 @@ class TreeBuilder(object):
 
         assert nboxes_guess > 0
 
+        # /!\ IMPORTANT
+        #
+        # If you're allocating an array here that depends on nboxes_guess, or if
+        # your array contains box numbers, you have to write code for the
+        # following down below as well:
+        #
+        # * You *must* write reallocation code to handle box renumbering and
+        #   reallocation triggered at the top of the level loop.
+        #
+        # * If your array persists after the level loop, you *must* write code
+        #   to handle box renumbering and reallocation triggered by the box
+        #   pruning step.
+
+        split_box_ids, evt = zeros(nboxes_guess, dtype=box_id_dtype)
+        prep_events.append(evt)
+
         # per-box morton bin counts
-        box_morton_bin_counts = empty(nboxes_guess,
-                dtype=knl_info.morton_bin_count_dtype)
+        box_morton_bin_counts, evt = zeros(nboxes_guess,
+                                      dtype=knl_info.morton_bin_count_dtype)
+        prep_events.append(evt)
 
         # particle# at which each box starts
         box_srcntgt_starts, evt = zeros(nboxes_guess, dtype=particle_id_dtype)
@@ -370,9 +383,20 @@ class TreeBuilder(object):
         box_parent_ids, evt = zeros(nboxes_guess, dtype=box_id_dtype)
         prep_events.append(evt)
 
-        # morton nr identifier {quadr,oct}ant of parent in which this box was created
-        box_morton_nrs, evt = zeros(nboxes_guess, dtype=self.morton_nr_dtype)
-        prep_events.append(evt)
+        # pointer to child box, by morton number
+        box_child_ids, evts = zip(
+            *(zeros(nboxes_guess, dtype=box_id_dtype) for d in range(2**dimensions)))
+        prep_events.extend(evts)
+
+        # box centers, by dimension
+        box_centers, evts = zip(
+            *(zeros(nboxes_guess, dtype=coord_dtype) for d in range(dimensions)))
+        prep_events.extend(evts)
+
+        # Initialize box_centers[0] to contain the root box's center
+        for d, (ax, evt) in enumerate(zip(axis_names, evts)):
+            center_ax = bbox["min_"+ax] + (bbox["max_"+ax] - bbox["min_"+ax]) / 2
+            box_centers[d][0].fill(center_ax, wait_for=[evt])
 
         # box -> level map
         box_levels, evt = zeros(nboxes_guess, self.box_level_dtype)
@@ -387,13 +411,30 @@ class TreeBuilder(object):
         box_srcntgt_counts_cumul[0].fill(
                 nsrcntgts, queue=queue, wait_for=[evt])
 
-        # box -> whether the box has a child
+        # box -> whether the box has a child. FIXME: use smaller integer type
         box_has_children, evt = zeros(nboxes_guess, dtype=np.dtype(np.int32))
+        prep_events.append(evt)
+
+        # box -> whether the box needs a splitting to enforce level restriction.
+        # FIXME: use smaller integer type
+        force_split_box, evt = zeros(nboxes_guess
+                                     if knl_info.level_restrict
+                                     else 0, dtype=np.dtype(np.int32))
         prep_events.append(evt)
 
         # set parent of root box to itself
         evt = cl.enqueue_copy(
                 queue, box_parent_ids.data, np.zeros((), dtype=box_parent_ids.dtype))
+        prep_events.append(evt)
+
+        nlevels_max = np.iinfo(self.box_level_dtype).max
+
+        # level -> starting box on level
+        level_start_box_nrs_dev, evt = zeros(nlevels_max, dtype=box_id_dtype)
+        prep_events.append(evt)
+
+        # level -> number of used boxes on level
+        level_used_box_counts_dev, evt = zeros(nlevels_max, dtype=box_id_dtype)
         prep_events.append(evt)
 
         # }}}
@@ -408,13 +449,36 @@ class TreeBuilder(object):
         have_oversize_split_box, evt = zeros((), np.int32)
         prep_events.append(evt)
 
+        # True if and only if the level restrict kernel found a box to split in
+        # order to enforce level restriction.
+        have_upper_level_split_box, evt = zeros((), np.int32)
+        prep_events.append(evt)
+
         wait_for = prep_events
+
+        from pytools import div_ceil
 
         # {{{ level loop
 
         # Level 0 starts at 0 and always contains box 0 and nothing else.
         # Level 1 therefore starts at 1.
         level_start_box_nrs = [0, 1]
+        level_start_box_nrs_dev[0] = 0
+        level_start_box_nrs_dev[1] = 1
+        wait_for.extend(level_start_box_nrs_dev.events)
+
+        # This counts the number of boxes that have been used per level. Note
+        # that this could be fewer than the actual number of boxes allocated to
+        # the level (in the case of building a level restricted tree, more boxes
+        # are pre-allocated for a level than used since we may decide to split
+        # parent level boxes later).
+        level_used_box_counts = [1]
+        level_used_box_counts_dev[0] = 1
+        wait_for.extend(level_used_box_counts_dev.events)
+
+        # level -> number of leaf boxes on level. Initially the root node is a
+        # leaf.
+        level_leaf_counts = np.array([1])
 
         from time import time
         start_time = time()
@@ -428,6 +492,8 @@ class TreeBuilder(object):
         # - level is the level being built.
         # - the last entry of level_start_box_nrs is the beginning of the level
         #   to be built
+        # - the last entry of level_used_box_counts is the number of boxes that
+        #   are used (not just allocated) at the previous level
 
         # This while condition prevents entering the loop in case there's just a
         # single box, by how 'level' is set above. Read this as 'while True' with
@@ -435,22 +501,29 @@ class TreeBuilder(object):
 
         logger.debug("entering level loop with %s srcntgts" % nsrcntgts)
 
+        # When doing level restriction, the level loop may need to be entered
+        # one more time after creating all the levels (see fixme note below
+        # regarding this). This flag is set to True when that happens.
+        final_level_restrict_iteration = False
+
         while level:
             if debug:
                 # More invariants:
                 assert level == len(level_start_box_nrs) - 1
+                assert level == len(level_used_box_counts)
+                assert level == len(level_leaf_counts)
 
             if level > np.iinfo(self.box_level_dtype).max:
                 raise RuntimeError("level count exceeded maximum")
 
             common_args = ((morton_bin_counts, morton_nrs,
-                    box_start_flags, srcntgt_box_ids, split_box_ids,
+                    box_start_flags,
+                    srcntgt_box_ids, split_box_ids,
                     box_morton_bin_counts,
                     refine_weights,
                     max_leaf_refine_weight,
                     box_srcntgt_starts, box_srcntgt_counts_cumul,
-                    box_parent_ids, box_morton_nrs,
-                    nboxes_dev,
+                    box_parent_ids, box_levels,
                     level, bbox,
                     user_srcntgt_ids)
                     + tuple(srcntgts)
@@ -459,7 +532,7 @@ class TreeBuilder(object):
 
             fin_debug("morton count scan")
 
-            # writes: box_morton_bin_counts, morton_nrs
+            # writes: box_morton_bin_counts
             evt = knl_info.morton_count_scan(
                     *common_args, queue=queue, size=nsrcntgts,
                     wait_for=wait_for)
@@ -467,77 +540,271 @@ class TreeBuilder(object):
 
             fin_debug("split box id scan")
 
-            # writes: nboxes_dev, split_box_ids
+            # writes: box_has_children, split_box_ids
             evt = knl_info.split_box_id_scan(
                     srcntgt_box_ids,
-                    box_srcntgt_starts,
                     box_srcntgt_counts_cumul,
                     box_morton_bin_counts,
                     refine_weights,
                     max_leaf_refine_weight,
                     box_levels,
+                    level_start_box_nrs_dev,
+                    level_used_box_counts_dev,
+                    force_split_box,
                     level,
-
-                    # input/output:
-                    nboxes_dev,
 
                     # output:
                     box_has_children,
                     split_box_ids,
-                    queue=queue, size=nsrcntgts, wait_for=wait_for)
+                    have_oversize_split_box,
+
+                    queue=queue,
+                    size=level_start_box_nrs[level],
+                    wait_for=wait_for)
             wait_for = [evt]
 
-            nboxes_new = int(nboxes_dev.get())
+            # {{{ compute new level_used_box_counts, level_leaf_counts
+
+            # The last split_box_id on each level tells us how many boxes are
+            # needed at the next level.
+            new_level_used_box_counts = [1]
+            for level_start_box_id in level_start_box_nrs[1:]:
+                last_box_on_prev_level = level_start_box_id - 1
+                new_level_used_box_counts.append(
+                    # FIXME: Get this all at once.
+                    int(split_box_ids[last_box_on_prev_level].get())
+                    - level_start_box_id)
+
+            # New leaf count =
+            #   old leaf count
+            #   + nr. new boxes from splitting parent's leaves
+            #   - nr. new boxes from splitting current level's leaves / 2**d
+            level_used_box_counts_diff = (new_level_used_box_counts
+                    - np.append(level_used_box_counts, [0]))
+            new_level_leaf_counts = (level_leaf_counts
+                    + level_used_box_counts_diff[:-1]
+                    - level_used_box_counts_diff[1:] // 2 ** dimensions)
+            new_level_leaf_counts = np.append(
+                    new_level_leaf_counts,
+                    [level_used_box_counts_diff[-1]])
+            del level_used_box_counts_diff
+
+            # }}}
 
             # Assumption: Everything between here and the top of the loop must
             # be repeatable, so that in an out-of-memory situation, we can just
             # rerun this bit of the code after reallocating and a minimal reset
             # procedure.
 
-            # {{{ reallocate and retry if nboxes_guess was too small
+            # The algorithm for deciding on level sizes is as follows:
+            # 1. Compute the minimal necessary size of each level, including the
+            #    new level being created.
+            # 2. If level restricting, add padding to the new level being created.
+            # 3. Check if there is enough existing space for each level.
+            # 4. If any level does not have sufficient space, reallocate all levels:
+            #    4a. Compute new sizes of upper levels
+            #    4b. If level restricting, add padding to all levels.
 
-            if nboxes_new > nboxes_guess:
+            curr_upper_level_lengths = np.diff(level_start_box_nrs)
+            minimal_upper_level_lengths = np.max(
+                [new_level_used_box_counts[:-1], curr_upper_level_lengths], axis=0)
+            minimal_new_level_length = new_level_used_box_counts[-1]
+
+            # Allocate extra space at the end of the current level for higher
+            # level leaves that may be split later.
+            #
+            # If there are no further levels to split (i.e.
+            # have_oversize_split_box = 0), then we do not need to allocate any
+            # extra space, since no new leaves can be created at the bottom
+            # level.
+            if knl_info.level_restrict and have_oversize_split_box.get():
+                # Currently undocumented.
+                lr_lookbehind_levels = kwargs.get("lr_lookbehind", 1)
+                minimal_new_level_length += sum(
+                    2**(l*dimensions) * new_level_leaf_counts[level - l]
+                    for l in range(1, 1 + min(level, lr_lookbehind_levels)))
+
+            nboxes_minimal = \
+                    sum(minimal_upper_level_lengths) + minimal_new_level_length
+
+            needs_renumbering = \
+                    (curr_upper_level_lengths < minimal_upper_level_lengths).any()
+
+            # {{{ prepare for reallocation/renumbering
+
+            if needs_renumbering:
+                assert knl_info.level_restrict
+
+                # {{{ compute new level_start_box_nrs
+
+                # Represents the amount of padding needed for upper levels.
+                upper_level_padding = np.zeros(level, dtype=int)
+
+                # Recompute the level padding.
+                for ulevel in range(level):
+                    upper_level_padding[ulevel] = sum(
+                        2**(l*dimensions) * new_level_leaf_counts[ulevel - l]
+                        for l in range(
+                            1, 1 + min(ulevel, lr_lookbehind_levels)))
+
+                new_upper_level_unused_box_counts = np.max(
+                    [upper_level_padding,
+                    minimal_upper_level_lengths - new_level_used_box_counts[:-1]],
+                    axis=0)
+
+                new_level_start_box_nrs = np.empty(level + 1, dtype=int)
+                new_level_start_box_nrs[0] = 0
+                new_level_start_box_nrs[1:] = np.cumsum(
+                    new_level_used_box_counts[:-1]
+                    + new_upper_level_unused_box_counts)
+
+                assert not (level_start_box_nrs == new_level_start_box_nrs).all()
+
+                # }}}
+
+                # {{{ set up reallocators
+
+                old_box_count = level_start_box_nrs[-1]
+                # Where should I put this box?
+                dst_box_id = cl.array.empty(queue,
+                        shape=old_box_count, dtype=box_id_dtype)
+
+                for level_start, new_level_start, level_len in zip(
+                        level_start_box_nrs, new_level_start_box_nrs,
+                        curr_upper_level_lengths):
+                    dst_box_id[level_start:level_start + level_len] = \
+                            cl.array.arange(queue,
+                                            new_level_start,
+                                            new_level_start + level_len,
+                                            dtype=box_id_dtype)
+
+                wait_for.extend(dst_box_id.events)
+
+                realloc_array = partial(self.gappy_copy_and_map,
+                        dst_indices=dst_box_id, range=slice(old_box_count),
+                        debug=debug)
+                realloc_and_renumber_array = partial(self.gappy_copy_and_map,
+                        dst_indices=dst_box_id, map_values=dst_box_id,
+                        range=slice(old_box_count), debug=debug)
+                renumber_array = partial(self.map_values_kernel, dst_box_id)
+
+                # }}}
+
+                # Update level_start_box_nrs. This will be the
+                # level_start_box_nrs for the reallocated data.
+
+                level_start_box_nrs = list(new_level_start_box_nrs)
+                level_start_box_nrs_dev[:level + 1] = \
+                    np.array(new_level_start_box_nrs, dtype=box_id_dtype)
+                level_start_box_nrs_updated = True
+                wait_for.extend(level_start_box_nrs_dev.events)
+
+                nboxes_new = level_start_box_nrs[-1] + minimal_new_level_length
+
+                del new_level_start_box_nrs
+            else:
+                from boxtree.tools import realloc_array
+                realloc_and_renumber_array = realloc_array
+                renumber_array = None
+                level_start_box_nrs_updated = False
+                nboxes_new = nboxes_minimal
+
+            del nboxes_minimal
+
+            # }}}
+
+            # {{{ reallocate and/or renumber boxes if necessary
+
+            if level_start_box_nrs_updated or nboxes_new > nboxes_guess:
                 fin_debug("starting nboxes_guess increase")
 
                 while nboxes_guess < nboxes_new:
                     nboxes_guess *= 2
 
-                from boxtree.tools import realloc_array
-                my_realloc = partial(realloc_array, new_shape=nboxes_guess,
-                        zero_fill=False, queue=queue, wait_for=wait_for)
-                my_realloc_zeros = partial(realloc_array, new_shape=nboxes_guess,
-                        zero_fill=True, queue=queue, wait_for=wait_for)
+                def my_realloc_nocopy(ary):
+                    return cl.array.empty(queue, allocator=allocator,
+                            shape=nboxes_guess, dtype=ary.dtype)
+
+                def my_realloc_zeros_nocopy(ary):
+                    result = cl.array.zeros(queue, allocator=allocator,
+                            shape=nboxes_guess, dtype=ary.dtype)
+                    return result, result.events[0]
+
+                my_realloc = partial(realloc_array,
+                        queue, allocator, nboxes_guess, wait_for=wait_for)
+                my_realloc_zeros = partial(realloc_array,
+                        queue, allocator, nboxes_guess, zero_fill=True,
+                        wait_for=wait_for)
+                my_realloc_zeros_and_renumber = partial(realloc_and_renumber_array,
+                        queue, allocator, nboxes_guess, zero_fill=True,
+                        wait_for=wait_for)
 
                 resize_events = []
-                box_morton_bin_counts, evt = my_realloc(box_morton_bin_counts)
+
+                split_box_ids = my_realloc_nocopy(split_box_ids)
+
+                # FIXME: This can be reused across iterations, saving the cost
+                # of the particle scan. Right now there isn't a reallocator
+                # written for it.
+                box_morton_bin_counts, evt = my_realloc_zeros_nocopy(
+                        box_morton_bin_counts)
                 resize_events.append(evt)
+
+                # force_split_box is unused unless level restriction is enabled.
+                if knl_info.level_restrict:
+                    force_split_box, evt = my_realloc_zeros(force_split_box)
+                    resize_events.append(evt)
 
                 box_srcntgt_starts, evt = my_realloc_zeros(box_srcntgt_starts)
                 resize_events.append(evt)
-                box_parent_ids, evt = my_realloc_zeros(box_parent_ids)
-                resize_events.append(evt)
-                box_morton_nrs, evt = my_realloc_zeros(box_morton_nrs)
-                resize_events.append(evt)
-                box_levels, evt = my_realloc_zeros(box_levels)
-                resize_events.append(evt)
+
                 box_srcntgt_counts_cumul, evt = \
                         my_realloc_zeros(box_srcntgt_counts_cumul)
                 resize_events.append(evt)
+
                 box_has_children, evt = my_realloc_zeros(box_has_children)
                 resize_events.append(evt)
 
-                del my_realloc
-                del my_realloc_zeros
+                box_centers, evts = zip(
+                    *(my_realloc(ary) for ary in box_centers))
+                resize_events.extend(evts)
 
-                # reset nboxes_dev to previous value
-                nboxes_dev.fill(level_start_box_nrs[-1])
+                box_child_ids, evts = zip(
+                    *(my_realloc_zeros_and_renumber(ary)
+                      for ary in box_child_ids))
+                resize_events.extend(evts)
+
+                box_parent_ids, evt = my_realloc_zeros_and_renumber(box_parent_ids)
                 resize_events.append(evt)
 
-                wait_for = resize_events
+                if not level_start_box_nrs_updated:
+                    box_levels, evt = my_realloc(box_levels)
+                    resize_events.append(evt)
+                else:
+                    box_levels, evt = my_realloc_zeros_nocopy(box_levels)
+                    cl.wait_for_events([evt])
+                    for box_level, (level_start, level_end) in enumerate(zip(
+                            level_start_box_nrs, level_start_box_nrs[1:])):
+                        box_levels[level_start:level_end].fill(box_level)
+                    resize_events.extend(box_levels.events)
+
+                if level_start_box_nrs_updated:
+                    srcntgt_box_ids, evt = renumber_array(srcntgt_box_ids)
+                    resize_events.append(evt)
+
+                del my_realloc_zeros
+                del my_realloc_nocopy
+                del my_realloc_zeros_nocopy
+                del renumber_array
+
+                # Can't del on Py2.7 - these are used in generator expressions
+                # above, which are nested scopes
+                my_realloc = None
+                my_realloc_zeros_and_renumber = None
 
                 # retry
                 logger.info("nboxes_guess exceeded: "
-                        "enlarged allocations, restarting level")
+                            "enlarged allocations, restarting level")
 
                 continue
 
@@ -545,60 +812,221 @@ class TreeBuilder(object):
 
             logger.info("LEVEL %d -> %d boxes" % (level, nboxes_new))
 
-            assert level_start_box_nrs[-1] != nboxes_new or srcntgts_have_extent
+            assert (
+                level_start_box_nrs[-1] != nboxes_new or
+                srcntgts_have_extent or
+                final_level_restrict_iteration)
 
             if level_start_box_nrs[-1] == nboxes_new:
-                # We haven't created new boxes in this level loop trip.  Unless
-                # srcntgts have extent, this should never happen.  (I.e., we
-                # should've never entered this loop trip.)
+                # We haven't created new boxes in this level loop trip.
                 #
                 # If srcntgts have extent, this can happen if boxes were
                 # in-principle overfull, but couldn't subdivide because of
                 # extent restrictions.
+                if srcntgts_have_extent and not final_level_restrict_iteration:
+                    level -= 1
+                    break
+                assert final_level_restrict_iteration
 
-                assert srcntgts_have_extent
-
-                level -= 1
-
-                logger.debug("no new boxes created this loop trip")
-                break
+            # {{{ update level_start_box_nrs, level_used_box_counts
 
             level_start_box_nrs.append(nboxes_new)
+            level_start_box_nrs_dev[level + 1].fill(nboxes_new)
+            wait_for.extend(level_start_box_nrs_dev.events)
+
+            level_used_box_counts = new_level_used_box_counts
+            level_used_box_counts_dev[:level + 1] = \
+                    np.array(level_used_box_counts, dtype=box_id_dtype)
+            wait_for.extend(level_used_box_counts_dev.events)
+
+            level_leaf_counts = new_level_leaf_counts
+            if debug:
+                for level_start, level_nboxes, leaf_count in zip(
+                        level_start_box_nrs,
+                        level_used_box_counts,
+                        level_leaf_counts):
+                    if level_nboxes == 0:
+                        assert leaf_count == 0
+                        continue
+                    nleaves_actual = level_nboxes - int(
+                        cl.array.sum(box_has_children[
+                            level_start:level_start + level_nboxes]).get())
+                    assert leaf_count == nleaves_actual
+
+            # Can't del in Py2.7 - see note below
+            new_level_leaf_counts = None
+
+            # }}}
+
             del nboxes_new
+            del new_level_used_box_counts
 
-            new_user_srcntgt_ids = cl.array.empty_like(user_srcntgt_ids)
-            new_srcntgt_box_ids = cl.array.empty_like(srcntgt_box_ids)
-            split_and_sort_args = (
-                    common_args
-                    + (new_user_srcntgt_ids, have_oversize_split_box,
-                        new_srcntgt_box_ids, box_levels,
-                        box_has_children))
-            fin_debug("split and sort")
+            # {{{ split boxes
 
-            evt = knl_info.split_and_sort_kernel(*split_and_sort_args,
+            box_splitter_args = (
+                common_args
+                + (box_has_children, force_split_box, root_extent)
+                + box_child_ids
+                + box_centers)
+
+            evt = knl_info.box_splitter_kernel(*box_splitter_args,
+                    range=slice(level_start_box_nrs[-1]),
                     wait_for=wait_for)
+
             wait_for = [evt]
 
+            fin_debug("box splitter")
+
+            # Mark the levels of boxes added for padding (these were not updated
+            # by the box splitter kernel).
+            last_used_box = level_start_box_nrs[-2] + level_used_box_counts[-1]
+            box_levels[last_used_box:level_start_box_nrs[-1]].fill(level)
+
+            wait_for.extend(box_levels.events)
+
             if debug:
+                box_levels.finish()
                 level_bl_chunk = box_levels.get()[
                         level_start_box_nrs[-2]:level_start_box_nrs[-1]]
-                assert ((level_bl_chunk == level) | (level_bl_chunk == 0)).all()
+                assert (level_bl_chunk == level).all()
                 del level_bl_chunk
 
             if debug:
                 assert (box_srcntgt_starts.get() < nsrcntgts).all()
+
+            # }}}
+
+            # {{{ renumber particles within split boxes
+
+            new_user_srcntgt_ids = cl.array.empty_like(user_srcntgt_ids)
+            new_srcntgt_box_ids = cl.array.empty_like(srcntgt_box_ids)
+
+            particle_renumberer_args = (
+                common_args
+                + (box_has_children, force_split_box,
+                   new_user_srcntgt_ids, new_srcntgt_box_ids))
+
+            evt = knl_info.particle_renumberer_kernel(*particle_renumberer_args,
+                    range=slice(nsrcntgts), wait_for=wait_for)
+
+            wait_for = [evt]
+
+            fin_debug("particle renumbering")
 
             user_srcntgt_ids = new_user_srcntgt_ids
             del new_user_srcntgt_ids
             srcntgt_box_ids = new_srcntgt_box_ids
             del new_srcntgt_box_ids
 
+            # }}}
+
+            # {{{ enforce level restriction on upper levels
+
+            if final_level_restrict_iteration:
+                # Roll back level update.
+                #
+                # FIXME: The extra iteration at the end to split boxes should
+                # not be necessary. Instead, all the work for the final box
+                # split should be done in the last iteration of the level
+                # loop. Currently the main issue that forces the extra iteration
+                # to be there is the need to use the box renumbering and
+                # reallocation code. In order to fix this issue, the box
+                # numbering and reallocation code needs to be accessible after
+                # the final level restriction is done.
+                assert int(have_oversize_split_box.get()) == 0
+                assert level_used_box_counts[-1] == 0
+                del level_used_box_counts[-1]
+                del level_start_box_nrs[-1]
+                level -= 1
+                break
+
+            if knl_info.level_restrict:
+                # Avoid generating too many kernels.
+                LEVEL_STEP = 10
+                if level % LEVEL_STEP == 1:
+                    level_restrict_kernel = knl_info.level_restrict_kernel_builder(
+                            LEVEL_STEP * div_ceil(level, LEVEL_STEP))
+
+                # Upward pass - check if leaf boxes at higher levels need
+                # further splitting.
+                assert len(force_split_box) > 0
+                force_split_box.fill(0)
+                wait_for.extend(force_split_box.events)
+
+                did_upper_level_split = False
+
+                if debug:
+                    boxes_split = []
+
+                for upper_level, upper_level_start, upper_level_box_count in zip(
+                        # We just built level. Our parent level doesn't need to
+                        # be rechecked for splitting because the smallest boxes
+                        # in the tree (ours) already have a 2-to-1 ratio with
+                        # that. Start checking at the level above our parent.
+                        range(level - 2, 0, -1),
+                        # At this point, the last entry in level_start_box_nrs
+                        # already refers to (level + 1).
+                        level_start_box_nrs[-4::-1],
+                        level_used_box_counts[-3::-1]):
+
+                    upper_level_slice = slice(
+                        upper_level_start, upper_level_start + upper_level_box_count)
+
+                    have_upper_level_split_box.fill(0)
+                    wait_for.extend(have_upper_level_split_box.events)
+
+                    # writes: force_split_box, have_upper_level_split_box
+                    evt = level_restrict_kernel(
+                        upper_level,
+                        root_extent,
+                        box_has_children,
+                        force_split_box,
+                        have_upper_level_split_box,
+                        *(box_child_ids + box_centers),
+                        slice=upper_level_slice,
+                        wait_for=wait_for)
+
+                    wait_for = [evt]
+
+                    if debug:
+                        force_split_box.finish()
+                        boxes_split.append(int(cl.array.sum(
+                            force_split_box[upper_level_slice]).get()))
+
+                    if int(have_upper_level_split_box.get()) == 0:
+                        break
+
+                    did_upper_level_split = True
+
+                if debug:
+                    total_boxes_split = sum(boxes_split)
+                    logger.debug("level restriction: {total_boxes_split} boxes split"
+                                 .format(total_boxes_split=total_boxes_split))
+                    from itertools import count
+                    for level_, nboxes_split in zip(
+                            count(level - 2, step=-1), boxes_split[:-1]):
+                        logger.debug("level {level}: {nboxes_split} boxes split"
+                            .format(level=level_, nboxes_split=nboxes_split))
+                    del boxes_split
+
+                if int(have_oversize_split_box.get()) == 0 and did_upper_level_split:
+                    # We are in the situation where there are boxes left to
+                    # split on upper levels, and the level loop is done creating
+                    # lower levels.
+                    #
+                    # We re-run the level loop one more time to finish creating
+                    # the upper level boxes.
+                    final_level_restrict_iteration = True
+                    level += 1
+                    continue
+
+            # }}}
+
             if not int(have_oversize_split_box.get()):
-                logger.debug("no overfull boxes left")
+                logger.debug("no boxes left to split")
                 break
 
             level += 1
-
             have_oversize_split_box.fill(0)
 
         end_time = time()
@@ -608,7 +1036,7 @@ class TreeBuilder(object):
                 elapsed, elapsed/(npasses*nsrcntgts)))
         del npasses
 
-        nboxes = int(nboxes_dev.get())
+        nboxes = level_start_box_nrs[-1]
 
         # }}}
 
@@ -644,36 +1072,70 @@ class TreeBuilder(object):
         del morton_nrs
         del box_morton_bin_counts
 
-        # {{{ prune empty leaf boxes
+        # {{{ prune empty/unused leaf boxes
 
-        is_pruned = not kwargs.get("skip_prune")
-        if is_pruned:
+        prune_empty_leaves = not kwargs.get("skip_prune")
 
+        if prune_empty_leaves:
             # What is the original index of this box?
-            from_box_id = empty(nboxes, box_id_dtype)
+            src_box_id = empty(nboxes, box_id_dtype)
 
             # Where should I put this box?
-            to_box_id = empty(nboxes, box_id_dtype)
+            #
+            # Initialize to all zeros, because pruned boxes should be mapped to
+            # zero (e.g. when pruning child_box_ids).
+            dst_box_id, evt = zeros(nboxes, box_id_dtype)
+            wait_for.append(evt)
 
             fin_debug("find prune indices")
 
             nboxes_post_prune_dev = empty((), dtype=box_id_dtype)
             evt = knl_info.find_prune_indices_kernel(
                     box_srcntgt_counts_cumul,
-                    to_box_id, from_box_id, nboxes_post_prune_dev,
+                    src_box_id, dst_box_id, nboxes_post_prune_dev,
                     size=nboxes, wait_for=wait_for)
             wait_for = [evt]
-
-            fin_debug("prune copy")
-
             nboxes_post_prune = int(nboxes_post_prune_dev.get())
+            logger.info("{} empty leaves and/or unused boxes, {} boxes after pruning"
+                    .format(nboxes - nboxes_post_prune, nboxes_post_prune))
+            should_prune = True
+        elif knl_info.level_restrict:
+            # Remove unused boxes from the tree.
+            src_box_id = empty(nboxes, box_id_dtype)
+            dst_box_id = empty(nboxes, box_id_dtype)
 
-            logger.info("%d empty leaves" % (nboxes-nboxes_post_prune))
+            new_level_start_box_nrs = np.empty_like(level_start_box_nrs)
+            new_level_start_box_nrs[0] = 0
+            new_level_start_box_nrs[1:] = np.cumsum(level_used_box_counts)
+            for level_start, new_level_start, level_used_box_count in zip(
+                    level_start_box_nrs, new_level_start_box_nrs,
+                    level_used_box_counts):
+                def make_slice(start):
+                    return slice(start, start + level_used_box_count)
 
+                def make_arange(start):
+                    return cl.array.arange(queue, start,
+                            start + level_used_box_count, dtype=box_id_dtype)
+
+                src_box_id[make_slice(new_level_start)] = make_arange(level_start)
+                dst_box_id[make_slice(level_start)] = make_arange(new_level_start)
+            wait_for.extend(src_box_id.events + dst_box_id.events)
+
+            nboxes_post_prune = new_level_start_box_nrs[-1]
+
+            logger.info("{} unused boxes, {} boxes after pruning"
+                    .format(nboxes - nboxes_post_prune, nboxes_post_prune))
+            should_prune = True
+        else:
+            should_prune = False
+
+        if should_prune:
             prune_events = []
 
             prune_empty = partial(self.gappy_copy_and_map,
-                    queue, allocator, nboxes_post_prune, from_box_id)
+                    queue, allocator, nboxes_post_prune,
+                    src_indices=src_box_id,
+                    range=slice(nboxes_post_prune), debug=debug)
 
             box_srcntgt_starts, evt = prune_empty(box_srcntgt_starts)
             prune_events.append(evt)
@@ -681,17 +1143,19 @@ class TreeBuilder(object):
             box_srcntgt_counts_cumul, evt = prune_empty(box_srcntgt_counts_cumul)
             prune_events.append(evt)
 
-            if debug:
+            if debug and prune_empty_leaves:
                 assert (box_srcntgt_counts_cumul.get() > 0).all()
 
-            srcntgt_box_ids = cl.array.take(to_box_id, srcntgt_box_ids)
+            srcntgt_box_ids, evt = self.map_values_kernel(
+                    dst_box_id, srcntgt_box_ids)
+            prune_events.append(evt)
 
-            box_parent_ids, evt = prune_empty(box_parent_ids, map_values=to_box_id)
+            box_parent_ids, evt = prune_empty(box_parent_ids, map_values=dst_box_id)
             prune_events.append(evt)
-            box_morton_nrs, evt = prune_empty(box_morton_nrs)
-            prune_events.append(evt)
+
             box_levels, evt = prune_empty(box_levels)
             prune_events.append(evt)
+
             if srcntgts_have_extent:
                 box_srcntgt_counts_nonchild, evt = prune_empty(
                         box_srcntgt_counts_nonchild)
@@ -700,12 +1164,31 @@ class TreeBuilder(object):
             box_has_children, evt = prune_empty(box_has_children)
             prune_events.append(evt)
 
-            # Remap level_start_box_nrs to new box IDs.
-            # FIXME: It would be better to do this on the device.
-            level_start_box_nrs = list(
-                    to_box_id.get()
-                    [np.array(level_start_box_nrs[:-1], box_id_dtype)])
-            level_start_box_nrs = level_start_box_nrs + [nboxes_post_prune]
+            box_child_ids, evts = zip(
+                *(prune_empty(ary, map_values=dst_box_id)
+                  for ary in box_child_ids))
+            prune_events.extend(evts)
+
+            box_centers, evts = zip(
+                *(prune_empty(ary) for ary in box_centers))
+            prune_events.extend(evts)
+
+            # Update box counts and level start box indices.
+            box_levels.finish()
+
+            evt = knl_info.find_level_box_counts_kernel(
+                box_levels, level_used_box_counts_dev)
+            cl.wait_for_events([evt])
+
+            nlevels = len(level_used_box_counts)
+            level_used_box_counts = level_used_box_counts_dev[:nlevels].get()
+
+            level_start_box_nrs = [0]
+            level_start_box_nrs.extend(np.cumsum(level_used_box_counts))
+
+            level_start_box_nrs_dev[:nlevels + 1] = np.array(
+                level_start_box_nrs, dtype=box_id_dtype)
+            prune_events.extend(level_start_box_nrs_dev.events)
 
             wait_for = prune_events
         else:
@@ -883,22 +1366,44 @@ class TreeBuilder(object):
         del srcntgts
 
         nlevels = len(level_start_box_nrs) - 1
+
+        assert nlevels == len(level_used_box_counts)
         assert level + 1 == nlevels, (level+1, nlevels)
         if debug:
             max_level = np.max(box_levels.get())
-
             assert max_level + 1 == nlevels
 
-        # {{{ compute box info
+        # {{{ gather box child ids, box centers
 
         # A number of arrays below are nominally 2-dimensional and stored with
         # the box index as the fastest-moving index. To make sure that accesses
         # remain aligned, we round up the number of boxes used for indexing.
         aligned_nboxes = div_ceil(nboxes_post_prune, 32)*32
 
-        box_child_ids, evt = zeros((2**dimensions, aligned_nboxes), box_id_dtype)
+        box_child_ids_new, evt = zeros((2**dimensions, aligned_nboxes), box_id_dtype)
         wait_for.append(evt)
-        box_centers = empty((dimensions, aligned_nboxes), coord_dtype)
+        box_centers_new = empty((dimensions, aligned_nboxes), coord_dtype)
+
+        for mnr, child_row in enumerate(box_child_ids):
+            box_child_ids_new[mnr, :nboxes_post_prune] = \
+                    child_row[:nboxes_post_prune]
+        wait_for.extend(box_child_ids_new.events)
+
+        for dim, center_row in enumerate(box_centers):
+            box_centers_new[dim, :nboxes_post_prune] = center_row[:nboxes_post_prune]
+        wait_for.extend(box_centers_new.events)
+
+        cl.wait_for_events(wait_for)
+
+        box_centers = box_centers_new
+        box_child_ids = box_child_ids_new
+
+        del box_centers_new
+        del box_child_ids_new
+
+        # }}}
+
+        # {{{ compute box flags
 
         from boxtree.tree import box_flags_enum
         box_flags = empty(nboxes_post_prune, box_flags_enum.dtype)
@@ -910,6 +1415,7 @@ class TreeBuilder(object):
             # the cumulative counts and setting them to zero for non-leaves.
 
             # {{{ make sure box_{source,target}_counts_nonchild are not defined
+
             # (before we overwrite them)
 
             try:
@@ -943,9 +1449,7 @@ class TreeBuilder(object):
         evt = knl_info.box_info_kernel(
                 *(
                     # input:
-                    box_parent_ids, box_morton_nrs, bbox, aligned_nboxes,
-
-                    box_srcntgt_counts_cumul,
+                    box_parent_ids, box_srcntgt_counts_cumul,
                     box_source_counts_cumul, box_target_counts_cumul,
                     box_has_children, box_levels, nlevels,
 
@@ -953,7 +1457,7 @@ class TreeBuilder(object):
                     box_source_counts_nonchild, box_target_counts_nonchild,
 
                     # output:
-                    box_child_ids, box_centers, box_flags,
+                    box_flags,
                 ),
                 range=slice(nboxes_post_prune),
                 wait_for=wait_for)
@@ -991,9 +1495,7 @@ class TreeBuilder(object):
 
                 bounding_box=(bbox_min, bbox_max),
                 level_start_box_nrs=level_start_box_nrs,
-                level_start_box_nrs_dev=cl.array.to_device(
-                    queue, level_start_box_nrs,
-                    allocator=allocator),
+                level_start_box_nrs_dev=level_start_box_nrs_dev,
 
                 sources=sources,
                 targets=targets,
@@ -1014,7 +1516,7 @@ class TreeBuilder(object):
                 user_source_ids=user_source_ids,
                 sorted_target_ids=sorted_target_ids,
 
-                _is_pruned=is_pruned,
+                _is_pruned=prune_empty_leaves,
 
                 **extra_tree_attrs
                 ).with_queue(None), evt
