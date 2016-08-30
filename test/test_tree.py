@@ -599,12 +599,12 @@ def test_extent_tree(ctx_getter, dims, do_plot=False):
 # }}}
 
 
-# {{{ geometry query test
+# {{{ leaves to balls query test
 
 @pytest.mark.opencl
 @pytest.mark.geo_lookup
 @pytest.mark.parametrize("dims", [2, 3])
-def test_geometry_query(ctx_getter, dims, do_plot=False):
+def test_leaves_to_balls_query(ctx_getter, dims, do_plot=False):
     logging.basicConfig(level=logging.INFO)
 
     ctx = ctx_getter()
@@ -629,7 +629,7 @@ def test_geometry_query(ctx_getter, dims, do_plot=False):
     ball_centers = make_normal_particle_array(queue, nballs, dims, dtype)
     ball_radii = cl.array.empty(queue, nballs, dtype).fill(0.1)
 
-    from boxtree.geo_lookup import LeavesToBallsLookupBuilder
+    from boxtree.area_query import LeavesToBallsLookupBuilder
     lblb = LeavesToBallsLookupBuilder(ctx)
 
     lbl, _ = lblb(queue, tree, ball_centers, ball_radii)

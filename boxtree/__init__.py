@@ -41,7 +41,7 @@ __doc__ = """
   it is completely distinct in the software sense.
 
 * It can compute geometric lookup structures based on a :class:`boxtree.Tree`,
-  see :mod:`boxtree.geo_lookup`.
+  see :mod:`boxtree.area_query`.
 
 Tree modes
 ----------
