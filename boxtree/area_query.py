@@ -611,14 +611,15 @@ class LeavesToBallsLookupBuilder(object):
         logger.info("leaves-to-balls lookup: expand starts")
 
         nkeys = len(area_query.leaves_near_ball_lists)
-        nballs = len(area_query.leaves_near_ball_starts)
+        nballs_p_1 = len(area_query.leaves_near_ball_starts)
+        assert nballs_p_1 == len(ball_radii) + 1
 
         starts_expander_knl = self.get_starts_expander_kernel(tree.box_id_dtype)
         expanded_starts = cl.array.empty(queue, nkeys, tree.box_id_dtype)
         evt = starts_expander_knl(
             expanded_starts,
             area_query.leaves_near_ball_starts.with_queue(queue),
-            nballs + 1)
+            nballs_p_1)
         wait_for = [evt]
 
         logger.info("leaves-to-balls lookup: key-value sort")
