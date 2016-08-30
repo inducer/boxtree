@@ -384,11 +384,11 @@ STARTS_EXPANDER_TEMPLATE = ElementwiseTemplate(
 
         if (starts[my_idx] > i)
         {
-            r_idx = my_idx;
+            r_idx = my_idx - 1;
         }
         else
         {
-            l_idx = my_idx;
+            l_idx = my_idx + 1;
         }
     }
     """,
