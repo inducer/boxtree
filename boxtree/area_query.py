@@ -54,6 +54,12 @@ Inverse of area query (Leaves -> overlapping balls)
 .. autoclass:: LeavesToBallsLookup
 
 
+Space invader queries
+^^^^^^^^^^^^^^^^^^^^^
+
+.. autoclass:: SpaceInvaderQueryBuilder
+
+
 Peer Lists
 ^^^^^^^^^^
 
@@ -134,7 +140,75 @@ class LeavesToBallsLookup(DeviceDataRecord):
 
 # {{{ kernel templates
 
-AREA_QUERY_TEMPLATE = r"""//CL//
+GUIDING_BOX_FINDER_MACRO = r"""//CL:mako//
+    <%def name="find_guiding_box(ball_center, ball_radius)">
+        ${walk_init(0)}
+        box_id_t guiding_box;
+
+        if (LEVEL_TO_RAD(0) < ball_radius / 2 || !(box_flags[0] & BOX_HAS_CHILDREN))
+        {
+            guiding_box = 0;
+            continue_walk = false;
+        }
+
+        while (continue_walk)
+        {
+            // Get the next child.
+            box_id_t child_box_id = box_child_ids[
+                walk_morton_nr * aligned_nboxes + walk_box_id];
+
+            bool last_child = walk_morton_nr == ${2**dimensions - 1};
+
+            if (child_box_id)
+            {
+                bool contains_ball_center;
+                int child_level = walk_level + 1;
+                coord_t child_rad = LEVEL_TO_RAD(child_level);
+
+                {
+                    // Check if the child contains the ball's center.
+                    ${load_center("child_center", "child_box_id")}
+
+                    coord_t max_dist = 0;
+                    %for i in range(dimensions):
+                        max_dist = fmax(max_dist,
+                            fabs(ball_center.s${i} - child_center.s${i}));
+                    %endfor
+
+                    contains_ball_center = max_dist <= child_rad;
+                }
+
+                if (contains_ball_center)
+                {
+                    if ((child_rad / 2 < ball_radius && ball_radius <= child_rad) ||
+                        !(box_flags[child_box_id] & BOX_HAS_CHILDREN))
+                    {
+                        guiding_box = child_box_id;
+                        break;
+                    }
+
+                    // We want to descend into this box. Put the current state
+                    // on the stack.
+                    ${walk_push("child_box_id")}
+                    continue;
+                }
+            }
+
+            if (last_child)
+            {
+                // This box has no children that contain the center, so it must
+                // be the guiding box.
+                guiding_box = walk_box_id;
+                break;
+            }
+
+            ${walk_advance()}
+        }
+    </%def>
+"""
+
+
+AREA_QUERY_TEMPLATE = GUIDING_BOX_FINDER_MACRO + r"""//CL//
 typedef ${dtype_to_ctype(ball_id_dtype)} ball_id_t;
 typedef ${dtype_to_ctype(peer_list_idx_dtype)} peer_list_idx_t;
 
@@ -165,73 +239,11 @@ void generate(LIST_ARG_DECL USER_ARG_DECL ball_id_t ball_nr)
     // Step 1: Find the guiding box. //
     ///////////////////////////////////
 
-    ${walk_init(0)}
-    box_id_t guiding_box;
-
-    if (LEVEL_TO_RAD(0) < ball_radius / 2 || !(box_flags[0] & BOX_HAS_CHILDREN))
-    {
-        guiding_box = 0;
-        continue_walk = false;
-    }
-
-    while (continue_walk)
-    {
-        // Get the next child.
-        box_id_t child_box_id = box_child_ids[
-            walk_morton_nr * aligned_nboxes + walk_box_id];
-
-        bool last_child = walk_morton_nr == ${2**dimensions - 1};
-
-        if (child_box_id)
-        {
-            bool contains_ball_center;
-            int child_level = walk_level + 1;
-            coord_t child_rad = LEVEL_TO_RAD(child_level);
-
-            {
-                // Check if the child contains the ball's center.
-                ${load_center("child_center", "child_box_id")}
-
-                coord_t max_dist = 0;
-                %for i in range(dimensions):
-                    max_dist = fmax(max_dist,
-                        fabs(ball_center.s${i} - child_center.s${i}));
-                %endfor
-
-                contains_ball_center = max_dist <= child_rad;
-            }
-
-            if (contains_ball_center)
-            {
-                if ((child_rad / 2 < ball_radius && ball_radius <= child_rad) ||
-                    !(box_flags[child_box_id] & BOX_HAS_CHILDREN))
-                {
-                    guiding_box = child_box_id;
-                    break;
-                }
-
-                // We want to descend into this box. Put the current state
-                // on the stack.
-                ${walk_push("child_box_id")}
-                continue;
-            }
-        }
-
-        if (last_child)
-        {
-            // This box has no children that contain the center, so it must
-            // be the guiding box.
-            guiding_box = walk_box_id;
-            break;
-        }
-
-        ${walk_advance()}
-    }
+    ${find_guiding_box("ball_center", "ball_radius")}
 
     //////////////////////////////////////////////////////
     // Step 2 - Walk the peer boxes to find the leaves. //
     //////////////////////////////////////////////////////
-
 
     for (peer_list_idx_t pb_i = peer_list_starts[guiding_box],
          pb_e = peer_list_starts[guiding_box+1]; pb_i < pb_e; ++pb_i)
@@ -394,6 +406,99 @@ STARTS_EXPANDER_TEMPLATE = ElementwiseTemplate(
     """,
     name="starts_expander")
 
+
+SPACE_INVADER_QUERY_TEMPLATE = GUIDING_BOX_FINDER_MACRO + r"""//CL:mako//
+    <%def name="check_if_found_outer_space_invader(box_id)">
+        {
+            ${load_center("box_center", box_id)}
+            int box_level = box_levels[${box_id}];
+
+            coord_t size_sum = LEVEL_TO_RAD(box_level) + ball_radius;
+
+            coord_t max_dist = 0;
+            %for i in range(dimensions):
+                max_dist = fmax(max_dist,
+                    fabs(ball_center.s${i} - box_center.s${i}));
+            %endfor
+
+            bool is_overlapping = max_dist <= size_sum;
+
+            if (is_overlapping)
+            {
+                // The atomic max operation supports only integer types.
+                // However, max_dist is of a floating point type.
+                // For comparison purposes we reinterpret the bits of max_dist
+                // as an integer. The comparison result is the same as for positive
+                // IEEE floating point numbers, so long as the float/int endianness
+                // matches (fingers crossed).
+                atomic_max(
+                    (volatile __global int *) &outer_space_invader_dists[${box_id}],
+                    as_int((float) max_dist));
+            }
+        }
+    </%def>
+
+    typedef ${dtype_to_ctype(ball_id_dtype)} ball_id_t;
+    typedef ${dtype_to_ctype(peer_list_idx_dtype)} peer_list_idx_t;
+
+    ball_id_t ball_nr = i;
+
+    coord_vec_t ball_center;
+    %for i in range(dimensions):
+        ball_center.${AXIS_NAMES[i]} = ball_${AXIS_NAMES[i]}[ball_nr];
+    %endfor
+
+    coord_t ball_radius = ball_radii[ball_nr];
+
+    ///////////////////////////////////
+    // Step 1: Find the guiding box. //
+    ///////////////////////////////////
+
+    ${find_guiding_box("ball_center", "ball_radius")}
+
+    //////////////////////////////////////////////////////
+    // Step 2 - Walk the peer boxes to find the leaves. //
+    //////////////////////////////////////////////////////
+
+    for (peer_list_idx_t pb_i = peer_list_starts[guiding_box],
+         pb_e = peer_list_starts[guiding_box+1]; pb_i < pb_e; ++pb_i)
+    {
+        box_id_t peer_box = peer_lists[pb_i];
+
+        if (!(box_flags[peer_box] & BOX_HAS_CHILDREN))
+        {
+            ${check_if_found_outer_space_invader("peer_box")}
+        }
+        else
+        {
+            ${walk_reset("peer_box")}
+
+            while (continue_walk)
+            {
+                box_id_t child_box_id = box_child_ids[
+                    walk_morton_nr * aligned_nboxes + walk_box_id];
+
+                if (child_box_id)
+                {
+                    if (!(box_flags[child_box_id] & BOX_HAS_CHILDREN))
+                    {
+                        ${check_if_found_outer_space_invader("child_box_id")}
+                    }
+                    else
+                    {
+                        // We want to descend into this box. Put the current state
+                        // on the stack.
+                        ${walk_push("child_box_id")}
+                        continue;
+                    }
+                }
+
+                ${walk_advance()}
+            }
+        }
+    }
+"""
+
 # }}}
 
 
@@ -540,10 +645,10 @@ class AreaQueryBuilder(object):
                 leaves_near_ball_starts=result["leaves"].starts,
                 leaves_near_ball_lists=result["leaves"].lists).with_queue(None), evt
 
-
 # }}}
 
 # {{{ area query transpose (leaves-to-balls) lookup build
+
 
 class LeavesToBallsLookupBuilder(object):
     """Given a set of :math:`l^\infty` "balls", this class helps build a
@@ -641,6 +746,165 @@ class LeavesToBallsLookupBuilder(object):
                 balls_near_box_starts=balls_near_box_starts,
                 balls_near_box_lists=balls_near_box_lists).with_queue(None), evt
 
+# }}}
+
+# {{{ space invader query build
+
+class SpaceInvaderQueryBuilder(object):
+    """Given a set of :math:`l^\infty` "balls", this class helps build a look-up
+    table from leaf box to max center-to-center distance with an overlapping
+    ball.
+
+    .. automethod:: __call__
+
+    """
+    def __init__(self, context):
+        self.context = context
+        self.peer_list_finder = PeerListFinder(self.context)
+
+    # {{{ Kernel generation
+
+    @memoize_method
+    def get_space_invader_query_kernel(self, dimensions, coord_dtype,
+                box_id_dtype, ball_id_dtype, peer_list_idx_dtype, max_levels):
+        from pyopencl.tools import dtype_to_ctype
+        from boxtree import box_flags_enum
+
+        logger.info("start building space invader query kernel")
+
+        from boxtree.traversal import (
+            TRAVERSAL_PREAMBLE_MAKO_DEFS,
+            TRAVERSAL_PREAMBLE_TYPEDEFS_AND_DEFINES)
+
+        template = Template(
+            TRAVERSAL_PREAMBLE_MAKO_DEFS
+            + SPACE_INVADER_QUERY_TEMPLATE,
+            strict_undefined=True)
+
+        preamble = Template(TRAVERSAL_PREAMBLE_TYPEDEFS_AND_DEFINES,
+                            strict_undefined=True)
+
+        render_vars = dict(
+            dimensions=dimensions,
+            dtype_to_ctype=dtype_to_ctype,
+            box_id_dtype=box_id_dtype,
+            particle_id_dtype=None,
+            coord_dtype=coord_dtype,
+            vec_types=cl.array.vec.types,
+            max_levels=max_levels,
+            AXIS_NAMES=AXIS_NAMES,
+            box_flags_enum=box_flags_enum,
+            peer_list_idx_dtype=peer_list_idx_dtype,
+            ball_id_dtype=ball_id_dtype,
+            debug=False,
+            # Not used (but required by TRAVERSAL_PREAMBLE_TEMPLATE)
+            stick_out_factor=0)
+
+        from pyopencl.tools import VectorArg, ScalarArg
+        arg_decls = [
+            VectorArg(coord_dtype, "box_centers"),
+            ScalarArg(coord_dtype, "root_extent"),
+            VectorArg(np.uint8, "box_levels"),
+            ScalarArg(box_id_dtype, "aligned_nboxes"),
+            VectorArg(box_id_dtype, "box_child_ids"),
+            VectorArg(box_flags_enum.dtype, "box_flags"),
+            VectorArg(peer_list_idx_dtype, "peer_list_starts"),
+            VectorArg(box_id_dtype, "peer_lists"),
+            VectorArg(coord_dtype, "ball_radii"),
+            VectorArg(np.float32, "outer_space_invader_dists"),
+            ] + [
+            VectorArg(coord_dtype, "ball_"+ax)
+            for ax in AXIS_NAMES[:dimensions]]
+
+        from pyopencl.elementwise import ElementwiseKernel
+        space_invader_query_kernel = ElementwiseKernel(
+                self.context,
+                arguments=arg_decls,
+                operation=str(template.render(**render_vars)),
+                name="space_invaders_query",
+                preamble=preamble.render(**render_vars))
+
+        logger.info("done building space invader query kernel")
+        return space_invader_query_kernel
+
+    # }}}
+
+    def __call__(self, queue, tree, ball_centers, ball_radii, peer_lists=None,
+                 wait_for=None):
+        """:arg queue: a :class:`pyopencl.CommandQueue`
+        :arg tree: a :class:`boxtree.Tree`.
+        :arg ball_centers: an object array of coordinate
+            :class:`pyopencl.array.Array` instances.
+            Their *dtype* must match *tree*'s
+            :attr:`boxtree.Tree.coord_dtype`.
+        :arg ball_radii: a
+            :class:`pyopencl.array.Array`
+            of positive numbers.
+            Its *dtype* must match *tree*'s
+            :attr:`boxtree.Tree.coord_dtype`.
+        :arg peer_lists: may either be *None* or an instance of
+            :class:`PeerListLookup` associated with `tree`.
+        :arg wait_for: may either be *None* or a list of :class:`pyopencl.Event`
+            instances for whose completion this command waits before starting
+            execution.
+        :returns: a tuple *(sqi, event)*, where *sqi* is an instance of
+            :class:`pyopencl.array`, and *event* is a :class:`pyopencl.Event`
+            for dependency management.
+        """
+
+        from pytools import single_valued
+        if single_valued(bc.dtype for bc in ball_centers) != tree.coord_dtype:
+            raise TypeError("ball_centers dtype must match tree.coord_dtype")
+        if ball_radii.dtype != tree.coord_dtype:
+            raise TypeError("ball_radii dtype must match tree.coord_dtype")
+
+        ball_id_dtype = tree.particle_id_dtype  # ?
+
+        from pytools import div_ceil
+        # Avoid generating too many kernels.
+        max_levels = div_ceil(tree.nlevels, 10) * 10
+
+        if peer_lists is None:
+            peer_lists, evt = self.peer_list_finder(queue, tree, wait_for=wait_for)
+            wait_for = [evt]
+
+        if len(peer_lists.peer_list_starts) != tree.nboxes + 1:
+            raise ValueError("size of peer lists must match with number of boxes")
+
+        space_invader_query_kernel = self.get_space_invader_query_kernel(
+            tree.dimensions, tree.coord_dtype, tree.box_id_dtype, ball_id_dtype,
+            peer_lists.peer_list_starts.dtype, max_levels)
+
+        logger.info("space invader query: run space invader query")
+
+        outer_space_invader_dists = cl.array.zeros(queue, tree.nboxes, np.float32)
+        wait_for.extend(outer_space_invader_dists.events)
+
+        evt = space_invader_query_kernel(
+                tree.box_centers, tree.root_extent,
+                tree.box_levels, tree.aligned_nboxes,
+                tree.box_child_ids, tree.box_flags,
+                peer_lists.peer_list_starts,
+                peer_lists.peer_lists,
+                ball_radii,
+                outer_space_invader_dists,
+                *tuple(bc for bc in ball_centers),
+                wait_for=wait_for,
+                queue=queue,
+                slice=slice(len(ball_radii)))
+
+        if tree.coord_dtype != np.dtype(np.float32):
+            # The kernel output is always an array of float32 due to limited
+            # support for atomic operations with float64 in OpenCL.
+            # Here the output is cast to match the coord dtype.
+            outer_space_invader_dists.finish()
+            outer_space_invader_dists = outer_space_invader_dists.astype(
+                    tree.coord_dtype)
+            evt, = outer_space_invader_dists.events
+
+        logger.info("space invader query: done")
+
+        return outer_space_invader_dists, evt
 
 # }}}
 
