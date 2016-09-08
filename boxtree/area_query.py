@@ -295,9 +295,8 @@ AREA_QUERY_TEMPLATE = (
         }
     </%def>
 
-    void generate(LIST_ARG_DECL USER_ARG_DECL ball_id_t ball_nr)
+    void generate(LIST_ARG_DECL USER_ARG_DECL ball_id_t i)
     {
-        ball_id_t i = ball_nr;
     """ +
     AREA_QUERY_WALKER_BODY +
     """
