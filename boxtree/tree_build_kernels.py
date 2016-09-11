@@ -61,12 +61,11 @@ logger = logging.getLogger(__name__)
 # - We start with a reduction that determines the bounding box of all
 #   particles.
 #
-# - The level loop is in the driver below, which alternates between
-#   scans and local post processing ("split and sort"), according to
-#   the algorithm described below.
+# - The level loop is in the driver below, which alternates between scans and
+#   local post processing, according to the algorithm described below.
 #
 # - Once the level loop finishes, a "box info" kernel is run
-#   that extracts some more information for each box. (center, level, ...)
+#   that extracts flags for each box.
 #
 # - As a last step, empty leaf boxes are eliminated. This is done by a
 #   scan kernel that computes indices, and by an elementwise kernel
@@ -74,12 +73,11 @@ logger = logging.getLogger(__name__)
 #
 # -----------------------------------------------------------------------------
 #
-# HOW DOES THE PRIMARY SCAN WORK?
-# -------------------------------
+# HOW DOES THE LEVEL LOOP WORK?
+# -----------------------------
 #
 # This code sorts particles into an nD-tree of boxes.  It does this by doing two
-# succesive (parallel) scans and a (local, i.e. independent for each particle)
-# postprocessing step.
+# succesive (parallel) scans and a postprocessing step.
 #
 # The following information is being pushed around by the scans, which
 # proceed over particles:
@@ -103,8 +101,10 @@ logger = logging.getLogger(__name__)
 #    total number of new boxes needed. If a box knows it needs to be subdivided,
 #    it asks for 2**d new boxes at the next level.
 #
-# 3. Realize the splitting determined in #2. This stage proceeds in an
-#    elementwise fashion over the particles.
+# 3. Realize the splitting determined in #2. This part consists of splitting the
+#    boxes (done in the "box splitter kernel") and renumbering the particles so
+#    that particles in the same box have are numbered contiguously (done in the
+#    "particle renumberer kernel").
 #
 # HOW DOES LEVEL RESTRICTION WORK?
 # --------------------------------
@@ -114,7 +114,7 @@ logger = logging.getLogger(__name__)
 # loop. The job of the level restrict kernel is to mark boxes on higher levels
 # to be split based on looking at the levels of their neighbor boxes. The
 # splitting is then realized by the next iteration of the level loop,
-# simultaneously with the creation of the lower level.
+# simultaneously with the creation of the next level.
 #
 # -----------------------------------------------------------------------------
 
