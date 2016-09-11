@@ -49,10 +49,10 @@ logger = logging.getLogger(__name__)
 # CONTROL FLOW
 # ------------
 #
-# Since this file mostly fills in the blanks in the outer parallel 'scan'
+# Since this file mostly fills in the blanks in the tree build
 # implementation, control flow here can be a bit hard to see.
 #
-# - Everything starts and ends in the 'driver' bit at the end.
+# - Everything starts and ends in the driver in tree_build.py
 #
 # - The first thing that happens is that data types get built and
 #   kernels get compiled. Most of the file consists of type and
@@ -61,8 +61,8 @@ logger = logging.getLogger(__name__)
 # - We start with a reduction that determines the bounding box of all
 #   particles.
 #
-# - The level loop is in the driver below, which alternates between scans and
-#   local post processing, according to the algorithm described below.
+# - The level loop is in the driver, which alternates between scans and local
+#   post processing, according to the algorithm described below.
 #
 # - Once the level loop finishes, a "box info" kernel is run
 #   that extracts flags for each box.
@@ -86,7 +86,7 @@ logger = logging.getLogger(__name__)
 #   ("morton_nr") , should the current box need to be subdivided.
 #
 # - the "split_box_id". This is an array that, for each box, answers the
-#   question, "After I am subdivided, what is the start of the range of boxes
+#   question, "After I am subdivided, what is end of the range of boxes
 #   that my particles get pushed into?" The split_box_id is not meaningful
 #   unless the box is about to be subdivided.
 #
