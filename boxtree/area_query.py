@@ -145,7 +145,7 @@ GUIDING_BOX_FINDER_MACRO = r"""//CL:mako//
         ${walk_init(0)}
         box_id_t guiding_box;
 
-        if (LEVEL_TO_RAD(0) < ball_radius / 2 || !(box_flags[0] & BOX_HAS_CHILDREN))
+        if (LEVEL_TO_RAD(0) < ${ball_radius} / 2 || !(box_flags[0] & BOX_HAS_CHILDREN))
         {
             guiding_box = 0;
             continue_walk = false;
@@ -172,7 +172,7 @@ GUIDING_BOX_FINDER_MACRO = r"""//CL:mako//
                     coord_t max_dist = 0;
                     %for i in range(dimensions):
                         max_dist = fmax(max_dist,
-                            fabs(ball_center.s${i} - child_center.s${i}));
+                            distance(${ball_center}.s${i}, child_center.s${i}));
                     %endfor
 
                     contains_ball_center = max_dist <= child_rad;
@@ -180,7 +180,8 @@ GUIDING_BOX_FINDER_MACRO = r"""//CL:mako//
 
                 if (contains_ball_center)
                 {
-                    if ((child_rad / 2 < ball_radius && ball_radius <= child_rad) ||
+                    if ((child_rad / 2 < ${ball_radius}
+                           && ${ball_radius} <= child_rad) ||
                         !(box_flags[child_box_id] & BOX_HAS_CHILDREN))
                     {
                         guiding_box = child_box_id;
@@ -210,10 +211,8 @@ GUIDING_BOX_FINDER_MACRO = r"""//CL:mako//
 
 AREA_QUERY_WALKER_BODY = r"""
     coord_vec_t ball_center;
-    ${get_ball_center("ball_center", "i")}
-
     coord_t ball_radius;
-    ${get_ball_radius("ball_radius", "i")}
+    ${get_ball_center_and_radius("ball_center", "ball_radius", "i")}
 
     ///////////////////////////////////
     // Step 1: Find the guiding box. //
@@ -391,6 +390,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t box_id)
 
 
 from pyopencl.elementwise import ElementwiseTemplate
+from boxtree.tools import InlineBinarySearch
 
 
 STARTS_EXPANDER_TEMPLATE = ElementwiseTemplate(
@@ -401,36 +401,28 @@ STARTS_EXPANDER_TEMPLATE = ElementwiseTemplate(
     """,
     operation=r"""//CL//
     /* Find my index in starts, place the index in dst. */
-    idx_t l_idx = 0, r_idx = starts_len - 1, my_idx;
-
-    for (;;)
-    {
-        my_idx = (l_idx + r_idx) / 2;
-
-        if (starts[my_idx] <= i && i < starts[my_idx + 1])
-        {
-            dst[i] = my_idx;
-            break;
-        }
-
-        if (starts[my_idx] > i)
-        {
-            r_idx = my_idx - 1;
-        }
-        else
-        {
-            l_idx = my_idx + 1;
-        }
-    }
+    dst[i] = bsearch(starts, starts_len, i);
     """,
-    name="starts_expander")
+    name="starts_expander",
+    preamble=str(InlineBinarySearch("idx_t")))
+
+
+def unwrap_args(tree, peer_lists, *args):
+    return (tree.box_centers,
+            tree.root_extent,
+            tree.box_levels,
+            tree.aligned_nboxes,
+            tree.box_child_ids,
+            tree.box_flags,
+            peer_lists.peer_list_starts,
+            peer_lists.peer_lists) + args
 
 
 class AreaQueryElementwiseTemplate(object):
     # FIXME: Document.
 
-    def __init__(self, extra_args, ball_center_expr, ball_radius_expr,
-                 leaf_found_op, name="area_query_elwise"):
+    def __init__(self, extra_args, ball_center_and_radius_expr,
+                 leaf_found_op, preamble="", name="area_query_elwise"):
 
         def wrap_in_macro(decl, expr):
             return """
@@ -453,17 +445,18 @@ class AreaQueryElementwiseTemplate(object):
                 box_id_t *peer_lists,
             """ + extra_args,
             operation="//CL:mako//\n" +
-            wrap_in_macro("get_ball_center(ball_center, i)", ball_center_expr) +
-            wrap_in_macro("get_ball_radius(ball_radius, i)", ball_radius_expr) +
+            wrap_in_macro("get_ball_center_and_radius(ball_center, ball_radius, i)",
+                          ball_center_and_radius_expr) +
             wrap_in_macro("leaf_found_op(leaf_box_id, ball_center, ball_radius)",
                           leaf_found_op) +
             TRAVERSAL_PREAMBLE_MAKO_DEFS +
             GUIDING_BOX_FINDER_MACRO +
             AREA_QUERY_WALKER_BODY,
-            name=name)
+            name=name,
+            preamble=preamble)
 
     def generate(self, context,
-                 dimensions, coord_dtype, box_id_dtype, ball_id_dtype,
+                 dimensions, coord_dtype, box_id_dtype,
                  peer_list_idx_dtype, max_levels,
                  extra_var_values=(), extra_type_aliases=(),
                  extra_preamble=""):
@@ -482,7 +475,6 @@ class AreaQueryElementwiseTemplate(object):
             ("AXIS_NAMES", AXIS_NAMES),
             ("box_flags_enum", box_flags_enum),
             ("peer_list_idx_dtype", peer_list_idx_dtype),
-            ("ball_id_dtype", ball_id_dtype),
             ("debug", False),
             # Not used (but required by TRAVERSAL_PREAMBLE_TEMPLATE)
             ("stick_out_factor", 0),
@@ -505,7 +497,6 @@ class AreaQueryElementwiseTemplate(object):
                 type_aliases=(
                     ("coord_t", coord_dtype),
                     ("box_id_t", box_id_dtype),
-                    ("ball_id_t", ball_id_dtype),
                     ("peer_list_idx_t", peer_list_idx_dtype),
                     ("box_level_t", np.uint8),
                     ("box_flags_t", box_flags_enum.dtype),
@@ -522,8 +513,8 @@ SPACE_INVADER_QUERY_TEMPLATE = AreaQueryElementwiseTemplate(
         coord_t *ball_${ax},
     %endfor
     """,
-    ball_radius_expr="${ball_radius} = ball_radii[${i}];",
-    ball_center_expr=r"""
+    ball_center_and_radius_expr=r"""
+    ${ball_radius} = ball_radii[${i}];
     %for ax in AXIS_NAMES[:dimensions]:
         ${ball_center}.${ax} = ball_${ax}[${i}];
     %endfor
@@ -710,7 +701,6 @@ class AreaQueryBuilder(object):
 
 # {{{ area query transpose (leaves-to-balls) lookup build
 
-
 class LeavesToBallsLookupBuilder(object):
     """Given a set of :math:`l^\infty` "balls", this class helps build a
     look-up table from leaf boxes to balls that overlap with each leaf box.
@@ -811,7 +801,6 @@ class LeavesToBallsLookupBuilder(object):
 
 # {{{ space invader query build
 
-
 class SpaceInvaderQueryBuilder(object):
     """Given a set of :math:`l^\infty` "balls", this class helps build a look-up
     table from leaf box to max center-to-center distance with an overlapping
@@ -869,8 +858,6 @@ class SpaceInvaderQueryBuilder(object):
         if ball_radii.dtype != tree.coord_dtype:
             raise TypeError("ball_radii dtype must match tree.coord_dtype")
 
-        ball_id_dtype = tree.particle_id_dtype  # ?
-
         from pytools import div_ceil
         # Avoid generating too many kernels.
         max_levels = div_ceil(tree.nlevels, 10) * 10
@@ -883,7 +870,7 @@ class SpaceInvaderQueryBuilder(object):
             raise ValueError("size of peer lists must match with number of boxes")
 
         space_invader_query_kernel = self.get_space_invader_query_kernel(
-            tree.dimensions, tree.coord_dtype, tree.box_id_dtype, ball_id_dtype,
+            tree.dimensions, tree.coord_dtype, tree.box_id_dtype,
             peer_lists.peer_list_starts.dtype, max_levels)
 
         logger.info("space invader query: run space invader query")

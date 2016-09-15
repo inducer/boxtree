@@ -802,6 +802,68 @@ def test_space_invader_query(ctx_getter, dims, dtype, do_plot=False):
 # }}}
 
 
+# {{{ particle query test
+
+@pytest.mark.opencl
+@pytest.mark.area_query
+@pytest.mark.parametrize("dims", [2, 3])
+def test_particle_query(ctx_getter, dims, do_plot=False):
+    logging.basicConfig(level=logging.INFO)
+
+    ctx = ctx_getter()
+    queue = cl.CommandQueue(ctx)
+
+    nparticles = 5 * 10**3
+    dtype = np.float64
+
+    particles = make_normal_particle_array(queue, nparticles, dims, dtype)
+
+    if do_plot:
+        import matplotlib.pyplot as pt
+        pt.plot(particles[0].get(), particles[1].get(), "x")
+
+    from boxtree import TreeBuilder
+    tb = TreeBuilder(ctx)
+
+    queue.finish()
+    tree, _ = tb(queue, particles, max_particles_in_box=30, debug=True, prune_empty=False)
+
+    from boxtree.particle_query import (
+        ParticleQueryBuilder, LeavesToParticlesLookupBuilder)
+    pqb = ParticleQueryBuilder(ctx)
+    l2pl = LeavesToParticlesLookupBuilder(ctx)
+
+    pq, _ = pqb(queue, tree, particles)
+    l2p, _ = l2pl(queue, tree, particles)
+
+    # Get data to host for test.
+    tree = tree.get(queue=queue)
+    pq = pq.get(queue=queue)
+    l2p = l2p.get(queue=queue)
+
+    from boxtree import box_flags_enum
+    leaf_boxes, = (tree.box_flags & box_flags_enum.HAS_CHILDREN == 0).nonzero()
+
+    # Check if we recover the user source orders.
+
+    assert set(pq) <= set(leaf_boxes), set(pq) - set(leaf_boxes)
+
+    pq = np.array(sorted(np.arange(nparticles),
+            # box_source_starts tells us how the boxes should
+            # be sorted relative to each other.
+            key=lambda particle: tree.box_source_starts[pq[particle]]))
+    assert (tree.user_source_ids == pq).all()
+
+    for leaf in leaf_boxes:
+        leaf_range = range(*l2p.particles_in_leaf_starts[leaf:leaf+2])
+        tree_leaf_range = range(tree.box_source_starts[leaf],
+                                tree.box_source_starts[leaf] +
+                                tree.box_source_counts_cumul[leaf])
+        assert set(l2p.particles_in_leaf_lists[leaf_range]) == \
+               set(tree.user_source_ids[tree_leaf_range])
+
+# }}}
+
 # {{{ level restriction test
 
 @pytest.mark.opencl

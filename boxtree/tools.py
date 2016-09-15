@@ -501,4 +501,47 @@ class MapValuesKernel(object):
 
 # }}}
 
+
+# {{{ binary search
+
+from mako.template import Template
+
+
+BINARY_SEARCH_TEMPLATE = Template("""
+inline size_t bsearch(__global ${idx_t} *starts, size_t len, ${idx_t} val)
+{
+    size_t l_idx = 0, r_idx = len - 1, my_idx;
+    for (;;)
+    {
+        my_idx = (l_idx + r_idx) / 2;
+
+        if (starts[my_idx] <= val && val < starts[my_idx + 1])
+        {
+            return my_idx;
+        }
+
+        if (starts[my_idx] > val)
+        {
+            r_idx = my_idx - 1;
+        }
+        else
+        {
+            l_idx = my_idx + 1;
+        }
+    }
+}
+""")
+
+
+class InlineBinarySearch(object):
+
+    def __init__(self, idx_t):
+        self.idx_t = idx_t
+
+    @memoize_method
+    def __str__(self):
+        return BINARY_SEARCH_TEMPLATE.render(idx_t=self.idx_t)
+
+# }}}
+
 # vim: foldmethod=marker:filetype=pyopencl
