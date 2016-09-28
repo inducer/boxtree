@@ -266,13 +266,10 @@ AREA_QUERY_TEMPLATE = (
     typedef ${dtype_to_ctype(ball_id_dtype)} ball_id_t;
     typedef ${dtype_to_ctype(peer_list_idx_dtype)} peer_list_idx_t;
 
-    <%def name="get_ball_center(ball_center, i)">
+    <%def name="get_ball_center_and_radius(ball_center, ball_radius, i)">
         %for ax in AXIS_NAMES[:dimensions]:
             ${ball_center}.${ax} = ball_${ax}[${i}];
         %endfor
-    </%def>
-
-    <%def name="get_ball_radius(ball_radius, i)">
        ${ball_radius} = ball_radii[${i}];
     </%def>
 
