@@ -721,21 +721,15 @@ def test_area_query(ctx_getter, dims, do_plot=False):
         actual = near_leaves
         assert sorted(found) == sorted(actual)
 
-# }}}
-
-
-# {{{ particle query test
 
 @pytest.mark.opencl
 @pytest.mark.area_query
 @pytest.mark.parametrize("dims", [2, 3])
-def test_particle_query(ctx_getter, dims, do_plot=False):
-    logging.basicConfig(level=logging.INFO)
-
+def test_area_query_elwise(ctx_getter, dims, do_plot=False):
     ctx = ctx_getter()
     queue = cl.CommandQueue(ctx)
 
-    nparticles = 5 * 10**3
+    nparticles = 10**5
     dtype = np.float64
 
     particles = make_normal_particle_array(queue, nparticles, dims, dtype)
@@ -748,43 +742,51 @@ def test_particle_query(ctx_getter, dims, do_plot=False):
     tb = TreeBuilder(ctx)
 
     queue.finish()
-    tree, _ = tb(queue, particles, max_particles_in_box=30, debug=True, prune_empty=False)
+    tree, _ = tb(queue, particles, max_particles_in_box=30, debug=True)
 
-    from boxtree.particle_query import (
-        ParticleQueryBuilder, LeavesToParticlesLookupBuilder)
-    pqb = ParticleQueryBuilder(ctx)
-    l2pl = LeavesToParticlesLookupBuilder(ctx)
+    nballs = 10**4
+    ball_centers = make_normal_particle_array(queue, nballs, dims, dtype)
+    ball_radii = cl.array.empty(queue, nballs, dtype).fill(0.1)
 
-    pq, _ = pqb(queue, tree, particles)
-    l2p, _ = l2pl(queue, tree, particles)
+    from boxtree.area_query import (
+        AreaQueryElementwiseTemplate, PeerListFinder)
 
-    # Get data to host for test.
-    tree = tree.get(queue=queue)
-    pq = pq.get(queue=queue)
-    l2p = l2p.get(queue=queue)
+    template = AreaQueryElementwiseTemplate(
+        extra_args="""
+            coord_t *ball_radii,
+            %for ax in AXIS_NAMES[:dimensions]:
+                coord_t *ball_${ax},
+            %endfor
+        """,
+        ball_center_and_radius_expr="""
+            %for ax in AXIS_NAMES[:dimensions]:
+                ${ball_center}.${ax} = ball_${ax}[${i}];
+            %endfor
+            ${ball_radius} = ball_radii[${i}];
+        """,
+        leaf_found_op="")
 
-    from boxtree import box_flags_enum
-    leaf_boxes, = (tree.box_flags & box_flags_enum.HAS_CHILDREN == 0).nonzero()
+    peer_lists, evt = PeerListFinder(ctx)(queue, tree)
 
-    # Check if we recover the user source orders.
+    kernel = template.generate(
+        ctx,
+        dims,
+        tree.coord_dtype,
+        tree.box_id_dtype,
+        peer_lists.peer_list_starts.dtype,
+        tree.nlevels)
 
-    assert set(pq) <= set(leaf_boxes), set(pq) - set(leaf_boxes)
+    evt = kernel(
+        *template.unwrap_args(
+            tree, peer_lists, ball_radii, *ball_centers),
+        queue=queue,
+        wait_for=[evt],
+        range=range(len(ball_radii)))
 
-    pq = np.array(sorted(np.arange(nparticles),
-            # box_source_starts tells us how the boxes should
-            # be sorted relative to each other.
-            key=lambda particle: tree.box_source_starts[pq[particle]]))
-    assert (tree.user_source_ids == pq).all()
-
-    for leaf in leaf_boxes:
-        leaf_range = range(*l2p.particles_in_leaf_starts[leaf:leaf+2])
-        tree_leaf_range = range(tree.box_source_starts[leaf],
-                                tree.box_source_starts[leaf] +
-                                tree.box_source_counts_cumul[leaf])
-        assert set(l2p.particles_in_leaf_lists[leaf_range]) == \
-               set(tree.user_source_ids[tree_leaf_range])
+    cl.wait_for_events([evt])
 
 # }}}
+
 
 # {{{ level restriction test
 

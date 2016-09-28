@@ -132,6 +132,7 @@ class LeavesToBallsLookup(DeviceDataRecord):
 
 # }}}
 
+
 # {{{ kernel templates
 
 GUIDING_BOX_FINDER_MACRO = r"""//CL:mako//
@@ -139,7 +140,8 @@ GUIDING_BOX_FINDER_MACRO = r"""//CL:mako//
         ${walk_init(0)}
         box_id_t guiding_box;
 
-        if (LEVEL_TO_RAD(0) < ${ball_radius} / 2 || !(box_flags[0] & BOX_HAS_CHILDREN))
+        if (LEVEL_TO_RAD(0) < ${ball_radius} / 2
+            || !(box_flags[0] & BOX_HAS_CHILDREN))
         {
             guiding_box = 0;
             continue_walk = false;
@@ -400,20 +402,27 @@ STARTS_EXPANDER_TEMPLATE = ElementwiseTemplate(
     name="starts_expander",
     preamble=str(InlineBinarySearch("idx_t")))
 
+# }}}
 
-def unwrap_args(tree, peer_lists, *args):
-    return (tree.box_centers,
-            tree.root_extent,
-            tree.box_levels,
-            tree.aligned_nboxes,
-            tree.box_child_ids,
-            tree.box_flags,
-            peer_lists.peer_list_starts,
-            peer_lists.peer_lists) + args
 
+# {{{ area query elementwise template
 
 class AreaQueryElementwiseTemplate(object):
-    # FIXME: Document.
+    """
+    Experimental: Intended as a way to perform operations in the body of an area
+    query.
+    """
+
+    @staticmethod
+    def unwrap_args(tree, peer_lists, *args):
+        return (tree.box_centers,
+                tree.root_extent,
+                tree.box_levels,
+                tree.aligned_nboxes,
+                tree.box_child_ids,
+                tree.box_flags,
+                peer_lists.peer_list_starts,
+                peer_lists.peer_lists) + args
 
     def __init__(self, extra_args, ball_center_and_radius_expr,
                  leaf_found_op, preamble="", name="area_query_elwise"):
@@ -646,6 +655,7 @@ class AreaQueryBuilder(object):
 
 # }}}
 
+
 # {{{ area query transpose (leaves-to-balls) lookup build
 
 class LeavesToBallsLookupBuilder(object):
@@ -746,8 +756,8 @@ class LeavesToBallsLookupBuilder(object):
 
 # }}}
 
-# {{{ peer list build
 
+# {{{ peer list build
 
 class PeerListFinder(object):
     """This class builds a look-up table from box numbers to peer boxes. The
