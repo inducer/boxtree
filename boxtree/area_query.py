@@ -54,12 +54,6 @@ Inverse of area query (Leaves -> overlapping balls)
 .. autoclass:: LeavesToBallsLookup
 
 
-Space invader queries
-^^^^^^^^^^^^^^^^^^^^^
-
-.. autoclass:: SpaceInvaderQueryBuilder
-
-
 Peer Lists
 ^^^^^^^^^^
 
@@ -504,53 +498,6 @@ class AreaQueryElementwiseTemplate(object):
                 var_values=render_vars + extra_var_values,
                 more_preamble=preamble + extra_preamble)
 
-
-SPACE_INVADER_QUERY_TEMPLATE = AreaQueryElementwiseTemplate(
-    extra_args="""
-    coord_t *ball_radii,
-    float *outer_space_invader_dists,
-    %for ax in AXIS_NAMES[:dimensions]:
-        coord_t *ball_${ax},
-    %endfor
-    """,
-    ball_center_and_radius_expr=r"""
-    ${ball_radius} = ball_radii[${i}];
-    %for ax in AXIS_NAMES[:dimensions]:
-        ${ball_center}.${ax} = ball_${ax}[${i}];
-    %endfor
-    """,
-    leaf_found_op=r"""
-        {
-            ${load_center("leaf_center", leaf_box_id)}
-            int leaf_level = box_levels[${leaf_box_id}];
-
-            coord_t size_sum = LEVEL_TO_RAD(leaf_level) + ${ball_radius};
-
-            coord_t max_dist = 0;
-            %for i in range(dimensions):
-                max_dist = fmax(max_dist,
-                    fabs(${ball_center}.s${i} - leaf_center.s${i}));
-            %endfor
-
-            bool is_overlapping = max_dist <= size_sum;
-
-            if (is_overlapping)
-            {
-                // The atomic max operation supports only integer types.
-                // However, max_dist is of a floating point type.
-                // For comparison purposes we reinterpret the bits of max_dist
-                // as an integer. The comparison result is the same as for positive
-                // IEEE floating point numbers, so long as the float/int endianness
-                // matches (fingers crossed).
-                atomic_max(
-                    (volatile __global int *)
-                        &outer_space_invader_dists[${leaf_box_id}],
-                    as_int((float) max_dist));
-            }
-        }
-    """,
-    name="space_invader_query")
-
 # }}}
 
 
@@ -796,113 +743,6 @@ class LeavesToBallsLookupBuilder(object):
                 tree=tree,
                 balls_near_box_starts=balls_near_box_starts,
                 balls_near_box_lists=balls_near_box_lists).with_queue(None), evt
-
-# }}}
-
-# {{{ space invader query build
-
-class SpaceInvaderQueryBuilder(object):
-    """Given a set of :math:`l^\infty` "balls", this class helps build a look-up
-    table from leaf box to max center-to-center distance with an overlapping
-    ball.
-
-    .. automethod:: __call__
-
-    """
-    def __init__(self, context):
-        self.context = context
-        self.peer_list_finder = PeerListFinder(self.context)
-
-    # {{{ Kernel generation
-
-    @memoize_method
-    def get_space_invader_query_kernel(self, dimensions, coord_dtype,
-                box_id_dtype, ball_id_dtype, peer_list_idx_dtype, max_levels):
-        return SPACE_INVADER_QUERY_TEMPLATE.generate(
-                self.context,
-                dimensions,
-                coord_dtype,
-                box_id_dtype,
-                ball_id_dtype,
-                peer_list_idx_dtype,
-                max_levels)
-
-    # }}}
-
-    def __call__(self, queue, tree, ball_centers, ball_radii, peer_lists=None,
-                 wait_for=None):
-        """:arg queue: a :class:`pyopencl.CommandQueue`
-        :arg tree: a :class:`boxtree.Tree`.
-        :arg ball_centers: an object array of coordinate
-            :class:`pyopencl.array.Array` instances.
-            Their *dtype* must match *tree*'s
-            :attr:`boxtree.Tree.coord_dtype`.
-        :arg ball_radii: a
-            :class:`pyopencl.array.Array`
-            of positive numbers.
-            Its *dtype* must match *tree*'s
-            :attr:`boxtree.Tree.coord_dtype`.
-        :arg peer_lists: may either be *None* or an instance of
-            :class:`PeerListLookup` associated with `tree`.
-        :arg wait_for: may either be *None* or a list of :class:`pyopencl.Event`
-            instances for whose completion this command waits before starting
-            execution.
-        :returns: a tuple *(sqi, event)*, where *sqi* is an instance of
-            :class:`pyopencl.array`, and *event* is a :class:`pyopencl.Event`
-            for dependency management.
-        """
-
-        from pytools import single_valued
-        if single_valued(bc.dtype for bc in ball_centers) != tree.coord_dtype:
-            raise TypeError("ball_centers dtype must match tree.coord_dtype")
-        if ball_radii.dtype != tree.coord_dtype:
-            raise TypeError("ball_radii dtype must match tree.coord_dtype")
-
-        from pytools import div_ceil
-        # Avoid generating too many kernels.
-        max_levels = div_ceil(tree.nlevels, 10) * 10
-
-        if peer_lists is None:
-            peer_lists, evt = self.peer_list_finder(queue, tree, wait_for=wait_for)
-            wait_for = [evt]
-
-        if len(peer_lists.peer_list_starts) != tree.nboxes + 1:
-            raise ValueError("size of peer lists must match with number of boxes")
-
-        space_invader_query_kernel = self.get_space_invader_query_kernel(
-            tree.dimensions, tree.coord_dtype, tree.box_id_dtype,
-            peer_lists.peer_list_starts.dtype, max_levels)
-
-        logger.info("space invader query: run space invader query")
-
-        outer_space_invader_dists = cl.array.zeros(queue, tree.nboxes, np.float32)
-        wait_for.extend(outer_space_invader_dists.events)
-
-        evt = space_invader_query_kernel(
-                tree.box_centers, tree.root_extent,
-                tree.box_levels, tree.aligned_nboxes,
-                tree.box_child_ids, tree.box_flags,
-                peer_lists.peer_list_starts,
-                peer_lists.peer_lists,
-                ball_radii,
-                outer_space_invader_dists,
-                *tuple(bc for bc in ball_centers),
-                wait_for=wait_for,
-                queue=queue,
-                slice=slice(len(ball_radii)))
-
-        if tree.coord_dtype != np.dtype(np.float32):
-            # The kernel output is always an array of float32 due to limited
-            # support for atomic operations with float64 in OpenCL.
-            # Here the output is cast to match the coord dtype.
-            outer_space_invader_dists.finish()
-            outer_space_invader_dists = outer_space_invader_dists.astype(
-                    tree.coord_dtype)
-            evt, = outer_space_invader_dists.events
-
-        logger.info("space invader query: done")
-
-        return outer_space_invader_dists, evt
 
 # }}}
 
