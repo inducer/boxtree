@@ -781,7 +781,7 @@ def test_area_query_elwise(ctx_getter, dims, do_plot=False):
             tree, peer_lists, ball_radii, *ball_centers),
         queue=queue,
         wait_for=[evt],
-        range=range(len(ball_radii)))
+        range=slice(len(ball_radii)))
 
     cl.wait_for_events([evt])
 
