@@ -135,7 +135,7 @@ class Tree(DeviceDataRecord):
 
     .. attribute:: level_start_box_nrs_dev
 
-        ``particle_id_t [nlevels+1``
+        ``particle_id_t [nlevels+1]``
 
         The same array as :attr:`level_start_box_nrs`
         as a :class:`pyopencl.array.Array`.
