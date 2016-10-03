@@ -133,8 +133,10 @@ typedef ${dtype_to_ctype(box_id_dtype)} box_id_t;
 %if particle_id_dtype is not None:
     typedef ${dtype_to_ctype(particle_id_dtype)} particle_id_t;
 %endif
+## Convert to dict first, as this may be passed as a tuple-of-tuples.
+<% vec_types_dict = dict(vec_types) %>
 typedef ${dtype_to_ctype(coord_dtype)} coord_t;
-typedef ${dtype_to_ctype(vec_types[coord_dtype, dimensions])} coord_vec_t;
+typedef ${dtype_to_ctype(vec_types_dict[coord_dtype, dimensions])} coord_vec_t;
 
 #define NLEVELS ${max_levels}
 #define STICK_OUT_FACTOR ((coord_t) ${stick_out_factor})
