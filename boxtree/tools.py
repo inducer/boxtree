@@ -27,7 +27,7 @@ import numpy as np
 from pytools import Record, memoize_method
 import pyopencl as cl
 import pyopencl.array  # noqa
-from pyopencl.tools import first_arg_dependent_memoize_nested
+from pyopencl.tools import first_arg_dependent_memoize_nested, dtype_to_c_struct
 from mako.template import Template
 from pytools.obj_array import make_obj_array
 
@@ -399,7 +399,9 @@ class GappyCopyAndMapKernel:
 
         from pyopencl.elementwise import ElementwiseKernel
         return ElementwiseKernel(self.context,
-                args, str(src), name="gappy_copy_and_map")
+                args, str(src),
+                preamble=dtype_to_c_struct(self.context.devices[0], dtype),
+                name="gappy_copy_and_map")
 
     # NOTE: Order of positional args should match realloc_array()
     def __call__(self, queue, allocator, new_shape, ary, src_indices=None,
