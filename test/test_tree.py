@@ -308,12 +308,8 @@ def test_explicit_refine_weights_particle_tree(ctx_getter, dtype, dims,
     nparticles = 10**5
 
     from pyopencl.clrandom import PhiloxGenerator
-    import random
-    random.seed(10)
-    rng = PhiloxGenerator(ctx)
-    refine_weights = cl.array.empty(queue, nparticles, np.int32)
-    evt = rng.fill_uniform(refine_weights, a=1, b=10)
-    cl.wait_for_events([evt])
+    rng = PhiloxGenerator(ctx, seed=10)
+    refine_weights = rng.uniform(queue, nparticles, dtype=np.int32, a=1, b=10)
 
     run_build_test(builder, queue, dims, dtype, nparticles,
             refine_weights=refine_weights, max_leaf_refine_weight=100,
@@ -724,6 +720,70 @@ def test_area_query(ctx_getter, dims, do_plot=False):
         found = area_query.leaves_near_ball_lists[start:end]
         actual = near_leaves
         assert sorted(found) == sorted(actual)
+
+
+@pytest.mark.opencl
+@pytest.mark.area_query
+@pytest.mark.parametrize("dims", [2, 3])
+def test_area_query_elwise(ctx_getter, dims, do_plot=False):
+    ctx = ctx_getter()
+    queue = cl.CommandQueue(ctx)
+
+    nparticles = 10**5
+    dtype = np.float64
+
+    particles = make_normal_particle_array(queue, nparticles, dims, dtype)
+
+    if do_plot:
+        import matplotlib.pyplot as pt
+        pt.plot(particles[0].get(), particles[1].get(), "x")
+
+    from boxtree import TreeBuilder
+    tb = TreeBuilder(ctx)
+
+    queue.finish()
+    tree, _ = tb(queue, particles, max_particles_in_box=30, debug=True)
+
+    nballs = 10**4
+    ball_centers = make_normal_particle_array(queue, nballs, dims, dtype)
+    ball_radii = cl.array.empty(queue, nballs, dtype).fill(0.1)
+
+    from boxtree.area_query import (
+        AreaQueryElementwiseTemplate, PeerListFinder)
+
+    template = AreaQueryElementwiseTemplate(
+        extra_args="""
+            coord_t *ball_radii,
+            %for ax in AXIS_NAMES[:dimensions]:
+                coord_t *ball_${ax},
+            %endfor
+        """,
+        ball_center_and_radius_expr="""
+            %for ax in AXIS_NAMES[:dimensions]:
+                ${ball_center}.${ax} = ball_${ax}[${i}];
+            %endfor
+            ${ball_radius} = ball_radii[${i}];
+        """,
+        leaf_found_op="")
+
+    peer_lists, evt = PeerListFinder(ctx)(queue, tree)
+
+    kernel = template.generate(
+        ctx,
+        dims,
+        tree.coord_dtype,
+        tree.box_id_dtype,
+        peer_lists.peer_list_starts.dtype,
+        tree.nlevels)
+
+    evt = kernel(
+        *template.unwrap_args(
+            tree, peer_lists, ball_radii, *ball_centers),
+        queue=queue,
+        wait_for=[evt],
+        range=slice(len(ball_radii)))
+
+    cl.wait_for_events([evt])
 
 # }}}
 
