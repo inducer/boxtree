@@ -142,70 +142,43 @@ class LeavesToBallsLookup(DeviceDataRecord):
 # {{{ kernel templates
 
 GUIDING_BOX_FINDER_MACRO = r"""//CL:mako//
-    <%def name="find_guiding_box(ball_center, ball_radius)">
-        ${walk_init(0)}
-        box_id_t guiding_box;
+    <%def name="find_guiding_box(ball_center, ball_radius, box='guiding_box', particle=0)">
+        box_id_t ${box} = 0;
 
-        if (LEVEL_TO_RAD(0) < ${ball_radius} / 2
-            || !(box_flags[0] & BOX_HAS_CHILDREN))
+        // Descend when root is not the guiding box.
+        if (LEVEL_TO_RAD(0) / 2 >= ${ball_radius})
         {
-            guiding_box = 0;
-            continue_walk = false;
-        }
-
-        while (continue_walk)
-        {
-            // Get the next child.
-            box_id_t child_box_id = box_child_ids[
-                walk_morton_nr * aligned_nboxes + walk_box_id];
-
-            bool last_child = walk_morton_nr == ${2**dimensions - 1};
-
-            if (child_box_id)
+            for (unsigned box_level = 0;; ++box_level)
             {
-                bool contains_ball_center;
-                int child_level = walk_level + 1;
-                coord_t child_rad = LEVEL_TO_RAD(child_level);
-
+                if (/* Found leaf? */
+                    !(box_flags[${box}] & BOX_HAS_CHILDREN)
+                    /* Found guiding box? */
+                    || (LEVEL_TO_RAD(box_level) / 2 < ${ball_radius}
+                        && ${ball_radius} <= LEVEL_TO_RAD(box_level)))
                 {
-                    // Check if the child contains the ball's center.
-                    ${load_center("child_center", "child_box_id")}
-
-                    coord_t max_dist = 0;
-                    %for i in range(dimensions):
-                        max_dist = fmax(max_dist,
-                            distance(${ball_center}.s${i}, child_center.s${i}));
-                    %endfor
-
-                    contains_ball_center = max_dist <= child_rad;
+                    break;
                 }
 
-                if (contains_ball_center)
-                {
-                    if ((child_rad / 2 < ${ball_radius}
-                           && ${ball_radius} <= child_rad) ||
-                        !(box_flags[child_box_id] & BOX_HAS_CHILDREN))
-                    {
-                        guiding_box = child_box_id;
-                        break;
-                    }
+                // Find the child containing the ball center.
+                //
+                // Logic intended to match the morton nr scan kernel.
 
-                    // We want to descend into this box. Put the current state
-                    // on the stack.
-                    ${walk_push("child_box_id")}
-                    continue;
-                }
+                %for ax in AXIS_NAMES[:dimensions]:
+                    unsigned ${ax}_bits = (unsigned) (
+                        ((${ball_center}.${ax} - bbox_min_${ax}) / root_extent)
+                        * (1U << (1 + box_level)));
+                %endfor
+
+                // Pick off the lowest-order bit for each axis, put it in its place.
+                int level_morton_number = 0
+                %for iax, ax in enumerate(AXIS_NAMES[:dimensions]):
+                    | (${ax}_bits & 1U) << (${dimensions-1-iax})
+                %endfor
+                    ;
+
+                ${box} = box_child_ids[
+                    level_morton_number * aligned_nboxes + ${box}];
             }
-
-            if (last_child)
-            {
-                // This box has no children that contain the center, so it must
-                // be the guiding box.
-                guiding_box = walk_box_id;
-                break;
-            }
-
-            ${walk_advance()}
         }
     </%def>
 """
@@ -237,7 +210,7 @@ AREA_QUERY_WALKER_BODY = r"""
         }
         else
         {
-            ${walk_reset("peer_box")}
+            ${walk_init("peer_box")}
 
             while (continue_walk)
             {
@@ -425,7 +398,7 @@ class AreaQueryElementwiseTemplate(object):
                 tree.box_child_ids,
                 tree.box_flags,
                 peer_lists.peer_list_starts,
-                peer_lists.peer_lists) + args
+                peer_lists.peer_lists) + tuple(tree.bounding_box[0]) + args
 
     def __init__(self, extra_args, ball_center_and_radius_expr,
                  leaf_found_op, preamble="", name="area_query_elwise"):
@@ -449,6 +422,9 @@ class AreaQueryElementwiseTemplate(object):
                 box_flags_t *box_flags,
                 peer_list_idx_t *peer_list_starts,
                 box_id_t *peer_lists,
+                %for ax in AXIS_NAMES[:dimensions]:
+                    coord_t bbox_min_${ax},
+                %endfor
             """ + extra_args,
             operation="//CL:mako//\n" +
             wrap_in_macro("get_ball_center_and_radius(ball_center, ball_radius, i)",
@@ -618,6 +594,9 @@ class AreaQueryBuilder(object):
             VectorArg(box_id_dtype, "peer_lists"),
             VectorArg(coord_dtype, "ball_radii"),
             ] + [
+            ScalarArg(coord_dtype, "bbox_min_"+ax)
+            for ax in AXIS_NAMES[:dimensions]
+            ]+ [
             VectorArg(coord_dtype, "ball_"+ax)
             for ax in AXIS_NAMES[:dimensions]]
 
@@ -692,7 +671,8 @@ class AreaQueryBuilder(object):
                 tree.box_child_ids.data, tree.box_flags.data,
                 peer_lists.peer_list_starts.data,
                 peer_lists.peer_lists.data, ball_radii.data,
-                *tuple(bc.data for bc in ball_centers),
+                *(tuple(tree.bounding_box[0]) +
+                  tuple(bc.data for bc in ball_centers)),
                 wait_for=wait_for)
 
         logger.info("area query: done")
@@ -883,17 +863,16 @@ class SpaceInvaderQueryBuilder(object):
         logger.info("space invader query: run space invader query")
 
         outer_space_invader_dists = cl.array.zeros(queue, tree.nboxes, np.float32)
-        wait_for.extend(outer_space_invader_dists.events)
+        if not wait_for:
+            wait_for = []
+        wait_for = wait_for + outer_space_invader_dists.events
 
         evt = space_invader_query_kernel(
-                tree.box_centers, tree.root_extent,
-                tree.box_levels, tree.aligned_nboxes,
-                tree.box_child_ids, tree.box_flags,
-                peer_lists.peer_list_starts,
-                peer_lists.peer_lists,
-                ball_radii,
-                outer_space_invader_dists,
-                *tuple(bc for bc in ball_centers),
+                *SPACE_INVADER_QUERY_TEMPLATE.unwrap_args(
+                    tree, peer_lists,
+                    ball_radii,
+                    outer_space_invader_dists,
+                    *tuple(bc for bc in ball_centers)),
                 wait_for=wait_for,
                 queue=queue,
                 slice=slice(len(ball_radii)))
