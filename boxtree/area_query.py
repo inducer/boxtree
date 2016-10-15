@@ -142,7 +142,7 @@ class LeavesToBallsLookup(DeviceDataRecord):
 # {{{ kernel templates
 
 GUIDING_BOX_FINDER_MACRO = r"""//CL:mako//
-    <%def name="find_guiding_box(ball_center, ball_radius, box='guiding_box', particle=0)">
+    <%def name="find_guiding_box(ball_center, ball_radius, box='guiding_box')">
         box_id_t ${box} = 0;
 
         // Descend when root is not the guiding box.
@@ -596,7 +596,7 @@ class AreaQueryBuilder(object):
             ] + [
             ScalarArg(coord_dtype, "bbox_min_"+ax)
             for ax in AXIS_NAMES[:dimensions]
-            ]+ [
+            ] + [
             VectorArg(coord_dtype, "ball_"+ax)
             for ax in AXIS_NAMES[:dimensions]]
 
