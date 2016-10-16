@@ -791,11 +791,12 @@ class LeavesToBallsLookupBuilder(object):
 class SpaceInvaderQueryBuilder(object):
     r"""
     Given a set of :math:`l^\infty` "balls", this class helps build a look-up
-    table which maps leaf boxes to the *outer space invader distance*,
-    defined below but, roughly, from the point of view of the leaf box,
-    the center-center distance to the farthest overlapping ball.
+    table which maps leaf boxes to the *outer space invader distance*.
+    This is defined below but roughly, from the point of view
+    of a leaf box, it is the farthest "leaf center to ball center" distance among
+    all balls that intersect the leaf box.
 
-    Given a leaf box :math:`b`, the *outer space invader distance* is
+    Formally, given a leaf box :math:`b`, the *outer space invader distance* is
     defined by the following expression (here :math:`d_\infty` is the
     :math:`\infty` norm):
 
@@ -849,7 +850,8 @@ class SpaceInvaderQueryBuilder(object):
         :returns: a tuple *(sqi, event)*, where *sqi* is an instance of
             :class:`pyopencl.array.Array`, and *event* is a :class:`pyopencl.Event`
             for dependency management. The *dtype* of *sqi* is
-            *tree*'s :attr:`boxtree.Tree.coord_dtype`.
+            *tree*'s :attr:`boxtree.Tree.coord_dtype` and its shape is
+            *(tree.nboxes,)* (see :attr:`boxtree.Tree.nboxes`).
             The entries of *sqi* are indexed by the global box index and are
             as follows:
 
