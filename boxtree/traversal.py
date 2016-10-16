@@ -48,13 +48,6 @@ TRAVERSAL_PREAMBLE_MAKO_DEFS = r"""//CL:mako//
     bool continue_walk = true;
 </%def>
 
-<%def name="walk_reset(start_box_id)">
-    walk_level = 0;
-    walk_box_id = ${start_box_id};
-    walk_morton_nr = 0;
-    continue_walk = true;
-</%def>
-
 <%def name="walk_advance()">
     while (true)
     {
@@ -98,8 +91,10 @@ TRAVERSAL_PREAMBLE_MAKO_DEFS = r"""//CL:mako//
     walk_morton_nr = 0;
 </%def>
 
-<%def name="load_center(name, box_id)">
-    coord_vec_t ${name};
+<%def name="load_center(name, box_id, declare=True)">
+    %if declare:
+        coord_vec_t ${name};
+    %endif
     %for i in range(dimensions):
         ${name}.${AXIS_NAMES[i]} = box_centers[aligned_nboxes * ${i} + ${box_id}];
     %endfor
