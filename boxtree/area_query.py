@@ -286,7 +286,15 @@ AREA_QUERY_WALKER_BODY = r"""
 
         if (!(box_flags[peer_box] & BOX_HAS_CHILDREN))
         {
-            ${leaf_found_op("peer_box", "ball_center", "ball_radius")}
+            bool is_overlapping;
+
+            ${check_l_infty_ball_overlap(
+                "is_overlapping", "peer_box", "ball_radius", "ball_center")}
+
+            if (is_overlapping)
+            {
+                ${leaf_found_op("peer_box", "ball_center", "ball_radius")}
+            }
         }
         else
         {
@@ -301,8 +309,17 @@ AREA_QUERY_WALKER_BODY = r"""
                 {
                     if (!(box_flags[child_box_id] & BOX_HAS_CHILDREN))
                     {
-                        ${leaf_found_op("child_box_id", "ball_center",
-                                        "ball_radius")}
+                        bool is_overlapping;
+
+                        ${check_l_infty_ball_overlap(
+                            "is_overlapping", "child_box_id",
+                            "ball_radius", "ball_center")}
+
+                        if (is_overlapping)
+                        {
+                            ${leaf_found_op(
+                                "child_box_id", "ball_center", "ball_radius")}
+                        }
                     }
                     else
                     {
@@ -333,17 +350,7 @@ AREA_QUERY_TEMPLATE = (
     </%def>
 
     <%def name="leaf_found_op(leaf_box_id, ball_center, ball_radius)">
-        {
-            bool is_overlapping;
-
-            ${check_l_infty_ball_overlap(
-                "is_overlapping", leaf_box_id, ball_radius, ball_center)}
-
-            if (is_overlapping)
-            {
-                APPEND_leaves(${leaf_box_id});
-            }
-        }
+        APPEND_leaves(${leaf_box_id});
     </%def>
 
     void generate(LIST_ARG_DECL USER_ARG_DECL ball_id_t i)
@@ -586,9 +593,6 @@ SPACE_INVADER_QUERY_TEMPLATE = AreaQueryElementwiseTemplate(
     leaf_found_op=r"""
     {
         ${load_center("leaf_center", leaf_box_id)}
-        int leaf_level = box_levels[${leaf_box_id}];
-
-        coord_t size_sum = LEVEL_TO_RAD(leaf_level) + ${ball_radius};
 
         coord_t max_dist = 0;
         %for i in range(dimensions):
@@ -596,21 +600,16 @@ SPACE_INVADER_QUERY_TEMPLATE = AreaQueryElementwiseTemplate(
                 distance(${ball_center}.s${i}, leaf_center.s${i}));
         %endfor
 
-        bool is_overlapping = max_dist <= size_sum;
-
-        if (is_overlapping)
-        {
-            // The atomic max operation supports only integer types.
-            // However, max_dist is of a floating point type.
-            // For comparison purposes we reinterpret the bits of max_dist
-            // as an integer. The comparison result is the same as for positive
-            // IEEE floating point numbers, so long as the float/int endianness
-            // matches (fingers crossed).
-            atomic_max(
-                (volatile __global int *)
-                    &outer_space_invader_dists[${leaf_box_id}],
-                as_int((float) max_dist));
-        }
+        // The atomic max operation supports only integer types.
+        // However, max_dist is of a floating point type.
+        // For comparison purposes we reinterpret the bits of max_dist
+        // as an integer. The comparison result is the same as for positive
+        // IEEE floating point numbers, so long as the float/int endianness
+        // matches (fingers crossed).
+        atomic_max(
+            (volatile __global int *)
+                &outer_space_invader_dists[${leaf_box_id}],
+            as_int((float) max_dist));
     }""",
     name="space_invader_query")
 
