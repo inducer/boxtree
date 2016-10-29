@@ -658,12 +658,51 @@ def test_leaves_to_balls_query(ctx_getter, dims, do_plot=False):
 
 # {{{ area query test
 
+def run_area_query_test(ctx, queue, tree, ball_centers, ball_radii):
+    """
+    Performs an area query and checks that the result is as expected.
+    """
+    from boxtree.area_query import AreaQueryBuilder
+    aqb = AreaQueryBuilder(ctx)
+
+    area_query, _ = aqb(queue, tree, ball_centers, ball_radii)
+
+    # Get data to host for test.
+    tree = tree.get(queue=queue)
+    area_query = area_query.get(queue=queue)
+    ball_centers = np.array([x.get() for x in ball_centers]).T
+    ball_radii = ball_radii.get()
+
+    from boxtree import box_flags_enum
+    leaf_boxes, = (tree.box_flags & box_flags_enum.HAS_CHILDREN == 0).nonzero()
+
+    leaf_box_radii = np.empty(len(leaf_boxes))
+    dims = len(tree.sources)
+    leaf_box_centers = np.empty((len(leaf_boxes), dims))
+
+    for idx, leaf_box in enumerate(leaf_boxes):
+        box_center = tree.box_centers[:, leaf_box]
+        ext_l, ext_h = tree.get_box_extent(leaf_box)
+        leaf_box_radii[idx] = np.max(ext_h - ext_l) * 0.5
+        leaf_box_centers[idx] = box_center
+
+    for ball_nr, (ball_center, ball_radius) \
+            in enumerate(zip(ball_centers, ball_radii)):
+        linf_box_dists = np.max(np.abs(ball_center - leaf_box_centers), axis=-1)
+        near_leaves_indices, \
+            = np.where(linf_box_dists < ball_radius + leaf_box_radii)
+        near_leaves = leaf_boxes[near_leaves_indices]
+
+        start, end = area_query.leaves_near_ball_starts[ball_nr:ball_nr+2]
+        found = area_query.leaves_near_ball_lists[start:end]
+        actual = near_leaves
+        assert set(found) == set(actual), (found, actual)
+
+
 @pytest.mark.opencl
 @pytest.mark.area_query
 @pytest.mark.parametrize("dims", [2, 3])
 def test_area_query(ctx_getter, dims, do_plot=False):
-    logging.basicConfig(level=logging.INFO)
-
     ctx = ctx_getter()
     queue = cl.CommandQueue(ctx)
 
@@ -686,40 +725,47 @@ def test_area_query(ctx_getter, dims, do_plot=False):
     ball_centers = make_normal_particle_array(queue, nballs, dims, dtype)
     ball_radii = cl.array.empty(queue, nballs, dtype).fill(0.1)
 
-    from boxtree.area_query import AreaQueryBuilder
-    aqb = AreaQueryBuilder(ctx)
+    run_area_query_test(ctx, queue, tree, ball_centers, ball_radii)
 
-    area_query, _ = aqb(queue, tree, ball_centers, ball_radii)
 
-    # Get data to host for test.
-    tree = tree.get(queue=queue)
-    area_query = area_query.get(queue=queue)
-    ball_centers = np.array([x.get() for x in ball_centers]).T
-    ball_radii = ball_radii.get()
+@pytest.mark.opencl
+@pytest.mark.area_query
+@pytest.mark.parametrize("dims", [2, 3])
+def test_area_query_balls_outside_bbox(ctx_getter, dims, do_plot=False):
+    """
+    The input to the area query includes balls whose centers are not within
+    the tree bounding box.
+    """
+    ctx = ctx_getter()
+    queue = cl.CommandQueue(ctx)
 
-    from boxtree import box_flags_enum
-    leaf_boxes, = (tree.box_flags & box_flags_enum.HAS_CHILDREN == 0).nonzero()
+    nparticles = 10**4
+    dtype = np.float64
 
-    leaf_box_radii = np.empty(len(leaf_boxes))
-    leaf_box_centers = np.empty((len(leaf_boxes), dims))
+    particles = make_normal_particle_array(queue, nparticles, dims, dtype)
 
-    for idx, leaf_box in enumerate(leaf_boxes):
-        box_center = tree.box_centers[:, leaf_box]
-        ext_l, ext_h = tree.get_box_extent(leaf_box)
-        leaf_box_radii[idx] = np.max(ext_h - ext_l) * 0.5
-        leaf_box_centers[idx] = box_center
+    if do_plot:
+        import matplotlib.pyplot as pt
+        pt.plot(particles[0].get(), particles[1].get(), "x")
 
-    for ball_nr, (ball_center, ball_radius) \
-            in enumerate(zip(ball_centers, ball_radii)):
-        linf_box_dists = np.max(np.abs(ball_center - leaf_box_centers), axis=-1)
-        near_leaves_indices, \
-            = np.where(linf_box_dists < ball_radius + leaf_box_radii)
-        near_leaves = leaf_boxes[near_leaves_indices]
+    from boxtree import TreeBuilder
+    tb = TreeBuilder(ctx)
 
-        start, end = area_query.leaves_near_ball_starts[ball_nr:ball_nr+2]
-        found = area_query.leaves_near_ball_lists[start:end]
-        actual = near_leaves
-        assert sorted(found) == sorted(actual)
+    queue.finish()
+    tree, _ = tb(queue, particles, max_particles_in_box=30, debug=True)
+
+    nballs = 10**4
+    from pyopencl.clrandom import PhiloxGenerator
+    rng = PhiloxGenerator(ctx, seed=13)
+    bbox_min = tree.bounding_box[0].min()
+    bbox_max = tree.bounding_box[1].max()
+    from pytools.obj_array import make_obj_array
+    ball_centers = make_obj_array([
+        rng.uniform(queue, nballs, dtype=dtype, a=bbox_min-1, b=bbox_max+1)
+        for i in range(dims)])
+    ball_radii = cl.array.empty(queue, nballs, dtype).fill(0.1)
+
+    run_area_query_test(ctx, queue, tree, ball_centers, ball_radii)
 
 
 @pytest.mark.opencl

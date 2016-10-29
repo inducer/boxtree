@@ -56,6 +56,7 @@ class TreeBuilder(object):
 
     morton_nr_dtype = np.dtype(np.int8)
     box_level_dtype = np.dtype(np.uint8)
+    ROOT_EXTENT_STRETCH_FACTOR = 1e-4
 
     @memoize_method
     def get_kernel_info(self, dimensions, coord_dtype,
@@ -309,7 +310,7 @@ class TreeBuilder(object):
 
         root_extent = max(
                 bbox["max_"+ax] - bbox["min_"+ax]
-                for ax in axis_names) * (1+1e-4)
+                for ax in axis_names) * (1+TreeBuilder.ROOT_EXTENT_STRETCH_FACTOR)
 
         # make bbox square and slightly larger at the top, to ensure scaled
         # coordinates are always < 1
