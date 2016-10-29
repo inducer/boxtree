@@ -199,10 +199,9 @@ GUIDING_BOX_FINDER_MACRO = r"""//CL:mako//
                     bbox_max, max(bbox_min, ${ball_center} + offset));
 
                 coord_vec_t dist = fabs(corner - query_center);
-                for (int i = 0; i < ${dimensions}; ++i)
-                {
-                    query_radius = fmax(query_radius, dist[i]);
-                }
+                %for i in range(dimensions):
+                    query_radius = fmax(query_radius, dist.s${i});
+                %endfor
             }
             %endfor
 
@@ -232,9 +231,9 @@ GUIDING_BOX_FINDER_MACRO = r"""//CL:mako//
                         (query_center - bbox_min) / root_extent;
 
                     // Invariant: offset_scaled entries are in [0, 1).
-                    %for iax, ax in enumerate(AXIS_NAMES[:dimensions]):
+                    %for ax in AXIS_NAMES[:dimensions]:
                         unsigned ${ax}_bits = (unsigned) (
-                            offset_scaled[${iax}] * (1U << (1 + box_level)));
+                            offset_scaled.${ax} * (1U << (1 + box_level)));
                     %endfor
 
                     // Pick off the lowest-order bit for each axis, put it in
