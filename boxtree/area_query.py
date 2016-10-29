@@ -192,7 +192,7 @@ GUIDING_BOX_FINDER_MACRO = r"""//CL:mako//
 
                 ${initialize_coord_vec("offset",
                     ["{sign}ball_radius".format(
-                        sign="+" if ((2**dimensions-1-idim) & mnr) else "-")
+                        sign="+" if (2**(dimensions-1-idim) & mnr) else "-")
                     for idim in range(dimensions)])}
 
                 coord_vec_t corner = min(
