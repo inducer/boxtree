@@ -142,42 +142,121 @@ class LeavesToBallsLookup(DeviceDataRecord):
 # {{{ kernel templates
 
 GUIDING_BOX_FINDER_MACRO = r"""//CL:mako//
+    <%def name="initialize_coord_vec(vector_name, entries)">
+        <% assert len(entries) == dimensions %>
+        ${vector_name} = (coord_vec_t) (${", ".join(entries)});
+    </%def>
+
     <%def name="find_guiding_box(ball_center, ball_radius, box='guiding_box')">
         box_id_t ${box} = 0;
-
-        // Descend when root is not the guiding box.
-        if (LEVEL_TO_RAD(0) / 2 >= ${ball_radius})
         {
-            for (unsigned box_level = 0;; ++box_level)
+            //
+            // Step 1: Ensure that the center is within the bounding box.
+            //
+            coord_vec_t query_center, bbox_min, bbox_max;
+
+            ${initialize_coord_vec(
+                "bbox_min", ["bbox_min_" + ax for ax in AXIS_NAMES[:dimensions]])}
+
+            // bbox_max should be smaller than the true bounding box, so that
+            // (query_center - bbox_min) / root_extent entries are in the half open
+            // interval [0, 1).
+            bbox_max = bbox_min + (coord_t) (
+                root_extent / (1 + ${root_extent_stretch_factor}));
+            query_center = min(bbox_max, max(bbox_min, ${ball_center}));
+
+            //
+            // Step 2: Compute the query radius. This can be effectively
+            // smaller than the original ball radius, if the center
+            // isn't in the bounding box (see picture):
+            //
+            //          +-----------+
+            //          |           |
+            //          |           |
+            //          |           |
+            //  +-------|-+         |
+            //  |       | |         |
+            //  |       +-----------+ <= bounding box
+            //  |         |
+            //  |         |
+            //  +---------+ <= query box
+            //
+            //        <---> <= original radius
+            //           <> <= effective radius
+            //
+            coord_t query_radius = 0;
+
+            %for mnr in range(2**dimensions):
             {
-                if (/* Found leaf? */
-                    !(box_flags[${box}] & BOX_HAS_CHILDREN)
-                    /* Found guiding box? */
-                    || (LEVEL_TO_RAD(box_level) / 2 < ${ball_radius}
-                        && ${ball_radius} <= LEVEL_TO_RAD(box_level)))
+                coord_vec_t offset;
+
+                ${initialize_coord_vec("offset",
+                    ["{sign}ball_radius".format(
+                        sign="+" if (2**(dimensions-1-idim) & mnr) else "-")
+                    for idim in range(dimensions)])}
+
+                coord_vec_t corner = min(
+                    bbox_max, max(bbox_min, ${ball_center} + offset));
+
+                coord_vec_t dist = fabs(corner - query_center);
+                %for i in range(dimensions):
+                    query_radius = fmax(query_radius, dist.s${i});
+                %endfor
+            }
+            %endfor
+
+            //
+            // Step 3: Find the guiding box.
+            //
+
+            // Descend when root is not the guiding box.
+            if (LEVEL_TO_RAD(0) / 2 >= query_radius)
+            {
+                for (unsigned box_level = 0;; ++box_level)
                 {
-                    break;
+                    if (/* Found leaf? */
+                        !(box_flags[${box}] & BOX_HAS_CHILDREN)
+                        /* Found guiding box? */
+                        || (LEVEL_TO_RAD(box_level) / 2 < query_radius
+                            && query_radius <= LEVEL_TO_RAD(box_level)))
+                    {
+                        break;
+                    }
+
+                    // Find the child containing the ball center.
+                    //
+                    // Logic intended to match the morton nr scan kernel.
+
+                    coord_vec_t offset_scaled =
+                        (query_center - bbox_min) / root_extent;
+
+                    // Invariant: offset_scaled entries are in [0, 1).
+                    %for ax in AXIS_NAMES[:dimensions]:
+                        unsigned ${ax}_bits = (unsigned) (
+                            offset_scaled.${ax} * (1U << (1 + box_level)));
+                    %endfor
+
+                    // Pick off the lowest-order bit for each axis, put it in
+                    // its place.
+                    int level_morton_number = 0
+                    %for iax, ax in enumerate(AXIS_NAMES[:dimensions]):
+                        | (${ax}_bits & 1U) << (${dimensions-1-iax})
+                    %endfor
+                        ;
+
+                    box_id_t next_box = box_child_ids[
+                        level_morton_number * aligned_nboxes + ${box}];
+
+                    if (next_box)
+                    {
+                        ${box} = next_box;
+                    }
+                    else
+                    {
+                        // Child does not exist, this must be the guiding box
+                        break;
+                    }
                 }
-
-                // Find the child containing the ball center.
-                //
-                // Logic intended to match the morton nr scan kernel.
-
-                %for ax in AXIS_NAMES[:dimensions]:
-                    unsigned ${ax}_bits = (unsigned) (
-                        ((${ball_center}.${ax} - bbox_min_${ax}) / root_extent)
-                        * (1U << (1 + box_level)));
-                %endfor
-
-                // Pick off the lowest-order bit for each axis, put it in its place.
-                int level_morton_number = 0
-                %for iax, ax in enumerate(AXIS_NAMES[:dimensions]):
-                    | (${ax}_bits & 1U) << (${dimensions-1-iax})
-                %endfor
-                    ;
-
-                ${box} = box_child_ids[
-                    level_morton_number * aligned_nboxes + ${box}];
             }
         }
     </%def>
@@ -206,7 +285,15 @@ AREA_QUERY_WALKER_BODY = r"""
 
         if (!(box_flags[peer_box] & BOX_HAS_CHILDREN))
         {
-            ${leaf_found_op("peer_box", "ball_center", "ball_radius")}
+            bool is_overlapping;
+
+            ${check_l_infty_ball_overlap(
+                "is_overlapping", "peer_box", "ball_radius", "ball_center")}
+
+            if (is_overlapping)
+            {
+                ${leaf_found_op("peer_box", "ball_center", "ball_radius")}
+            }
         }
         else
         {
@@ -221,8 +308,17 @@ AREA_QUERY_WALKER_BODY = r"""
                 {
                     if (!(box_flags[child_box_id] & BOX_HAS_CHILDREN))
                     {
-                        ${leaf_found_op("child_box_id", "ball_center",
-                                        "ball_radius")}
+                        bool is_overlapping;
+
+                        ${check_l_infty_ball_overlap(
+                            "is_overlapping", "child_box_id",
+                            "ball_radius", "ball_center")}
+
+                        if (is_overlapping)
+                        {
+                            ${leaf_found_op(
+                                "child_box_id", "ball_center", "ball_radius")}
+                        }
                     }
                     else
                     {
@@ -253,17 +349,7 @@ AREA_QUERY_TEMPLATE = (
     </%def>
 
     <%def name="leaf_found_op(leaf_box_id, ball_center, ball_radius)">
-        {
-            bool is_overlapping;
-
-            ${check_l_infty_ball_overlap(
-                "is_overlapping", leaf_box_id, ball_radius, ball_center)}
-
-            if (is_overlapping)
-            {
-                APPEND_leaves(${leaf_box_id});
-            }
-        }
+        APPEND_leaves(${leaf_box_id});
     </%def>
 
     void generate(LIST_ARG_DECL USER_ARG_DECL ball_id_t i)
@@ -445,6 +531,7 @@ class AreaQueryElementwiseTemplate(object):
         from pyopencl.tools import dtype_to_ctype
         from boxtree import box_flags_enum
         from boxtree.traversal import TRAVERSAL_PREAMBLE_TYPEDEFS_AND_DEFINES
+        from boxtree.tree_build import TreeBuilder
 
         render_vars = (
             ("dimensions", dimensions),
@@ -458,6 +545,7 @@ class AreaQueryElementwiseTemplate(object):
             ("box_flags_enum", box_flags_enum),
             ("peer_list_idx_dtype", peer_list_idx_dtype),
             ("debug", False),
+            ("root_extent_stretch_factor", TreeBuilder.ROOT_EXTENT_STRETCH_FACTOR),
             # Not used (but required by TRAVERSAL_PREAMBLE_TEMPLATE)
             ("stick_out_factor", 0),
         )
@@ -504,9 +592,6 @@ SPACE_INVADER_QUERY_TEMPLATE = AreaQueryElementwiseTemplate(
     leaf_found_op=r"""
     {
         ${load_center("leaf_center", leaf_box_id)}
-        int leaf_level = box_levels[${leaf_box_id}];
-
-        coord_t size_sum = LEVEL_TO_RAD(leaf_level) + ${ball_radius};
 
         coord_t max_dist = 0;
         %for i in range(dimensions):
@@ -514,21 +599,16 @@ SPACE_INVADER_QUERY_TEMPLATE = AreaQueryElementwiseTemplate(
                 distance(${ball_center}.s${i}, leaf_center.s${i}));
         %endfor
 
-        bool is_overlapping = max_dist <= size_sum;
-
-        if (is_overlapping)
-        {
-            // The atomic max operation supports only integer types.
-            // However, max_dist is of a floating point type.
-            // For comparison purposes we reinterpret the bits of max_dist
-            // as an integer. The comparison result is the same as for positive
-            // IEEE floating point numbers, so long as the float/int endianness
-            // matches (fingers crossed).
-            atomic_max(
-                (volatile __global int *)
-                    &outer_space_invader_dists[${leaf_box_id}],
-                as_int((float) max_dist));
-        }
+        // The atomic max operation supports only integer types.
+        // However, max_dist is of a floating point type.
+        // For comparison purposes we reinterpret the bits of max_dist
+        // as an integer. The comparison result is the same as for positive
+        // IEEE floating point numbers, so long as the float/int endianness
+        // matches (fingers crossed).
+        atomic_max(
+            (volatile __global int *)
+                &outer_space_invader_dists[${leaf_box_id}],
+            as_int((float) max_dist));
     }""",
     name="space_invader_query")
 
@@ -560,6 +640,7 @@ class AreaQueryBuilder(object):
         logger.info("start building area query kernel")
 
         from boxtree.traversal import TRAVERSAL_PREAMBLE_TEMPLATE
+        from boxtree.tree_build import TreeBuilder
 
         template = Template(
             TRAVERSAL_PREAMBLE_TEMPLATE
@@ -579,6 +660,7 @@ class AreaQueryBuilder(object):
             peer_list_idx_dtype=peer_list_idx_dtype,
             ball_id_dtype=ball_id_dtype,
             debug=False,
+            root_extent_stretch_factor=TreeBuilder.ROOT_EXTENT_STRETCH_FACTOR,
             # Not used (but required by TRAVERSAL_PREAMBLE_TEMPLATE)
             stick_out_factor=0)
 
