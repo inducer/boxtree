@@ -979,7 +979,7 @@ class SpaceInvaderQueryBuilder(object):
                     *tuple(bc for bc in ball_centers)),
                 wait_for=wait_for,
                 queue=queue,
-                slice=slice(len(ball_radii)))
+                range=slice(len(ball_radii)))
 
         if tree.coord_dtype != np.dtype(np.float32):
             # The kernel output is always an array of float32 due to limited
