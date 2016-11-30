@@ -1097,8 +1097,9 @@ class TreeBuilder(object):
                     size=nboxes, wait_for=wait_for)
             wait_for = [evt]
             nboxes_post_prune = int(nboxes_post_prune_dev.get())
-            logger.info("{} empty leaves and/or unused boxes, {} boxes after pruning"
-                    .format(nboxes - nboxes_post_prune, nboxes_post_prune))
+            logger.info("{} boxes after pruning "
+                        "({} empty leaves and/or unused boxes removed)"
+                    .format(nboxes_post_prune, nboxes - nboxes_post_prune))
             should_prune = True
         elif knl_info.level_restrict:
             # Remove unused boxes from the tree.
@@ -1124,8 +1125,8 @@ class TreeBuilder(object):
 
             nboxes_post_prune = new_level_start_box_nrs[-1]
 
-            logger.info("{} unused boxes, {} boxes after pruning"
-                    .format(nboxes - nboxes_post_prune, nboxes_post_prune))
+            logger.info("{} boxes after pruning ({} unused boxes removed)"
+                    .format(nboxes_post_prune, nboxes - nboxes_post_prune))
             should_prune = True
         else:
             should_prune = False
