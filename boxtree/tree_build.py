@@ -943,7 +943,7 @@ class TreeBuilder(object):
 
             if knl_info.level_restrict:
                 # Avoid generating too many kernels.
-                LEVEL_STEP = 10
+                LEVEL_STEP = 10  # noqa
                 if level % LEVEL_STEP == 1:
                     level_restrict_kernel = knl_info.level_restrict_kernel_builder(
                             LEVEL_STEP * div_ceil(level, LEVEL_STEP))

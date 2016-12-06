@@ -163,6 +163,7 @@ def make_morton_bin_count_type(device, dimensions, particle_id_dtype,
 
 # }}}
 
+
 # {{{ preamble
 
 TYPE_DECL_PREAMBLE_TPL = Template(r"""//CL//
@@ -897,6 +898,7 @@ def build_level_restrict_kernel(context, preamble_with_dtype_decls,
 # }}}
 
 # END KERNELS IN THE LEVEL LOOP
+
 
 # {{{ nonchild srcntgt count extraction
 
@@ -1677,6 +1679,7 @@ def get_tree_build_kernel_info(context, dimensions, coord_dtype,
             )
 
 # }}}
+
 
 # {{{ point source linking kernels
 
