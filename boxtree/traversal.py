@@ -1150,7 +1150,7 @@ class FMMTraversalBuilder:
             sources_are_targets, sources_have_extent, targets_have_extent,
             stick_out_factor):
 
-        logging.info("building traversal build kernels")
+        logger.info("building traversal build kernels")
 
         debug = False
 
@@ -1274,7 +1274,7 @@ class FMMTraversalBuilder:
 
         # }}}
 
-        logging.info("traversal build kernels built")
+        logger.info("traversal build kernels built")
 
         return _KernelInfo(**result)
 
