@@ -636,6 +636,8 @@ def test_leaves_to_balls_query(ctx_getter, dims, do_plot=False):
     ball_centers = np.array([x.get() for x in ball_centers]).T
     ball_radii = ball_radii.get()
 
+    assert len(lbl.balls_near_box_starts) == tree.nboxes + 1
+
     from boxtree import box_flags_enum
 
     for ibox in range(tree.nboxes):
