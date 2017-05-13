@@ -835,16 +835,24 @@ class LeavesToBallsLookupBuilder(object):
 
         logger.info("leaves-to-balls lookup: expand starts")
 
-        nkeys = len(area_query.leaves_near_ball_lists)
+        nkeys = tree.nboxes
         nballs_p_1 = len(area_query.leaves_near_ball_starts)
         assert nballs_p_1 == len(ball_radii) + 1
 
+        # We invert the area query in two steps:
+        #
+        # 1. Turn the area query result into (ball number, box number) pairs.
+        #    This is done in the "starts expander kernel."
+        #
+        # 2. Key-value sort the (ball number, box number) pairs by box number.
+
         starts_expander_knl = self.get_starts_expander_kernel(tree.box_id_dtype)
-        expanded_starts = cl.array.empty(queue, nkeys, tree.box_id_dtype)
+        expanded_starts = cl.array.empty(
+                queue, len(area_query.leaves_near_ball_lists), tree.box_id_dtype)
         evt = starts_expander_knl(
-            expanded_starts,
-            area_query.leaves_near_ball_starts.with_queue(queue),
-            nballs_p_1)
+                expanded_starts,
+                area_query.leaves_near_ball_starts.with_queue(queue),
+                nballs_p_1)
         wait_for = [evt]
 
         logger.info("leaves-to-balls lookup: key-value sort")
