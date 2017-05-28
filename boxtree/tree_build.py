@@ -1067,9 +1067,9 @@ class TreeBuilder(object):
                 print("LEVEL %d OK" % level)
 
                 # Cannot delete in Py 2.7: referred to from nested scope.
-                h_box_morton_bin_counts = None
+                h_box_srcntgt_counts_cumul = None
 
-                del h_box_srcntgt_counts_cumul
+                del h_box_morton_bin_counts
                 del h_box_child_ids
 
             # }}}
