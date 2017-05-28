@@ -1116,7 +1116,9 @@ class TreeBuilder(object):
                         <= h_box_srcntgt_counts_cumul[:nboxes]).all()
 
                 del h_box_srcntgt_counts_nonchild
-                del h_box_srcntgt_counts_cumul
+
+                # Cannot delete in Py 2.7: referred to from nested scope.
+                h_box_srcntgt_counts_cumul = None
 
         # }}}
 
