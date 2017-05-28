@@ -27,7 +27,7 @@ import numpy as np
 from pytools import Record, memoize_method
 import pyopencl as cl
 import pyopencl.array  # noqa
-from pyopencl.tools import first_arg_dependent_memoize_nested, dtype_to_c_struct
+from pyopencl.tools import dtype_to_c_struct
 from mako.template import Template
 from pytools.obj_array import make_obj_array
 
@@ -106,8 +106,7 @@ def make_surface_particle_array(queue, nparticles, dims, dtype, seed=15):
     import loopy as lp
 
     if dims == 2:
-        @first_arg_dependent_memoize_nested
-        def get_2d_knl(context, dtype):
+        def get_2d_knl(dtype):
             knl = lp.make_kernel(
                 "{[i]: 0<=i<n}",
                 """
@@ -123,9 +122,9 @@ def make_surface_particle_array(queue, nparticles, dims, dtype, seed=15):
 
             knl = lp.split_iname(knl, "i", 128, outer_tag="g.0", inner_tag="l.0")
 
-            return lp.CompiledKernel(context, knl)
+            return knl
 
-        evt, result = get_2d_knl(queue.context, dtype)(queue, n=nparticles)
+        evt, result = get_2d_knl(dtype)(queue, n=nparticles)
 
         result = [x.ravel() for x in result]
 
@@ -133,8 +132,7 @@ def make_surface_particle_array(queue, nparticles, dims, dtype, seed=15):
     elif dims == 3:
         n = int(nparticles**0.5)
 
-        @first_arg_dependent_memoize_nested
-        def get_3d_knl(context, dtype):
+        def get_3d_knl(dtype):
             knl = lp.make_kernel(
                 "{[i,j]: 0<=i,j<n}",
                 """
@@ -152,9 +150,9 @@ def make_surface_particle_array(queue, nparticles, dims, dtype, seed=15):
             knl = lp.split_iname(knl, "i", 16, outer_tag="g.1", inner_tag="l.1")
             knl = lp.split_iname(knl, "j", 16, outer_tag="g.0", inner_tag="l.0")
 
-            return lp.CompiledKernel(context, knl)
+            return knl
 
-        evt, result = get_3d_knl(queue.context, dtype)(queue, n=n)
+        evt, result = get_3d_knl(dtype)(queue, n=n)
 
         result = [x.ravel() for x in result]
 
@@ -169,8 +167,7 @@ def make_uniform_particle_array(queue, nparticles, dims, dtype, seed=15):
     if dims == 2:
         n = int(nparticles**0.5)
 
-        @first_arg_dependent_memoize_nested
-        def get_2d_knl(context, dtype):
+        def get_2d_knl(dtype):
             knl = lp.make_kernel(
                 "{[i,j]: 0<=i,j<n}",
                 """
@@ -190,9 +187,9 @@ def make_uniform_particle_array(queue, nparticles, dims, dtype, seed=15):
             knl = lp.split_iname(knl, "i", 16, outer_tag="g.1", inner_tag="l.1")
             knl = lp.split_iname(knl, "j", 16, outer_tag="g.0", inner_tag="l.0")
 
-            return lp.CompiledKernel(context, knl)
+            return knl
 
-        evt, result = get_2d_knl(queue.context, dtype)(queue, n=n)
+        evt, result = get_2d_knl(dtype)(queue, n=n)
 
         result = [x.ravel() for x in result]
 
@@ -200,7 +197,6 @@ def make_uniform_particle_array(queue, nparticles, dims, dtype, seed=15):
     elif dims == 3:
         n = int(nparticles**(1/3))
 
-        @first_arg_dependent_memoize_nested
         def get_3d_knl(context, dtype):
             knl = lp.make_kernel(
                 "{[i,j,k]: 0<=i,j,k<n}",
@@ -233,9 +229,9 @@ def make_uniform_particle_array(queue, nparticles, dims, dtype, seed=15):
             knl = lp.split_iname(knl, "j", 16, outer_tag="g.1", inner_tag="l.1")
             knl = lp.split_iname(knl, "k", 16, outer_tag="g.0", inner_tag="l.0")
 
-            return lp.CompiledKernel(context, knl)
+            return knl
 
-        evt, result = get_3d_knl(queue.context, dtype)(queue, n=n)
+        evt, result = get_3d_knl(dtype)(queue, n=n)
 
         result = [x.ravel() for x in result]
 
