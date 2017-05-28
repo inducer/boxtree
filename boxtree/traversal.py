@@ -463,7 +463,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
 
 # }}}
 
-# {{{ separated smaller ("list 3")
+# {{{ from separated smaller ("list 3")
 
 SEP_SMALLER_TEMPLATE = r"""//CL//
 
@@ -596,7 +596,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
 
 # }}}
 
-# {{{ separated bigger ("list 4")
+# {{{ from separated bigger ("list 4")
 
 # "Normal" case: Sources/targets without extent
 # ---------------------------------------------
