@@ -749,7 +749,7 @@ class TreeBuilder(object):
                 # only the box morton bin counts of boxes on the level
                 # currently being processed are written-but we need to
                 # retain the box morton bin counts from the higher levels.
-                box_morton_bin_counts, evt = my_realloc_zeros_and_renumber(
+                box_morton_bin_counts, evt = my_realloc_zeros(
                         box_morton_bin_counts)
                 resize_events.append(evt)
 
