@@ -1066,7 +1066,9 @@ class TreeBuilder(object):
                 assert not has_mismatch
                 print("LEVEL %d OK" % level)
 
-                del h_box_morton_bin_counts
+                # Cannot delete in Py 2.7: referred to from nested scope.
+                h_box_morton_bin_counts = None
+
                 del h_box_srcntgt_counts_cumul
                 del h_box_child_ids
 
