@@ -462,6 +462,9 @@ def test_extent_tree(ctx_getter, dims, do_plot=False):
     targets = make_normal_particle_array(queue, ntargets, dims, dtype,
             seed=19)
 
+    refine_weights = cl.array.zeros(queue, nsources+ntargets, np.int32)
+    refine_weights[:nsources] = 1
+
     from pyopencl.clrandom import PhiloxGenerator
     rng = PhiloxGenerator(queue.context, seed=13)
     source_radii = 2**rng.uniform(queue, nsources, dtype=dtype,
@@ -474,8 +477,19 @@ def test_extent_tree(ctx_getter, dims, do_plot=False):
 
     queue.finish()
     dev_tree, _ = tb(queue, sources, targets=targets,
-            source_radii=source_radii, target_radii=target_radii,
-            max_particles_in_box=10, debug=True)
+            source_radii=source_radii,
+            target_radii=target_radii,
+
+            refine_weights=refine_weights,
+            max_leaf_refine_weight=20,
+
+            #max_particles_in_box=10,
+
+            # Set artificially small, to exercise the reallocation code.
+            nboxes_guess=10,
+
+            debug=True,
+            stick_out_factor=0)
 
     logger.info("transfer tree, check orderings")
 
@@ -490,6 +504,7 @@ def test_extent_tree(ctx_getter, dims, do_plot=False):
     unsorted_targets = np.array([pi.get() for pi in targets])
     unsorted_source_radii = source_radii.get()
     unsorted_target_radii = target_radii.get()
+
     assert (sorted_sources
             == unsorted_sources[:, tree.user_source_ids]).all()
     assert (sorted_source_radii
@@ -510,6 +525,20 @@ def test_extent_tree(ctx_getter, dims, do_plot=False):
     all_good_so_far = True
 
     # {{{ check sources, targets
+
+    assert np.sum(tree.box_source_counts_nonchild) == nsources
+    assert np.sum(tree.box_target_counts_nonchild) == ntargets
+
+    for ibox in range(tree.nboxes):
+        kid_sum = sum(
+                    tree.box_target_counts_cumul[ichild_box]
+                    for ichild_box in tree.box_child_ids[:, ibox]
+                    if ichild_box != 0)
+        assert (
+                tree.box_target_counts_cumul[ibox]
+                ==
+                tree.box_target_counts_nonchild[ibox]
+                + kid_sum), ibox
 
     for ibox in range(tree.nboxes):
         extent_low, extent_high = tree.get_box_extent(ibox)

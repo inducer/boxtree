@@ -744,10 +744,12 @@ class TreeBuilder(object):
 
                 split_box_ids = my_realloc_nocopy(split_box_ids)
 
-                # FIXME: This can be reused across iterations, saving the cost
-                # of the particle scan. Right now there isn't a reallocator
-                # written for it.
-                box_morton_bin_counts, evt = my_realloc_zeros_nocopy(
+                # *Most*, but not *all* of the values in this array are
+                # rewritten when the morton scan is redone. Specifically,
+                # only the box morton bin counts of boxes on the level
+                # currently being processed are written-but we need to
+                # retain the box morton bin counts from the higher levels.
+                box_morton_bin_counts, evt = my_realloc_zeros_and_renumber(
                         box_morton_bin_counts)
                 resize_events.append(evt)
 
@@ -1030,6 +1032,46 @@ class TreeBuilder(object):
             level += 1
             have_oversize_split_box.fill(0)
 
+            # {{{ check that nonchild part of box_morton_bin_counts is consistent
+
+            if debug and 0:
+                h_box_morton_bin_counts = box_morton_bin_counts.get()
+                h_box_srcntgt_counts_cumul = box_srcntgt_counts_cumul.get()
+                h_box_child_ids = tuple(bci.get() for bci in box_child_ids)
+
+                has_mismatch = False
+                for ibox in range(level_start_box_nrs[-1]):
+                    is_leaf = all(bci[ibox] == 0 for bci in h_box_child_ids)
+                    if is_leaf:
+                        # nonchild count only found in box_info kernel
+                        continue
+
+                    if h_box_srcntgt_counts_cumul[ibox] == 0:
+                        # empty boxes don't have box_morton_bin_counts written
+                        continue
+
+                    kid_sum = sum(
+                            h_box_srcntgt_counts_cumul[bci[ibox]]
+                            for bci in h_box_child_ids
+                            if bci[ibox] != 0)
+
+                    if (
+                            h_box_srcntgt_counts_cumul[ibox]
+                            !=
+                            h_box_morton_bin_counts[ibox]["nonchild_srcntgts"]
+                            + kid_sum):
+                        print("MISMATCH", level, ibox)
+                        has_mismatch = True
+
+                assert not has_mismatch
+                print("LEVEL %d OK" % level)
+
+                del h_box_morton_bin_counts
+                del h_box_srcntgt_counts_cumul
+                del h_box_child_ids
+
+            # }}}
+
         end_time = time()
         elapsed = end_time-start_time
         npasses = level+1
@@ -1065,8 +1107,14 @@ class TreeBuilder(object):
             del highest_possibly_split_box_nr
 
             if debug:
-                assert (box_srcntgt_counts_nonchild.get()
-                        <= box_srcntgt_counts_cumul.get()[:nboxes]).all()
+                h_box_srcntgt_counts_nonchild = box_srcntgt_counts_nonchild.get()
+                h_box_srcntgt_counts_cumul = box_srcntgt_counts_cumul.get()
+
+                assert (h_box_srcntgt_counts_nonchild
+                        <= h_box_srcntgt_counts_cumul[:nboxes]).all()
+
+                del h_box_srcntgt_counts_nonchild
+                del h_box_srcntgt_counts_cumul
 
         # }}}
 
