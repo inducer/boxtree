@@ -495,6 +495,20 @@ def test_extent_tree(ctx_getter, dims, do_plot=False):
 
     tree = dev_tree.get(queue=queue)
 
+    if do_plot:
+        import matplotlib.pyplot as pt
+        pt.plot(sources[0].get(), sources[1].get(), "rx")
+        pt.plot(targets[0].get(), targets[1].get(), "g+")
+
+        from boxtree.visualization import TreePlotter
+        plotter = TreePlotter(tree)
+        plotter.draw_tree(fill=False, edgecolor="black", zorder=10)
+        plotter.draw_box_numbers()
+        plotter.set_bounding_box()
+
+        pt.gca().set_aspect("equal", "datalim")
+        pt.show()
+
     sorted_sources = np.array(list(tree.sources))
     sorted_targets = np.array(list(tree.targets))
     sorted_source_radii = tree.source_radii
