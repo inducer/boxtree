@@ -905,7 +905,10 @@ def test_level_restriction(ctx_getter, dims, skip_prune, lookbehind, do_plot=Fal
     queue.finish()
     tree_dev, _ = tb(queue, particles, kind="adaptive-level-restricted",
                      max_particles_in_box=30, debug=True,
-                     skip_prune=skip_prune, lr_lookbehind=lookbehind)
+                     skip_prune=skip_prune, lr_lookbehind=lookbehind,
+
+                     # Artificially low to exercise reallocation code
+                     nboxes_guess=10)
 
     def find_neighbors(leaf_box_centers, leaf_box_radii):
         # We use an area query with a ball that is slightly larger than
