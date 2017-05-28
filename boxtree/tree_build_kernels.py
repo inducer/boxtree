@@ -1031,9 +1031,6 @@ SOURCE_AND_TARGET_INDEX_FINDER = ElementwiseTemplate(
                     target_nr + 1 - (particle_id_t) is_source
                     - box_start_target_nr;
             }
-        %elif srcntgts_have_extent:
-            box_source_counts_nonchild[box_id] = 0;
-            box_target_counts_nonchild[box_id] = 0;
         %endif
 
         // {{{ last particle for this or the parents' boxes? update counts
