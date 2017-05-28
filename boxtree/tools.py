@@ -197,7 +197,7 @@ def make_uniform_particle_array(queue, nparticles, dims, dtype, seed=15):
     elif dims == 3:
         n = int(nparticles**(1/3))
 
-        def get_3d_knl(context, dtype):
+        def get_3d_knl(dtype):
             knl = lp.make_kernel(
                 "{[i,j,k]: 0<=i,j,k<n}",
                 """
