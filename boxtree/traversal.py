@@ -26,6 +26,7 @@ import numpy as np
 from pytools import Record, memoize_method, memoize_in
 import pyopencl as cl
 import pyopencl.array  # noqa
+import pyopencl.cltypes  # noqa
 from pyopencl.elementwise import ElementwiseTemplate
 from mako.template import Template
 from boxtree.tools import AXIS_NAMES, DeviceDataRecord
@@ -1163,7 +1164,7 @@ class FMMTraversalBuilder:
                 box_id_dtype=box_id_dtype,
                 box_flags_enum=box_flags_enum,
                 coord_dtype=coord_dtype,
-                vec_types=cl.array.vec.types,
+                vec_types=cl.cltypes.vec_types,
                 max_levels=max_levels,
                 AXIS_NAMES=AXIS_NAMES,
                 debug=debug,

@@ -28,6 +28,7 @@ THE SOFTWARE.
 
 import numpy as np
 import pyopencl as cl
+import pyopencl.cltypes  # noqa
 import pyopencl.array  # noqa
 from mako.template import Template
 from boxtree.tools import AXIS_NAMES, DeviceDataRecord
@@ -540,7 +541,7 @@ class AreaQueryElementwiseTemplate(object):
             ("box_id_dtype", box_id_dtype),
             ("particle_id_dtype", None),
             ("coord_dtype", coord_dtype),
-            ("vec_types", tuple(cl.array.vec.types.items())),
+            ("vec_types", tuple(cl.cltypes.vec_types.items())),
             ("max_levels", max_levels),
             ("AXIS_NAMES", AXIS_NAMES),
             ("box_flags_enum", box_flags_enum),
@@ -654,7 +655,7 @@ class AreaQueryBuilder(object):
             box_id_dtype=box_id_dtype,
             particle_id_dtype=None,
             coord_dtype=coord_dtype,
-            vec_types=cl.array.vec.types,
+            vec_types=cl.cltypes.vec_types,
             max_levels=max_levels,
             AXIS_NAMES=AXIS_NAMES,
             box_flags_enum=box_flags_enum,
@@ -1058,7 +1059,7 @@ class PeerListFinder(object):
             box_id_dtype=box_id_dtype,
             particle_id_dtype=None,
             coord_dtype=coord_dtype,
-            vec_types=cl.array.vec.types,
+            vec_types=cl.cltypes.vec_types,
             max_levels=max_levels,
             AXIS_NAMES=AXIS_NAMES,
             box_flags_enum=box_flags_enum,

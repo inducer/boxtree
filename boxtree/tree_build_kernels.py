@@ -1254,7 +1254,7 @@ def get_tree_build_kernel_info(context, dimensions, coord_dtype,
                 "incorrect results.", stacklevel=4)
 
     from pyopencl.tools import dtype_to_c_struct, dtype_to_ctype
-    coord_vec_dtype = cl.array.vec.types[coord_dtype, dimensions]
+    coord_vec_dtype = cl.cltypes.vec_types[coord_dtype, dimensions]
 
     particle_id_dtype = np.dtype(particle_id_dtype)
     box_id_dtype = np.dtype(box_id_dtype)
