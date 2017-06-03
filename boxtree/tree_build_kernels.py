@@ -437,6 +437,7 @@ MORTON_NR_SCAN_OUTPUT_STMT_TPL = Template(r"""//CL//
 # {{{ split box id scan
 
 SPLIT_BOX_ID_SCAN_TPL = ScanTemplate(
+    name_prefix="split_box_id_scan",
     arguments=r"""//CL:mako//
         /* input */
         box_id_t *srcntgt_box_ids,
@@ -1394,7 +1395,8 @@ def get_tree_build_kernel_info(context, dimensions, coord_dtype,
             neutral="scan_t_neutral()",
             is_segment_start_expr="box_start_flags[i]",
             output_statement=MORTON_NR_SCAN_OUTPUT_STMT_TPL.render(**codegen_args),
-            preamble=scan_preamble)
+            preamble=scan_preamble,
+            name_prefix="morton_scan")
 
     # }}}
 
@@ -1546,7 +1548,8 @@ def get_tree_build_kernel_info(context, dimensions, coord_dtype,
                     src_box_id[item - 1] = i;
                 }
                 if (i+1 == N) *nboxes_post_prune = item;
-                """)
+                """,
+            name_prefix="find_prune_indices_scan")
 
     # }}}
 
@@ -1569,7 +1572,8 @@ def get_tree_build_kernel_info(context, dimensions, coord_dtype,
         {
             level_box_counts[box_levels[i]] = item;
         }
-        """)
+        """,
+        name_prefix="find_level_box_counts_scan")
 
     # }}}
 

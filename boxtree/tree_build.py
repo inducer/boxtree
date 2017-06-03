@@ -188,6 +188,8 @@ class TreeBuilder(object):
                 sources_are_targets, srcntgts_have_extent,
                 stick_out_factor, kind=kind)
 
+        logger.info("tree build: start")
+
         # {{{ combine sources and targets into one array, if necessary
 
         prep_events = []
