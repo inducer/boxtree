@@ -26,6 +26,7 @@ THE SOFTWARE.
 
 
 import numpy as np
+from functools import partial
 
 
 __doc__ = """Integrates :mod:`boxtree` with
@@ -56,21 +57,64 @@ class HelmholtzExpansionWrangler:
 
         self.common_extra_kwargs = common_extra_kwargs
 
-    def get_routine(self, name, vec=False):
-        suffix = ""
-        if self.tree.dimensions == 3:
-            suffix = "quadu"
-
-        if vec:
-            suffix += "_vec"
-
+    def get_routine(self, name, suffix=""):
         import pyfmmlib
         return getattr(pyfmmlib, "h%s%s" % (
             name % self.tree.dimensions,
             suffix))
 
     def get_vec_routine(self, name):
-        return self.get_routine(name, vec=True)
+        return self.get_routine(name, "_vec")
+
+    def get_translation_routine(self, name):
+        suffix = ""
+        if self.tree.dimensions == 3:
+            suffix = "quadu"
+        suffix += "_vec"
+
+        rout = self.get_routine(name, suffix)
+
+        if self.tree.dimensions == 2:
+            return rout
+        else:
+
+            def wrapper(*args, **kwargs):
+                kwargs.update(self.common_extra_kwargs)
+                val, ier = rout(*args, **kwargs)
+                if (ier != 0).any():
+                    raise RuntimeError("%s failed with nonzero ier" % name)
+
+                return val
+
+            from functools import update_wrapper
+            update_wrapper(wrapper, rout)
+            return wrapper
+
+    def get_direct_eval_routine(self):
+        if self.tree.dimensions == 2:
+            rout = self.get_routine("potgrad%ddall", "_vec")
+
+            def wrapper(*args, **kwargs):
+                pot, grad, hess = rout(*args, **kwargs, ifgrad=False, ifhess=False)
+                return pot
+
+            from functools import update_wrapper
+            update_wrapper(wrapper, rout)
+            return wrapper
+
+        elif self.tree.dimensions == 3:
+            rout = self.get_routine("potfld%ddall", "_vec")
+
+            def wrapper(*args, **kwargs):
+                pot, fld = rout(*args, **kwargs, iffld=False)
+                # grad = -fld
+                return pot
+
+            from functools import update_wrapper
+            update_wrapper(wrapper, rout)
+            return wrapper
+        else:
+            raise ValueError("unsupported dimensionality")
 
     def multipole_expansion_zeros(self):
         if self.tree.dimensions == 2:
@@ -143,7 +187,7 @@ class HelmholtzExpansionWrangler:
         tree = self.tree
         rscale = 1  # FIXME
 
-        mpmp = self.get_vec_routine("%ddmpmp")
+        mpmp = self.get_translation_routine("%ddmpmp")
 
         # 2 is the last relevant source_level.
         # 1 is the last relevant target_level.
@@ -151,24 +195,31 @@ class HelmholtzExpansionWrangler:
         for source_level in range(tree.nlevels-1, 1, -1):
             start, stop = level_start_source_parent_box_nrs[
                             source_level:source_level+2]
+            target_level = source_level - 1
+
             for ibox in source_parent_boxes[start:stop]:
                 parent_center = tree.box_centers[:, ibox]
                 for child in tree.box_child_ids[:, ibox]:
                     if child:
                         child_center = tree.box_centers[:, child]
 
+                        kwargs = {}
+                        if self.tree.dimensions == 3:
+                            kwargs["radius"] = tree.root_extent * 2**(-target_level)
+
                         new_mp = mpmp(
                                 self.helmholtz_k,
                                 rscale, child_center, mpoles[child],
-                                rscale, parent_center, self.nterms)
+                                rscale, parent_center, self.nterms,
+                                **kwargs)
 
-                        mpoles[ibox] += new_mp[:, 0]
+                        mpoles[ibox] += new_mp[..., 0]
 
     def eval_direct(self, target_boxes, neighbor_sources_starts,
             neighbor_sources_lists, src_weights):
         pot = self.potential_zeros()
 
-        potgradall = self.get_vec_routine("potgrad%ddall")
+        ev = self.get_direct_eval_routine()
 
         for itgt_box, tgt_ibox in enumerate(target_boxes):
             tgt_pslice = self._get_target_slice(tgt_ibox)
@@ -184,8 +235,7 @@ class HelmholtzExpansionWrangler:
                 if src_pslice.stop - src_pslice.start == 0:
                     continue
 
-                tmp_pot, _, _ = potgradall(
-                        ifgrad=False, ifhess=False,
+                tmp_pot = ev(
                         sources=self._get_sources(src_pslice),
                         charge=src_weights[src_pslice],
                         targets=self._get_targets(tgt_pslice), zk=self.helmholtz_k)
@@ -205,7 +255,7 @@ class HelmholtzExpansionWrangler:
 
         rscale = 1
 
-        mploc = self.get_vec_routine("%ddmploc")
+        mploc = self.get_translation_routine("%ddmploc")
 
         for itgt_box, tgt_ibox in enumerate(target_or_target_parent_boxes):
             start, end = starts[itgt_box:itgt_box+2]
@@ -217,10 +267,14 @@ class HelmholtzExpansionWrangler:
             for src_ibox in lists[start:end]:
                 src_center = tree.box_centers[:, src_ibox]
 
+                kwargs = {}
+                if self.tree.dimensions == 3:
+                    kwargs["radius"] = tree.root_extent * 2**(-target_level)
+
                 tgt_loc = tgt_loc + mploc(
                         self.helmholtz_k,
                         rscale, src_center, mpole_exps[src_ibox],
-                        rscale, tgt_center, self.nterms)[:, 0]
+                        rscale, tgt_center, self.nterms, **kwargs)[..., 0]
 
             local_exps[tgt_ibox] += tgt_loc
 
@@ -293,7 +347,7 @@ class HelmholtzExpansionWrangler:
             target_or_target_parent_boxes, local_exps):
         rscale = 1  # FIXME
 
-        locloc = self.get_vec_routine("%ddlocloc")
+        locloc = self.get_translation_routine("%ddlocloc")
 
         for target_lev in range(1, self.tree.nlevels):
             start, stop = level_start_target_or_target_parent_box_nrs[
@@ -307,7 +361,7 @@ class HelmholtzExpansionWrangler:
                 tmp_loc_exp = locloc(
                             self.helmholtz_k,
                             rscale, src_center, local_exps[src_ibox],
-                            rscale, tgt_center, self.nterms)[:, 0]
+                            rscale, tgt_center, self.nterms)[..., 0]
 
                 local_exps[tgt_ibox] += tmp_loc_exp
 
