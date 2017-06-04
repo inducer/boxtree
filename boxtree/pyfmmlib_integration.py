@@ -33,7 +33,7 @@ __doc__ = """Integrates :mod:`boxtree` with
 """
 
 
-class Helmholtz2DExpansionWrangler:
+class HelmholtzExpansionWrangler:
     """Implements the :class:`boxtree.fmm.ExpansionWranglerInterface`
     by using pyfmmlib.
     """
@@ -43,8 +43,44 @@ class Helmholtz2DExpansionWrangler:
         self.helmholtz_k = helmholtz_k
         self.nterms = nterms
 
+        common_extra_kwargs = {}
+        if tree.dimensions == 3:
+            nquad = max(6, int(2.5*nterms))
+            import scipy.special as sps
+            weights = sps.legendre(nquad).weights
+
+            common_extra_kwargs = {
+                    "xnodes": weights[:, 0],
+                    "wts": weights[:, 2],
+                    }
+
+        self.common_extra_kwargs = common_extra_kwargs
+
+    def get_routine(self, name, vec=False):
+        suffix = ""
+        if self.tree.dimensions == 3:
+            suffix = "quadu"
+
+        if vec:
+            suffix += "_vec"
+
+        import pyfmmlib
+        return getattr(pyfmmlib, "h%s%s" % (
+            name % self.tree.dimensions,
+            suffix))
+
+    def get_vec_routine(self, name):
+        return self.get_routine(name, vec=True)
+
     def multipole_expansion_zeros(self):
-        return np.zeros((self.tree.nboxes, 2*self.nterms+1), dtype=np.complex128)
+        if self.tree.dimensions == 2:
+            return np.zeros((self.tree.nboxes, 2*self.nterms+1), dtype=np.complex128)
+        elif self.tree.dimensions == 3:
+            return np.zeros(
+                    (self.tree.nboxes, self.nterms+1, 2*self.nterms+1),
+                    dtype=np.complex128)
+        else:
+            raise ValueError("unsupported functionality")
 
     local_expansion_zeros = multipole_expansion_zeros
 
@@ -84,7 +120,7 @@ class Helmholtz2DExpansionWrangler:
     def form_multipoles(self, level_start_source_box_nrs, source_boxes, src_weights):
         rscale = 1  # FIXME
 
-        from pyfmmlib import h2dformmp
+        formmp = self.get_routine("%ddformmp")
 
         mpoles = self.multipole_expansion_zeros()
         for src_ibox in source_boxes:
@@ -93,7 +129,7 @@ class Helmholtz2DExpansionWrangler:
             if pslice.stop - pslice.start == 0:
                 continue
 
-            ier, mpoles[src_ibox] = h2dformmp(
+            ier, mpoles[src_ibox] = formmp(
                     self.helmholtz_k, rscale, self._get_sources(pslice),
                     src_weights[pslice],
                     self.tree.box_centers[:, src_ibox], self.nterms)
@@ -107,7 +143,7 @@ class Helmholtz2DExpansionWrangler:
         tree = self.tree
         rscale = 1  # FIXME
 
-        from pyfmmlib import h2dmpmp_vec
+        mpmp = self.get_vec_routine("%ddmpmp")
 
         # 2 is the last relevant source_level.
         # 1 is the last relevant target_level.
@@ -121,7 +157,7 @@ class Helmholtz2DExpansionWrangler:
                     if child:
                         child_center = tree.box_centers[:, child]
 
-                        new_mp = h2dmpmp_vec(
+                        new_mp = mpmp(
                                 self.helmholtz_k,
                                 rscale, child_center, mpoles[child],
                                 rscale, parent_center, self.nterms)
@@ -132,7 +168,7 @@ class Helmholtz2DExpansionWrangler:
             neighbor_sources_lists, src_weights):
         pot = self.potential_zeros()
 
-        from pyfmmlib import hpotgrad2dall_vec
+        potgradall = self.get_vec_routine("potgrad%ddall")
 
         for itgt_box, tgt_ibox in enumerate(target_boxes):
             tgt_pslice = self._get_target_slice(tgt_ibox)
@@ -148,7 +184,7 @@ class Helmholtz2DExpansionWrangler:
                 if src_pslice.stop - src_pslice.start == 0:
                     continue
 
-                tmp_pot, _, _ = hpotgrad2dall_vec(
+                tmp_pot, _, _ = potgradall(
                         ifgrad=False, ifhess=False,
                         sources=self._get_sources(src_pslice),
                         charge=src_weights[src_pslice],
@@ -169,7 +205,7 @@ class Helmholtz2DExpansionWrangler:
 
         rscale = 1
 
-        from pyfmmlib import h2dmploc_vec
+        mploc = self.get_vec_routine("%ddmploc")
 
         for itgt_box, tgt_ibox in enumerate(target_or_target_parent_boxes):
             start, end = starts[itgt_box:itgt_box+2]
@@ -181,7 +217,7 @@ class Helmholtz2DExpansionWrangler:
             for src_ibox in lists[start:end]:
                 src_center = tree.box_centers[:, src_ibox]
 
-                tgt_loc = tgt_loc + h2dmploc_vec(
+                tgt_loc = tgt_loc + mploc(
                         self.helmholtz_k,
                         rscale, src_center, mpole_exps[src_ibox],
                         rscale, tgt_center, self.nterms)[:, 0]
@@ -196,7 +232,7 @@ class Helmholtz2DExpansionWrangler:
 
         rscale = 1
 
-        from pyfmmlib import h2dmpeval_vec
+        mpeval = self.get_vec_routine("%ddmpeval")
 
         for ssn in sep_smaller_nonsiblings_by_level:
             for itgt_box, tgt_ibox in enumerate(target_boxes):
@@ -209,7 +245,7 @@ class Helmholtz2DExpansionWrangler:
                 start, end = ssn.starts[itgt_box:itgt_box+2]
                 for src_ibox in ssn.lists[start:end]:
 
-                    tmp_pot, _, _ = h2dmpeval_vec(self.helmholtz_k, rscale, self.
+                    tmp_pot, _, _ = mpeval(self.helmholtz_k, rscale, self.
                             tree.box_centers[:, src_ibox], mpole_exps[src_ibox],
                             self._get_targets(tgt_pslice),
                             ifgrad=False, ifhess=False)
@@ -226,7 +262,7 @@ class Helmholtz2DExpansionWrangler:
         rscale = 1  # FIXME
         local_exps = self.local_expansion_zeros()
 
-        from pyfmmlib import h2dformta
+        formta = self.get_routine("%ddformta")
 
         for itgt_box, tgt_ibox in enumerate(target_or_target_parent_boxes):
             start, end = starts[itgt_box:itgt_box+2]
@@ -240,12 +276,12 @@ class Helmholtz2DExpansionWrangler:
                 if src_pslice.stop - src_pslice.start == 0:
                     continue
 
-                ier, mpole = h2dformta(
+                ier, mpole = formta(
                         self.helmholtz_k, rscale,
                         self._get_sources(src_pslice), src_weights[src_pslice],
                         tgt_center, self.nterms)
                 if ier:
-                    raise RuntimeError("h2dformta failed")
+                    raise RuntimeError("formta failed")
 
                 contrib = contrib + mpole
 
@@ -257,7 +293,7 @@ class Helmholtz2DExpansionWrangler:
             target_or_target_parent_boxes, local_exps):
         rscale = 1  # FIXME
 
-        from pyfmmlib import h2dlocloc_vec
+        locloc = self.get_vec_routine("%ddlocloc")
 
         for target_lev in range(1, self.tree.nlevels):
             start, stop = level_start_target_or_target_parent_box_nrs[
@@ -268,7 +304,7 @@ class Helmholtz2DExpansionWrangler:
                 src_ibox = self.tree.box_parent_ids[tgt_ibox]
                 src_center = self.tree.box_centers[:, src_ibox]
 
-                tmp_loc_exp = h2dlocloc_vec(
+                tmp_loc_exp = locloc(
                             self.helmholtz_k,
                             rscale, src_center, local_exps[src_ibox],
                             rscale, tgt_center, self.nterms)[:, 0]
@@ -281,7 +317,7 @@ class Helmholtz2DExpansionWrangler:
         pot = self.potential_zeros()
         rscale = 1  # FIXME
 
-        from pyfmmlib import h2dtaeval_vec
+        taeval = self.get_vec_routine("%ddtaeval")
 
         for tgt_ibox in target_boxes:
             tgt_pslice = self._get_target_slice(tgt_ibox)
@@ -289,7 +325,7 @@ class Helmholtz2DExpansionWrangler:
             if tgt_pslice.stop - tgt_pslice.start == 0:
                 continue
 
-            tmp_pot, _, _ = h2dtaeval_vec(self.helmholtz_k, rscale,
+            tmp_pot, _, _ = taeval(self.helmholtz_k, rscale,
                     self.tree.box_centers[:, tgt_ibox], local_exps[tgt_ibox],
                     self._get_targets(tgt_pslice), ifgrad=False, ifhess=False)
 
