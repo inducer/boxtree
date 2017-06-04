@@ -257,26 +257,32 @@ class HelmholtzExpansionWrangler:
 
         mploc = self.get_translation_routine("%ddmploc")
 
-        for itgt_box, tgt_ibox in enumerate(target_or_target_parent_boxes):
-            start, end = starts[itgt_box:itgt_box+2]
-            tgt_center = tree.box_centers[:, tgt_ibox]
+        for lev in range(self.tree.nlevels):
+            lstart, lstop = level_start_target_or_target_parent_box_nrs[lev:lev+2]
+            if lstart == lstop:
+                continue
 
-            #print tgt_ibox, "<-", lists[start:end]
-            tgt_loc = 0
+            for itgt_box, tgt_ibox in enumerate(
+                    target_or_target_parent_boxes[lstart:lstop]):
+                start, end = starts[lstart + itgt_box:lstart + itgt_box+2]
+                tgt_center = tree.box_centers[:, tgt_ibox]
 
-            for src_ibox in lists[start:end]:
-                src_center = tree.box_centers[:, src_ibox]
+                #print tgt_ibox, "<-", lists[start:end]
+                tgt_loc = 0
 
-                kwargs = {}
-                if self.tree.dimensions == 3:
-                    kwargs["radius"] = tree.root_extent * 2**(-target_level)
+                for src_ibox in lists[start:end]:
+                    src_center = tree.box_centers[:, src_ibox]
 
-                tgt_loc = tgt_loc + mploc(
-                        self.helmholtz_k,
-                        rscale, src_center, mpole_exps[src_ibox],
-                        rscale, tgt_center, self.nterms, **kwargs)[..., 0]
+                    kwargs = {}
+                    if self.tree.dimensions == 3:
+                        kwargs["radius"] = tree.root_extent * 2**(-lev)
 
-            local_exps[tgt_ibox] += tgt_loc
+                    tgt_loc = tgt_loc + mploc(
+                            self.helmholtz_k,
+                            rscale, src_center, mpole_exps[src_ibox],
+                            rscale, tgt_center, self.nterms, **kwargs)[..., 0]
+
+                local_exps[tgt_ibox] += tgt_loc
 
         return local_exps
 
