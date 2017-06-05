@@ -94,7 +94,9 @@ class HelmholtzExpansionWrangler:
             rout = self.get_routine("potgrad%ddall", "_vec")
 
             def wrapper(*args, **kwargs):
-                pot, grad, hess = rout(*args, **kwargs, ifgrad=False, ifhess=False)
+                kwargs["ifgrad"] = False
+                kwargs["ifhess"] = False
+                pot, grad, hess = rout(*args, **kwargs)
                 return pot
 
             from functools import update_wrapper
@@ -105,7 +107,8 @@ class HelmholtzExpansionWrangler:
             rout = self.get_routine("potfld%ddall", "_vec")
 
             def wrapper(*args, **kwargs):
-                pot, fld = rout(*args, **kwargs, iffld=False)
+                kwargs["iffld"] = False
+                pot, fld = rout(*args, **kwargs)
                 # grad = -fld
                 return pot
 
@@ -121,7 +124,9 @@ class HelmholtzExpansionWrangler:
 
         if self.tree.dimensions == 2:
             def wrapper(*args, **kwargs):
-                pot, grad, hess = rout(*args, **kwargs, ifgrad=False, ifhess=False)
+                kwargs["ifgrad"] = False
+                kwargs["ifhess"] = False
+                pot, grad, hess = rout(*args, **kwargs)
                 return pot
 
             from functools import update_wrapper
@@ -130,7 +135,8 @@ class HelmholtzExpansionWrangler:
 
         elif self.tree.dimensions == 3:
             def wrapper(*args, **kwargs):
-                pot, fld, ier = rout(*args, **kwargs, iffld=False)
+                kwargs["iffld"] = False
+                pot, fld, ier = rout(*args, **kwargs)
                 # grad = -fld
                 if (ier != 0).any():
                     raise RuntimeError("%s failed with nonzero ier" % name)
