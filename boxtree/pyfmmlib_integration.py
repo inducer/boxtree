@@ -85,8 +85,9 @@ class HelmholtzExpansionWrangler:
 
                 return val
 
-            from functools import update_wrapper
-            update_wrapper(wrapper, rout)
+            # Doesn't work in in Py2
+            # from functools import update_wrapper
+            # update_wrapper(wrapper, rout)
             return wrapper
 
     def get_direct_eval_routine(self):
@@ -99,8 +100,9 @@ class HelmholtzExpansionWrangler:
                 pot, grad, hess = rout(*args, **kwargs)
                 return pot
 
-            from functools import update_wrapper
-            update_wrapper(wrapper, rout)
+            # Doesn't work in in Py2
+            # from functools import update_wrapper
+            # update_wrapper(wrapper, rout)
             return wrapper
 
         elif self.tree.dimensions == 3:
@@ -112,8 +114,9 @@ class HelmholtzExpansionWrangler:
                 # grad = -fld
                 return pot
 
-            from functools import update_wrapper
-            update_wrapper(wrapper, rout)
+            # Doesn't work in in Py2
+            # from functools import update_wrapper
+            # update_wrapper(wrapper, rout)
             return wrapper
         else:
             raise ValueError("unsupported dimensionality")
@@ -129,8 +132,9 @@ class HelmholtzExpansionWrangler:
                 pot, grad, hess = rout(*args, **kwargs)
                 return pot
 
-            from functools import update_wrapper
-            update_wrapper(wrapper, rout)
+            # Doesn't work in in Py2
+            # from functools import update_wrapper
+            # update_wrapper(wrapper, rout)
             return wrapper
 
         elif self.tree.dimensions == 3:
@@ -142,8 +146,9 @@ class HelmholtzExpansionWrangler:
                     raise RuntimeError("%s failed with nonzero ier" % name)
                 return pot
 
-            from functools import update_wrapper
-            update_wrapper(wrapper, rout)
+            # Doesn't work in in Py2
+            # from functools import update_wrapper
+            # update_wrapper(wrapper, rout)
             return wrapper
         else:
             raise ValueError("unsupported dimensionality")
