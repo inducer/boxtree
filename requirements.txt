@@ -1,5 +1,5 @@
 numpy
-git+git://github.com/pyopencl/pyopencl
-git+git://github.com/inducer/islpy
-git+git://github.com/inducer/loopy
-git+git://github.com/inducer/pyfmmlib
+https+git://github.com/pyopencl/pyopencl
+https+git://github.com/inducer/islpy
+https+git://github.com/inducer/loopy
+https+git://github.com/inducer/pyfmmlib
