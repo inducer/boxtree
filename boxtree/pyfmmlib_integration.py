@@ -46,12 +46,12 @@ class HelmholtzExpansionWrangler:
         common_extra_kwargs = {}
         if tree.dimensions == 3:
             nquad = max(6, int(2.5*nterms))
-            import scipy.special as sps
-            weights = sps.legendre(nquad).weights
+            from pyfmmlib import legewhts
+            xnodes, weights = legewhts(nquad, ifwhts=1)
 
             common_extra_kwargs = {
-                    "xnodes": weights[:, 0],
-                    "wts": weights[:, 2],
+                    "xnodes": xnodes,
+                    "wts": weights,
                     }
 
         self.common_extra_kwargs = common_extra_kwargs
