@@ -42,9 +42,12 @@ class HelmholtzExpansionWrangler:
         self.tree = tree
         self.helmholtz_k = helmholtz_k
         self.nterms = nterms
+        self.dtype = np.complex128
+
+        self.dim = tree.dimensions
 
         common_extra_kwargs = {}
-        if tree.dimensions == 3:
+        if self.dim == 3:
             nquad = max(6, int(2.5*nterms))
             from pyfmmlib import legewhts
             xnodes, weights = legewhts(nquad, ifwhts=1)
@@ -56,10 +59,25 @@ class HelmholtzExpansionWrangler:
 
         self.common_extra_kwargs = common_extra_kwargs
 
+    # {{{ overridable target lists for the benefit of the QBX FMM
+
+    def box_target_starts(self):
+        return self.tree.box_target_starts
+
+    def box_target_counts_nonchild(self):
+        return self.tree.box_target_counts_nonchild
+
+    def targets(self):
+        return self.tree.targets
+
+    # }}}
+
+    # {{{ routine getters
+
     def get_routine(self, name, suffix=""):
         import pyfmmlib
         return getattr(pyfmmlib, "h%s%s" % (
-            name % self.tree.dimensions,
+            name % self.dim,
             suffix))
 
     def get_vec_routine(self, name):
@@ -67,13 +85,13 @@ class HelmholtzExpansionWrangler:
 
     def get_translation_routine(self, name):
         suffix = ""
-        if self.tree.dimensions == 3:
+        if self.dim == 3:
             suffix = "quadu"
         suffix += "_vec"
 
         rout = self.get_routine(name, suffix)
 
-        if self.tree.dimensions == 2:
+        if self.dim == 2:
             return rout
         else:
 
@@ -91,7 +109,7 @@ class HelmholtzExpansionWrangler:
             return wrapper
 
     def get_direct_eval_routine(self):
-        if self.tree.dimensions == 2:
+        if self.dim == 2:
             rout = self.get_routine("potgrad%ddall", "_vec")
 
             def wrapper(*args, **kwargs):
@@ -105,7 +123,7 @@ class HelmholtzExpansionWrangler:
             # update_wrapper(wrapper, rout)
             return wrapper
 
-        elif self.tree.dimensions == 3:
+        elif self.dim == 3:
             rout = self.get_routine("potfld%ddall", "_vec")
 
             def wrapper(*args, **kwargs):
@@ -125,7 +143,7 @@ class HelmholtzExpansionWrangler:
         name = "%%dd%seval" % expn_kind
         rout = self.get_routine(name, "_vec")
 
-        if self.tree.dimensions == 2:
+        if self.dim == 2:
             def wrapper(*args, **kwargs):
                 kwargs["ifgrad"] = False
                 kwargs["ifhess"] = False
@@ -137,7 +155,7 @@ class HelmholtzExpansionWrangler:
             # update_wrapper(wrapper, rout)
             return wrapper
 
-        elif self.tree.dimensions == 3:
+        elif self.dim == 3:
             def wrapper(*args, **kwargs):
                 kwargs["iffld"] = False
                 pot, fld, ier = rout(*args, **kwargs)
@@ -153,20 +171,75 @@ class HelmholtzExpansionWrangler:
         else:
             raise ValueError("unsupported dimensionality")
 
-    def multipole_expansion_zeros(self):
-        if self.tree.dimensions == 2:
-            return np.zeros((self.tree.nboxes, 2*self.nterms+1), dtype=np.complex128)
-        elif self.tree.dimensions == 3:
-            return np.zeros(
-                    (self.tree.nboxes, self.nterms+1, 2*self.nterms+1),
-                    dtype=np.complex128)
+    # }}}
+
+    # {{{ data vector utilities
+
+    def _expansions_level_starts(self, order_to_size):
+        result = [0]
+        for lev in range(self.tree.nlevels):
+            lev_nboxes = (
+                    self.tree.level_start_box_nrs[lev+1]
+                    - self.tree.level_start_box_nrs[lev])
+
+            expn_size = order_to_size(self.level_orders[lev])
+            result.append(
+                    result[-1]
+                    + expn_size * lev_nboxes)
+
+        return result
+
+    def expansion_shape(self, nterms):
+        if self.dim == 2:
+            return (2*self.nterms+1,)
+        elif self.dim == 3:
+            return (self.nterms+1, 2*self.nterms+1)
         else:
-            raise ValueError("unsupported functionality")
+            raise ValueError("unsupported dimensionality")
+
+    # @memoize_method
+    # def multipole_expansions_level_starts(self):
+    #     from pytools import product
+    #     return self._expansions_level_starts(
+    #             lambda nterms: product(self.expansion_shape(nterms)))
+
+    # @memoize_method
+    # def local_expansions_level_starts(self):
+    #     from pytools import product
+    #     return self._expansions_level_starts(
+    #             lambda nterms: product(self.expansion_shape(nterms)))
+
+    def multipole_expansions_view(self, mpole_exps, level):
+        box_start, box_stop = self.tree.level_start_box_nrs[level:level+2]
+
+        # expn_start, expn_stop = \
+        #         self.multipole_expansions_level_starts()[level:level+2]
+        # return (box_start,
+        #         mpole_exps[expn_start:expn_stop].reshape(box_stop-box_start, -1))
+
+        return box_start, mpole_exps[box_start:box_stop]
+
+    def local_expansions_view(self, local_exps, level):
+        box_start, box_stop = self.tree.level_start_box_nrs[level:level+2]
+
+        # expn_start, expn_stop = \
+        #         self.local_expansions_level_starts()[level:level+2]
+        # return (box_start,
+        #         local_exps[expn_start:expn_stop].reshape(box_stop-box_start, -1))
+
+        return box_start, local_exps[box_start:box_stop]
+
+    def multipole_expansion_zeros(self):
+        return np.zeros(
+                (self.tree.nboxes,) + self.expansion_shape(self.nterms),
+                dtype=self.dtype)
 
     local_expansion_zeros = multipole_expansion_zeros
 
     def potential_zeros(self):
-        return np.zeros(self.tree.ntargets, dtype=np.complex128)
+        return np.zeros(self.tree.ntargets, dtype=self.dtype)
+
+    # }}}
 
     def _get_source_slice(self, ibox):
         pstart = self.tree.box_source_starts[ibox]
@@ -174,22 +247,22 @@ class HelmholtzExpansionWrangler:
                 pstart, pstart + self.tree.box_source_counts_nonchild[ibox])
 
     def _get_target_slice(self, ibox):
-        pstart = self.tree.box_target_starts[ibox]
+        pstart = self.box_target_starts()[ibox]
         return slice(
-                pstart, pstart + self.tree.box_target_counts_nonchild[ibox])
+                pstart, pstart + self.box_target_counts_nonchild()[ibox])
 
     def _get_sources(self, pslice):
         # FIXME yuck!
         return np.array([
             self.tree.sources[idim][pslice]
-            for idim in range(self.tree.dimensions)
+            for idim in range(self.dim)
             ], order="F")
 
     def _get_targets(self, pslice):
         # FIXME yuck!
         return np.array([
-            self.tree.targets[idim][pslice]
-            for idim in range(self.tree.dimensions)
+            self.targets()[idim][pslice]
+            for idim in range(self.dim)
             ], order="F")
 
     def reorder_sources(self, source_array):
@@ -241,7 +314,7 @@ class HelmholtzExpansionWrangler:
                         child_center = tree.box_centers[:, child]
 
                         kwargs = {}
-                        if self.tree.dimensions == 3:
+                        if self.dim == 3:
                             kwargs["radius"] = tree.root_extent * 2**(-target_level)
 
                         new_mp = mpmp(
@@ -264,7 +337,7 @@ class HelmholtzExpansionWrangler:
             if tgt_pslice.stop - tgt_pslice.start == 0:
                 continue
 
-            tgt_result = np.zeros(tgt_pslice.stop - tgt_pslice.start, np.complex128)
+            tgt_result = np.zeros(tgt_pslice.stop - tgt_pslice.start, self.dtype)
             start, end = neighbor_sources_starts[itgt_box:itgt_box+2]
             for src_ibox in neighbor_sources_lists[start:end]:
                 src_pslice = self._get_source_slice(src_ibox)
@@ -311,7 +384,7 @@ class HelmholtzExpansionWrangler:
                     src_center = tree.box_centers[:, src_ibox]
 
                     kwargs = {}
-                    if self.tree.dimensions == 3:
+                    if self.dim == 3:
                         kwargs["radius"] = tree.root_extent * 2**(-lev)
 
                     tgt_loc = tgt_loc + mploc(
@@ -401,7 +474,7 @@ class HelmholtzExpansionWrangler:
                 src_center = self.tree.box_centers[:, src_ibox]
 
                 kwargs = {}
-                if self.tree.dimensions == 3:
+                if self.dim == 3:
                     kwargs["radius"] = self.tree.root_extent * 2**(-target_lev)
 
                 tmp_loc_exp = locloc(
