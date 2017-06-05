@@ -454,7 +454,8 @@ def test_fmm_completeness(ctx_getter, dims, nsources_req, ntargets_req,
 
 # {{{ test Helmholtz fmm with pyfmmlib
 
-def test_pyfmmlib_fmm(ctx_getter):
+@pytest.mark.parametrize("dims", [2, 3])
+def test_pyfmmlib_fmm(ctx_getter, dims):
     logging.basicConfig(level=logging.INFO)
 
     from pytest import importorskip
@@ -465,7 +466,6 @@ def test_pyfmmlib_fmm(ctx_getter):
 
     nsources = 3000
     ntargets = 1000
-    dims = 2
     dtype = np.float64
 
     helmholtz_k = 2
@@ -473,7 +473,7 @@ def test_pyfmmlib_fmm(ctx_getter):
     sources = p_normal(queue, nsources, dims, dtype, seed=15)
     targets = (
             p_normal(queue, ntargets, dims, dtype, seed=18)
-            + np.array([2, 0]))
+            + np.array([2, 0, 0])[:dims])
 
     sources_host = particle_array_to_host(sources)
     targets_host = particle_array_to_host(targets)
@@ -496,18 +496,24 @@ def test_pyfmmlib_fmm(ctx_getter):
     weights = rng.uniform(queue, nsources, dtype=np.float64).get()
     #weights = np.ones(nsources)
 
-    logger.info("computing direct (reference) result")
-
-    from pyfmmlib import hpotgrad2dall_vec
-    ref_pot, _, _ = hpotgrad2dall_vec(ifgrad=False, ifhess=False,
-            sources=sources_host.T, charge=weights,
-            targets=targets_host.T, zk=helmholtz_k)
-
-    from boxtree.pyfmmlib_integration import Helmholtz2DExpansionWrangler
-    wrangler = Helmholtz2DExpansionWrangler(trav.tree, helmholtz_k, nterms=10)
+    from boxtree.pyfmmlib_integration import HelmholtzExpansionWrangler
+    wrangler = HelmholtzExpansionWrangler(trav.tree, helmholtz_k, nterms=10)
 
     from boxtree.fmm import drive_fmm
     pot = drive_fmm(trav, wrangler, weights)
+
+    logger.info("computing direct (reference) result")
+
+    if dims == 2:
+        from pyfmmlib import hpotgrad2dall_vec
+        ref_pot, _, _ = hpotgrad2dall_vec(ifgrad=False, ifhess=False,
+                sources=sources_host.T, charge=weights,
+                targets=targets_host.T, zk=helmholtz_k)
+    else:
+        from pyfmmlib import hpotfld3dall_vec
+        ref_pot, _ = hpotfld3dall_vec(iffld=False,
+                sources=sources_host.T, charge=weights,
+                targets=targets_host.T, zk=helmholtz_k)
 
     rel_err = la.norm(pot - ref_pot) / la.norm(ref_pot)
     logger.info("relative l2 error: %g" % rel_err)
