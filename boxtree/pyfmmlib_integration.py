@@ -26,7 +26,6 @@ THE SOFTWARE.
 
 
 import numpy as np
-from functools import partial
 
 
 __doc__ = """Integrates :mod:`boxtree` with
@@ -108,6 +107,33 @@ class HelmholtzExpansionWrangler:
             def wrapper(*args, **kwargs):
                 pot, fld = rout(*args, **kwargs, iffld=False)
                 # grad = -fld
+                return pot
+
+            from functools import update_wrapper
+            update_wrapper(wrapper, rout)
+            return wrapper
+        else:
+            raise ValueError("unsupported dimensionality")
+
+    def get_expn_eval_routine(self, expn_kind):
+        name = "%%dd%seval" % expn_kind
+        rout = self.get_routine(name, "_vec")
+
+        if self.tree.dimensions == 2:
+            def wrapper(*args, **kwargs):
+                pot, grad, hess = rout(*args, **kwargs, ifgrad=False, ifhess=False)
+                return pot
+
+            from functools import update_wrapper
+            update_wrapper(wrapper, rout)
+            return wrapper
+
+        elif self.tree.dimensions == 3:
+            def wrapper(*args, **kwargs):
+                pot, fld, ier = rout(*args, **kwargs, iffld=False)
+                # grad = -fld
+                if (ier != 0).any():
+                    raise RuntimeError("%s failed with nonzero ier" % name)
                 return pot
 
             from functools import update_wrapper
@@ -292,7 +318,7 @@ class HelmholtzExpansionWrangler:
 
         rscale = 1
 
-        mpeval = self.get_vec_routine("%ddmpeval")
+        mpeval = self.get_expn_eval_routine("mp")
 
         for ssn in sep_smaller_nonsiblings_by_level:
             for itgt_box, tgt_ibox in enumerate(target_boxes):
@@ -305,10 +331,9 @@ class HelmholtzExpansionWrangler:
                 start, end = ssn.starts[itgt_box:itgt_box+2]
                 for src_ibox in ssn.lists[start:end]:
 
-                    tmp_pot, _, _ = mpeval(self.helmholtz_k, rscale, self.
+                    tmp_pot = mpeval(self.helmholtz_k, rscale, self.
                             tree.box_centers[:, src_ibox], mpole_exps[src_ibox],
-                            self._get_targets(tgt_pslice),
-                            ifgrad=False, ifhess=False)
+                            self._get_targets(tgt_pslice))
 
                     tgt_pot = tgt_pot + tmp_pot
 
@@ -364,10 +389,14 @@ class HelmholtzExpansionWrangler:
                 src_ibox = self.tree.box_parent_ids[tgt_ibox]
                 src_center = self.tree.box_centers[:, src_ibox]
 
+                kwargs = {}
+                if self.tree.dimensions == 3:
+                    kwargs["radius"] = self.tree.root_extent * 2**(-target_lev)
+
                 tmp_loc_exp = locloc(
                             self.helmholtz_k,
                             rscale, src_center, local_exps[src_ibox],
-                            rscale, tgt_center, self.nterms)[..., 0]
+                            rscale, tgt_center, self.nterms, **kwargs)[..., 0]
 
                 local_exps[tgt_ibox] += tmp_loc_exp
 
@@ -377,7 +406,7 @@ class HelmholtzExpansionWrangler:
         pot = self.potential_zeros()
         rscale = 1  # FIXME
 
-        taeval = self.get_vec_routine("%ddtaeval")
+        taeval = self.get_expn_eval_routine("ta")
 
         for tgt_ibox in target_boxes:
             tgt_pslice = self._get_target_slice(tgt_ibox)
@@ -385,9 +414,9 @@ class HelmholtzExpansionWrangler:
             if tgt_pslice.stop - tgt_pslice.start == 0:
                 continue
 
-            tmp_pot, _, _ = taeval(self.helmholtz_k, rscale,
+            tmp_pot = taeval(self.helmholtz_k, rscale,
                     self.tree.box_centers[:, tgt_ibox], local_exps[tgt_ibox],
-                    self._get_targets(tgt_pslice), ifgrad=False, ifhess=False)
+                    self._get_targets(tgt_pslice))
 
             pot[tgt_pslice] += tmp_pot
 

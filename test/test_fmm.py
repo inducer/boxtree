@@ -454,7 +454,7 @@ def test_fmm_completeness(ctx_getter, dims, nsources_req, ntargets_req,
 
 # {{{ test Helmholtz fmm with pyfmmlib
 
-@pytest.mark.parametrize("dims", [2])
+@pytest.mark.parametrize("dims", [2, 3])
 def test_pyfmmlib_fmm(ctx_getter, dims):
     logging.basicConfig(level=logging.INFO)
 
@@ -510,7 +510,10 @@ def test_pyfmmlib_fmm(ctx_getter, dims):
                 sources=sources_host.T, charge=weights,
                 targets=targets_host.T, zk=helmholtz_k)
     else:
-        raise NotImplementedError()
+        from pyfmmlib import hpotfld3dall_vec
+        ref_pot, _ = hpotfld3dall_vec(iffld=False,
+                sources=sources_host.T, charge=weights,
+                targets=targets_host.T, zk=helmholtz_k)
 
     rel_err = la.norm(pot - ref_pot) / la.norm(ref_pot)
     logger.info("relative l2 error: %g" % rel_err)
