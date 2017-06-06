@@ -210,7 +210,7 @@ class ExpansionWranglerInterface:
         box in the tree.
         """
 
-    def potential_zeros(self):
+    def output_zeros(self):
         """Return a potentials array (which must support addition) capable of
         holding a potential value for each target in the tree. Note that
         :func:`drive_fmm` makes no assumptions about *potential* other than
@@ -254,7 +254,7 @@ class ExpansionWranglerInterface:
         neighbor sources due to *src_weights*, which use :ref:`csr` and are
         indexed like *target_boxes*.
 
-        :returns: a new potential array, see :meth:`potential_zeros`.
+        :returns: a new potential array, see :meth:`output_zeros`.
         """
 
     def multipole_to_local(self,
@@ -277,7 +277,7 @@ class ExpansionWranglerInterface:
         return a new potential array.  *starts* and *lists* use :ref:`csr` and
         *starts* is indexed like *target_boxes*.
 
-        :returns: a new potential array, see :meth:`potential_zeros`.
+        :returns: a new potential array, see :meth:`output_zeros`.
         """
 
     def form_locals(self,
@@ -307,7 +307,7 @@ class ExpansionWranglerInterface:
         """For each box in *target_boxes*, evaluate the local expansion in
         *local_exps* and return a new potential array.
 
-        :returns: a new potential array, see :meth:`potential_zeros`.
+        :returns: a new potential array, see :meth:`output_zeros`.
         """
 
 # }}}
