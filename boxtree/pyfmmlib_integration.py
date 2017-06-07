@@ -33,7 +33,7 @@ __doc__ = """Integrates :mod:`boxtree` with
 """
 
 
-class HelmholtzExpansionWrangler:
+class HelmholtzExpansionWrangler(object):
     """Implements the :class:`boxtree.fmm.ExpansionWranglerInterface`
     by using pyfmmlib.
     """
