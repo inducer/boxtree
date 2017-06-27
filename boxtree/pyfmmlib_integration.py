@@ -26,6 +26,7 @@ THE SOFTWARE.
 
 
 import numpy as np
+from pytools import memoize_method
 
 
 __doc__ = """Integrates :mod:`boxtree` with
@@ -285,19 +286,25 @@ class HelmholtzExpansionWrangler(object):
         return slice(
                 pstart, pstart + self.box_target_counts_nonchild()[ibox])
 
-    def _get_sources(self, pslice):
-        # FIXME yuck!
+    @memoize_method
+    def _get_single_sources_array(self):
         return np.array([
-            self.tree.sources[idim][pslice]
+            self.tree.sources[idim]
+            for idim in range(self.dim)
+            ], order="F")
+
+    def _get_sources(self, pslice):
+        return self._get_single_sources_array()[:, pslice]
+
+    @memoize_method
+    def _get_single_targets_array(self):
+        return np.array([
+            self.targets()[idim]
             for idim in range(self.dim)
             ], order="F")
 
     def _get_targets(self, pslice):
-        # FIXME yuck!
-        return np.array([
-            self.targets()[idim][pslice]
-            for idim in range(self.dim)
-            ], order="F")
+        return self._get_single_targets_array()[:, pslice]
 
     def reorder_sources(self, source_array):
         return source_array[self.tree.user_source_ids]
