@@ -42,7 +42,7 @@ class FMMLibExpansionWrangler(object):
     # {{{ constructor
 
     def __init__(self, tree, helmholtz_k, nterms, ifgrad=False,
-            dipole_vec=None):
+            dipole_vec=None, dipoles_already_reordered=False):
         self.tree = tree
 
         if helmholtz_k == 0:
@@ -74,7 +74,11 @@ class FMMLibExpansionWrangler(object):
 
         if dipole_vec is not None:
             assert dipole_vec.shape == (self.dim, self.tree.nsources)
-            self.dipole_vec = self.reorder_sources(dipole_vec).copy(order="F")
+
+            if not dipoles_already_reordered:
+                dipole_vec = self.reorder_sources(dipole_vec)
+
+            self.dipole_vec = dipole_vec.copy(order="F")
             self.dp_suffix = "_dp"
         else:
             self.dipole_vec = None
