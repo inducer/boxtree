@@ -456,7 +456,7 @@ def test_fmm_completeness(ctx_getter, dims, nsources_req, ntargets_req,
 
 @pytest.mark.parametrize("dims", [2, 3])
 @pytest.mark.parametrize("use_dipoles", [True, False])
-def test_pyfmmlib_fmm(ctx_getter, dims, use_dipoles=False):
+def test_pyfmmlib_fmm(ctx_getter, dims, use_dipoles):
     logging.basicConfig(level=logging.INFO)
 
     from pytest import importorskip
