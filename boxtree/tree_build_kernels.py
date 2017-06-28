@@ -1387,7 +1387,7 @@ def get_tree_build_kernel_info(context, dimensions, coord_dtype,
 
     if srcntgts_have_extent:
         morton_count_scan_arguments += [
-            (ScalarArg(np.float, "stick_out_factor"))
+            (ScalarArg(np.float32, "stick_out_factor"))
         ]
 
     from pyopencl.scan import GenericScanKernel
