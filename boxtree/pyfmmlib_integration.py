@@ -34,7 +34,7 @@ __doc__ = """Integrates :mod:`boxtree` with
 """
 
 
-class HelmholtzExpansionWrangler(object):
+class FMMLibExpansionWrangler(object):
     """Implements the :class:`boxtree.fmm.ExpansionWranglerInterface`
     by using pyfmmlib.
     """
@@ -56,7 +56,6 @@ class HelmholtzExpansionWrangler(object):
         self.dtype = np.complex128
 
         self.ifgrad = ifgrad
-        self.dipole_vec = dipole_vec
 
         self.dim = tree.dimensions
 
@@ -73,13 +72,13 @@ class HelmholtzExpansionWrangler(object):
 
         self.common_extra_kwargs = common_extra_kwargs
 
-        dp_suffix = ""
-        if self.dipole_vec is not None:
-            assert self.dipole_vec.shape[0] == self.dim
-            assert self.dipole_vec.flags.f_contiguous
-            dp_suffix = "_dp"
-
-        self.dp_suffix = dp_suffix
+        if dipole_vec is not None:
+            assert dipole_vec.shape == (self.dim, self.tree.nsources)
+            self.dipole_vec = self.reorder_sources(dipole_vec).copy(order="F")
+            self.dp_suffix = "_dp"
+        else:
+            self.dipole_vec = None
+            self.dp_suffix = ""
 
     # }}}
 
@@ -333,15 +332,26 @@ class HelmholtzExpansionWrangler(object):
     # }}}
 
     def reorder_sources(self, source_array):
-        return source_array[self.tree.user_source_ids]
+        return source_array[..., self.tree.user_source_ids]
 
     def reorder_potentials(self, potentials):
         return potentials[self.tree.sorted_target_ids]
 
+    def get_source_kwargs(self, src_weights, pslice):
+        if self.dipole_vec is None:
+            return {
+                    "charge": src_weights[pslice],
+                    }
+        else:
+            return {
+                    "dipstr": src_weights[pslice],
+                    "dipvec": self.dipole_vec[:, pslice],
+                    }
+
     def form_multipoles(self, level_start_source_box_nrs, source_boxes, src_weights):
         rscale = 1  # FIXME
 
-        formmp = self.get_routine("%ddformmp")
+        formmp = self.get_routine("%ddformmp" + self.dp_suffix)
 
         mpoles = self.multipole_expansion_zeros()
         for src_ibox in source_boxes:
@@ -350,13 +360,16 @@ class HelmholtzExpansionWrangler(object):
             if pslice.stop - pslice.start == 0:
                 continue
 
+            kwargs = {}
+            kwargs.update(self.kernel_kwargs)
+            kwargs.update(self.get_source_kwargs(src_weights, pslice))
+
             ier, mpole = formmp(
                     rscale=rscale,
                     source=self._get_sources(pslice),
-                    charge=src_weights[pslice],
                     center=self.tree.box_centers[:, src_ibox],
                     nterms=self.nterms,
-                    **self.kernel_kwargs)
+                    **kwargs)
 
             if ier:
                 raise RuntimeError("formmp failed")
@@ -390,6 +403,8 @@ class HelmholtzExpansionWrangler(object):
                         if self.dim == 3:
                             kwargs["radius"] = tree.root_extent * 2**(-target_level)
 
+                        kwargs.update(self.kernel_kwargs)
+
                         new_mp = mpmp(
                                 rscale1=rscale,
                                 center1=child_center,
@@ -399,8 +414,7 @@ class HelmholtzExpansionWrangler(object):
                                 center2=parent_center,
                                 nterms2=self.nterms,
 
-                                **kwargs,
-                                **self.kernel_kwargs)
+                                **kwargs)
 
                         mpoles[ibox] += new_mp[..., 0].T
 
@@ -427,14 +441,14 @@ class HelmholtzExpansionWrangler(object):
                 if src_pslice.stop - src_pslice.start == 0:
                     continue
 
-                source_kwargs = {}
+                kwargs = {}
+                kwargs.update(self.kernel_kwargs)
+                kwargs.update(self.get_source_kwargs(src_weights, src_pslice))
 
                 tmp_pot, tmp_grad = ev(
                         sources=self._get_sources(src_pslice),
-                        charge=src_weights[src_pslice],
                         targets=self._get_targets(tgt_pslice),
-                        **source_kwargs,
-                        **self.kernel_kwargs)
+                        **kwargs)
 
                 tgt_pot_result += tmp_pot
                 tgt_grad_result += tmp_grad
@@ -495,6 +509,8 @@ class HelmholtzExpansionWrangler(object):
                     (ntgt_boxes,) + self.expansion_shape(self.nterms),
                     dtype=self.dtype)
 
+            kwargs.update(self.kernel_kwargs)
+
             expn2 = mploc(
                     rscale1=rscale1,
                     rscale1_offsets=rscale1_offsets,
@@ -512,8 +528,7 @@ class HelmholtzExpansionWrangler(object):
                     # FIXME: wrong layout, will copy
                     center2=tree.box_centers[:, tgt_ibox_vec],
                     expn2=expn2.T,
-                    **kwargs,
-                    **self.kernel_kwargs).T
+                    **kwargs).T
 
             local_exps[tgt_ibox_vec] += expn2
 
@@ -560,7 +575,7 @@ class HelmholtzExpansionWrangler(object):
         rscale = 1  # FIXME
         local_exps = self.local_expansion_zeros()
 
-        formta = self.get_routine("%ddformta")
+        formta = self.get_routine("%ddformta" + self.dp_suffix)
 
         for itgt_box, tgt_ibox in enumerate(target_or_target_parent_boxes):
             start, end = starts[itgt_box:itgt_box+2]
@@ -574,13 +589,16 @@ class HelmholtzExpansionWrangler(object):
                 if src_pslice.stop - src_pslice.start == 0:
                     continue
 
+                kwargs = {}
+                kwargs.update(self.kernel_kwargs)
+                kwargs.update(self.get_source_kwargs(src_weights, src_pslice))
+
                 ier, mpole = formta(
                         rscale=rscale,
                         source=self._get_sources(src_pslice),
-                        charge=src_weights[src_pslice],
                         center=tgt_center,
                         nterms=self.nterms,
-                        **self.kernel_kwargs)
+                        **kwargs)
                 if ier:
                     raise RuntimeError("formta failed")
 
@@ -609,6 +627,7 @@ class HelmholtzExpansionWrangler(object):
                 if self.dim == 3:
                     kwargs["radius"] = self.tree.root_extent * 2**(-target_lev)
 
+                kwargs.update(self.kernel_kwargs)
                 tmp_loc_exp = locloc(
                             rscale1=rscale,
                             center1=src_center,
@@ -618,8 +637,7 @@ class HelmholtzExpansionWrangler(object):
                             center2=tgt_center,
                             nterms2=self.nterms,
 
-                            **kwargs,
-                            **self.kernel_kwargs)[..., 0]
+                            **kwargs)[..., 0]
 
                 local_exps[tgt_ibox] += tmp_loc_exp.T
 
