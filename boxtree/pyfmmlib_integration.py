@@ -113,7 +113,7 @@ class HelmholtzExpansionWrangler(object):
 
     def get_direct_eval_routine(self):
         if self.dim == 2:
-            rout = self.get_routine("potgrad%ddall", "_vec")
+            rout = self.get_vec_routine("potgrad%ddall")
 
             def wrapper(*args, **kwargs):
                 kwargs["ifgrad"] = self.ifgrad
@@ -131,7 +131,7 @@ class HelmholtzExpansionWrangler(object):
             return wrapper
 
         elif self.dim == 3:
-            rout = self.get_routine("potfld%ddall", "_vec")
+            rout = self.get_vec_routine("potfld%ddall")
 
             def wrapper(*args, **kwargs):
                 kwargs["iffld"] = self.ifgrad
@@ -412,8 +412,6 @@ class HelmholtzExpansionWrangler(object):
         tree = self.tree
         local_exps = self.local_expansion_zeros()
 
-        rscale = 1
-
         # {{{ parallel
 
         mploc = self.get_translation_routine("%ddmploc", vec_suffix="_imany")
@@ -452,7 +450,10 @@ class HelmholtzExpansionWrangler(object):
             rscale2 = np.ones(ntgt_boxes, np.float64)
 
             # These get max'd/added onto: pass initialized versions.
-            ier = np.zeros(ntgt_boxes, dtype=np.int32)
+            if self.dim == 3:
+                ier = np.zeros(ntgt_boxes, dtype=np.int32)
+                kwargs["ier"] = ier
+
             expn2 = np.zeros(
                     (ntgt_boxes,) + self.expansion_shape(self.nterms),
                     dtype=self.dtype)
@@ -476,7 +477,7 @@ class HelmholtzExpansionWrangler(object):
                     # FIXME: wrong layout, will copy
                     center2=tree.box_centers[:, tgt_ibox_vec],
                     expn2=expn2.T,
-                    ier=ier, **kwargs).T
+                    **kwargs).T
 
             local_exps[tgt_ibox_vec] += expn2
 
