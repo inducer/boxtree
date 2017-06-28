@@ -162,7 +162,7 @@ inline bool is_adjacent_or_overlapping_with_stick_out(
     // target and source order only matter if include_stick_out is true.
     coord_vec_t target_center, int target_level,
     coord_vec_t source_center, int source_level,
-    const float stick_out_factor
+    const coord_t stick_out_factor
     )
 {
     // This checks if the two boxes overlap
