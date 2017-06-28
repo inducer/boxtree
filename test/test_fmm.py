@@ -496,8 +496,8 @@ def test_pyfmmlib_fmm(ctx_getter, dims):
     weights = rng.uniform(queue, nsources, dtype=np.float64).get()
     #weights = np.ones(nsources)
 
-    from boxtree.pyfmmlib_integration import HelmholtzExpansionWrangler
-    wrangler = HelmholtzExpansionWrangler(trav.tree, helmholtz_k, nterms=10)
+    from boxtree.pyfmmlib_integration import FMMLibExpansionWrangler
+    wrangler = FMMLibExpansionWrangler(trav.tree, helmholtz_k, nterms=10)
 
     from boxtree.fmm import drive_fmm
     pot = drive_fmm(trav, wrangler, weights)
