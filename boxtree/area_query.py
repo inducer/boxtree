@@ -1107,7 +1107,9 @@ class PeerListFinder(object):
             for dependency management.
         """
         from pytools import div_ceil
-        # Avoid generating too many kernels.
+
+        # Round up level count--this gets included in the kernel as
+        # a stack bound. Rounding avoids too many kernel versions.
         max_levels = div_ceil(tree.nlevels, 10) * 10
 
         peer_list_finder_kernel = self.get_peer_list_finder_kernel(
