@@ -1,15 +1,15 @@
-Python 3.5 Titan X:
-  script:
-  - py_version=3.5
-  - export PYOPENCL_TEST=nvi:titan
-  - EXTRA_INSTALL="numpy mako"
-  - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project.sh
-  - ". ./build-and-test-py-project.sh"
-  tags:
-  - python3.5
-  - nvidia-titan-x
-  except:
-  - tags
+#Python 3.5 Titan X:
+#  script:
+#  - py_version=3.5
+#  - export PYOPENCL_TEST=nvi:titan
+#  - EXTRA_INSTALL="numpy mako"
+#  - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project.sh
+#  - ". ./build-and-test-py-project.sh"
+#  tags:
+#  - python3.5
+#  - nvidia-titan-x
+#  except:
+#  - tags
 
 Python 3.5 K40:
   script:

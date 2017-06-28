@@ -26,6 +26,7 @@ THE SOFTWARE.
 
 
 import numpy as np
+from pytools import memoize_method
 
 
 __doc__ = """Integrates :mod:`boxtree` with
@@ -85,11 +86,11 @@ class HelmholtzExpansionWrangler(object):
     def get_vec_routine(self, name):
         return self.get_routine(name, "_vec")
 
-    def get_translation_routine(self, name):
+    def get_translation_routine(self, name, vec_suffix="_vec"):
         suffix = ""
         if self.dim == 3:
             suffix = "quadu"
-        suffix += "_vec"
+        suffix += vec_suffix
 
         rout = self.get_routine(name, suffix)
 
@@ -212,7 +213,9 @@ class HelmholtzExpansionWrangler(object):
         if self.dim == 2:
             return (2*self.nterms+1,)
         elif self.dim == 3:
-            return (self.nterms+1, 2*self.nterms+1)
+            # This is the transpose of the Fortran format, to
+            # minimize mismatch between C and Fortran orders.
+            return (2*self.nterms+1, self.nterms+1,)
         else:
             raise ValueError("unsupported dimensionality")
 
@@ -283,19 +286,25 @@ class HelmholtzExpansionWrangler(object):
         return slice(
                 pstart, pstart + self.box_target_counts_nonchild()[ibox])
 
-    def _get_sources(self, pslice):
-        # FIXME yuck!
+    @memoize_method
+    def _get_single_sources_array(self):
         return np.array([
-            self.tree.sources[idim][pslice]
+            self.tree.sources[idim]
+            for idim in range(self.dim)
+            ], order="F")
+
+    def _get_sources(self, pslice):
+        return self._get_single_sources_array()[:, pslice]
+
+    @memoize_method
+    def _get_single_targets_array(self):
+        return np.array([
+            self.targets()[idim]
             for idim in range(self.dim)
             ], order="F")
 
     def _get_targets(self, pslice):
-        # FIXME yuck!
-        return np.array([
-            self.targets()[idim][pslice]
-            for idim in range(self.dim)
-            ], order="F")
+        return self._get_single_targets_array()[:, pslice]
 
     def reorder_sources(self, source_array):
         return source_array[self.tree.user_source_ids]
@@ -315,12 +324,15 @@ class HelmholtzExpansionWrangler(object):
             if pslice.stop - pslice.start == 0:
                 continue
 
-            ier, mpoles[src_ibox] = formmp(
+            ier, mpole = formmp(
                     self.helmholtz_k, rscale, self._get_sources(pslice),
                     src_weights[pslice],
                     self.tree.box_centers[:, src_ibox], self.nterms)
+
             if ier:
-                raise RuntimeError("h2dformmp failed")
+                raise RuntimeError("formmp failed")
+
+            mpoles[src_ibox] = mpole.T
 
         return mpoles
 
@@ -351,11 +363,11 @@ class HelmholtzExpansionWrangler(object):
 
                         new_mp = mpmp(
                                 self.helmholtz_k,
-                                rscale, child_center, mpoles[child],
+                                rscale, child_center, mpoles[child].T,
                                 rscale, parent_center, self.nterms,
                                 **kwargs)
 
-                        mpoles[ibox] += new_mp[..., 0]
+                        mpoles[ibox] += new_mp[..., 0].T
 
     def eval_direct(self, target_boxes, neighbor_sources_starts,
             neighbor_sources_lists, src_weights):
@@ -402,34 +414,73 @@ class HelmholtzExpansionWrangler(object):
 
         rscale = 1
 
-        mploc = self.get_translation_routine("%ddmploc")
+        # {{{ parallel
+
+        mploc = self.get_translation_routine("%ddmploc", vec_suffix="_imany")
 
         for lev in range(self.tree.nlevels):
             lstart, lstop = level_start_target_or_target_parent_box_nrs[lev:lev+2]
             if lstart == lstop:
                 continue
 
-            for itgt_box, tgt_ibox in enumerate(
-                    target_or_target_parent_boxes[lstart:lstop]):
-                start, end = starts[lstart + itgt_box:lstart + itgt_box+2]
-                tgt_center = tree.box_centers[:, tgt_ibox]
+            starts_on_lvl = starts[lstart:lstop+1]
 
-                #print tgt_ibox, "<-", lists[start:end]
-                tgt_loc = 0
+            ntgt_boxes = lstop-lstart
+            itgt_box_vec = np.arange(ntgt_boxes)
+            tgt_ibox_vec = target_or_target_parent_boxes[lstart:lstop]
 
-                for src_ibox in lists[start:end]:
-                    src_center = tree.box_centers[:, src_ibox]
+            nsrc_boxes_per_tgt_box = (
+                    starts[lstart + itgt_box_vec+1] - starts[lstart + itgt_box_vec])
 
-                    kwargs = {}
-                    if self.dim == 3:
-                        kwargs["radius"] = tree.root_extent * 2**(-lev)
+            nsrc_boxes = np.sum(nsrc_boxes_per_tgt_box)
 
-                    tgt_loc = tgt_loc + mploc(
-                            self.helmholtz_k,
-                            rscale, src_center, mpole_exps[src_ibox],
-                            rscale, tgt_center, self.nterms, **kwargs)[..., 0]
+            src_boxes_starts = np.empty(ntgt_boxes+1, dtype=np.int32)
+            src_boxes_starts[0] = 0
+            src_boxes_starts[1:] = np.cumsum(nsrc_boxes_per_tgt_box)
 
-                local_exps[tgt_ibox] += tgt_loc
+            # FIXME
+            rscale1 = np.ones(nsrc_boxes)
+            rscale1_offsets = np.arange(nsrc_boxes)
+
+            kwargs = {}
+            if self.dim == 3:
+                kwargs["radius"] = (
+                        tree.root_extent * 2**(-lev)
+                        * np.ones(ntgt_boxes))
+
+            # FIXME
+            rscale2 = np.ones(ntgt_boxes, np.float64)
+
+            # These get max'd/added onto: pass initialized versions.
+            ier = np.zeros(ntgt_boxes, dtype=np.int32)
+            expn2 = np.zeros(
+                    (ntgt_boxes,) + self.expansion_shape(self.nterms),
+                    dtype=self.dtype)
+
+            expn2 = mploc(
+                    zk=self.helmholtz_k,
+
+                    rscale1=rscale1,
+                    rscale1_offsets=rscale1_offsets,
+                    rscale1_starts=src_boxes_starts,
+
+                    center1=tree.box_centers,
+                    center1_offsets=lists,
+                    center1_starts=starts_on_lvl,
+
+                    expn1=mpole_exps.T,
+                    expn1_offsets=lists,
+                    expn1_starts=starts_on_lvl,
+
+                    rscale2=rscale2,
+                    # FIXME: wrong layout, will copy
+                    center2=tree.box_centers[:, tgt_ibox_vec],
+                    expn2=expn2.T,
+                    ier=ier, **kwargs).T
+
+            local_exps[tgt_ibox_vec] += expn2
+
+        # }}}
 
         return local_exps
 
@@ -454,7 +505,8 @@ class HelmholtzExpansionWrangler(object):
                 for src_ibox in ssn.lists[start:end]:
 
                     tmp_pot, tmp_grad = mpeval(self.helmholtz_k, rscale, self.
-                            tree.box_centers[:, src_ibox], mpole_exps[src_ibox],
+                            tree.box_centers[:, src_ibox],
+                            mpole_exps[src_ibox].T,
                             self._get_targets(tgt_pslice))
 
                     tgt_pot = tgt_pot + tmp_pot
@@ -492,7 +544,7 @@ class HelmholtzExpansionWrangler(object):
                 if ier:
                     raise RuntimeError("formta failed")
 
-                contrib = contrib + mpole
+                contrib = contrib + mpole.T
 
             local_exps[tgt_ibox] = contrib
 
@@ -519,10 +571,10 @@ class HelmholtzExpansionWrangler(object):
 
                 tmp_loc_exp = locloc(
                             self.helmholtz_k,
-                            rscale, src_center, local_exps[src_ibox],
+                            rscale, src_center, local_exps[src_ibox].T,
                             rscale, tgt_center, self.nterms, **kwargs)[..., 0]
 
-                local_exps[tgt_ibox] += tmp_loc_exp
+                local_exps[tgt_ibox] += tmp_loc_exp.T
 
         return local_exps
 
@@ -539,7 +591,8 @@ class HelmholtzExpansionWrangler(object):
                 continue
 
             tmp_pot, tmp_grad = taeval(self.helmholtz_k, rscale,
-                    self.tree.box_centers[:, tgt_ibox], local_exps[tgt_ibox],
+                    self.tree.box_centers[:, tgt_ibox],
+                    local_exps[tgt_ibox].T,
                     self._get_targets(tgt_pslice))
 
             self.add_potgrad_onto_output(
