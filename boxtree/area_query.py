@@ -393,7 +393,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t box_id)
 
             // child_box_id lives on walk_level+1.
             bool a_or_o = is_adjacent_or_overlapping(root_extent,
-                center, level, child_center, walk_level+1, false);
+                center, level, child_center, walk_level+1);
 
             if (a_or_o)
             {
@@ -422,8 +422,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t box_id)
                         {
                             ${load_center("next_child_center", "next_child_id")}
                             must_be_peer &= !is_adjacent_or_overlapping(root_extent,
-                                center, level, next_child_center, walk_level+2,
-                                false);
+                                center, level, next_child_center, walk_level+2);
                         }
                     }
 
@@ -548,8 +547,6 @@ class AreaQueryElementwiseTemplate(object):
             ("peer_list_idx_dtype", peer_list_idx_dtype),
             ("debug", False),
             ("root_extent_stretch_factor", TreeBuilder.ROOT_EXTENT_STRETCH_FACTOR),
-            # Not used (but required by TRAVERSAL_PREAMBLE_TEMPLATE)
-            ("stick_out_factor", 0),
         )
 
         preamble = Template(
@@ -662,9 +659,7 @@ class AreaQueryBuilder(object):
             peer_list_idx_dtype=peer_list_idx_dtype,
             ball_id_dtype=ball_id_dtype,
             debug=False,
-            root_extent_stretch_factor=TreeBuilder.ROOT_EXTENT_STRETCH_FACTOR,
-            # Not used (but required by TRAVERSAL_PREAMBLE_TEMPLATE)
-            stick_out_factor=0)
+            root_extent_stretch_factor=TreeBuilder.ROOT_EXTENT_STRETCH_FACTOR)
 
         from pyopencl.tools import VectorArg, ScalarArg
         arg_decls = [
@@ -1064,8 +1059,6 @@ class PeerListFinder(object):
             AXIS_NAMES=AXIS_NAMES,
             box_flags_enum=box_flags_enum,
             debug=False,
-            # Not used (but required by TRAVERSAL_PREAMBLE_TEMPLATE)
-            stick_out_factor=0,
             # For calls to the helper is_adjacent_or_overlapping()
             targets_have_extent=False,
             sources_have_extent=False)
