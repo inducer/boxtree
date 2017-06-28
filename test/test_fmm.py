@@ -455,7 +455,8 @@ def test_fmm_completeness(ctx_getter, dims, nsources_req, ntargets_req,
 # {{{ test Helmholtz fmm with pyfmmlib
 
 @pytest.mark.parametrize("dims", [2, 3])
-def test_pyfmmlib_fmm(ctx_getter, dims):
+@pytest.mark.parametrize("use_dipoles", [True, False])
+def test_pyfmmlib_fmm(ctx_getter, dims, use_dipoles=False):
     logging.basicConfig(level=logging.INFO)
 
     from pytest import importorskip
@@ -496,24 +497,47 @@ def test_pyfmmlib_fmm(ctx_getter, dims):
     weights = rng.uniform(queue, nsources, dtype=np.float64).get()
     #weights = np.ones(nsources)
 
+    if use_dipoles:
+        dipole_vec = np.random.randn(dims, nsources)
+    else:
+        dipole_vec = None
+
     from boxtree.pyfmmlib_integration import FMMLibExpansionWrangler
-    wrangler = FMMLibExpansionWrangler(trav.tree, helmholtz_k, nterms=10)
+    wrangler = FMMLibExpansionWrangler(trav.tree, helmholtz_k, nterms=10,
+            dipole_vec=dipole_vec)
 
     from boxtree.fmm import drive_fmm
     pot = drive_fmm(trav, wrangler, weights)
 
+    # {{{ ref computation
+
     logger.info("computing direct (reference) result")
 
-    if dims == 2:
-        from pyfmmlib import hpotgrad2dall_vec
-        ref_pot, _, _ = hpotgrad2dall_vec(ifgrad=False, ifhess=False,
-                sources=sources_host.T, charge=weights,
-                targets=targets_host.T, zk=helmholtz_k)
+    import pyfmmlib
+    fmmlib_routine = getattr(
+            pyfmmlib,
+            "hpot%s%ddall%s_vec" % (
+                "fld" if dims == 3 else "grad",
+                dims,
+                "_dp" if use_dipoles else ""))
+
+    kwargs = {}
+    if dims == 3:
+        kwargs["iffld"] = False
     else:
-        from pyfmmlib import hpotfld3dall_vec
-        ref_pot, _ = hpotfld3dall_vec(iffld=False,
-                sources=sources_host.T, charge=weights,
-                targets=targets_host.T, zk=helmholtz_k)
+        kwargs["ifgrad"] = False
+        kwargs["ifhess"] = False
+
+    if use_dipoles:
+        kwargs["dipstr"] = weights
+        kwargs["dipvec"] = dipole_vec
+    else:
+        kwargs["charge"] = weights
+    ref_pot = fmmlib_routine(
+            sources=sources_host.T, targets=targets_host.T, zk=helmholtz_k,
+            **kwargs)[0]
+
+    # }}}
 
     rel_err = la.norm(pot - ref_pot) / la.norm(ref_pot)
     logger.info("relative l2 error: %g" % rel_err)
