@@ -1038,6 +1038,60 @@ def test_space_invader_query(ctx_getter, dims, dtype, do_plot=False):
 # }}}
 
 
+@pytest.mark.opencl
+def test_same_tree_with_zero_weight_particles(ctx_factory, dims):
+    logging.basicConfig(level=logging.INFO)
+
+    ntargets_values = [300, 400, 500]
+    stick_out_factors = [0, 0.1, 0.3, 1]
+    nsources = 20
+
+    ctx = ctx_factory()
+    queue = cl.CommandQueue(ctx)
+
+    from boxtree import TreeBuilder
+    tb = TreeBuilder(ctx)
+
+    trees = []
+
+    for stick_out_factor in stick_out_factors:
+        for ntargets in [40]:
+            np.random.seed(10)
+            sources = np.random.rand(dims, nsources)**2
+            sources[:, 0] = -0.1
+            sources[:, 1] = 1.1
+
+            np.random.seed()
+            targets = np.random.rand(dims, max(ntargets_values))[:, :ntargets].copy()
+            target_radii = np.random.rand(max(ntargets_values))[:ntargets]
+
+            sources = cl.array.to_device(queue, sources)
+            targets = cl.array.to_device(queue, targets)
+
+            refine_weights = cl.array.empty(queue, nsources + ntargets, np.int32)
+            refine_weights[:nsources] = 1
+            refine_weights[nsources:] = 0
+
+            tree, _ = tb(queue, sources, targets=targets,
+                    target_radii=target_radii,
+                    stick_out_factor=stick_out_factor,
+                    max_leaf_refine_weight=10,
+                    refine_weights=refine_weights,
+                    debug=True)
+            tree = tree.get(queue=queue)
+            trees.append(tree)
+
+            print("TREE:", tree.nboxes)
+
+    if 0:
+        import matplotlib.pyplot as plt
+        for tree in trees:
+            plt.figure()
+            tree.plot()
+
+        plt.show()
+
+
 # You can test individual routines by typing
 # $ python test_tree.py 'test_routine(cl.create_some_context)'
 
