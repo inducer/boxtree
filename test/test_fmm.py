@@ -498,12 +498,15 @@ def test_pyfmmlib_fmm(ctx_getter, dims, use_dipoles=False):
     #weights = np.ones(nsources)
 
     if use_dipoles:
+        np.random.seed(13)
         dipole_vec = np.random.randn(dims, nsources)
     else:
         dipole_vec = None
 
     from boxtree.pyfmmlib_integration import FMMLibExpansionWrangler
-    wrangler = FMMLibExpansionWrangler(trav.tree, helmholtz_k, nterms=10,
+    wrangler = FMMLibExpansionWrangler(
+            trav.tree, helmholtz_k,
+            nterms=11 if use_dipoles else 10,
             dipole_vec=dipole_vec)
 
     from boxtree.fmm import drive_fmm
