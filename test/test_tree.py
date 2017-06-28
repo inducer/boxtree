@@ -1036,7 +1036,10 @@ def test_space_invader_query(ctx_getter, dims, dtype, do_plot=False):
 # }}}
 
 
+# {{{ test_same_tree_with_zero_weight_particles
+
 @pytest.mark.opencl
+@pytest.mark.parametrize("dims", [2, 3])
 def test_same_tree_with_zero_weight_particles(ctx_factory, dims):
     logging.basicConfig(level=logging.INFO)
 
@@ -1088,6 +1091,8 @@ def test_same_tree_with_zero_weight_particles(ctx_factory, dims):
             tree.plot()
 
         plt.show()
+
+# }}}
 
 
 # You can test individual routines by typing
