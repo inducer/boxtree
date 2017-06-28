@@ -183,7 +183,6 @@ TYPE_DECL_PREAMBLE_TPL = Template(r"""//CL//
     """, strict_undefined=True)
 
 GENERIC_PREAMBLE_TPL = Template(r"""//CL//
-    #define STICK_OUT_FACTOR ((coord_t) ${stick_out_factor})
 
     // Use this as dbg_printf(("oh snap: %d\n", stuff)); Note the double
     // parentheses.
@@ -290,6 +289,7 @@ MORTON_NR_SCAN_PREAMBLE_TPL = Template(r"""//CL//
         %endfor
         %if srcntgts_have_extent:
             , global const coord_t *srcntgt_radii
+            , const coord_t stick_out_factor
         %endif
     )
     {
@@ -305,12 +305,21 @@ MORTON_NR_SCAN_PREAMBLE_TPL = Template(r"""//CL//
             coord_t srcntgt_radius = srcntgt_radii[user_srcntgt_id];
         %endif
 
+        %if not srcntgts_have_extent:
+            // This argument is only supplied with srcntgts_have_extent.
+            #define stick_out_factor 0.
+        %endif
+
         const coord_t one_half = ((coord_t) 1) / 2;
         const coord_t box_radius_factor =
             // AMD CPU seems to like to miscompile this--change with care.
             // (last seen on 13.4-2)
-            (1. + STICK_OUT_FACTOR)
+            (1. + stick_out_factor)
             * one_half; // convert diameter to radius
+
+        %if not srcntgts_have_extent:
+            #undef stick_out_factor
+        %endif
 
         %for ax in axis_names:
             // Most FMMs are isotropic, i.e. global_extent_{x,y,z} are all the same.
@@ -338,7 +347,7 @@ MORTON_NR_SCAN_PREAMBLE_TPL = Template(r"""//CL//
                 * (1U << (1 + particle_level)));
 
             %if srcntgts_have_extent:
-                // Need to compute center to compare excess with STICK_OUT_FACTOR.
+                // Need to compute center to compare excess with stick_out_factor.
                 coord_t next_level_box_center_${ax} =
                     global_min_${ax}
                     + global_extent_${ax}
@@ -800,8 +809,7 @@ LEVEL_RESTRICT_TPL = Template(
                 ${my_load_center("box_center", "box_id")}
                 ${my_load_center("child_center", "child_box_id")}
                 is_adjacent = is_adjacent_or_overlapping(
-                    root_extent, child_center, child_level, box_center, level,
-                    false);
+                    root_extent, child_center, child_level, box_center, level);
             }
 
             if (is_adjacent)
@@ -1237,8 +1245,7 @@ BOX_INFO_KERNEL_TPL = ElementwiseTemplate(
 def get_tree_build_kernel_info(context, dimensions, coord_dtype,
         particle_id_dtype, box_id_dtype,
         sources_are_targets, srcntgts_have_extent,
-        stick_out_factor, morton_nr_dtype, box_level_dtype,
-        kind):
+        morton_nr_dtype, box_level_dtype, kind):
 
     level_restrict = (kind == "adaptive-level-restricted")
     adaptive = not (kind == "non-adaptive")
@@ -1295,8 +1302,6 @@ def get_tree_build_kernel_info(context, dimensions, coord_dtype,
 
             sources_are_targets=sources_are_targets,
             srcntgts_have_extent=srcntgts_have_extent,
-
-            stick_out_factor=stick_out_factor,
 
             enable_assert=False,
             enable_printf=False,
@@ -1377,10 +1382,17 @@ def get_tree_build_kernel_info(context, dimensions, coord_dtype,
                 if srcntgts_have_extent else [])
             )
 
+    morton_count_scan_arguments = list(common_arguments)
+
+    if srcntgts_have_extent:
+        morton_count_scan_arguments += [
+            (ScalarArg(coord_dtype, "stick_out_factor"))
+        ]
+
     from pyopencl.scan import GenericScanKernel
     morton_count_scan = GenericScanKernel(
             context, morton_bin_count_dtype,
-            arguments=common_arguments,
+            arguments=morton_count_scan_arguments,
             input_expr=(
                 "scan_t_from_particle(%s)"
                 % ", ".join([
@@ -1389,7 +1401,8 @@ def get_tree_build_kernel_info(context, dimensions, coord_dtype,
                     "refine_weights",
                     ]
                     + ["%s" % ax for ax in axis_names]
-                    + (["srcntgt_radii"] if srcntgts_have_extent else []))),
+                    + (["srcntgt_radii, stick_out_factor"]
+                       if srcntgts_have_extent else []))),
             scan_expr="scan_t_add(a, b, across_seg_boundary)",
             neutral="scan_t_neutral()",
             is_segment_start_expr="box_start_flags[i]",
