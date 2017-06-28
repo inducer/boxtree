@@ -184,6 +184,7 @@ TYPE_DECL_PREAMBLE_TPL = Template(r"""//CL//
     """, strict_undefined=True)
 
 GENERIC_PREAMBLE_TPL = Template(r"""//CL//
+
     // Use this as dbg_printf(("oh snap: %d\n", stuff)); Note the double
     // parentheses.
     //
