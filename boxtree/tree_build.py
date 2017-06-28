@@ -62,13 +62,13 @@ class TreeBuilder(object):
     def get_kernel_info(self, dimensions, coord_dtype,
             particle_id_dtype, box_id_dtype,
             sources_are_targets, srcntgts_have_extent,
-            stick_out_factor, kind):
+            kind):
 
         from boxtree.tree_build_kernels import get_tree_build_kernel_info
         return get_tree_build_kernel_info(self.context, dimensions, coord_dtype,
             particle_id_dtype, box_id_dtype,
             sources_are_targets, srcntgts_have_extent,
-            stick_out_factor, self.morton_nr_dtype, self.box_level_dtype,
+            self.morton_nr_dtype, self.box_level_dtype,
             kind=kind)
 
     # {{{ run control
@@ -186,7 +186,7 @@ class TreeBuilder(object):
         knl_info = self.get_kernel_info(dimensions, coord_dtype,
                 particle_id_dtype, box_id_dtype,
                 sources_are_targets, srcntgts_have_extent,
-                stick_out_factor, kind=kind)
+                kind=kind)
 
         logger.info("tree build: start")
 
@@ -535,9 +535,13 @@ class TreeBuilder(object):
 
             fin_debug("morton count scan")
 
+            morton_count_args = common_args
+            if srcntgts_have_extent:
+                morton_count_args += (stick_out_factor,)
+
             # writes: box_morton_bin_counts
             evt = knl_info.morton_count_scan(
-                    *common_args, queue=queue, size=nsrcntgts,
+                    *morton_count_args, queue=queue, size=nsrcntgts,
                     wait_for=wait_for)
             wait_for = [evt]
 

@@ -135,7 +135,6 @@ typedef ${dtype_to_ctype(coord_dtype)} coord_t;
 typedef ${dtype_to_ctype(vec_types_dict[coord_dtype, dimensions])} coord_vec_t;
 
 #define NLEVELS ${max_levels}
-#define STICK_OUT_FACTOR ((coord_t) ${stick_out_factor})
 
 #define LEVEL_TO_RAD(level) \
         (root_extent * 1 / (coord_t) (1 << (level + 1)))
@@ -158,13 +157,12 @@ TRAVERSAL_PREAMBLE_TEMPLATE = (
 
 HELPER_FUNCTION_TEMPLATE = r"""//CL//
 
-inline bool is_adjacent_or_overlapping(
+inline bool is_adjacent_or_overlapping_with_stick_out(
     coord_t root_extent,
     // target and source order only matter if include_stick_out is true.
     coord_vec_t target_center, int target_level,
     coord_vec_t source_center, int source_level,
-    // this is expected to be constant so that the inliner will kill the if.
-    const bool include_stick_out
+    const float stick_out_factor
     )
 {
     // This checks if the two boxes overlap
@@ -178,18 +176,36 @@ inline bool is_adjacent_or_overlapping(
     coord_t rad_sum = target_rad + source_rad;
     coord_t slack = rad_sum + fmin(target_rad, source_rad);
 
-    if (include_stick_out)
-    {
-        slack += STICK_OUT_FACTOR * (
-            0
-            %if targets_have_extent:
-                + target_rad
-            %endif
-            %if sources_have_extent:
-                + source_rad
-            %endif
-            );
-    }
+    slack += stick_out_factor * (
+        0
+        %if targets_have_extent:
+            + target_rad
+        %endif
+        %if sources_have_extent:
+            + source_rad
+        %endif
+        );
+
+    coord_t max_dist = 0;
+    %for i in range(dimensions):
+        max_dist = fmax(max_dist, fabs(target_center.s${i} - source_center.s${i}));
+    %endfor
+
+    return max_dist <= slack;
+}
+
+
+inline bool is_adjacent_or_overlapping(
+    coord_t root_extent,
+    // note: order does not matter
+    coord_vec_t target_center, int target_level,
+    coord_vec_t source_center, int source_level) {
+    // This checks if the two boxes overlap.
+
+    coord_t target_rad = LEVEL_TO_RAD(target_level);
+    coord_t source_rad = LEVEL_TO_RAD(source_level);
+    coord_t rad_sum = target_rad + source_rad;
+    coord_t slack = rad_sum + fmin(target_rad, source_rad);
 
     coord_t max_dist = 0;
     %for i in range(dimensions):
@@ -299,7 +315,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t box_id)
             ${load_center("child_center", "child_box_id")}
 
             bool a_or_o = is_adjacent_or_overlapping(root_extent,
-                center, level, child_center, box_levels[child_box_id], false);
+                center, level, child_center, box_levels[child_box_id]);
 
             if (a_or_o)
             {
@@ -380,7 +396,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
             ${load_center("child_center", "child_box_id")}
 
             bool a_or_o = is_adjacent_or_overlapping(root_extent,
-                center, level, child_center, box_levels[child_box_id], false);
+                center, level, child_center, box_levels[child_box_id]);
 
             if (a_or_o)
             {
@@ -451,7 +467,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
             ${load_center("sib_center", "sib_box_id")}
 
             bool sep = !is_adjacent_or_overlapping(root_extent,
-                center, level, sib_center, box_levels[sib_box_id], false);
+                center, level, sib_center, box_levels[sib_box_id]);
 
             if (sep)
             {
@@ -527,7 +543,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
                 int child_level = box_levels[child_box_id];
 
                 bool a_or_o = is_adjacent_or_overlapping(root_extent,
-                    center, level, child_center, child_level, false);
+                    center, level, child_center, child_level);
 
                 if (a_or_o)
                 {
@@ -549,9 +565,9 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
                 {
                     %if sources_have_extent or targets_have_extent:
                         const bool a_or_o_with_stick_out =
-                            is_adjacent_or_overlapping(root_extent,
+                            is_adjacent_or_overlapping_with_stick_out(root_extent,
                                 center, level, child_center,
-                                child_level, true);
+                                child_level, stick_out_factor);
                     %else:
                         const bool a_or_o_with_stick_out = false;
                     %endif
@@ -714,7 +730,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
             {
                 ${load_center("colleague_center", "colleague_box_id")}
                 bool a_or_o = is_adjacent_or_overlapping(root_extent,
-                    center, box_level, colleague_center, walk_level, false);
+                    center, box_level, colleague_center, walk_level);
 
                 if (!a_or_o)
                 {
@@ -722,9 +738,9 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
 
                     %if sources_have_extent or targets_have_extent:
                         const bool a_or_o_with_stick_out =
-                            is_adjacent_or_overlapping(root_extent,
+                            is_adjacent_or_overlapping_with_stick_out(root_extent,
                                 center, box_level, colleague_center,
-                                walk_level, true);
+                                walk_level, stick_out_factor);
 
                     if (a_or_o_with_stick_out)
                     {
@@ -741,9 +757,9 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
                     %endif
                     {
                         bool parent_a_or_o_with_stick_out =
-                            is_adjacent_or_overlapping(root_extent,
+                            is_adjacent_or_overlapping_with_stick_out(root_extent,
                                 parent_center, box_level-1, colleague_center,
-                                walk_level, true);
+                                walk_level, stick_out_factor);
 
                         if (parent_a_or_o_with_stick_out)
                         {
@@ -1148,8 +1164,7 @@ class FMMTraversalBuilder:
     @memoize_method
     def get_kernel_info(self, dimensions, particle_id_dtype, box_id_dtype,
             coord_dtype, box_level_dtype, max_levels,
-            sources_are_targets, sources_have_extent, targets_have_extent,
-            stick_out_factor):
+            sources_are_targets, sources_have_extent, targets_have_extent):
 
         logger.info("traversal build kernels: start build")
 
@@ -1171,7 +1186,6 @@ class FMMTraversalBuilder:
                 sources_are_targets=sources_are_targets,
                 sources_have_extent=sources_have_extent,
                 targets_have_extent=targets_have_extent,
-                stick_out_factor=stick_out_factor,
                 )
         from pyopencl.algorithm import ListOfListsBuilder
         from pyopencl.tools import VectorArg, ScalarArg
@@ -1238,6 +1252,7 @@ class FMMTraversalBuilder:
                             ], []),
                 ("sep_smaller", SEP_SMALLER_TEMPLATE,
                         [
+                            ScalarArg(coord_dtype, "stick_out_factor"),
                             VectorArg(box_id_dtype, "target_boxes"),
                             VectorArg(box_id_dtype, "colleagues_starts"),
                             VectorArg(box_id_dtype, "colleagues_list"),
@@ -1248,6 +1263,7 @@ class FMMTraversalBuilder:
                             else []),
                 ("sep_bigger", SEP_BIGGER_TEMPLATE,
                         [
+                            ScalarArg(coord_dtype, "stick_out_factor"),
                             VectorArg(box_id_dtype, "target_or_target_parent_boxes"),
                             VectorArg(box_id_dtype, "box_parent_ids"),
                             VectorArg(box_id_dtype, "colleagues_starts"),
@@ -1307,8 +1323,7 @@ class FMMTraversalBuilder:
                 tree.dimensions, tree.particle_id_dtype, tree.box_id_dtype,
                 tree.coord_dtype, tree.box_level_dtype, max_levels,
                 tree.sources_are_targets,
-                tree.sources_have_extent, tree.targets_have_extent,
-                tree.stick_out_factor)
+                tree.sources_have_extent, tree.targets_have_extent)
 
         def fin_debug(s):
             if debug:
@@ -1439,7 +1454,7 @@ class FMMTraversalBuilder:
                 queue, len(target_boxes),
                 tree.box_centers.data, tree.root_extent, tree.box_levels.data,
                 tree.aligned_nboxes, tree.box_child_ids.data, tree.box_flags.data,
-                target_boxes.data,
+                tree.stick_out_factor, target_boxes.data,
                 colleagues.starts.data, colleagues.lists.data)
 
         wait_for = []
@@ -1480,7 +1495,8 @@ class FMMTraversalBuilder:
                 queue, len(target_or_target_parent_boxes),
                 tree.box_centers.data, tree.root_extent, tree.box_levels.data,
                 tree.aligned_nboxes, tree.box_child_ids.data, tree.box_flags.data,
-                target_or_target_parent_boxes.data, tree.box_parent_ids.data,
+                tree.stick_out_factor, target_or_target_parent_boxes.data,
+                tree.box_parent_ids.data,
                 colleagues.starts.data, colleagues.lists.data, wait_for=wait_for)
         wait_for = [evt]
         sep_bigger = result["sep_bigger"]
