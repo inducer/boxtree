@@ -67,8 +67,10 @@ Data structures
 
     .. automethod:: get
 
-Functions
-^^^^^^^^^
+Tools
+^^^^^
+
+.. autoclass:: ParticleListFilter
 
 .. autofunction:: filter_target_lists_in_user_order
 
