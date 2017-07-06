@@ -27,6 +27,7 @@ import pyopencl as cl
 import numpy as np
 from boxtree.tools import DeviceDataRecord
 from cgen import Enum
+from pytools import memoize_method
 
 import logging
 logger = logging.getLogger(__name__)
@@ -612,11 +613,11 @@ def link_point_sources(queue, tree, point_source_starts, point_sources,
 # }}}
 
 
-# {{{ filtered target lists
+# {{{ particle list filter
 
 class FilteredTargetListsInUserOrder(DeviceDataRecord):
-    """Use :func:`filter_target_lists_in_user_order` to create instances of this
-    class.
+    """Use :meth:`ParticleListFilter.filter_target_lists_in_user_order` to create
+    instances of this class.
 
     This class represents subsets of the list of targets in each box (as given
     by :attr:`boxtree.Tree.box_target_starts` and
@@ -650,70 +651,9 @@ class FilteredTargetListsInUserOrder(DeviceDataRecord):
     """
 
 
-def filter_target_lists_in_user_order(queue, tree, flags):
-    """
-    :arg flags: an array of length :attr:`boxtree.Tree.ntargets` of
-        :class:`numpy.int8` objects, which indicate by being zero that the
-        corresponding target (in user target order) is not part of the
-        filtered list, or by being nonzero that it is.
-
-    :returns: A :class:`FilteredTargetListsInUserOrder`
-    """
-
-    user_order_flags = flags
-    del flags
-
-    user_target_ids = cl.array.empty(queue, tree.ntargets,
-            tree.sorted_target_ids.dtype)
-    user_target_ids[tree.sorted_target_ids] = cl.array.arange(
-            queue, tree.ntargets, user_target_ids.dtype)
-
-    from pyopencl.tools import VectorArg, dtype_to_ctype
-    from pyopencl.algorithm import ListOfListsBuilder
-    from mako.template import Template
-    builder = ListOfListsBuilder(queue.context,
-        [("filt_tgt_list", tree.particle_id_dtype)], Template("""//CL//
-        typedef ${dtype_to_ctype(particle_id_dtype)} particle_id_t;
-
-        void generate(LIST_ARG_DECL USER_ARG_DECL index_type i)
-        {
-            particle_id_t b_t_start = box_target_starts[i];
-            particle_id_t b_t_count = box_target_counts_nonchild[i];
-
-            for (particle_id_t j = b_t_start; j < b_t_start+b_t_count; ++j)
-            {
-                particle_id_t user_target_id = user_target_ids[j];
-                if (user_order_flags[user_target_id])
-                {
-                    APPEND_filt_tgt_list(user_target_id);
-                }
-            }
-        }
-        """, strict_undefined=True).render(
-            dtype_to_ctype=dtype_to_ctype,
-            particle_id_dtype=tree.particle_id_dtype
-            ), arg_decls=[
-                VectorArg(user_order_flags.dtype, "user_order_flags"),
-                VectorArg(tree.particle_id_dtype, "user_target_ids"),
-                VectorArg(tree.particle_id_dtype, "box_target_starts"),
-                VectorArg(tree.particle_id_dtype, "box_target_counts_nonchild"),
-            ])
-
-    result, evt = builder(queue, tree.nboxes,
-            user_order_flags.data,
-            user_target_ids.data,
-            tree.box_target_starts.data, tree.box_target_counts_nonchild.data)
-
-    return FilteredTargetListsInUserOrder(
-            nfiltered_targets=result["filt_tgt_list"].count,
-            target_starts=result["filt_tgt_list"].starts,
-            target_lists=result["filt_tgt_list"].lists,
-            ).with_queue(None)
-
-
 class FilteredTargetListsInTreeOrder(DeviceDataRecord):
-    """Use :func:`filter_target_lists_in_tree_order` to create instances of this
-    class.
+    """Use :meth:`ParticleListFilter.filter_target_lists_in_tree_order` to create
+    instances of this class.
 
     This class represents subsets of the list of targets in each box (as given by
     :attr:`boxtree.Tree.box_target_starts` and
@@ -759,87 +699,209 @@ class FilteredTargetListsInTreeOrder(DeviceDataRecord):
     """
 
 
+class ParticleListFilter(object):
+    """
+    .. automethod:: filter_target_lists_in_tree_order
+    .. automethod:: filter_target_lists_in_user_order
+    """
+
+    def __init__(self, context):
+        self.context = context
+
+    @memoize_method
+    def get_filter_target_lists_in_user_order_kernel(self, particle_id_dtype,
+            user_order_flags_dtype):
+        from pyopencl.tools import VectorArg, dtype_to_ctype
+        from pyopencl.algorithm import ListOfListsBuilder
+        from mako.template import Template
+        print("CACHE MISS 2")
+
+        builder = ListOfListsBuilder(self.context,
+            [("filt_tgt_list", particle_id_dtype)], Template("""//CL//
+            typedef ${dtype_to_ctype(particle_id_dtype)} particle_id_t;
+
+            void generate(LIST_ARG_DECL USER_ARG_DECL index_type i)
+            {
+                particle_id_t b_t_start = box_target_starts[i];
+                particle_id_t b_t_count = box_target_counts_nonchild[i];
+
+                for (particle_id_t j = b_t_start; j < b_t_start+b_t_count; ++j)
+                {
+                    particle_id_t user_target_id = user_target_ids[j];
+                    if (user_order_flags[user_target_id])
+                    {
+                        APPEND_filt_tgt_list(user_target_id);
+                    }
+                }
+            }
+            """, strict_undefined=True).render(
+                dtype_to_ctype=dtype_to_ctype,
+                particle_id_dtype=particle_id_dtype
+                ), arg_decls=[
+                    VectorArg(user_order_flags_dtype, "user_order_flags"),
+                    VectorArg(particle_id_dtype, "user_target_ids"),
+                    VectorArg(particle_id_dtype, "box_target_starts"),
+                    VectorArg(particle_id_dtype, "box_target_counts_nonchild"),
+                ])
+
+        return builder
+
+    def filter_target_lists_in_user_order(self, queue, tree, flags):
+        """
+        :arg flags: an array of length :attr:`boxtree.Tree.ntargets` of
+            :class:`numpy.int8` objects, which indicate by being zero that the
+            corresponding target (in user target order) is not part of the
+            filtered list, or by being nonzero that it is.
+
+        :returns: A :class:`FilteredTargetListsInUserOrder`
+        """
+        user_order_flags = flags
+        del flags
+
+        user_target_ids = cl.array.empty(queue, tree.ntargets,
+                tree.sorted_target_ids.dtype)
+        user_target_ids[tree.sorted_target_ids] = cl.array.arange(
+                queue, tree.ntargets, user_target_ids.dtype)
+
+        kernel = self.get_filter_target_lists_in_user_order_kernel(
+                tree.particle_id_dtype, user_order_flags.dtype)
+
+        result, evt = kernel(queue, tree.nboxes,
+                user_order_flags.data,
+                user_target_ids.data,
+                tree.box_target_starts.data, tree.box_target_counts_nonchild.data)
+
+        return FilteredTargetListsInUserOrder(
+                nfiltered_targets=result["filt_tgt_list"].count,
+                target_starts=result["filt_tgt_list"].starts,
+                target_lists=result["filt_tgt_list"].lists,
+                ).with_queue(None)
+
+    @memoize_method
+    def get_filter_target_lists_in_tree_order_kernels(self, particle_id_dtype):
+        from boxtree.tree_build_kernels import (
+                TREE_ORDER_TARGET_FILTER_SCAN_TPL,
+                TREE_ORDER_TARGET_FILTER_INDEX_TPL)
+        print("CACHE MISS 3")
+
+        scan_knl = TREE_ORDER_TARGET_FILTER_SCAN_TPL.build(
+            self.context,
+            type_aliases=(
+                ("scan_t", particle_id_dtype),
+                ("particle_id_t", particle_id_dtype),
+                ),
+            )
+
+        index_knl = TREE_ORDER_TARGET_FILTER_INDEX_TPL.build(
+            self.context,
+            type_aliases=(
+                ("particle_id_t", particle_id_dtype),
+                ),
+            )
+
+        return scan_knl, index_knl
+
+    def filter_target_lists_in_tree_order(self, queue, tree, flags):
+        """
+        :arg flags: an array of length :attr:`boxtree.Tree.ntargets` of
+            :class:`numpy.int8` objects, which indicate by being zero that the
+            corresponding target (in user target order) is not part of the
+            filtered list, or by being nonzero that it is.
+        :returns: A :class:`FilteredTargetListsInTreeOrder`
+        """
+
+        tree_order_flags = cl.array.empty(queue, tree.ntargets, np.int8)
+        tree_order_flags[tree.sorted_target_ids] = flags
+
+        filtered_from_unfiltered_target_indices = cl.array.empty(
+                queue, tree.ntargets, tree.particle_id_dtype)
+        unfiltered_from_filtered_target_indices = cl.array.empty(
+                queue, tree.ntargets, tree.particle_id_dtype)
+
+        nfiltered_targets = cl.array.empty(queue, 1, tree.particle_id_dtype)
+
+        scan_knl, index_knl = self.get_filter_target_lists_in_tree_order_kernels(
+                tree.particle_id_dtype)
+
+        scan_knl(tree_order_flags,
+                filtered_from_unfiltered_target_indices,
+                unfiltered_from_filtered_target_indices,
+                nfiltered_targets,
+                queue=queue)
+
+        nfiltered_targets = int(nfiltered_targets.get())
+
+        unfiltered_from_filtered_target_indices = \
+                unfiltered_from_filtered_target_indices[:nfiltered_targets]
+
+        from pytools.obj_array import make_obj_array
+        filtered_targets = make_obj_array([
+            targets_i.with_queue(queue)[unfiltered_from_filtered_target_indices]
+            for targets_i in tree.targets
+            ])
+
+        box_target_starts_filtered = \
+                cl.array.empty_like(tree.box_target_starts)
+        box_target_counts_nonchild_filtered = \
+                cl.array.empty_like(tree.box_target_counts_nonchild)
+
+        index_knl(
+                # input
+                tree.box_target_starts,
+                tree.box_target_counts_nonchild,
+                filtered_from_unfiltered_target_indices,
+                tree.ntargets,
+                nfiltered_targets,
+
+                # output
+                box_target_starts_filtered,
+                box_target_counts_nonchild_filtered,
+
+                queue=queue)
+
+        return FilteredTargetListsInTreeOrder(
+                nfiltered_targets=nfiltered_targets,
+                box_target_starts=box_target_starts_filtered,
+                box_target_counts_nonchild=box_target_counts_nonchild_filtered,
+                unfiltered_from_filtered_target_indices=(
+                    unfiltered_from_filtered_target_indices),
+                targets=filtered_targets,
+                ).with_queue(None)
+
+# }}}
+
+
+# {{{ filter_target_lists_in_*_order
+
+def filter_target_lists_in_user_order(queue, tree, flags):
+    """
+    Deprecated. See :meth:`ParticleListFilter.filter_target_lists_in_user_order`.
+    """
+
+    from warnings import warn
+    warn(
+            "filter_target_lists_in_user_order() is deprecated and will go "
+            "away in a future release. Use "
+            "ParticleListFilter.filter_target_lists_in_user_order() instead.",
+            DeprecationWarning)
+
+    return (ParticleListFilter(queue.context)
+            .filter_target_lists_in_user_order(queue, tree, flags))
+
+
 def filter_target_lists_in_tree_order(queue, tree, flags):
     """
-    :arg flags: an array of length :attr:`boxtree.Tree.ntargets` of
-        :class:`numpy.int8` objects, which indicate by being zero that the
-        corresponding target (in user target order) is not part of the
-        filtered list, or by being nonzero that it is.
-    :returns: A :class:`FilteredTargetListsInTreeOrder`
+    Deprecated. See :meth:`ParticleListFilter.filter_target_lists_in_tree_order`.
     """
+    from warnings import warn
+    warn(
+            "filter_target_lists_in_tree_order() is deprecated and will go "
+            "away in a future release. Use "
+            "ParticleListFilter.filter_target_lists_in_tree_order() instead.",
+            DeprecationWarning)
 
-    tree_order_flags = cl.array.empty(queue, tree.ntargets, np.int8)
-    tree_order_flags[tree.sorted_target_ids] = flags
-
-    from boxtree.tree_build_kernels import (
-            TREE_ORDER_TARGET_FILTER_SCAN_TPL,
-            TREE_ORDER_TARGET_FILTER_INDEX_TPL)
-
-    scan_knl = TREE_ORDER_TARGET_FILTER_SCAN_TPL.build(
-        queue.context,
-        type_aliases=(
-            ("scan_t", tree.particle_id_dtype),
-            ("particle_id_t", tree.particle_id_dtype),
-            ),
-        )
-    filtered_from_unfiltered_target_indices = cl.array.empty(
-            queue, tree.ntargets, tree.particle_id_dtype)
-    unfiltered_from_filtered_target_indices = cl.array.empty(
-            queue, tree.ntargets, tree.particle_id_dtype)
-
-    nfiltered_targets = cl.array.empty(queue, 1, tree.particle_id_dtype)
-    scan_knl(tree_order_flags,
-            filtered_from_unfiltered_target_indices,
-            unfiltered_from_filtered_target_indices,
-            nfiltered_targets,
-            queue=queue)
-
-    nfiltered_targets = int(nfiltered_targets.get())
-
-    unfiltered_from_filtered_target_indices = \
-            unfiltered_from_filtered_target_indices[:nfiltered_targets]
-
-    from pytools.obj_array import make_obj_array
-    filtered_targets = make_obj_array([
-        targets_i.with_queue(queue)[unfiltered_from_filtered_target_indices]
-        for targets_i in tree.targets
-        ])
-
-    index_knl = TREE_ORDER_TARGET_FILTER_INDEX_TPL.build(
-        queue.context,
-        type_aliases=(
-            ("particle_id_t", tree.particle_id_dtype),
-            ),
-        )
-
-    box_target_starts_filtered = \
-            cl.array.empty_like(tree.box_target_starts)
-    box_target_counts_nonchild_filtered = \
-            cl.array.empty_like(tree.box_target_counts_nonchild)
-
-    index_knl(
-            # input
-            tree.box_target_starts,
-            tree.box_target_counts_nonchild,
-            filtered_from_unfiltered_target_indices,
-            tree.ntargets,
-            nfiltered_targets,
-
-            # output
-            box_target_starts_filtered,
-            box_target_counts_nonchild_filtered,
-
-            queue=queue)
-
-    return FilteredTargetListsInTreeOrder(
-            nfiltered_targets=nfiltered_targets,
-            box_target_starts=box_target_starts_filtered,
-            box_target_counts_nonchild=box_target_counts_nonchild_filtered,
-            unfiltered_from_filtered_target_indices=(
-                unfiltered_from_filtered_target_indices),
-            targets=filtered_targets,
-            ).with_queue(None)
-
+    return (ParticleListFilter(queue.context)
+            .filter_target_lists_in_tree_order(queue, tree, flags))
 # }}}
 
 # vim: filetype=pyopencl:fdm=marker
