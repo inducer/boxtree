@@ -1457,7 +1457,7 @@ class FMMTraversalBuilder:
                 tree.stick_out_factor, target_boxes.data,
                 colleagues.starts.data, colleagues.lists.data)
 
-        wait_for = []
+        sep_smaller_wait_for = []
         sep_smaller_by_level = []
 
         for ilevel in range(tree.nlevels):
@@ -1469,7 +1469,7 @@ class FMMTraversalBuilder:
                     wait_for=wait_for)
 
             sep_smaller_by_level.append(result["sep_smaller"])
-            wait_for.append(evt)
+            sep_smaller_wait_for.append(evt)
 
         if with_extent:
             fin_debug("finding separated smaller close ('list 3 close')")
@@ -1480,12 +1480,15 @@ class FMMTraversalBuilder:
             sep_close_smaller_starts = result["sep_close_smaller"].starts
             sep_close_smaller_lists = result["sep_close_smaller"].lists
 
-            wait_for.append(evt)
+            sep_smaller_wait_for.append(evt)
         else:
             sep_close_smaller_starts = None
             sep_close_smaller_lists = None
 
         # }}}
+
+        wait_for = sep_smaller_wait_for
+        del sep_smaller_wait_for
 
         # {{{ separated bigger ("list 4")
 
