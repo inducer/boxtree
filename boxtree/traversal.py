@@ -195,16 +195,22 @@ inline bool is_adjacent_or_overlapping_with_stick_out(
 }
 
 
-inline bool is_adjacent_or_overlapping(
+inline bool is_adjacent_or_overlapping_with_neighborhood(
     coord_t root_extent,
     // note: order does not matter
     coord_vec_t target_center, int target_level,
-    coord_vec_t source_center, int source_level) {
-    // This checks if the two boxes overlap.
+    coord_t target_box_neighborhood_size,
+    coord_vec_t source_center, int source_level)
+{
+    // This checks if the source box overlaps the target box
+    // including a neighborhood of target_box_neighborhood_size boxes
+    // of the same size as the target box.
 
     coord_t target_rad = LEVEL_TO_RAD(target_level);
     coord_t source_rad = LEVEL_TO_RAD(source_level);
-    coord_t rad_sum = target_rad + source_rad;
+    coord_t rad_sum = (
+        (2*(target_box_neighborhood_size-1) + 1) * target_rad
+        + source_rad);
     coord_t slack = rad_sum + fmin(target_rad, source_rad);
 
     coord_t max_dist = 0;
@@ -213,6 +219,19 @@ inline bool is_adjacent_or_overlapping(
     %endfor
 
     return max_dist <= slack;
+}
+
+inline bool is_adjacent_or_overlapping(
+    coord_t root_extent,
+    // note: order does not matter
+    coord_vec_t target_center, int target_level,
+    coord_vec_t source_center, int source_level)
+{
+    return is_adjacent_or_overlapping_with_neighborhood(
+        root_extent,
+        target_center, target_level,
+        1,
+        source_center, source_level);
 }
 
 """
@@ -281,9 +300,9 @@ LEVEL_START_BOX_NR_EXTRACTOR_TEMPLATE = ElementwiseTemplate(
 
 # }}}
 
-# {{{ colleagues
+# {{{ same-level non-well-separated boxes (generalization of "colleagues")
 
-COLLEAGUES_TEMPLATE = r"""//CL//
+SAME_LEVEL_NON_WELL_SEP_BOXES_TEMPLATE = r"""//CL//
 
 void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t box_id)
 {
@@ -314,16 +333,19 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t box_id)
         {
             ${load_center("child_center", "child_box_id")}
 
-            bool a_or_o = is_adjacent_or_overlapping(root_extent,
-                center, level, child_center, box_levels[child_box_id]);
+            bool a_or_o = is_adjacent_or_overlapping_with_neighborhood(
+                    root_extent,
+                    center, level,
+                    ${well_sep_is_n_away},
+                    child_center, box_levels[child_box_id]);
 
             if (a_or_o)
             {
                 // child_box_id lives on walk_level+1.
-                if (walk_level+1 == level  && child_box_id != box_id)
+                if (walk_level+1 == level && child_box_id != box_id)
                 {
-                    dbg_printf(("    colleague\n"));
-                    APPEND_colleagues(child_box_id);
+                    dbg_printf(("    found same-lev nws\n"));
+                    APPEND_same_level_non_well_sep_boxes(child_box_id);
                 }
                 else
                 {
@@ -395,8 +417,10 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
         {
             ${load_center("child_center", "child_box_id")}
 
-            bool a_or_o = is_adjacent_or_overlapping(root_extent,
-                center, level, child_center, box_levels[child_box_id]);
+            bool a_or_o = is_adjacent_or_overlapping(
+                root_extent,
+                center, level,
+                child_center, box_levels[child_box_id]);
 
             if (a_or_o)
             {
@@ -451,23 +475,26 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
     if (parent == box_id)
         return;
 
-    box_id_t parent_coll_start = colleagues_starts[parent];
-    box_id_t parent_coll_stop = colleagues_starts[parent+1];
+    box_id_t parent_slnf_start = same_level_non_well_sep_boxes_starts[parent];
+    box_id_t parent_slnf_stop = same_level_non_well_sep_boxes_starts[parent+1];
 
-    // /!\ i is not a box_id, it's an index into colleagues_list.
-    for (box_id_t i = parent_coll_start; i < parent_coll_stop; ++i)
+    // /!\ i is not a box_id, it's an index into same_level_non_well_sep_boxes_list.
+    for (box_id_t i = parent_slnf_start; i < parent_slnf_stop; ++i)
     {
-        box_id_t parent_colleague = colleagues_list[i];
+        box_id_t parent_nf = same_level_non_well_sep_boxes_lists[i];
 
         for (int morton_nr = 0; morton_nr < ${2**dimensions}; ++morton_nr)
         {
             box_id_t sib_box_id = box_child_ids[
-                    morton_nr * aligned_nboxes + parent_colleague];
+                    morton_nr * aligned_nboxes + parent_nf];
 
             ${load_center("sib_center", "sib_box_id")}
 
-            bool sep = !is_adjacent_or_overlapping(root_extent,
-                center, level, sib_center, box_levels[sib_box_id]);
+            bool sep = !is_adjacent_or_overlapping_with_neighborhood(
+                root_extent,
+                center, level,
+                ${well_sep_is_n_away},
+                sib_center, box_levels[sib_box_id]);
 
             if (sep)
             {
@@ -792,7 +819,7 @@ class FMMTraversalInfo(DeviceDataRecord):
     """Interaction lists needed for a fast-multipole-like linear-time gather of
     particle interactions.
 
-    Terminology follows this article:
+    Terminology (largely) follows this article:
 
         Carrier, J., Greengard, L. and Rokhlin, V. "A Fast
         Adaptive Multipole Algorithm for Particle Simulations." SIAM Journal on
@@ -805,6 +832,12 @@ class FMMTraversalInfo(DeviceDataRecord):
     .. attribute:: tree
 
         An instance of :class:`boxtree.Tree`.
+
+    .. attribute:: well_sep_is_n_away
+
+        The distance (measured in target box diameters in the :math:`l^\infty`
+        norm) from the edge of the target box at which the 'well-separated'
+        (i.e. M2L-handled) 'far-field' starts.
 
     .. ------------------------------------------------------------------------
     .. rubric:: Basic box lists for iteration
@@ -872,16 +905,21 @@ class FMMTraversalInfo(DeviceDataRecord):
         each level starts and ends.
 
     .. ------------------------------------------------------------------------
-    .. rubric:: Colleagues
+    .. rubric:: Same-level non-well-separated boxes
     .. ------------------------------------------------------------------------
 
-    Immediately adjacent boxes on the same level. See :ref:`csr`.
+    Boxes considered to be within the 'non-well-separated area' according to
+    :attr:`well_sep_is_n_away` that are on the same level as their reference
+    box. See :ref:`csr`.
 
-    .. attribute:: colleagues_starts
+    This is a generalization of the "colleagues" concept from the Carrier paper
+    to the case in which :attr:`well_sep_is_n_away` is not 1.
+
+    .. attribute:: same_level_non_well_sep_boxes_starts
 
         ``box_id_t [nboxes+1]``
 
-    .. attribute:: colleagues_lists
+    .. attribute:: same_level_non_well_sep_boxes_lists
 
         ``box_id_t [*]``
 
@@ -1156,8 +1194,9 @@ class _KernelInfo(Record):
 
 
 class FMMTraversalBuilder:
-    def __init__(self, context):
+    def __init__(self, context, well_sep_is_n_away=1):
         self.context = context
+        self.well_sep_is_n_away = well_sep_is_n_away
 
     # {{{ kernel builder
 
@@ -1186,6 +1225,7 @@ class FMMTraversalBuilder:
                 sources_are_targets=sources_are_targets,
                 sources_have_extent=sources_have_extent,
                 targets_have_extent=targets_have_extent,
+                well_sep_is_n_away=self.well_sep_is_n_away,
                 )
         from pyopencl.algorithm import ListOfListsBuilder
         from pyopencl.tools import VectorArg, ScalarArg
@@ -1238,7 +1278,8 @@ class FMMTraversalBuilder:
                 ]
 
         for list_name, template, extra_args, extra_lists in [
-                ("colleagues", COLLEAGUES_TEMPLATE, [], []),
+                ("same_level_non_well_sep_boxes",
+                    SAME_LEVEL_NON_WELL_SEP_BOXES_TEMPLATE, [], []),
                 ("neighbor_source_boxes", NEIGBHOR_SOURCE_BOXES_TEMPLATE,
                         [
                             VectorArg(box_id_dtype, "target_boxes"),
@@ -1247,8 +1288,10 @@ class FMMTraversalBuilder:
                         [
                             VectorArg(box_id_dtype, "target_or_target_parent_boxes"),
                             VectorArg(box_id_dtype, "box_parent_ids"),
-                            VectorArg(box_id_dtype, "colleagues_starts"),
-                            VectorArg(box_id_dtype, "colleagues_list"),
+                            VectorArg(box_id_dtype,
+                                "same_level_non_well_sep_boxes_starts"),
+                            VectorArg(box_id_dtype,
+                                "same_level_non_well_sep_boxes_lists"),
                             ], []),
                 ("sep_smaller", SEP_SMALLER_TEMPLATE,
                         [
@@ -1400,17 +1443,20 @@ class FMMTraversalBuilder:
 
         # }}}
 
-        # {{{ colleagues
+        # {{{ same-level near-field
 
-        fin_debug("finding colleagues")
+        # If well_sep_is_n_away is 1, this agrees with the definition of
+        # 'colleagues' from the classical FMM literature.
 
-        result, evt = knl_info.colleagues_builder(
+        fin_debug("finding same-level near-field boxes")
+
+        result, evt = knl_info.same_level_non_well_sep_boxes_builder(
                 queue, tree.nboxes,
                 tree.box_centers.data, tree.root_extent, tree.box_levels.data,
                 tree.aligned_nboxes, tree.box_child_ids.data, tree.box_flags.data,
                 wait_for=wait_for)
         wait_for = [evt]
-        colleagues = result["colleagues"]
+        same_level_non_well_sep_boxes = result["same_level_non_well_sep_boxes"]
 
         # }}}
 
@@ -1438,7 +1484,9 @@ class FMMTraversalBuilder:
                 tree.box_centers.data, tree.root_extent, tree.box_levels.data,
                 tree.aligned_nboxes, tree.box_child_ids.data, tree.box_flags.data,
                 target_or_target_parent_boxes.data, tree.box_parent_ids.data,
-                colleagues.starts.data, colleagues.lists.data, wait_for=wait_for)
+                same_level_non_well_sep_boxes.starts.data,
+                same_level_non_well_sep_boxes.lists.data,
+                wait_for=wait_for)
         wait_for = [evt]
         sep_siblings = result["sep_siblings"]
 
@@ -1455,7 +1503,9 @@ class FMMTraversalBuilder:
                 tree.box_centers.data, tree.root_extent, tree.box_levels.data,
                 tree.aligned_nboxes, tree.box_child_ids.data, tree.box_flags.data,
                 tree.stick_out_factor, target_boxes.data,
-                colleagues.starts.data, colleagues.lists.data)
+                same_level_non_well_sep_boxes.starts.data,
+                same_level_non_well_sep_boxes.lists.data,
+                )
 
         sep_smaller_wait_for = []
         sep_smaller_by_level = []
@@ -1500,7 +1550,10 @@ class FMMTraversalBuilder:
                 tree.aligned_nboxes, tree.box_child_ids.data, tree.box_flags.data,
                 tree.stick_out_factor, target_or_target_parent_boxes.data,
                 tree.box_parent_ids.data,
-                colleagues.starts.data, colleagues.lists.data, wait_for=wait_for)
+                same_level_non_well_sep_boxes.starts.data,
+                same_level_non_well_sep_boxes.lists.data,
+                wait_for=wait_for)
+
         wait_for = [evt]
         sep_bigger = result["sep_bigger"]
 
@@ -1513,12 +1566,20 @@ class FMMTraversalBuilder:
 
         # }}}
 
+        if self.well_sep_is_n_away == 1:
+            colleagues_starts = same_level_non_well_sep_boxes.starts
+            colleagues_lists = same_level_non_well_sep_boxes.lists
+        else:
+            colleagues_starts = None
+            colleagues_lists = None
+
         evt, = wait_for
 
         logger.info("traversal built")
 
         return FMMTraversalInfo(
                 tree=tree,
+                well_sep_is_n_away=self.well_sep_is_n_away,
 
                 source_boxes=source_boxes,
                 target_boxes=target_boxes,
@@ -1533,8 +1594,13 @@ class FMMTraversalBuilder:
                 level_start_target_or_target_parent_box_nrs=(
                     level_start_target_or_target_parent_box_nrs),
 
-                colleagues_starts=colleagues.starts,
-                colleagues_lists=colleagues.lists,
+                same_level_non_well_sep_boxes_starts=(
+                    same_level_non_well_sep_boxes.starts),
+                same_level_non_well_sep_boxes_lists=(
+                    same_level_non_well_sep_boxes.lists),
+                # Deprecated, but we'll keep these alive for the time being.
+                colleagues_starts=colleagues_starts,
+                colleagues_lists=colleagues_lists,
 
                 neighbor_source_boxes_starts=neighbor_source_boxes.starts,
                 neighbor_source_boxes_lists=neighbor_source_boxes.lists,

@@ -253,7 +253,7 @@ def test_tree_connectivity(ctx_getter, dims, sources_are_targets):
 
 # {{{ visualization helper (not a test)
 
-def plot_traversal(ctx_getter, do_plot=False):
+def plot_traversal(ctx_getter, do_plot=False, well_sep_is_n_away=1):
     ctx = ctx_getter()
     queue = cl.CommandQueue(ctx)
 
@@ -277,11 +277,14 @@ def plot_traversal(ctx_getter, do_plot=False):
         tb = TreeBuilder(ctx)
 
         queue.finish()
-        tree = tb(queue, particles, max_particles_in_box=30, debug=True)
+        tree, _ = tb(queue, particles, max_particles_in_box=30, debug=True)
 
         from boxtree.traversal import FMMTraversalBuilder
-        tg = FMMTraversalBuilder(ctx)
-        trav = tg(queue, tree).get()
+        tg = FMMTraversalBuilder(ctx, well_sep_is_n_away=well_sep_is_n_away)
+        trav, _ = tg(queue, tree)
+
+        tree = tree.get(queue=queue)
+        trav = trav.get(queue=queue)
 
         from boxtree.visualization import TreePlotter
         plotter = TreePlotter(tree)
@@ -295,7 +298,7 @@ def plot_traversal(ctx_getter, do_plot=False):
         # {{{ generic box drawing helper
 
         def draw_some_box_lists(starts, lists, key_to_box=None,
-                count=5):
+                count=1):
             actual_count = 0
             while actual_count < count:
                 if key_to_box is not None:
@@ -319,28 +322,28 @@ def plot_traversal(ctx_getter, do_plot=False):
         # }}}
 
         if 0:
-            # colleagues
+            # same-level near field
             draw_some_box_lists(
-                    trav.colleagues_starts,
-                    trav.colleagues_lists)
+                    trav.same_level_near_field_boxes_starts,
+                    trav.same_level_near_field_boxes_lists)
         elif 0:
             # near neighbors ("list 1")
             draw_some_box_lists(
-                    trav.neighbor_leaves_starts,
-                    trav.neighbor_leaves_lists,
+                    trav.neighbor_source_boxes_starts,
+                    trav.neighbor_source_boxes_lists,
                     key_to_box=trav.source_boxes)
-        elif 0:
+        elif 1:
             # well-separated siblings (list 2)
             draw_some_box_lists(
                     trav.sep_siblings_starts,
                     trav.sep_siblings_lists)
-        elif 1:
+        elif 0:
             # separated smaller (list 3)
             draw_some_box_lists(
                     trav.sep_smaller_starts,
                     trav.sep_smaller_lists,
                     key_to_box=trav.source_boxes)
-        elif 1:
+        elif 0:
             # separated bigger (list 4)
             draw_some_box_lists(
                     trav.sep_bigger_starts,
