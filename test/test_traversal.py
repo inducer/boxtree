@@ -297,57 +297,74 @@ def plot_traversal(ctx_getter, do_plot=False, well_sep_is_n_away=1):
 
         # {{{ generic box drawing helper
 
-        def draw_some_box_lists(starts, lists, key_to_box=None,
-                count=1):
-            actual_count = 0
-            while actual_count < count:
-                if key_to_box is not None:
-                    key = randrange(len(key_to_box))
-                    ibox = key_to_box[key]
+        def draw_box_list(ibox, starts, lists, key_to_box=None, **kwargs):
+            if key_to_box is not None:
+                ind, = np.where(key_to_box == ibox)
+                if ind:
+                    key, = ind
                 else:
-                    key = ibox = randrange(tree.nboxes)
+                    return
+            else:
+                key = ibox
 
-                start, end = starts[key:key+2]
-                if start == end:
-                    continue
+            start, end = starts[key:key+2]
+            if start == end:
+                return
 
-                #print ibox, start, end, lists[start:end]
-                for jbox in lists[start:end]:
-                    plotter.draw_box(jbox, facecolor='yellow')
-
-                plotter.draw_box(ibox, facecolor='red')
-
-                actual_count += 1
+            actual_kwargs = {
+                    "facecolor": "yellow",
+                    "linewidth": 0,
+                    "alpha": 0.5,
+                    "shrink_factor": 0.2,
+                    }
+            actual_kwargs.update(kwargs)
+            #print ibox, start, end, lists[start:end]
+            for jbox in lists[start:end]:
+                plotter.draw_box(jbox, **actual_kwargs)
 
         # }}}
 
-        if 0:
-            # same-level near field
-            draw_some_box_lists(
-                    trav.same_level_near_field_boxes_starts,
-                    trav.same_level_near_field_boxes_lists)
-        elif 0:
-            # near neighbors ("list 1")
-            draw_some_box_lists(
-                    trav.neighbor_source_boxes_starts,
-                    trav.neighbor_source_boxes_lists,
-                    key_to_box=trav.source_boxes)
-        elif 1:
-            # well-separated siblings (list 2)
-            draw_some_box_lists(
-                    trav.sep_siblings_starts,
-                    trav.sep_siblings_lists)
-        elif 0:
-            # separated smaller (list 3)
-            draw_some_box_lists(
-                    trav.sep_smaller_starts,
-                    trav.sep_smaller_lists,
-                    key_to_box=trav.source_boxes)
-        elif 0:
-            # separated bigger (list 4)
-            draw_some_box_lists(
-                    trav.sep_bigger_starts,
-                    trav.sep_bigger_lists)
+        def draw_box_lists(ibox):
+            plotter.draw_box(ibox, facecolor='red',
+                    alpha=0.5)
+
+            if 0:
+                # same-level near field
+                draw_box_list(ibox,
+                        trav.same_level_near_field_boxes_starts,
+                        trav.same_level_near_field_boxes_lists,
+                        facecolor="green")
+            else:
+                # near neighbors ("list 1")
+                draw_box_list(ibox,
+                        trav.neighbor_source_boxes_starts,
+                        trav.neighbor_source_boxes_lists,
+                        key_to_box=trav.source_boxes,
+                        facecolor="green")
+
+                # well-separated siblings (list 2)
+                draw_box_list(ibox,
+                        trav.sep_siblings_starts,
+                        trav.sep_siblings_lists,
+                        facecolor="blue")
+
+                # separated smaller (list 3)
+                for ilev in range(tree.nlevels):
+                    draw_box_list(ibox,
+                            trav.sep_smaller_by_level[ilev].starts,
+                            trav.sep_smaller_by_level[ilev].lists,
+                            key_to_box=trav.source_boxes,
+                            facecolor="yellow")
+
+                # separated bigger (list 4)
+                draw_box_list(ibox,
+                        trav.sep_bigger_starts,
+                        trav.sep_bigger_lists,
+                        facecolor="purple")
+
+        #draw_box_lists(randrange(tree.nboxes))
+        draw_box_lists(320)
+        #plotter.draw_box_numbers()
 
         import matplotlib.pyplot as pt
         pt.show()
