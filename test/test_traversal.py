@@ -292,7 +292,7 @@ def plot_traversal(ctx_getter, do_plot=False, well_sep_is_n_away=1):
         #plotter.draw_box_numbers()
         plotter.set_bounding_box()
 
-        from random import randrange, seed
+        from random import randrange, seed  # noqa
         seed(7)
 
         # {{{ generic box drawing helper
