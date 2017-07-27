@@ -330,7 +330,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t box_id)
 
     if (box_id == 0)
     {
-        // The root has no colleagues.
+        // The root has no boxes on the same level, nws or not.
         return;
     }
 
@@ -338,7 +338,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t box_id)
 
     dbg_printf(("box id: %d level: %d\n", box_id, level));
 
-    // To find this box's colleagues, start at the top of the tree, descend
+    // To find this box's same-level nws boxes, start at the top of the tree, descend
     // into adjacent (or overlapping) parents.
     ${walk_init(0)}
 
@@ -421,7 +421,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
         }
     }
 
-    // To find this box's colleagues, start at the top of the tree, descend
+    // To find this box's adjacent boxes, start at the top of the tree, descend
     // into adjacent (or overlapping) parents.
     ${walk_init(0)}
 
@@ -755,11 +755,12 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
 
     box_flags_t tgt_box_flags = box_flags[tgt_ibox];
 
-    // Look for colleagues of parents that are non-adjacent to tgt_ibox.
+    // Look for same-level non-well-separated boxes of parents that are
+    // non-adjacent to tgt_ibox.
     // Walk up the tree from tgt_ibox.
 
-    // Box 0 (== level 0) doesn't have any colleagues, so we can stop the
-    // search for such colleagues there.
+    // Box 0 (== level 0) doesn't have any slnws boxes, so we can stop the
+    // search for such slnws boxes there.
     for (int walk_level = box_level - 1; walk_level != 0;
             // {{{ advance
             --walk_level,
@@ -767,19 +768,22 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
             // }}}
             )
     {
-        box_id_t coll_start = colleagues_starts[current_parent_box_id];
-        box_id_t coll_stop = colleagues_starts[current_parent_box_id+1];
+        box_id_t slnws_start =
+            same_level_non_well_sep_boxes_starts[current_parent_box_id];
+        box_id_t slnws_stop =
+            same_level_non_well_sep_boxes_starts[current_parent_box_id+1];
 
-        // /!\ i is not a box id, it's an index into colleagues_list.
-        for (box_id_t i = coll_start; i < coll_stop; ++i)
+        // /!\ i is not a box id, it's an index into
+        // same_level_non_well_sep_boxes_lists.
+        for (box_id_t i = slnws_start; i < slnws_stop; ++i)
         {
-            box_id_t colleague_box_id = colleagues_list[i];
+            box_id_t slnws_box_id = same_level_non_well_sep_boxes_lists[i];
 
-            if (box_flags[colleague_box_id] & BOX_HAS_OWN_SOURCES)
+            if (box_flags[slnws_box_id] & BOX_HAS_OWN_SOURCES)
             {
-                ${load_center("colleague_center", "colleague_box_id")}
+                ${load_center("slnws_center", "slnws_box_id")}
                 bool a_or_o = is_adjacent_or_overlapping(root_extent,
-                    center, box_level, colleague_center, walk_level);
+                    center, box_level, slnws_center, walk_level);
 
                 if (!a_or_o)
                 {
@@ -788,18 +792,18 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
                     %if sources_have_extent or targets_have_extent:
                         const bool a_or_o_with_stick_out =
                             is_adjacent_or_overlapping_with_stick_out(root_extent,
-                                center, box_level, colleague_center,
+                                center, box_level, slnws_center,
                                 walk_level, stick_out_factor);
 
                     if (a_or_o_with_stick_out)
                     {
-                        // "Case 1" above: colleague_box_id is too close and
+                        // "Case 1" above: slnws_box_id is too close and
                         // overlaps our stick_out region. We're obliged to do
                         // the interaction directly.
 
                         if (tgt_box_flags & BOX_HAS_OWN_TARGETS)
                         {
-                            APPEND_sep_close_bigger(colleague_box_id);
+                            APPEND_sep_close_bigger(slnws_box_id);
                         }
                     }
                     else
@@ -807,7 +811,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
                     {
                         bool parent_a_or_o_with_stick_out =
                             is_adjacent_or_overlapping_with_stick_out(root_extent,
-                                parent_center, box_level-1, colleague_center,
+                                parent_center, box_level-1, slnws_center,
                                 walk_level, stick_out_factor);
 
                         if (parent_a_or_o_with_stick_out)
@@ -815,7 +819,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
                             // "Case 2" above: We're the first box down the chain
                             // to be far enough away to let the interaction into
                             // our local downward subtree.
-                            APPEND_sep_bigger(colleague_box_id);
+                            APPEND_sep_bigger(slnws_box_id);
                         }
                         else
                         {
@@ -1333,8 +1337,10 @@ class FMMTraversalBuilder:
                             ScalarArg(coord_dtype, "stick_out_factor"),
                             VectorArg(box_id_dtype, "target_or_target_parent_boxes"),
                             VectorArg(box_id_dtype, "box_parent_ids"),
-                            VectorArg(box_id_dtype, "colleagues_starts"),
-                            VectorArg(box_id_dtype, "colleagues_list"),
+                            VectorArg(box_id_dtype,
+                                "same_level_non_well_sep_boxes_starts"),
+                            VectorArg(box_id_dtype,
+                                "same_level_non_well_sep_boxes_lists"),
                             #ScalarArg(box_id_dtype, "sep_bigger_source_level"),
                             ],
                             ["sep_close_bigger"]
