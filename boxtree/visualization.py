@@ -86,6 +86,12 @@ class TreePlotter:
 
         el, eh = self.tree.get_box_extent(ibox)
 
+        shrink_factor = kwargs.pop("shrink_factor", 0)
+        if shrink_factor:
+            center = 0.5*(el+eh)
+            el += (center-el)*shrink_factor
+            eh += (center-eh)*shrink_factor
+
         import matplotlib.pyplot as pt
         import matplotlib.patches as mpatches
         from matplotlib.path import Path
