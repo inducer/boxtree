@@ -38,15 +38,35 @@ logger = logging.getLogger(__name__)
 # {{{ preamble
 
 TRAVERSAL_PREAMBLE_MAKO_DEFS = r"""//CL:mako//
-<%def name="walk_init(start_box_id)">
+<%def name="walk_init(start_box_id, include_start_box=False)">
     box_id_t box_stack[NLEVELS];
     int morton_nr_stack[NLEVELS];
 
     // start at root
     int walk_level = 0;
     box_id_t walk_box_id = ${start_box_id};
-    int walk_morton_nr = 0;
+    %if include_start_box:
+        int walk_morton_nr = -1;
+    %else:
+        int walk_morton_nr = 0;
+    %endif
     bool continue_walk = true;
+</%def>
+
+## "True" is the safe default here because it handles all cases.
+<%def name="walk_get_child_box_id(include_start_box=True)">
+
+    box_id_t child_box_id;
+    %if include_start_box:
+        if (walk_morton_nr == -1)
+            child_box_id = walk_box_id;
+        else
+            child_box_id = box_child_ids[
+                walk_morton_nr * aligned_nboxes + walk_box_id];
+    %else:
+        child_box_id = box_child_ids[
+            walk_morton_nr * aligned_nboxes + walk_box_id];
+    %endif
 </%def>
 
 <%def name="walk_advance()">
@@ -324,8 +344,8 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t box_id)
 
     while (continue_walk)
     {
-        box_id_t child_box_id = box_child_ids[
-                walk_morton_nr * aligned_nboxes + walk_box_id];
+        ${walk_get_child_box_id(include_start_box=False)}
+
         dbg_printf(("  level: %d walk box id: %d morton: %d child id: %d\n",
             walk_level, walk_box_id, walk_morton_nr, child_box_id));
 
@@ -407,8 +427,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
 
     while (continue_walk)
     {
-        box_id_t child_box_id = box_child_ids[
-                walk_morton_nr * aligned_nboxes + walk_box_id];
+        ${walk_get_child_box_id(include_start_box=False)}
 
         dbg_printf(("  walk box id: %d morton: %d child id: %d level: %d\n",
             walk_box_id, walk_morton_nr, child_box_id, walk_level));
@@ -522,20 +541,25 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
 
     int level = box_levels[box_id];
 
-    box_id_t coll_start = colleagues_starts[box_id];
-    box_id_t coll_stop = colleagues_starts[box_id+1];
+    box_id_t slnws_start = same_level_non_well_sep_boxes_starts[box_id];
+    box_id_t slnws_stop = same_level_non_well_sep_boxes_starts[box_id+1];
 
-    // /!\ i is not a box_id, it's an index into colleagues_list.
-    for (box_id_t i = coll_start; i < coll_stop; ++i)
+    // /!\ i is not a box_id, it's an index into same_level_non_well_sep_boxes_lists.
+    for (box_id_t i = slnws_start; i < slnws_stop; ++i)
     {
-        box_id_t colleague = colleagues_list[i];
+        box_id_t same_lev_nws_box = same_level_non_well_sep_boxes_lists[i];
 
-        ${walk_init("colleague")}
+        // Colleagues (same-level NWS boxes) for 1-away are always adjacent, so
+        // we always want to descend into them. For 2-away, we may already
+        // satisfy the criteria for being in list 3 and therefore may never
+        // need to descend. Hence include the start box in the search here
+        // if we're in the two-or-more-away case.
+        ${walk_init("same_lev_nws_box", include_start_box=well_sep_is_n_away > 1)}
 
         while (continue_walk)
         {
             // Loop invariant: walk_box_id is, at first, always adjacent to box_id.
-            // This is true at the first level because colleagues are by adjacent
+            // This is true at the first level because colleagues are adjacent
             // by definition, and is kept true throughout the walk by only descending
             // into adjacent boxes.
             //
@@ -553,8 +577,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
             // done by direct evaluation. We also need to descend into that
             // child.
 
-            box_id_t child_box_id = box_child_ids[
-                    walk_morton_nr * aligned_nboxes + walk_box_id];
+            ${walk_get_child_box_id(include_start_box=well_sep_is_n_away > 1)}
 
             dbg_printf(("  walk box id: %d morton: %d child id: %d\n",
                 walk_box_id, walk_morton_nr, child_box_id));
@@ -631,7 +654,6 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
                     }
                 }
             }
-
             ${walk_advance()}
         }
     }
@@ -1297,8 +1319,10 @@ class FMMTraversalBuilder:
                         [
                             ScalarArg(coord_dtype, "stick_out_factor"),
                             VectorArg(box_id_dtype, "target_boxes"),
-                            VectorArg(box_id_dtype, "colleagues_starts"),
-                            VectorArg(box_id_dtype, "colleagues_list"),
+                            VectorArg(box_id_dtype,
+                                "same_level_non_well_sep_boxes_starts"),
+                            VectorArg(box_id_dtype,
+                                "same_level_non_well_sep_boxes_lists"),
                             ScalarArg(box_id_dtype, "sep_smaller_source_level"),
                             ],
                             ["sep_close_smaller"]
@@ -1356,6 +1380,12 @@ class FMMTraversalBuilder:
 
         if not tree._is_pruned:
             raise ValueError("tree must be pruned for traversal generation")
+
+        if tree.sources_have_extent:
+            # YAGNI
+            raise NotImplementedError(
+                    "trees with source extent are not supported for "
+                    "traversal generation")
 
         # Generated code shouldn't depend on the *exact* number of tree levels.
         # So round up to the next multiple of 5.
