@@ -176,11 +176,21 @@ class TreePlotter:
 # {{{ traversal plotting
 
 def _draw_box_list(tree_plotter, ibox, starts, lists, key_to_box=None, **kwargs):
+    default_facecolor = "blue"
+
     if key_to_box is not None:
         ind, = np.where(key_to_box == ibox)
-        if ind:
+        if len(ind):
             key, = ind
         else:
+            # indicate empty list
+            actual_kwargs = {
+                    "edgecolor": getattr(kwargs, "facecolor", default_facecolor),
+                    "fill": False,
+                    "alpha": 0.5,
+                    "shrink_factor": -0.1+0.1*np.random.rand(),
+                    }
+            tree_plotter.draw_box(ibox, **actual_kwargs)
             return
     else:
         key = ibox
@@ -190,7 +200,7 @@ def _draw_box_list(tree_plotter, ibox, starts, lists, key_to_box=None, **kwargs)
         return
 
     actual_kwargs = {
-            "facecolor": "yellow",
+            "facecolor": default_facecolor,
             "linewidth": 0,
             "alpha": 0.5,
             "shrink_factor": 0.2,
@@ -220,13 +230,14 @@ def draw_box_lists(tree_plotter, traversal, ibox):
     _draw_box_list(tree_plotter, ibox,
             traversal.neighbor_source_boxes_starts,
             traversal.neighbor_source_boxes_lists,
-            key_to_box=traversal.source_boxes,
+            key_to_box=traversal.target_boxes,
             facecolor="green")
 
     # well-separated siblings (list 2)
     _draw_box_list(tree_plotter, ibox,
             traversal.sep_siblings_starts,
             traversal.sep_siblings_lists,
+            key_to_box=traversal.target_or_target_parent_boxes,
             facecolor="blue")
 
     # separated smaller (list 3)
@@ -234,13 +245,14 @@ def draw_box_lists(tree_plotter, traversal, ibox):
         _draw_box_list(tree_plotter, ibox,
                 traversal.sep_smaller_by_level[ilev].starts,
                 traversal.sep_smaller_by_level[ilev].lists,
-                key_to_box=traversal.source_boxes,
-                facecolor="yellow")
+                key_to_box=traversal.target_or_target_parent_boxes,
+                facecolor="yellow", shrink_factor=0.25)
 
     # separated bigger (list 4)
     _draw_box_list(tree_plotter, ibox,
             traversal.sep_bigger_starts,
             traversal.sep_bigger_lists,
+            key_to_box=traversal.target_or_target_parent_boxes,
             facecolor="purple")
 
 # }}}
