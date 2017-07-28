@@ -1,7 +1,4 @@
-from __future__ import division
-from __future__ import absolute_import
-from six.moves import range
-from six.moves import zip
+from __future__ import division, absolute_import
 
 __copyright__ = "Copyright (C) 2012 Andreas Kloeckner"
 
@@ -25,6 +22,11 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+from six.moves import range, zip
+import numpy as np
+
+
+# {{{ utilities
 
 def int_to_roman(inp):
     """
@@ -48,6 +50,10 @@ def int_to_roman(inp):
         inp -= ints[i] * count
     return result
 
+# }}}
+
+
+# {{{ tree plotting
 
 class TreePlotter:
     """Assumes that the tree has data living on the host.
@@ -163,5 +169,80 @@ class TreePlotter:
                 r"\node [font=\tiny] at (boxc\ibox) {\ibox};"
                 r"}}")
         return "\n".join(lines)
+
+# }}}
+
+
+# {{{ traversal plotting
+
+def _draw_box_list(tree_plotter, ibox, starts, lists, key_to_box=None, **kwargs):
+    if key_to_box is not None:
+        ind, = np.where(key_to_box == ibox)
+        if ind:
+            key, = ind
+        else:
+            return
+    else:
+        key = ibox
+
+    start, end = starts[key:key+2]
+    if start == end:
+        return
+
+    actual_kwargs = {
+            "facecolor": "yellow",
+            "linewidth": 0,
+            "alpha": 0.5,
+            "shrink_factor": 0.2,
+            }
+    actual_kwargs.update(kwargs)
+    #print ibox, start, end, lists[start:end]
+    for jbox in lists[start:end]:
+        tree_plotter.draw_box(jbox, **actual_kwargs)
+
+
+def draw_same_level_non_well_sep_boxes(tree_plotter, traversal, ibox):
+    tree_plotter.draw_box(ibox, facecolor='red',
+            alpha=0.5)
+
+    # same-level non-well-sep
+    _draw_box_list(ibox,
+            traversal.same_level_non_well_sep_boxes_starts,
+            traversal.same_level_non_well_sep_boxes_lists,
+            facecolor="green")
+
+
+def draw_box_lists(tree_plotter, traversal, ibox):
+    tree_plotter.draw_box(ibox, facecolor='red',
+            alpha=0.5)
+
+    # near neighbors ("list 1")
+    _draw_box_list(tree_plotter, ibox,
+            traversal.neighbor_source_boxes_starts,
+            traversal.neighbor_source_boxes_lists,
+            key_to_box=traversal.source_boxes,
+            facecolor="green")
+
+    # well-separated siblings (list 2)
+    _draw_box_list(tree_plotter, ibox,
+            traversal.sep_siblings_starts,
+            traversal.sep_siblings_lists,
+            facecolor="blue")
+
+    # separated smaller (list 3)
+    for ilev in range(tree_plotter.tree.nlevels):
+        _draw_box_list(tree_plotter, ibox,
+                traversal.sep_smaller_by_level[ilev].starts,
+                traversal.sep_smaller_by_level[ilev].lists,
+                key_to_box=traversal.source_boxes,
+                facecolor="yellow")
+
+    # separated bigger (list 4)
+    _draw_box_list(tree_plotter, ibox,
+            traversal.sep_bigger_starts,
+            traversal.sep_bigger_lists,
+            facecolor="purple")
+
+# }}}
 
 # vim: filetype=pyopencl:fdm=marker
