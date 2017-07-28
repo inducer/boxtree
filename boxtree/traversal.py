@@ -954,7 +954,8 @@ class FMMTraversalInfo(DeviceDataRecord):
     .. ------------------------------------------------------------------------
 
     List of source boxes immediately adjacent to each target box. Indexed like
-    :attr:`target_boxes`. See :ref:`csr`.
+    :attr:`target_boxes`. See :ref:`csr`. (Note: This list contains global box
+    numbers, not indices into :attr:`source_boxes`.)
 
     .. attribute:: neighbor_source_boxes_starts
 
@@ -984,6 +985,8 @@ class FMMTraversalInfo(DeviceDataRecord):
     .. ------------------------------------------------------------------------
 
     Smaller source boxes separated from the target box by their own size.
+    (Note: This list contains global box numbers, not indices into
+    :attr:`source_boxes`.)
 
     If :attr:`boxtree.Tree.targets_have_extent`, then
     :attr:`sep_close_smaller_starts` will be non-*None*. It records
@@ -1000,7 +1003,7 @@ class FMMTraversalInfo(DeviceDataRecord):
         attributes *count*, *starts* and *lists*, which form a CSR list of List
         3source boxes.
 
-        *starts* has shape/type ``box_id_t [ntargets+1]``. *lists* is of type
+        *starts* has shape/type ``box_id_t [ntarget_boxes+1]``. *lists* is of type
         ``box_id_t``.
 
     .. attribute:: sep_close_smaller_starts
@@ -1017,6 +1020,8 @@ class FMMTraversalInfo(DeviceDataRecord):
 
     Bigger source boxes separated from the target box by the (smaller) target
     box's size.
+    (Note: This list contains global box numbers, not indices into
+    :attr:`source_boxes`.)
 
     If :attr:`boxtree.Tree.sources_have_extent`, then
     :attr:`sep_close_bigger_starts` will be non-*None*. It records
