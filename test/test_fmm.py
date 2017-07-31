@@ -232,6 +232,7 @@ class ConstantOneExpansionWranglerWithFilteredTargetsInUserOrder(
         return self.tree.sorted_target_ids[user_target_ids]
 
 
+@pytest.mark.parametrize("well_sep_is_n_away", [1, 2])
 @pytest.mark.parametrize(("dims", "nsources_req", "ntargets_req",
         "who_has_extent", "source_gen", "target_gen", "filter_kind"),
         [
@@ -264,13 +265,17 @@ class ConstantOneExpansionWranglerWithFilteredTargetsInUserOrder(
             #(2, 5 * 10**5, 4*10**4, "st", p_surface, p_uniform, "tree"),
             ])
 def test_fmm_completeness(ctx_getter, dims, nsources_req, ntargets_req,
-         who_has_extent, source_gen, target_gen, filter_kind):
+         who_has_extent, source_gen, target_gen, filter_kind, well_sep_is_n_away):
     """Tests whether the built FMM traversal structures and driver completely
     capture all interactions.
     """
 
     sources_have_extent = "s" in who_has_extent
     targets_have_extent = "t" in who_has_extent
+
+    # FIXME:
+    if who_has_extent and well_sep_is_n_away > 1:
+        pytest.skip("2-away with extents is not right yet")
 
     logging.basicConfig(level=logging.INFO)
 
@@ -321,13 +326,13 @@ def test_fmm_completeness(ctx_getter, dims, nsources_req, ntargets_req,
         pt.show()
 
     from boxtree.traversal import FMMTraversalBuilder
-    tbuild = FMMTraversalBuilder(ctx)
+    tbuild = FMMTraversalBuilder(ctx, well_sep_is_n_away=well_sep_is_n_away)
     trav, _ = tbuild(queue, tree, debug=True)
     if trav.sep_close_smaller_starts is not None:
         trav = trav.merge_close_lists(queue)
 
-    weights = np.random.randn(nsources)
-    #weights = np.ones(nsources)
+    #weights = np.random.randn(nsources)
+    weights = np.ones(nsources)
     weights_sum = np.sum(weights)
 
     host_trav = trav.get(queue=queue)
@@ -350,6 +355,8 @@ def test_fmm_completeness(ctx_getter, dims, nsources_req, ntargets_req,
             raise ValueError("unsupported value of 'filter_kind'")
     else:
         wrangler = ConstantOneExpansionWrangler(host_tree)
+        flags = cl.array.empty(queue, ntargets or nsources, dtype=np.int8)
+        flags.fill(1)
 
     if ntargets is None and not filter_kind:
         # This check only works for targets == sources.
@@ -358,10 +365,17 @@ def test_fmm_completeness(ctx_getter, dims, nsources_req, ntargets_req,
 
     from boxtree.fmm import drive_fmm
     pot = drive_fmm(host_trav, wrangler, weights)
+    print(pot)
 
-    # {{{ build, evaluate matrix (and identify missing interactions)
+    if filter_kind:
+        pot = pot[flags.get() > 0]
 
-    if 0:
+    rel_err = la.norm((pot - weights_sum) / nsources)
+    good = rel_err < 1e-8
+
+    # {{{ build, evaluate matrix (and identify incorrect interactions)
+
+    if 0 and not good:
         mat = np.zeros((ntargets, nsources), dtype)
         from pytools import ProgressBar
 
@@ -379,52 +393,62 @@ def test_fmm_completeness(ctx_getter, dims, nsources_req, ntargets_req,
 
         import matplotlib.pyplot as pt
 
-        if 1:
-            pt.spy(mat)
+        if 0:
+            pt.imshow(mat)
+            pt.colorbar()
             pt.show()
 
-        missing_tgts, missing_srcs = np.where(mat == 0)
+        incorrect_tgts, incorrect_srcs = np.where(mat != 1)
 
-        if 1 and len(missing_tgts):
+        if 1 and len(incorrect_tgts):
             from boxtree.visualization import TreePlotter
             plotter = TreePlotter(host_tree)
             plotter.draw_tree(fill=False, edgecolor="black")
             plotter.draw_box_numbers()
             plotter.set_bounding_box()
 
-            tree_order_missing_tgts = \
-                    host_tree.indices_to_tree_target_order(missing_tgts)
-            tree_order_missing_srcs = \
-                    host_tree.indices_to_tree_source_order(missing_srcs)
+            tree_order_incorrect_tgts = \
+                    host_tree.indices_to_tree_target_order(incorrect_tgts)
+            tree_order_incorrect_srcs = \
+                    host_tree.indices_to_tree_source_order(incorrect_srcs)
 
             src_boxes = [
                     host_tree.find_box_nr_for_source(i)
-                    for i in tree_order_missing_srcs]
+                    for i in tree_order_incorrect_srcs]
             tgt_boxes = [
                     host_tree.find_box_nr_for_target(i)
-                    for i in tree_order_missing_tgts]
+                    for i in tree_order_incorrect_tgts]
             print(src_boxes)
             print(tgt_boxes)
 
+            if 1:  # plot all sources/targets
+                pt.plot(
+                        host_tree.targets[0],
+                        host_tree.targets[1],
+                        "v", alpha=0.9)
+                pt.plot(
+                        host_tree.sources[0],
+                        host_tree.sources[1],
+                        "gx", alpha=0.9)
             pt.plot(
-                    host_tree.targets[0][tree_order_missing_tgts],
-                    host_tree.targets[1][tree_order_missing_tgts],
+                    host_tree.targets[0][tree_order_incorrect_tgts],
+                    host_tree.targets[1][tree_order_incorrect_tgts],
                     "rv")
             pt.plot(
-                    host_tree.sources[0][tree_order_missing_srcs],
-                    host_tree.sources[1][tree_order_missing_srcs],
+                    host_tree.sources[0][tree_order_incorrect_srcs],
+                    host_tree.sources[1][tree_order_incorrect_srcs],
                     "go")
             pt.gca().set_aspect("equal")
+
+            from boxtree.visualization import draw_box_lists
+            draw_box_lists(plotter, host_trav, 22)
+            # from boxtree.visualization import draw_same_level_non_well_sep_boxes
+            # draw_same_level_non_well_sep_boxes(plotter, host_trav, 2)
 
             pt.show()
 
     # }}}
 
-    if filter_kind:
-        pot = pot[flags.get() > 0]
-
-    rel_err = la.norm((pot - weights_sum) / nsources)
-    good = rel_err < 1e-8
     if 0 and not good:
         import matplotlib.pyplot as pt
         pt.plot(pot-weights_sum)

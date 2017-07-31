@@ -37,6 +37,16 @@ logger = logging.getLogger(__name__)
 
 # {{{ preamble
 
+# This 'walk' mechanism walks over 'child' boxes in the tree.
+#
+# "include_start_box=True" determines that the start box should
+# occur as one such 'child' box.
+
+# FIXME: Rename:
+# walk_box_id -> walk_parent_box_id
+# child_box_id -> walk_box_id
+# walk_level -> walk_stack_count
+
 TRAVERSAL_PREAMBLE_MAKO_DEFS = r"""//CL:mako//
 <%def name="walk_init(start_box_id, include_start_box=False)">
     box_id_t box_stack[NLEVELS];
@@ -69,17 +79,35 @@ TRAVERSAL_PREAMBLE_MAKO_DEFS = r"""//CL:mako//
     %endif
 </%def>
 
-<%def name="walk_advance()">
+<%def name="walk_advance(include_start_box=False)">
     while (true)
     {
         ++walk_morton_nr;
-        if (walk_morton_nr < ${2**dimensions})
+        if (
+                %if include_start_box:
+                    // If we just got done walking the start box,
+                    // we *do* want to continue with the remaining
+                    // checks.
+                    walk_morton_nr &&
+                %endif
+                walk_morton_nr < ${2**dimensions})
             break;
 
         // Ran out of children, pull the next guy off the stack
         // and advance him.
 
-        continue_walk = walk_level > 0;
+        continue_walk = (
+            // Stack empty? Abort.
+            walk_level > 0
+
+            %if include_start_box:
+            // Since we encountered the start box as part of the walk,
+            // there's no need to go find its children.
+            && walk_morton_nr != 0
+            %endif
+
+            );
+
         if (continue_walk)
         {
             --walk_level;
@@ -181,6 +209,7 @@ inline bool is_adjacent_or_overlapping_with_stick_out(
     coord_t root_extent,
     // target and source order only matter if include_stick_out is true.
     coord_vec_t target_center, int target_level,
+    coord_t target_box_neighborhood_size,
     coord_vec_t source_center, int source_level,
     const coord_t stick_out_factor
     )
@@ -193,7 +222,9 @@ inline bool is_adjacent_or_overlapping_with_stick_out(
 
     coord_t target_rad = LEVEL_TO_RAD(target_level);
     coord_t source_rad = LEVEL_TO_RAD(source_level);
-    coord_t rad_sum = target_rad + source_rad;
+    coord_t rad_sum = (
+        (2*(target_box_neighborhood_size-1) + 1) * target_rad
+        + source_rad);
     coord_t slack = rad_sum + fmin(target_rad, source_rad);
 
     slack += stick_out_factor * (
@@ -549,12 +580,15 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
     {
         box_id_t same_lev_nws_box = same_level_non_well_sep_boxes_lists[i];
 
+        if (same_lev_nws_box == box_id)
+            continue;
+
         // Colleagues (same-level NWS boxes) for 1-away are always adjacent, so
         // we always want to descend into them. For 2-away, we may already
         // satisfy the criteria for being in list 3 and therefore may never
         // need to descend. Hence include the start box in the search here
         // if we're in the two-or-more-away case.
-        ${walk_init("same_lev_nws_box", include_start_box=well_sep_is_n_away > 1)}
+        ${walk_init("same_lev_nws_box")}
 
         while (continue_walk)
         {
@@ -577,7 +611,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
             // done by direct evaluation. We also need to descend into that
             // child.
 
-            ${walk_get_child_box_id(include_start_box=well_sep_is_n_away > 1)}
+            ${walk_get_child_box_id()}
 
             dbg_printf(("  walk box id: %d morton: %d child id: %d\n",
                 walk_box_id, walk_morton_nr, child_box_id));
@@ -592,10 +626,10 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
 
                 int child_level = box_levels[child_box_id];
 
-                bool a_or_o = is_adjacent_or_overlapping(root_extent,
+                bool in_list_1 = is_adjacent_or_overlapping(root_extent,
                     center, level, child_center, child_level);
 
-                if (a_or_o)
+                if (in_list_1)
                 {
                     if (child_box_flags & BOX_HAS_CHILD_SOURCES)
                     {
@@ -616,8 +650,10 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
                     %if sources_have_extent or targets_have_extent:
                         const bool a_or_o_with_stick_out =
                             is_adjacent_or_overlapping_with_stick_out(root_extent,
-                                center, level, child_center,
-                                child_level, stick_out_factor);
+                                center, level,
+                                1,
+                                child_center, child_level,
+                                stick_out_factor);
                     %else:
                         const bool a_or_o_with_stick_out = false;
                     %endif
@@ -742,18 +778,30 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
     box_id_t tgt_ibox = target_or_target_parent_boxes[itarget_or_target_parent_box];
     ${load_center("center", "tgt_ibox")}
 
-    int box_level = box_levels[tgt_ibox];
+    int tgt_box_level = box_levels[tgt_ibox];
     // The root box has no parents, so no list 4.
-    if (box_level == 0)
+    if (tgt_box_level == 0)
         return;
 
     box_id_t parent_box_id = box_parent_ids[tgt_ibox];
     ${load_center("parent_center", "parent_box_id")}
 
-    box_id_t current_parent_box_id = parent_box_id;
-    int walk_level = box_level - 1;
-
     box_flags_t tgt_box_flags = box_flags[tgt_ibox];
+
+    %if well_sep_is_n_away == 1:
+        // In a 1-away FMM, tgt_ibox's colleagues are by default uninteresting
+        // (i.e. not in list 4) because they're adjacent. So in this case, we
+        // may directly jump to the parent level.
+
+        int walk_level = tgt_box_level - 1;
+        box_id_t current_parent_box_id = parent_box_id;
+    %else:
+        // In a 2+-away FMM, tgt_ibox's same-level well-separated boxes *may*
+        // be sufficiently separated from tgt_ibox to be in its list 4.
+
+        int walk_level = tgt_box_level;
+        box_id_t current_parent_box_id = tgt_ibox;
+    %endif
 
     // Look for same-level non-well-separated boxes of parents that are
     // non-adjacent to tgt_ibox.
@@ -761,7 +809,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
 
     // Box 0 (== level 0) doesn't have any slnws boxes, so we can stop the
     // search for such slnws boxes there.
-    for (int walk_level = box_level - 1; walk_level != 0;
+    for (; walk_level != 0;
             // {{{ advance
             --walk_level,
             current_parent_box_id = box_parent_ids[current_parent_box_id]
@@ -782,18 +830,19 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
             if (box_flags[slnws_box_id] & BOX_HAS_OWN_SOURCES)
             {
                 ${load_center("slnws_center", "slnws_box_id")}
-                bool a_or_o = is_adjacent_or_overlapping(root_extent,
-                    center, box_level, slnws_center, walk_level);
+                bool in_list_1 = is_adjacent_or_overlapping(root_extent,
+                    center, tgt_box_level,
+                    slnws_center, walk_level);
 
-                if (!a_or_o)
+                if (!in_list_1)
                 {
-                    // Found one.
-
                     %if sources_have_extent or targets_have_extent:
                         const bool a_or_o_with_stick_out =
                             is_adjacent_or_overlapping_with_stick_out(root_extent,
-                                center, box_level, slnws_center,
-                                walk_level, stick_out_factor);
+                                center, tgt_box_level,
+                                ${well_sep_is_n_away},
+                                slnws_center, walk_level,
+                                stick_out_factor);
 
                     if (a_or_o_with_stick_out)
                     {
@@ -809,12 +858,37 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
                     else
                     %endif
                     {
-                        bool parent_a_or_o_with_stick_out =
+                        bool in_parent_list_1 =
                             is_adjacent_or_overlapping_with_stick_out(root_extent,
-                                parent_center, box_level-1, slnws_center,
-                                walk_level, stick_out_factor);
+                                parent_center, tgt_box_level-1,
+                                1,
+                                slnws_center, walk_level,
+                                stick_out_factor);
 
-                        if (parent_a_or_o_with_stick_out)
+                        bool in_parent_list_4 = (
+                                !in_parent_list_1
+                                %if well_sep_is_n_away > 1:
+                                    /*
+                                    From-sep-bigger boxes can only be in the
+                                    parent's from-sep-bigger list if they're
+                                    actually bigger (or equal) to the target
+                                    box size.
+
+                                    For 1-away, that's guaranteed at this
+                                    point, because we only start looking at the
+                                    parent's level, so any box we find here is
+                                    naturally big enough. For 2-away, we start
+                                    looking at the target box's level, so
+                                    slnws_box_id may actually be too small (at
+                                    too deep a level) to be in the parent's
+                                    from-sep-bigger list.
+                                    */
+
+                                    && walk_level < tgt_box_level
+                                %endif
+                                );
+
+                        if (!in_parent_list_4)
                         {
                             // "Case 2" above: We're the first box down the chain
                             // to be far enough away to let the interaction into
