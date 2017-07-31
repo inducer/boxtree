@@ -39,28 +39,21 @@ logger = logging.getLogger(__name__)
 
 # This 'walk' mechanism walks over 'child' boxes in the tree.
 
-# FIXME: Rename:
-# walk_box_id -> walk_parent_box_id
-# child_box_id -> walk_box_id
-# walk_level -> walk_stack_count
-
 TRAVERSAL_PREAMBLE_MAKO_DEFS = r"""//CL:mako//
 <%def name="walk_init(start_box_id)">
-    box_id_t box_stack[NLEVELS];
-    int morton_nr_stack[NLEVELS];
+    box_id_t walk_box_stack[NLEVELS];
+    int walk_morton_nr_stack[NLEVELS];
 
     // start at root
-    int walk_level = 0;
-    box_id_t walk_box_id = ${start_box_id};
+    int walk_stack_size = 0;
+    box_id_t walk_parent_box_id = ${start_box_id};
     int walk_morton_nr = 0;
     bool continue_walk = true;
 </%def>
 
 <%def name="walk_get_child_box_id()">
-
-    box_id_t child_box_id;
-    child_box_id = box_child_ids[
-        walk_morton_nr * aligned_nboxes + walk_box_id];
+    box_id_t walk_box_id = box_child_ids[
+        walk_morton_nr * aligned_nboxes + walk_parent_box_id];
 </%def>
 
 <%def name="walk_advance()">
@@ -75,15 +68,15 @@ TRAVERSAL_PREAMBLE_MAKO_DEFS = r"""//CL:mako//
 
         continue_walk = (
             // Stack empty? Abort.
-            walk_level > 0
+            walk_stack_size > 0
             );
 
         if (continue_walk)
         {
-            --walk_level;
+            --walk_stack_size;
             dbg_printf(("    ascend\n"));
-            walk_box_id = box_stack[walk_level];
-            walk_morton_nr = morton_nr_stack[walk_level];
+            walk_parent_box_id = walk_box_stack[walk_stack_size];
+            walk_morton_nr = walk_morton_nr_stack[walk_stack_size];
         }
         else
         {
@@ -94,19 +87,19 @@ TRAVERSAL_PREAMBLE_MAKO_DEFS = r"""//CL:mako//
 </%def>
 
 <%def name="walk_push(new_box)">
-    box_stack[walk_level] = walk_box_id;
-    morton_nr_stack[walk_level] = walk_morton_nr;
-    ++walk_level;
+    walk_box_stack[walk_stack_size] = walk_parent_box_id;
+    walk_morton_nr_stack[walk_stack_size] = walk_morton_nr;
+    ++walk_stack_size;
 
     %if debug:
-    if (walk_level >= NLEVELS)
+    if (walk_stack_size >= NLEVELS)
     {
         dbg_printf(("  ** ERROR: overran levels stack\n"));
         return;
     }
     %endif
 
-    walk_box_id = ${new_box};
+    walk_parent_box_id = ${new_box};
     walk_morton_nr = 0;
 </%def>
 
@@ -347,26 +340,26 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t box_id)
     {
         ${walk_get_child_box_id()}
 
-        dbg_printf(("  level: %d walk box id: %d morton: %d child id: %d\n",
-            walk_level, walk_box_id, walk_morton_nr, child_box_id));
+        dbg_printf(("  level: %d walk parent box id: %d morton: %d child id: %d\n",
+            walk_stack_size, walk_parent_box_id, walk_morton_nr, walk_box_id));
 
-        if (child_box_id)
+        if (walk_box_id)
         {
-            ${load_center("child_center", "child_box_id")}
+            ${load_center("child_center", "walk_box_id")}
 
             bool a_or_o = is_adjacent_or_overlapping_with_neighborhood(
                     root_extent,
                     center, level,
                     ${well_sep_is_n_away},
-                    child_center, box_levels[child_box_id]);
+                    child_center, box_levels[walk_box_id]);
 
             if (a_or_o)
             {
-                // child_box_id lives on walk_level+1.
-                if (walk_level+1 == level && child_box_id != box_id)
+                // walk_box_id lives on walk_stack_size+1.
+                if (walk_stack_size+1 == level && walk_box_id != box_id)
                 {
                     dbg_printf(("    found same-lev nws\n"));
-                    APPEND_same_level_non_well_sep_boxes(child_box_id);
+                    APPEND_same_level_non_well_sep_boxes(walk_box_id);
                 }
                 else
                 {
@@ -374,7 +367,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t box_id)
                     // on the stack.
 
                     dbg_printf(("    descend\n"));
-                    ${walk_push("child_box_id")}
+                    ${walk_push("walk_box_id")}
 
                     continue;
                 }
@@ -430,27 +423,27 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
     {
         ${walk_get_child_box_id()}
 
-        dbg_printf(("  walk box id: %d morton: %d child id: %d level: %d\n",
-            walk_box_id, walk_morton_nr, child_box_id, walk_level));
+        dbg_printf(("  walk parent box id: %d morton: %d child id: %d level: %d\n",
+            walk_parent_box_id, walk_morton_nr, walk_box_id, walk_stack_size));
 
-        if (child_box_id)
+        if (walk_box_id)
         {
-            ${load_center("child_center", "child_box_id")}
+            ${load_center("child_center", "walk_box_id")}
 
             bool a_or_o = is_adjacent_or_overlapping(
                 root_extent,
                 center, level,
-                child_center, box_levels[child_box_id]);
+                child_center, box_levels[walk_box_id]);
 
             if (a_or_o)
             {
-                box_flags_t flags = box_flags[child_box_id];
-                /* child_box_id == box_id is ok */
+                box_flags_t flags = box_flags[walk_box_id];
+                /* walk_box_id == box_id is ok */
                 if (flags & BOX_HAS_OWN_SOURCES)
                 {
                     dbg_printf(("    neighbor source box\n"));
 
-                    APPEND_neighbor_source_boxes(child_box_id);
+                    APPEND_neighbor_source_boxes(walk_box_id);
                 }
 
                 if (flags & BOX_HAS_CHILD_SOURCES)
@@ -460,7 +453,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
 
                     dbg_printf(("    descend\n"));
 
-                    ${walk_push("child_box_id")}
+                    ${walk_push("walk_box_id")}
 
                     continue;
                 }
@@ -562,7 +555,9 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
 
         while (continue_walk)
         {
-            // Loop invariant: walk_box_id is, at first, always adjacent to box_id.
+            // Loop invariant:
+            // walk_parent_box_id is, at first, always adjacent to box_id.
+            //
             // This is true at the first level because colleagues are adjacent
             // by definition, and is kept true throughout the walk by only descending
             // into adjacent boxes.
@@ -583,18 +578,18 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
 
             ${walk_get_child_box_id()}
 
-            dbg_printf(("  walk box id: %d morton: %d child id: %d\n",
-                walk_box_id, walk_morton_nr, child_box_id));
+            dbg_printf(("  walk parent box id: %d morton: %d child id: %d\n",
+                walk_parent_box_id, walk_morton_nr, walk_box_id));
 
-            box_flags_t child_box_flags = box_flags[child_box_id];
+            box_flags_t child_box_flags = box_flags[walk_box_id];
 
-            if (child_box_id &&
+            if (walk_box_id &&
                     (child_box_flags &
                             (BOX_HAS_OWN_SOURCES | BOX_HAS_CHILD_SOURCES)))
             {
-                ${load_center("child_center", "child_box_id")}
+                ${load_center("child_center", "walk_box_id")}
 
-                int child_level = box_levels[child_box_id];
+                int child_level = box_levels[walk_box_id];
 
                 bool in_list_1 = is_adjacent_or_overlapping(root_extent,
                     center, level, child_center, child_level);
@@ -609,7 +604,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
                         if (child_level <= sep_smaller_source_level
                                 || sep_smaller_source_level == -1)
                         {
-                            ${walk_push("child_box_id")}
+                            ${walk_push("walk_box_id")}
                             continue;
                         }
                         // otherwise there's no point to descending further.
@@ -635,7 +630,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
                     if (!a_or_o_with_stick_out)
                     {
                         if (sep_smaller_source_level == child_level)
-                            APPEND_sep_smaller(child_box_id);
+                            APPEND_sep_smaller(walk_box_id);
                     }
                     else
                     {
@@ -649,11 +644,11 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
                         if (
                                (child_box_flags & BOX_HAS_OWN_SOURCES)
                                && (sep_smaller_source_level == -1))
-                            APPEND_sep_close_smaller(child_box_id);
+                            APPEND_sep_close_smaller(walk_box_id);
 
                         if (child_box_flags & BOX_HAS_CHILD_SOURCES)
                         {
-                            ${walk_push("child_box_id")}
+                            ${walk_push("walk_box_id")}
                             continue;
                         }
                     %endif
