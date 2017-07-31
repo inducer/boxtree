@@ -203,10 +203,10 @@ def _draw_box_list(tree_plotter, ibox, starts, lists, key_to_box=None, **kwargs)
             "facecolor": default_facecolor,
             "linewidth": 0,
             "alpha": 0.5,
-            "shrink_factor": 0.2,
+            "shrink_factor": 0.1 + np.random.rand()*0.2,
             }
     actual_kwargs.update(kwargs)
-    #print ibox, start, end, lists[start:end]
+    print(actual_kwargs["facecolor"], ibox, lists[start:end])
     for jbox in lists[start:end]:
         tree_plotter.draw_box(jbox, **actual_kwargs)
 
@@ -216,7 +216,7 @@ def draw_same_level_non_well_sep_boxes(tree_plotter, traversal, ibox):
             alpha=0.5)
 
     # same-level non-well-sep
-    _draw_box_list(ibox,
+    _draw_box_list(tree_plotter, ibox,
             traversal.same_level_non_well_sep_boxes_starts,
             traversal.same_level_non_well_sep_boxes_lists,
             facecolor="green")
@@ -245,8 +245,8 @@ def draw_box_lists(tree_plotter, traversal, ibox):
         _draw_box_list(tree_plotter, ibox,
                 traversal.sep_smaller_by_level[ilev].starts,
                 traversal.sep_smaller_by_level[ilev].lists,
-                key_to_box=traversal.target_or_target_parent_boxes,
-                facecolor="yellow", shrink_factor=0.25)
+                key_to_box=traversal.target_boxes,
+                facecolor="orange")
 
     # separated bigger (list 4)
     _draw_box_list(tree_plotter, ibox,
