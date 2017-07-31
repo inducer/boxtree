@@ -38,9 +38,6 @@ logger = logging.getLogger(__name__)
 # {{{ preamble
 
 # This 'walk' mechanism walks over 'child' boxes in the tree.
-#
-# "include_start_box=True" determines that the start box should
-# occur as one such 'child' box.
 
 # FIXME: Rename:
 # walk_box_id -> walk_parent_box_id
@@ -48,49 +45,29 @@ logger = logging.getLogger(__name__)
 # walk_level -> walk_stack_count
 
 TRAVERSAL_PREAMBLE_MAKO_DEFS = r"""//CL:mako//
-<%def name="walk_init(start_box_id, include_start_box=False)">
+<%def name="walk_init(start_box_id)">
     box_id_t box_stack[NLEVELS];
     int morton_nr_stack[NLEVELS];
 
     // start at root
     int walk_level = 0;
     box_id_t walk_box_id = ${start_box_id};
-    %if include_start_box:
-        int walk_morton_nr = -1;
-    %else:
-        int walk_morton_nr = 0;
-    %endif
+    int walk_morton_nr = 0;
     bool continue_walk = true;
 </%def>
 
-## "True" is the safe default here because it handles all cases.
-<%def name="walk_get_child_box_id(include_start_box=True)">
+<%def name="walk_get_child_box_id()">
 
     box_id_t child_box_id;
-    %if include_start_box:
-        if (walk_morton_nr == -1)
-            child_box_id = walk_box_id;
-        else
-            child_box_id = box_child_ids[
-                walk_morton_nr * aligned_nboxes + walk_box_id];
-    %else:
-        child_box_id = box_child_ids[
-            walk_morton_nr * aligned_nboxes + walk_box_id];
-    %endif
+    child_box_id = box_child_ids[
+        walk_morton_nr * aligned_nboxes + walk_box_id];
 </%def>
 
-<%def name="walk_advance(include_start_box=False)">
+<%def name="walk_advance()">
     while (true)
     {
         ++walk_morton_nr;
-        if (
-                %if include_start_box:
-                    // If we just got done walking the start box,
-                    // we *do* want to continue with the remaining
-                    // checks.
-                    walk_morton_nr &&
-                %endif
-                walk_morton_nr < ${2**dimensions})
+        if (walk_morton_nr < ${2**dimensions})
             break;
 
         // Ran out of children, pull the next guy off the stack
@@ -99,13 +76,6 @@ TRAVERSAL_PREAMBLE_MAKO_DEFS = r"""//CL:mako//
         continue_walk = (
             // Stack empty? Abort.
             walk_level > 0
-
-            %if include_start_box:
-            // Since we encountered the start box as part of the walk,
-            // there's no need to go find its children.
-            && walk_morton_nr != 0
-            %endif
-
             );
 
         if (continue_walk)
@@ -375,7 +345,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t box_id)
 
     while (continue_walk)
     {
-        ${walk_get_child_box_id(include_start_box=False)}
+        ${walk_get_child_box_id()}
 
         dbg_printf(("  level: %d walk box id: %d morton: %d child id: %d\n",
             walk_level, walk_box_id, walk_morton_nr, child_box_id));
@@ -458,7 +428,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
 
     while (continue_walk)
     {
-        ${walk_get_child_box_id(include_start_box=False)}
+        ${walk_get_child_box_id()}
 
         dbg_printf(("  walk box id: %d morton: %d child id: %d level: %d\n",
             walk_box_id, walk_morton_nr, child_box_id, walk_level));
