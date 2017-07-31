@@ -690,10 +690,10 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
 # (X: yes, O:no, exclamation marks denote that this *must* be the case. Entries
 # without exclamation mark are choices for this case)
 #
-# Case 1: A->B interaction enters the downward propagation at B, i.e. A is in
+# Case 2: A->B interaction enters the downward propagation at B, i.e. A is in
 #    B's "sep_bigger". (list 4)
 #
-# Case 2: A->B interaction entered the downward propagation at B's parent, i.e.
+# Case 3: A->B interaction entered the downward propagation at B's parent, i.e.
 #    A is not in B's "sep_bigger". (list 4)
 
 # Sources/targets with extent
@@ -721,7 +721,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
 # "adj": adjacent to A without stick-out
 #
 # Note that once a parent is no longer "adj" or "so", its children won't be
-# either.  Also note that "adj" => "so". (And there by "not so" => "not adj".)
+# either.  Also note that "adj" => "so". (And thereby "not so" => "not adj".)
 #
 # (X: yes, O:no, ?: doesn't matter, exclamation marks denote that this *must*
 # be the case. Entries without exclamation mark are choices for this case)
@@ -818,12 +818,12 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
                         {
                             // "Case 2" above: We're the first box down the chain
                             // to be far enough away to let the interaction into
-                            // our local downward subtree.
+                            // our local downward propagation.
                             APPEND_sep_bigger(slnws_box_id);
                         }
                         else
                         {
-                            // "Case 2" above: A parent box was already far
+                            // "Case 3" above: A parent box was already far
                             // enough away to let the interaction into its
                             // local downward subtree. We'll get the interaction
                             // that way. Nothing to do.
@@ -985,8 +985,6 @@ class FMMTraversalInfo(DeviceDataRecord):
     .. ------------------------------------------------------------------------
 
     Smaller source boxes separated from the target box by their own size.
-    (Note: This list contains global box numbers, not indices into
-    :attr:`source_boxes`.)
 
     If :attr:`boxtree.Tree.targets_have_extent`, then
     :attr:`sep_close_smaller_starts` will be non-*None*. It records
@@ -1001,10 +999,11 @@ class FMMTraversalInfo(DeviceDataRecord):
         A list of :attr:`boxtree.Tree.nlevels` (corresponding to the levels on
         which each listed source box resides) objects, each of which has
         attributes *count*, *starts* and *lists*, which form a CSR list of List
-        3source boxes.
+        3 source boxes.
 
         *starts* has shape/type ``box_id_t [ntarget_boxes+1]``. *lists* is of type
-        ``box_id_t``.
+        ``box_id_t``.  (Note: This list contains global box numbers, not
+        indices into :attr:`source_boxes`.)
 
     .. attribute:: sep_close_smaller_starts
 
