@@ -51,7 +51,7 @@ TRAVERSAL_PREAMBLE_MAKO_DEFS = r"""//CL:mako//
     bool continue_walk = true;
 </%def>
 
-<%def name="walk_get_child_box_id()">
+<%def name="walk_get_box_id()">
     box_id_t walk_box_id = box_child_ids[
         walk_morton_nr * aligned_nboxes + walk_parent_box_id];
 </%def>
@@ -338,20 +338,20 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t box_id)
 
     while (continue_walk)
     {
-        ${walk_get_child_box_id()}
+        ${walk_get_box_id()}
 
         dbg_printf(("  level: %d walk parent box id: %d morton: %d child id: %d\n",
             walk_stack_size, walk_parent_box_id, walk_morton_nr, walk_box_id));
 
         if (walk_box_id)
         {
-            ${load_center("child_center", "walk_box_id")}
+            ${load_center("walk_center", "walk_box_id")}
 
             bool a_or_o = is_adjacent_or_overlapping_with_neighborhood(
                     root_extent,
                     center, level,
                     ${well_sep_is_n_away},
-                    child_center, box_levels[walk_box_id]);
+                    walk_center, box_levels[walk_box_id]);
 
             if (a_or_o)
             {
@@ -421,19 +421,19 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
 
     while (continue_walk)
     {
-        ${walk_get_child_box_id()}
+        ${walk_get_box_id()}
 
         dbg_printf(("  walk parent box id: %d morton: %d child id: %d level: %d\n",
             walk_parent_box_id, walk_morton_nr, walk_box_id, walk_stack_size));
 
         if (walk_box_id)
         {
-            ${load_center("child_center", "walk_box_id")}
+            ${load_center("walk_center", "walk_box_id")}
 
             bool a_or_o = is_adjacent_or_overlapping(
                 root_extent,
                 center, level,
-                child_center, box_levels[walk_box_id]);
+                walk_center, box_levels[walk_box_id]);
 
             if (a_or_o)
             {
@@ -576,7 +576,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
             // done by direct evaluation. We also need to descend into that
             // child.
 
-            ${walk_get_child_box_id()}
+            ${walk_get_box_id()}
 
             dbg_printf(("  walk parent box id: %d morton: %d child id: %d\n",
                 walk_parent_box_id, walk_morton_nr, walk_box_id));
@@ -587,12 +587,12 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
                     (child_box_flags &
                             (BOX_HAS_OWN_SOURCES | BOX_HAS_CHILD_SOURCES)))
             {
-                ${load_center("child_center", "walk_box_id")}
+                ${load_center("walk_center", "walk_box_id")}
 
-                int child_level = box_levels[walk_box_id];
+                int walk_level = box_levels[walk_box_id];
 
                 bool in_list_1 = is_adjacent_or_overlapping(root_extent,
-                    center, level, child_center, child_level);
+                    center, level, walk_center, walk_level);
 
                 if (in_list_1)
                 {
@@ -601,7 +601,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
                         // We want to descend into this box. Put the current state
                         // on the stack.
 
-                        if (child_level <= from_sep_smaller_source_level
+                        if (walk_level <= from_sep_smaller_source_level
                                 || from_sep_smaller_source_level == -1)
                         {
                             ${walk_push("walk_box_id")}
@@ -617,7 +617,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
                             is_adjacent_or_overlapping_with_stick_out(root_extent,
                                 center, level,
                                 1,
-                                child_center, child_level,
+                                walk_center, walk_level,
                                 stick_out_factor);
                     %else:
                         const bool a_or_o_with_stick_out = false;

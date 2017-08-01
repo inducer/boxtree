@@ -303,30 +303,29 @@ AREA_QUERY_WALKER_BODY = r"""
 
             while (continue_walk)
             {
-                box_id_t child_box_id = box_child_ids[
-                    walk_morton_nr * aligned_nboxes + walk_box_id];
+                ${walk_get_box_id()}
 
-                if (child_box_id)
+                if (walk_box_id)
                 {
-                    if (!(box_flags[child_box_id] & BOX_HAS_CHILDREN))
+                    if (!(box_flags[walk_box_id] & BOX_HAS_CHILDREN))
                     {
                         bool is_overlapping;
 
                         ${check_l_infty_ball_overlap(
-                            "is_overlapping", "child_box_id",
+                            "is_overlapping", "walk_box_id",
                             "ball_radius", "ball_center")}
 
                         if (is_overlapping)
                         {
                             ${leaf_found_op(
-                                "child_box_id", "ball_center", "ball_radius")}
+                                "walk_box_id", "ball_center", "ball_radius")}
                         }
                     }
                     else
                     {
                         // We want to descend into this box. Put the current state
                         // on the stack.
-                        ${walk_push("child_box_id")}
+                        ${walk_push("walk_box_id")}
                         continue;
                     }
                 }
@@ -384,27 +383,26 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t box_id)
 
     while (continue_walk)
     {
-        box_id_t child_box_id = box_child_ids[
-                walk_morton_nr * aligned_nboxes + walk_box_id];
+        ${walk_get_box_id()}
 
-        if (child_box_id)
+        if (walk_box_id)
         {
-            ${load_center("child_center", "child_box_id")}
+            ${load_center("walk_center", "walk_box_id")}
 
-            // child_box_id lives on walk_level+1.
+            // walk_box_id lives on level walk_stack_size+1.
             bool a_or_o = is_adjacent_or_overlapping(root_extent,
-                center, level, child_center, walk_level+1);
+                center, level, walk_center, walk_stack_size+1);
 
             if (a_or_o)
             {
-                // child_box_id lives on walk_level+1.
-                if (walk_level+1 == level)
+                // walk_box_id lives on level walk_stack_size+1.
+                if (walk_stack_size+1 == level)
                 {
-                    APPEND_peers(child_box_id);
+                    APPEND_peers(walk_box_id);
                 }
-                else if (!(box_flags[child_box_id] & BOX_HAS_CHILDREN))
+                else if (!(box_flags[walk_box_id] & BOX_HAS_CHILDREN))
                 {
-                    APPEND_peers(child_box_id);
+                    APPEND_peers(walk_box_id);
                 }
                 else
                 {
@@ -417,24 +415,24 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t box_id)
                          ++morton_nr)
                     {
                         box_id_t next_child_id = box_child_ids[
-                            morton_nr * aligned_nboxes + child_box_id];
+                            morton_nr * aligned_nboxes + walk_box_id];
                         if (next_child_id)
                         {
-                            ${load_center("next_child_center", "next_child_id")}
+                            ${load_center("next_walk_center", "next_child_id")}
                             must_be_peer &= !is_adjacent_or_overlapping(root_extent,
-                                center, level, next_child_center, walk_level+2);
+                                center, level, next_walk_center, walk_stack_size+2);
                         }
                     }
 
                     if (must_be_peer)
                     {
-                        APPEND_peers(child_box_id);
+                        APPEND_peers(walk_box_id);
                     }
                     else
                     {
                         // We want to descend into this box. Put the current state
                         // on the stack.
-                        ${walk_push("child_box_id")}
+                        ${walk_push("walk_box_id")}
                         continue;
                     }
                 }
