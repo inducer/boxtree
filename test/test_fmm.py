@@ -338,17 +338,20 @@ def test_fmm_completeness(ctx_getter, dims, nsources_req, ntargets_req,
     host_trav = trav.get(queue=queue)
     host_tree = host_trav.tree
 
+    from boxtree.tree import ParticleListFilter
+    plfilt = ParticleListFilter(ctx)
+
     if filter_kind:
         flags = rng.uniform(queue, ntargets or nsources, np.int32, a=0, b=2) \
                 .astype(np.int8)
         if filter_kind == "user":
-            from boxtree.tree import filter_target_lists_in_user_order
-            filtered_targets = filter_target_lists_in_user_order(queue, tree, flags)
+            filtered_targets = plfilt.filter_target_lists_in_user_order(
+                    queue, tree, flags)
             wrangler = ConstantOneExpansionWranglerWithFilteredTargetsInUserOrder(
                     host_tree, filtered_targets.get(queue=queue))
         elif filter_kind == "tree":
-            from boxtree.tree import filter_target_lists_in_tree_order
-            filtered_targets = filter_target_lists_in_tree_order(queue, tree, flags)
+            filtered_targets = plfilt.filter_target_lists_in_tree_order(
+                    queue, tree, flags)
             wrangler = ConstantOneExpansionWranglerWithFilteredTargetsInTreeOrder(
                     host_tree, filtered_targets.get(queue=queue))
         else:
