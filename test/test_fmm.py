@@ -138,10 +138,10 @@ class ConstantOneExpansionWrangler(object):
         return local_exps
 
     def eval_multipoles(self, level_start_target_box_nrs, target_boxes,
-            sep_smaller_nonsiblings_by_level, mpole_exps):
+            from_sep_smaller_nonsiblings_by_level, mpole_exps):
         pot = self.potential_zeros()
 
-        for ssn in sep_smaller_nonsiblings_by_level:
+        for ssn in from_sep_smaller_nonsiblings_by_level:
             for itgt_box, tgt_ibox in enumerate(target_boxes):
                 tgt_pslice = self._get_target_slice(tgt_ibox)
 
@@ -328,7 +328,7 @@ def test_fmm_completeness(ctx_getter, dims, nsources_req, ntargets_req,
     from boxtree.traversal import FMMTraversalBuilder
     tbuild = FMMTraversalBuilder(ctx, well_sep_is_n_away=well_sep_is_n_away)
     trav, _ = tbuild(queue, tree, debug=True)
-    if trav.sep_close_smaller_starts is not None:
+    if trav.from_sep_close_smaller_starts is not None:
         trav = trav.merge_close_lists(queue)
 
     #weights = np.random.randn(nsources)

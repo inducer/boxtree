@@ -235,23 +235,23 @@ def draw_box_lists(tree_plotter, traversal, ibox):
 
     # well-separated siblings (list 2)
     _draw_box_list(tree_plotter, ibox,
-            traversal.sep_siblings_starts,
-            traversal.sep_siblings_lists,
+            traversal.from_sep_siblings_starts,
+            traversal.from_sep_siblings_lists,
             key_to_box=traversal.target_or_target_parent_boxes,
             facecolor="blue")
 
     # separated smaller (list 3)
     for ilev in range(tree_plotter.tree.nlevels):
         _draw_box_list(tree_plotter, ibox,
-                traversal.sep_smaller_by_level[ilev].starts,
-                traversal.sep_smaller_by_level[ilev].lists,
+                traversal.from_sep_smaller_by_level[ilev].starts,
+                traversal.from_sep_smaller_by_level[ilev].lists,
                 key_to_box=traversal.target_boxes,
                 facecolor="orange")
 
     # separated bigger (list 4)
     _draw_box_list(tree_plotter, ibox,
-            traversal.sep_bigger_starts,
-            traversal.sep_bigger_lists,
+            traversal.from_sep_bigger_starts,
+            traversal.from_sep_bigger_lists,
             key_to_box=traversal.target_or_target_parent_boxes,
             facecolor="purple")
 

@@ -117,8 +117,8 @@ def test_tree_connectivity(ctx_getter, dims, sources_are_targets):
     # {{{ separated siblings (list 2) are actually separated
 
     for itgt_box, tgt_ibox in enumerate(trav.target_or_target_parent_boxes):
-        start, end = trav.sep_siblings_starts[itgt_box:itgt_box+2]
-        seps = trav.sep_siblings_lists[start:end]
+        start, end = trav.from_sep_siblings_starts[itgt_box:itgt_box+2]
+        seps = trav.from_sep_siblings_lists[start:end]
 
         assert (levels[seps] == levels[tgt_ibox]).all()
 
@@ -135,20 +135,21 @@ def test_tree_connectivity(ctx_getter, dims, sources_are_targets):
     # }}}
 
     if sources_are_targets:
-        # {{{ sep_{smaller,bigger} are duals of each other
+        # {{{ from_sep_{smaller,bigger} are duals of each other
 
         assert (trav.target_or_target_parent_boxes == np.arange(tree.nboxes)).all()
 
         # {{{ list 4 <= list 3
         for itarget_box, ibox in enumerate(trav.target_boxes):
 
-            for ssn in trav.sep_smaller_by_level:
+            for ssn in trav.from_sep_smaller_by_level:
                 start, end = ssn.starts[itarget_box:itarget_box+2]
 
                 for jbox in ssn.lists[start:end]:
-                    rstart, rend = trav.sep_bigger_starts[jbox:jbox+2]
+                    rstart, rend = trav.from_sep_bigger_starts[jbox:jbox+2]
 
-                    assert ibox in trav.sep_bigger_lists[rstart:rend], (ibox, jbox)
+                    assert ibox in trav.from_sep_bigger_lists[rstart:rend], \
+                            (ibox, jbox)
 
         # }}}
 
@@ -164,10 +165,10 @@ def test_tree_connectivity(ctx_getter, dims, sources_are_targets):
                 tree.nboxes, dtype=tree.box_id_dtype)).all()
 
         for ibox in range(tree.nboxes):
-            start, end = trav.sep_bigger_starts[ibox:ibox+2]
+            start, end = trav.from_sep_bigger_starts[ibox:ibox+2]
 
-            for jbox in trav.sep_bigger_lists[start:end]:
-                # In principle, entries of sep_bigger_lists are
+            for jbox in trav.from_sep_bigger_lists[start:end]:
+                # In principle, entries of from_sep_bigger_lists are
                 # source boxes. In this special case, source and target boxes
                 # are the same thing (i.e. leaves--see assertion above), so we
                 # may treat them as targets anyhow.
@@ -177,7 +178,7 @@ def test_tree_connectivity(ctx_getter, dims, sources_are_targets):
 
                 good = False
 
-                for ssn in trav.sep_smaller_by_level:
+                for ssn in trav.from_sep_smaller_by_level:
                     rstart, rend = ssn.starts[jtgt_box:jtgt_box+2]
                     good = good or ibox in ssn.lists[rstart:rend]
 
@@ -204,10 +205,10 @@ def test_tree_connectivity(ctx_getter, dims, sources_are_targets):
 
         # }}}
 
-    # {{{ sep_smaller satisfies relative level assumption
+    # {{{ from_sep_smaller satisfies relative level assumption
 
     for itarget_box, ibox in enumerate(trav.target_boxes):
-        for ssn in trav.sep_smaller_by_level:
+        for ssn in trav.from_sep_smaller_by_level:
             start, end = ssn.starts[itarget_box:itarget_box+2]
 
             for jbox in ssn.lists[start:end]:
@@ -217,12 +218,12 @@ def test_tree_connectivity(ctx_getter, dims, sources_are_targets):
 
     # }}}
 
-    # {{{ sep_bigger satisfies relative level assumption
+    # {{{ from_sep_bigger satisfies relative level assumption
 
     for itgt_box, tgt_ibox in enumerate(trav.target_or_target_parent_boxes):
-        start, end = trav.sep_bigger_starts[itgt_box:itgt_box+2]
+        start, end = trav.from_sep_bigger_starts[itgt_box:itgt_box+2]
 
-        for jbox in trav.sep_bigger_lists[start:end]:
+        for jbox in trav.from_sep_bigger_lists[start:end]:
             assert levels[tgt_ibox] > levels[jbox]
 
     logger.info("list 4 satisfies relative level assumption")

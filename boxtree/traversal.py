@@ -472,9 +472,9 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
 
 # }}}
 
-# {{{ well-separated siblings ("list 2")
+# {{{ from well-separated siblings ("list 2")
 
-SEP_SIBLINGS_TEMPLATE = r"""//CL//
+FROM_SEP_SIBLINGS_TEMPLATE = r"""//CL//
 
 void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
 {
@@ -511,7 +511,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
 
             if (sep)
             {
-                APPEND_sep_siblings(sib_box_id);
+                APPEND_from_sep_siblings(sib_box_id);
             }
         }
     }
@@ -522,7 +522,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
 
 # {{{ from separated smaller ("list 3")
 
-SEP_SMALLER_TEMPLATE = r"""//CL//
+FROM_SEP_SMALLER_TEMPLATE = r"""//CL//
 
 void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
 {
@@ -566,13 +566,13 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
             // non-adjacent to box_id.
             //
             // If neither sources nor targets have extent, then that
-            // nonadjacent child box is added to box_id's sep_smaller ("list 3
+            // nonadjacent child box is added to box_id's from_sep_smaller ("list 3
             // far") and that's it.
             //
             // If they have extent, then while they may be separated, the
             // intersection of box_id's and the child box's stick-out region
             // may be non-empty, and we thus need to add that child to
-            // sep_close_smaller ("list 3 close") for the interaction to be
+            // from_sep_close_smaller ("list 3 close") for the interaction to be
             // done by direct evaluation. We also need to descend into that
             // child.
 
@@ -601,8 +601,8 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
                         // We want to descend into this box. Put the current state
                         // on the stack.
 
-                        if (child_level <= sep_smaller_source_level
-                                || sep_smaller_source_level == -1)
+                        if (child_level <= from_sep_smaller_source_level
+                                || from_sep_smaller_source_level == -1)
                         {
                             ${walk_push("walk_box_id")}
                             continue;
@@ -629,13 +629,13 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
 
                     if (!a_or_o_with_stick_out)
                     {
-                        if (sep_smaller_source_level == child_level)
-                            APPEND_sep_smaller(walk_box_id);
+                        if (from_sep_smaller_source_level == walk_level)
+                            APPEND_from_sep_smaller(walk_box_id);
                     }
                     else
                     {
                     %if sources_have_extent or targets_have_extent:
-                        // sep_smaller_source_level == -1 means "only build
+                        // from_sep_smaller_source_level == -1 means "only build
                         // build list 3 close", with sources on any level.
                         // This kernel will be run once per source level to
                         // generate per-level list 3, and once
@@ -643,8 +643,8 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
 
                         if (
                                (child_box_flags & BOX_HAS_OWN_SOURCES)
-                               && (sep_smaller_source_level == -1))
-                            APPEND_sep_close_smaller(walk_box_id);
+                               && (from_sep_smaller_source_level == -1))
+                            APPEND_from_sep_close_smaller(walk_box_id);
 
                         if (child_box_flags & BOX_HAS_CHILD_SOURCES)
                         {
@@ -692,10 +692,10 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
 # without exclamation mark are choices for this case)
 #
 # Case 2: A->B interaction enters the downward propagation at B, i.e. A is in
-#    B's "sep_bigger". (list 4)
+#    B's "from_sep_bigger". (list 4)
 #
 # Case 3: A->B interaction entered the downward propagation at B's parent, i.e.
-#    A is not in B's "sep_bigger". (list 4)
+#    A is not in B's "from_sep_bigger". (list 4)
 
 # Sources/targets with extent
 # ---------------------------
@@ -728,15 +728,15 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
 # be the case. Entries without exclamation mark are choices for this case)
 #
 # Case 1: A->B interaction must be processed by direct eval because of "so",
-#    i.e. it is in B's "sep_close_bigger".
+#    i.e. it is in B's "from_sep_close_bigger".
 #
 # Case 2: A->B interaction enters downward the propagation at B,
-#    i.e. it is in B's "sep_bigger".
+#    i.e. it is in B's "from_sep_bigger".
 #
 # Case 3: A->B interaction enters downward the propagation at B's parent,
 #    i.e. A is not in B's "sep*bigger"
 
-SEP_BIGGER_TEMPLATE = r"""//CL//
+FROM_SEP_BIGGER_TEMPLATE = r"""//CL//
 
 void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
 {
@@ -817,7 +817,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
 
                         if (tgt_box_flags & BOX_HAS_OWN_TARGETS)
                         {
-                            APPEND_sep_close_bigger(slnws_box_id);
+                            APPEND_from_sep_close_bigger(slnws_box_id);
                         }
                     }
                     else
@@ -858,7 +858,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
                             // "Case 2" above: We're the first box down the chain
                             // to be far enough away to let the interaction into
                             // our local downward propagation.
-                            APPEND_sep_bigger(slnws_box_id);
+                            APPEND_from_sep_bigger(slnws_box_id);
                         }
                         else
                         {
@@ -1011,11 +1011,11 @@ class FMMTraversalInfo(DeviceDataRecord):
     Well-separated boxes on the same level.  Indexed like
     :attr:`target_or_target_parent_boxes`. See :ref:`csr`.
 
-    .. attribute:: sep_siblings_starts
+    .. attribute:: from_sep_siblings_starts
 
         ``box_id_t [ntarget_or_target_parent_boxes+1]``
 
-    .. attribute:: sep_siblings_lists
+    .. attribute:: from_sep_siblings_lists
 
         ``box_id_t [*]``
 
@@ -1026,14 +1026,14 @@ class FMMTraversalInfo(DeviceDataRecord):
     Smaller source boxes separated from the target box by their own size.
 
     If :attr:`boxtree.Tree.targets_have_extent`, then
-    :attr:`sep_close_smaller_starts` will be non-*None*. It records
+    :attr:`from_sep_close_smaller_starts` will be non-*None*. It records
     interactions between boxes that would ordinarily be handled
     through "List 3", but must be evaluated specially/directly
     because of :ref:`extent`.
 
     Indexed like :attr:`target_or_target_parent_boxes`.  See :ref:`csr`.
 
-    .. attribute:: sep_smaller_by_level
+    .. attribute:: from_sep_smaller_by_level
 
         A list of :attr:`boxtree.Tree.nlevels` (corresponding to the levels on
         which each listed source box resides) objects, each of which has
@@ -1044,11 +1044,11 @@ class FMMTraversalInfo(DeviceDataRecord):
         ``box_id_t``.  (Note: This list contains global box numbers, not
         indices into :attr:`source_boxes`.)
 
-    .. attribute:: sep_close_smaller_starts
+    .. attribute:: from_sep_close_smaller_starts
 
         ``box_id_t [ntargets+1]`` (or *None*)
 
-    .. attribute:: sep_close_smaller_lists
+    .. attribute:: from_sep_close_smaller_lists
 
         ``box_id_t [*]`` (or *None*)
 
@@ -1062,26 +1062,26 @@ class FMMTraversalInfo(DeviceDataRecord):
     :attr:`source_boxes`.)
 
     If :attr:`boxtree.Tree.sources_have_extent`, then
-    :attr:`sep_close_bigger_starts` will be non-*None*. It records
+    :attr:`from_sep_close_bigger_starts` will be non-*None*. It records
     interactions between boxes that would ordinarily be handled
     through "List 4", but must be evaluated specially/directly
     because of :ref:`extent`.
 
     Indexed like :attr:`target_or_target_parent_boxes`. See :ref:`csr`.
 
-    .. attribute:: sep_bigger_starts
+    .. attribute:: from_sep_bigger_starts
 
         ``box_id_t [ntarget_or_target_parent_boxes+1]``
 
-    .. attribute:: sep_bigger_lists
+    .. attribute:: from_sep_bigger_lists
 
         ``box_id_t [*]``
 
-    .. attribute:: sep_close_bigger_starts
+    .. attribute:: from_sep_close_bigger_starts
 
         ``box_id_t [ntarget_or_target_parent_boxes+1]`` (or *None*)
 
-    .. attribute:: sep_close_bigger_lists
+    .. attribute:: from_sep_close_bigger_lists
 
         ``box_id_t [*]`` (or *None*)
     """
@@ -1090,9 +1090,10 @@ class FMMTraversalInfo(DeviceDataRecord):
 
     def merge_close_lists(self, queue, debug=False):
         """Return a new :class:`FMMTraversalInfo` instance with the contents of
-        :attr:`sep_close_smaller_starts` and :attr:`sep_close_bigger_starts`
-        merged into :attr:`neighbor_source_boxes_starts` and these two
-        attributes set to *None*.
+        :attr:`from_sep_close_smaller_starts` and
+        :attr:`from_sep_close_bigger_starts` merged into
+        :attr:`neighbor_source_boxes_starts` and these two attributes set to
+        *None*.
         """
 
         from boxtree.tools import reverse_index_array
@@ -1112,13 +1113,13 @@ class FMMTraversalInfo(DeviceDataRecord):
                 /* input: */
                 box_id_t *target_or_target_parent_boxes_from_tgt_boxes,
                 box_id_t *neighbor_source_boxes_starts,
-                box_id_t *sep_close_smaller_starts,
-                box_id_t *sep_close_bigger_starts,
+                box_id_t *from_sep_close_smaller_starts,
+                box_id_t *from_sep_close_bigger_starts,
 
                 %if not write_counts:
                     box_id_t *neighbor_source_boxes_lists,
-                    box_id_t *sep_close_smaller_lists,
-                    box_id_t *sep_close_bigger_lists,
+                    box_id_t *from_sep_close_smaller_lists,
+                    box_id_t *from_sep_close_bigger_lists,
 
                     box_id_t *new_neighbor_source_boxes_starts,
                 %endif
@@ -1142,17 +1143,17 @@ class FMMTraversalInfo(DeviceDataRecord):
                     neighbor_source_boxes_starts[itgt_box + 1]
                     - neighbor_source_boxes_start;
 
-                box_id_t sep_close_smaller_start =
-                    sep_close_smaller_starts[itgt_box];
-                box_id_t sep_close_smaller_count =
-                    sep_close_smaller_starts[itgt_box + 1]
-                    - sep_close_smaller_start;
+                box_id_t from_sep_close_smaller_start =
+                    from_sep_close_smaller_starts[itgt_box];
+                box_id_t from_sep_close_smaller_count =
+                    from_sep_close_smaller_starts[itgt_box + 1]
+                    - from_sep_close_smaller_start;
 
-                box_id_t sep_close_bigger_start =
-                    sep_close_bigger_starts[itarget_or_target_parent_box];
-                box_id_t sep_close_bigger_count =
-                    sep_close_bigger_starts[itarget_or_target_parent_box + 1]
-                    - sep_close_bigger_start;
+                box_id_t from_sep_close_bigger_start =
+                    from_sep_close_bigger_starts[itarget_or_target_parent_box];
+                box_id_t from_sep_close_bigger_count =
+                    from_sep_close_bigger_starts[itarget_or_target_parent_box + 1]
+                    - from_sep_close_bigger_start;
 
                 %if write_counts:
                     if (itgt_box == 0)
@@ -1160,8 +1161,8 @@ class FMMTraversalInfo(DeviceDataRecord):
 
                     new_neighbor_source_boxes_counts[itgt_box + 1] =
                         neighbor_source_boxes_count
-                        + sep_close_smaller_count
-                        + sep_close_bigger_count
+                        + from_sep_close_smaller_count
+                        + from_sep_close_bigger_count
                         ;
                 %else:
 
@@ -1173,8 +1174,8 @@ class FMMTraversalInfo(DeviceDataRecord):
                                 NAME##_lists[NAME##_start+i];
 
                     COPY_FROM(neighbor_source_boxes)
-                    COPY_FROM(sep_close_smaller)
-                    COPY_FROM(sep_close_bigger)
+                    COPY_FROM(from_sep_close_smaller)
+                    COPY_FROM(from_sep_close_bigger)
 
                 %endif
                 """).build(
@@ -1194,8 +1195,8 @@ class FMMTraversalInfo(DeviceDataRecord):
             # input:
             target_or_target_parent_boxes_from_tgt_boxes,
             self.neighbor_source_boxes_starts,
-            self.sep_close_smaller_starts,
-            self.sep_close_bigger_starts,
+            self.from_sep_close_smaller_starts,
+            self.from_sep_close_bigger_starts,
 
             # output:
             new_neighbor_source_boxes_counts,
@@ -1218,11 +1219,11 @@ class FMMTraversalInfo(DeviceDataRecord):
             target_or_target_parent_boxes_from_tgt_boxes,
 
             self.neighbor_source_boxes_starts,
-            self.sep_close_smaller_starts,
-            self.sep_close_bigger_starts,
+            self.from_sep_close_smaller_starts,
+            self.from_sep_close_bigger_starts,
             self.neighbor_source_boxes_lists,
-            self.sep_close_smaller_lists,
-            self.sep_close_bigger_lists,
+            self.from_sep_close_smaller_lists,
+            self.from_sep_close_bigger_lists,
 
             new_neighbor_source_boxes_starts,
 
@@ -1234,10 +1235,10 @@ class FMMTraversalInfo(DeviceDataRecord):
         return self.copy(
             neighbor_source_boxes_starts=new_neighbor_source_boxes_starts,
             neighbor_source_boxes_lists=new_neighbor_source_boxes_lists,
-            sep_close_smaller_starts=None,
-            sep_close_smaller_lists=None,
-            sep_close_bigger_starts=None,
-            sep_close_bigger_lists=None)
+            from_sep_close_smaller_starts=None,
+            from_sep_close_smaller_lists=None,
+            from_sep_close_bigger_starts=None,
+            from_sep_close_bigger_lists=None)
 
     # }}}
 
@@ -1353,7 +1354,7 @@ class FMMTraversalBuilder:
                         [
                             VectorArg(box_id_dtype, "target_boxes"),
                             ], []),
-                ("sep_siblings", SEP_SIBLINGS_TEMPLATE,
+                ("from_sep_siblings", FROM_SEP_SIBLINGS_TEMPLATE,
                         [
                             VectorArg(box_id_dtype, "target_or_target_parent_boxes"),
                             VectorArg(box_id_dtype, "box_parent_ids"),
@@ -1362,7 +1363,7 @@ class FMMTraversalBuilder:
                             VectorArg(box_id_dtype,
                                 "same_level_non_well_sep_boxes_lists"),
                             ], []),
-                ("sep_smaller", SEP_SMALLER_TEMPLATE,
+                ("from_sep_smaller", FROM_SEP_SMALLER_TEMPLATE,
                         [
                             ScalarArg(coord_dtype, "stick_out_factor"),
                             VectorArg(box_id_dtype, "target_boxes"),
@@ -1370,12 +1371,12 @@ class FMMTraversalBuilder:
                                 "same_level_non_well_sep_boxes_starts"),
                             VectorArg(box_id_dtype,
                                 "same_level_non_well_sep_boxes_lists"),
-                            ScalarArg(box_id_dtype, "sep_smaller_source_level"),
+                            ScalarArg(box_id_dtype, "from_sep_smaller_source_level"),
                             ],
-                            ["sep_close_smaller"]
+                            ["from_sep_close_smaller"]
                             if sources_have_extent or targets_have_extent
                             else []),
-                ("sep_bigger", SEP_BIGGER_TEMPLATE,
+                ("from_sep_bigger", FROM_SEP_BIGGER_TEMPLATE,
                         [
                             ScalarArg(coord_dtype, "stick_out_factor"),
                             VectorArg(box_id_dtype, "target_or_target_parent_boxes"),
@@ -1384,9 +1385,9 @@ class FMMTraversalBuilder:
                                 "same_level_non_well_sep_boxes_starts"),
                             VectorArg(box_id_dtype,
                                 "same_level_non_well_sep_boxes_lists"),
-                            #ScalarArg(box_id_dtype, "sep_bigger_source_level"),
+                            #ScalarArg(box_id_dtype, "from_sep_bigger_source_level"),
                             ],
-                            ["sep_close_bigger"]
+                            ["from_sep_close_bigger"]
                             if sources_have_extent or targets_have_extent
                             else []),
                 ]:
@@ -1558,7 +1559,7 @@ class FMMTraversalBuilder:
 
         fin_debug("finding well-separated siblings ('list 2')")
 
-        result, evt = knl_info.sep_siblings_builder(
+        result, evt = knl_info.from_sep_siblings_builder(
                 queue, len(target_or_target_parent_boxes),
                 tree.box_centers.data, tree.root_extent, tree.box_levels.data,
                 tree.aligned_nboxes, tree.box_child_ids.data, tree.box_flags.data,
@@ -1567,7 +1568,7 @@ class FMMTraversalBuilder:
                 same_level_non_well_sep_boxes.lists.data,
                 wait_for=wait_for)
         wait_for = [evt]
-        sep_siblings = result["sep_siblings"]
+        from_sep_siblings = result["from_sep_siblings"]
 
         # }}}
 
@@ -1577,7 +1578,7 @@ class FMMTraversalBuilder:
 
         fin_debug("finding separated smaller ('list 3')")
 
-        sep_smaller_base_args = (
+        from_sep_smaller_base_args = (
                 queue, len(target_boxes),
                 tree.box_centers.data, tree.root_extent, tree.box_levels.data,
                 tree.aligned_nboxes, tree.box_child_ids.data, tree.box_flags.data,
@@ -1586,44 +1587,44 @@ class FMMTraversalBuilder:
                 same_level_non_well_sep_boxes.lists.data,
                 )
 
-        sep_smaller_wait_for = []
-        sep_smaller_by_level = []
+        from_sep_smaller_wait_for = []
+        from_sep_smaller_by_level = []
 
         for ilevel in range(tree.nlevels):
             fin_debug("finding separated smaller ('list 3 level %d')" % ilevel)
 
-            result, evt = knl_info.sep_smaller_builder(
-                    *(sep_smaller_base_args + (ilevel,)),
-                    omit_lists=("sep_close_smaller",) if with_extent else (),
+            result, evt = knl_info.from_sep_smaller_builder(
+                    *(from_sep_smaller_base_args + (ilevel,)),
+                    omit_lists=("from_sep_close_smaller",) if with_extent else (),
                     wait_for=wait_for)
 
-            sep_smaller_by_level.append(result["sep_smaller"])
-            sep_smaller_wait_for.append(evt)
+            from_sep_smaller_by_level.append(result["from_sep_smaller"])
+            from_sep_smaller_wait_for.append(evt)
 
         if with_extent:
             fin_debug("finding separated smaller close ('list 3 close')")
-            result, evt = knl_info.sep_smaller_builder(
-                    *(sep_smaller_base_args + (-1,)),
-                    omit_lists=("sep_smaller",),
+            result, evt = knl_info.from_sep_smaller_builder(
+                    *(from_sep_smaller_base_args + (-1,)),
+                    omit_lists=("from_sep_smaller",),
                     wait_for=wait_for)
-            sep_close_smaller_starts = result["sep_close_smaller"].starts
-            sep_close_smaller_lists = result["sep_close_smaller"].lists
+            from_sep_close_smaller_starts = result["from_sep_close_smaller"].starts
+            from_sep_close_smaller_lists = result["from_sep_close_smaller"].lists
 
-            sep_smaller_wait_for.append(evt)
+            from_sep_smaller_wait_for.append(evt)
         else:
-            sep_close_smaller_starts = None
-            sep_close_smaller_lists = None
+            from_sep_close_smaller_starts = None
+            from_sep_close_smaller_lists = None
 
         # }}}
 
-        wait_for = sep_smaller_wait_for
-        del sep_smaller_wait_for
+        wait_for = from_sep_smaller_wait_for
+        del from_sep_smaller_wait_for
 
         # {{{ separated bigger ("list 4")
 
         fin_debug("finding separated bigger ('list 4')")
 
-        result, evt = knl_info.sep_bigger_builder(
+        result, evt = knl_info.from_sep_bigger_builder(
                 queue, len(target_or_target_parent_boxes),
                 tree.box_centers.data, tree.root_extent, tree.box_levels.data,
                 tree.aligned_nboxes, tree.box_child_ids.data, tree.box_flags.data,
@@ -1634,14 +1635,14 @@ class FMMTraversalBuilder:
                 wait_for=wait_for)
 
         wait_for = [evt]
-        sep_bigger = result["sep_bigger"]
+        from_sep_bigger = result["from_sep_bigger"]
 
         if with_extent:
-            sep_close_bigger_starts = result["sep_close_bigger"].starts
-            sep_close_bigger_lists = result["sep_close_bigger"].lists
+            from_sep_close_bigger_starts = result["from_sep_close_bigger"].starts
+            from_sep_close_bigger_lists = result["from_sep_close_bigger"].lists
         else:
-            sep_close_bigger_starts = None
-            sep_close_bigger_lists = None
+            from_sep_close_bigger_starts = None
+            from_sep_close_bigger_lists = None
 
         # }}}
 
@@ -1684,19 +1685,19 @@ class FMMTraversalBuilder:
                 neighbor_source_boxes_starts=neighbor_source_boxes.starts,
                 neighbor_source_boxes_lists=neighbor_source_boxes.lists,
 
-                sep_siblings_starts=sep_siblings.starts,
-                sep_siblings_lists=sep_siblings.lists,
+                from_sep_siblings_starts=from_sep_siblings.starts,
+                from_sep_siblings_lists=from_sep_siblings.lists,
 
-                sep_smaller_by_level=sep_smaller_by_level,
+                from_sep_smaller_by_level=from_sep_smaller_by_level,
 
-                sep_close_smaller_starts=sep_close_smaller_starts,
-                sep_close_smaller_lists=sep_close_smaller_lists,
+                from_sep_close_smaller_starts=from_sep_close_smaller_starts,
+                from_sep_close_smaller_lists=from_sep_close_smaller_lists,
 
-                sep_bigger_starts=sep_bigger.starts,
-                sep_bigger_lists=sep_bigger.lists,
+                from_sep_bigger_starts=from_sep_bigger.starts,
+                from_sep_bigger_lists=from_sep_bigger.lists,
 
-                sep_close_bigger_starts=sep_close_bigger_starts,
-                sep_close_bigger_lists=sep_close_bigger_lists,
+                from_sep_close_bigger_starts=from_sep_close_bigger_starts,
+                from_sep_close_bigger_lists=from_sep_close_bigger_lists,
                 ).with_queue(None), evt
 
     # }}}
