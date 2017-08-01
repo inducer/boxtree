@@ -355,7 +355,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t box_id)
 
             if (a_or_o)
             {
-                // walk_box_id lives on walk_stack_size+1.
+                // walk_box_id lives on level walk_stack_size+1.
                 if (walk_stack_size+1 == level && walk_box_id != box_id)
                 {
                     dbg_printf(("    found same-lev nws\n"));
