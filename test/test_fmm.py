@@ -328,7 +328,9 @@ def test_fmm_completeness(ctx_getter, dims, nsources_req, ntargets_req,
     from boxtree.traversal import FMMTraversalBuilder
     tbuild = FMMTraversalBuilder(ctx, well_sep_is_n_away=well_sep_is_n_away)
     trav, _ = tbuild(queue, tree, debug=True)
-    if trav.from_sep_close_smaller_starts is not None:
+
+    if who_has_extent:
+        pre_merge_trav = trav
         trav = trav.merge_close_lists(queue)
 
     #weights = np.random.randn(nsources)
@@ -337,6 +339,9 @@ def test_fmm_completeness(ctx_getter, dims, nsources_req, ntargets_req,
 
     host_trav = trav.get(queue=queue)
     host_tree = host_trav.tree
+
+    if who_has_extent:
+        pre_merge_host_trav = pre_merge_trav.get(queue=queue)
 
     from boxtree.tree import ParticleListFilter
     plfilt = ParticleListFilter(ctx)
@@ -444,7 +449,10 @@ def test_fmm_completeness(ctx_getter, dims, nsources_req, ntargets_req,
             pt.gca().set_aspect("equal")
 
             from boxtree.visualization import draw_box_lists
-            draw_box_lists(plotter, host_trav, 22)
+            draw_box_lists(
+                    plotter,
+                    pre_merge_host_trav if who_has_extent else host_trav,
+                    22)
             # from boxtree.visualization import draw_same_level_non_well_sep_boxes
             # draw_same_level_non_well_sep_boxes(plotter, host_trav, 2)
 
