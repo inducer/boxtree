@@ -178,6 +178,8 @@ class TreeBuilder(object):
             if stick_out_factor is None:
                 raise ValueError("if sources or targets have extent, "
                         "stick_out_factor must be explicitly specified")
+        else:
+            stick_out_factor = 0
 
         # }}}
 
