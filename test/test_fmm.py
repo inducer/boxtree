@@ -319,7 +319,7 @@ def test_fmm_completeness(ctx_getter, dims, nsources_req, ntargets_req,
     tree, _ = tb(queue, sources, targets=targets,
             max_particles_in_box=30,
             source_radii=source_radii, target_radii=target_radii,
-            debug=True)
+            debug=True, stick_out_factor=0.25)
     if 0:
         tree.get().plot()
         import matplotlib.pyplot as pt

@@ -76,7 +76,7 @@ class TreeBuilder(object):
     def __call__(self, queue, particles, kind="adaptive",
             max_particles_in_box=None, allocator=None, debug=False,
             targets=None, source_radii=None, target_radii=None,
-            stick_out_factor=0.25, refine_weights=None,
+            stick_out_factor=None, refine_weights=None,
             max_leaf_refine_weight=None, wait_for=None, **kwargs):
         """
         :arg queue: a :class:`pyopencl.CommandQueue` instance
@@ -173,6 +173,11 @@ class TreeBuilder(object):
             if target_radii.dtype != coord_dtype:
                 raise TypeError("dtypes of coordinate arrays and "
                         "target_radii must agree")
+
+        if sources_have_extent or targets_have_extent:
+            if stick_out_factor is None:
+                raise ValueError("if sources or targets have extent, "
+                        "stick_out_factor must be explicitly specified")
 
         # }}}
 
