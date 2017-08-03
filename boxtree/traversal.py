@@ -741,7 +741,7 @@ FROM_SEP_BIGGER_TEMPLATE = r"""//CL//
 void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
 {
     box_id_t tgt_ibox = target_or_target_parent_boxes[itarget_or_target_parent_box];
-    ${load_center("center", "tgt_ibox")}
+    ${load_center("tgt_center", "tgt_ibox")}
 
     int tgt_box_level = box_levels[tgt_ibox];
     // The root box has no parents, so no list 4.
@@ -795,8 +795,9 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
             if (box_flags[slnws_box_id] & BOX_HAS_OWN_SOURCES)
             {
                 ${load_center("slnws_center", "slnws_box_id")}
+
                 bool in_list_1 = is_adjacent_or_overlapping(root_extent,
-                    center, tgt_box_level,
+                    tgt_center, tgt_box_level,
                     slnws_center, walk_level);
 
                 if (!in_list_1)
@@ -804,7 +805,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
                     %if sources_have_extent or targets_have_extent:
                         const bool a_or_o_with_stick_out =
                             is_adjacent_or_overlapping_with_stick_out(root_extent,
-                                center, tgt_box_level,
+                                tgt_center, tgt_box_level,
                                 ${well_sep_is_n_away},
                                 slnws_center, walk_level,
                                 stick_out_factor);
@@ -836,17 +837,17 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
                                     /*
                                     From-sep-bigger boxes can only be in the
                                     parent's from-sep-bigger list if they're
-                                    actually bigger (or equal) to the target
+                                    actually bigger (or equal) to the parent
                                     box size.
 
                                     For 1-away, that's guaranteed at this
-                                    point, because we only start looking at the
-                                    parent's level, so any box we find here is
-                                    naturally big enough. For 2-away, we start
-                                    looking at the target box's level, so
-                                    slnws_box_id may actually be too small (at
-                                    too deep a level) to be in the parent's
-                                    from-sep-bigger list.
+                                    point, because we only start ascendng the
+                                    tree at the parent's level, so any box we
+                                    find here is naturally big enough. For
+                                    2-away, we start looking at the target
+                                    box's level, so slnws_box_id may actually
+                                    be too small (at too deep a level) to be in
+                                    the parent's from-sep-bigger list.
                                     */
 
                                     && walk_level < tgt_box_level
