@@ -1451,12 +1451,6 @@ class FMMTraversalBuilder:
         if not tree._is_pruned:
             raise ValueError("tree must be pruned for traversal generation")
 
-        if tree.sources_have_extent:
-            # YAGNI
-            raise NotImplementedError(
-                    "trees with source extent are not supported for "
-                    "traversal generation")
-
         # Generated code shouldn't depend on the *exact* number of tree levels.
         # So round up to the next multiple of 5.
         from pytools import div_ceil
