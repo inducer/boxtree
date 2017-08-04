@@ -867,7 +867,25 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
                             // "Case 3" above: A parent box was already far
                             // enough away to let the interaction into its
                             // local downward subtree. We'll get the interaction
-                            // that way. Nothing to do.
+                            // that way. Nothing to do, unless the box was too
+                            // close to the parent and ended up in the parent's
+                            // from_sep_close_bigger. If that's the case, we'll
+                            // simply let it enter the downward propagation
+                            // here.
+
+                            %if sources_have_extent or targets_have_extent:
+                                const bool a_or_o_parent_with_stick_out =
+                                    is_adjacent_or_overlapping_with_stick_out(root_extent,
+                                        parent_center, parent_level,
+                                        ${well_sep_is_n_away},
+                                        slnws_center, walk_level,
+                                        stick_out_factor);
+
+                                if (a_or_o_parent_with_stick_out)
+                                {
+                                    APPEND_from_sep_bigger(slnws_box_id);
+                                }
+                            %endif
                         }
                     }
                 }

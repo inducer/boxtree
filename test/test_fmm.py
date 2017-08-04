@@ -273,10 +273,6 @@ def test_fmm_completeness(ctx_getter, dims, nsources_req, ntargets_req,
     sources_have_extent = "s" in who_has_extent
     targets_have_extent = "t" in who_has_extent
 
-    # FIXME:
-    if who_has_extent and well_sep_is_n_away > 1:
-        pytest.skip("2-away with extents is not right yet")
-
     logging.basicConfig(level=logging.INFO)
 
     ctx = ctx_getter()
