@@ -741,7 +741,7 @@ FROM_SEP_BIGGER_TEMPLATE = r"""//CL//
 void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
 {
     box_id_t tgt_ibox = target_or_target_parent_boxes[itarget_or_target_parent_box];
-    ${load_center("tgt_center", "tgt_ibox")}
+    ${load_center("tgt_box_center", "tgt_ibox")}
 
     int tgt_box_level = box_levels[tgt_ibox];
     // The root box has no parents, so no list 4.
@@ -749,6 +749,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
         return;
 
     box_id_t parent_box_id = box_parent_ids[tgt_ibox];
+    const int parent_level = tgt_box_level - 1;
     ${load_center("parent_center", "parent_box_id")}
 
     box_flags_t tgt_box_flags = box_flags[tgt_ibox];
@@ -797,7 +798,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
                 ${load_center("slnws_center", "slnws_box_id")}
 
                 bool in_list_1 = is_adjacent_or_overlapping(root_extent,
-                    tgt_center, tgt_box_level,
+                    tgt_box_center, tgt_box_level,
                     slnws_center, walk_level);
 
                 if (!in_list_1)
@@ -805,7 +806,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
                     %if sources_have_extent or targets_have_extent:
                         const bool a_or_o_with_stick_out =
                             is_adjacent_or_overlapping_with_stick_out(root_extent,
-                                tgt_center, tgt_box_level,
+                                tgt_box_center, tgt_box_level,
                                 ${well_sep_is_n_away},
                                 slnws_center, walk_level,
                                 stick_out_factor);
@@ -826,7 +827,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
                     {
                         bool in_parent_list_1 =
                             is_adjacent_or_overlapping_with_stick_out(root_extent,
-                                parent_center, tgt_box_level-1,
+                                parent_center, parent_level,
                                 1,
                                 slnws_center, walk_level,
                                 stick_out_factor);
