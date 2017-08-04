@@ -665,76 +665,54 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
 
 # {{{ from separated bigger ("list 4")
 
-# "Normal" case: Sources/targets without extent
-# ---------------------------------------------
+# List 4 consists of lists that 'missed the boat' on entering the downward
+# propagation through list 2. That is, they are non-well-separated from the
+# target box itself or a box in its chain of parents.
 #
-# List 4 interactions for box "B" are about a parent P's colleague A not
-# adjacent to B.
+# To be in list 4, a box must have its own sources. In the no-extents case,
+# this will happen only if that box is a leaf, but for the with-extents case,
+# any box can have sources.
 #
-# -------|----------|----------|
-# Case   |    1     |    2     |
-#        | adj to A | adj to A |
-# -------|----------|----------|
-#        |          |          |
-# A---P  |    X !   |    X !   |
-#     |  |          |          |
-#     o  |    X     |    X     |
-#     |  |          |          |
-#     o  |    X     |    X     |
-#     |  |          |          |
-#     o  |    X     |    O     |
-#     |  |          |          |
-#     B  |    O !   |    O !   |
+# (Yes, you read that right--same-level non-well separated boxes *can* be in
+# list 4, although only for 2+-away. They *could* also use list 3, but that
+# would be less efficient because it would not make use of the downward
+# propagation.)
 #
-# Note that once a parent is no longer adjacent, its children won't be either.
+# For a box not well-separated from the target box or one of its parents, we
+# check whether the box is adjacent to our target box (in its list 1).  If so,
+# we don't need to conisder it (because the interaction to this box will be
+# mediated by list 1).
 #
-# (X: yes, O:no, exclamation marks denote that this *must* be the case. Entries
-# without exclamation mark are choices for this case)
+# Case I: Sources or targets do not have extent
 #
-# Case 2: A->B interaction enters the downward propagation at B, i.e. A is in
-#    B's "from_sep_bigger". (list 4)
+# In this case and once non-membership in list 1 has been verified, list 4
+# membership is simply a matter of deciding whether the source box's
+# contribution should enter the downward propagation at this target box or
+# whether it has already entered it at a parent of the target box.
 #
-# Case 3: A->B interaction entered the downward propagation at B's parent, i.e.
-#    A is not in B's "from_sep_bigger". (list 4)
+# It suffices to check this for the immediate parent because the check has to
+# be monotone: Child boxes are subsets of parent boxes, and therefore any
+# minimum distance requirement satisfied by the parent will also be satisfied
+# by the child. Thus, if the source box is in the target box's parent's list 4,
+# then it entered downward propgation with it or another ancestor.
+#
+# Case II: Sources or targets have extent
+#
+# The with-extents case is conceptually similar to the no-extents case, however
+# there is an extra 'separation requirement' based on the extents that, if not
+# satisfied, may prevent a source box from entering the downward propagation
+# at a given box. If we once again assume monotonicity of this 'separation
+# requirement' check, then simply verifying whether or not the interaction from
+# the source box would be *allowed* to enter the downward propagation at the
+# parent suffices to determine whether the target box may be responsible for
+# entering the source interaction into the downward propagation.
+#
+# In cases where the source box is not yet part of the downward propgation
+# received from the parent and also not eligible for entering downward
+# propagation at this box (noting that this can only happen in the with-extents
+# case), the interaction is added to the (non-downward-propagating) 'list 4
+# close' (from_sep_close_bigger).
 
-# Sources/targets with extent
-# ---------------------------
-#
-# List 4 interactions for box "B" are about a parent P's colleague A not
-# adjacent to B.
-#
-# -------|----------|----------|----------|
-# Case   |    1     |    2     |    3     |
-#        | so   adj | so   adj | so   adj |
-# -------|----------|----------|----------|
-#        |          |          |          |
-# A---P  | X!    X! | X!    X! | X!    X! |
-#     |  |          |          |          |
-#     o  | X     ?  | X     ?  | X     ?  |
-#     |  |          |          |          |
-#     o  | X     ?  | X     ?  | X     ?  |
-#     |  |          |          |          |
-#     o  | X     ?  | X     ?  | O     O  |
-#     |  |          |          |          |
-#     B  | X     O! | O     O! | O     O! |
-#
-# "so": adjacent or overlapping when stick-out is taken into account (to A)
-# "adj": adjacent to A without stick-out
-#
-# Note that once a parent is no longer "adj" or "so", its children won't be
-# either.  Also note that "adj" => "so". (And thereby "not so" => "not adj".)
-#
-# (X: yes, O:no, ?: doesn't matter, exclamation marks denote that this *must*
-# be the case. Entries without exclamation mark are choices for this case)
-#
-# Case 1: A->B interaction must be processed by direct eval because of "so",
-#    i.e. it is in B's "from_sep_close_bigger".
-#
-# Case 2: A->B interaction enters downward the propagation at B,
-#    i.e. it is in B's "from_sep_bigger".
-#
-# Case 3: A->B interaction enters downward the propagation at B's parent,
-#    i.e. A is not in B's "sep*bigger"
 
 FROM_SEP_BIGGER_TEMPLATE = r"""//CL//
 
@@ -769,12 +747,14 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
         box_id_t current_parent_box_id = tgt_ibox;
     %endif
 
-    // Look for same-level non-well-separated boxes of parents that are
-    // non-adjacent to tgt_ibox.
-    // Walk up the tree from tgt_ibox.
+    /*
+    Look for same-level non-well-separated boxes of parents that are
+    non-adjacent to tgt_ibox.
+    Walk up the tree from tgt_ibox.
 
-    // Box 0 (== level 0) doesn't have any slnws boxes, so we can stop the
-    // search for such slnws boxes there.
+    Box 0 (== level 0) doesn't have any slnws boxes, so we can stop the
+    search for such slnws boxes there.
+    */
     for (; walk_level != 0;
             // {{{ advance
             --walk_level,
@@ -804,18 +784,26 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
                 if (!in_list_1)
                 {
                     %if sources_have_extent or targets_have_extent:
-                        const bool a_or_o_with_stick_out =
-                            is_adjacent_or_overlapping_with_stick_out(root_extent,
+                        /*
+                        With-extent list 4 separation criterion.
+                        Needs to be monotone.  (see main comment narrative
+                        above for what that means) If you change this, also
+                        change the equivalent check for the parent, below.
+                        */
+                        const bool tgt_meets_with_ext_sep_criterion =
+                            !is_adjacent_or_overlapping_with_stick_out(root_extent,
                                 tgt_box_center, tgt_box_level,
                                 ${well_sep_is_n_away},
                                 slnws_center, walk_level,
                                 stick_out_factor);
 
-                    if (a_or_o_with_stick_out)
+                    if (!tgt_meets_with_ext_sep_criterion)
                     {
-                        // "Case 1" above: slnws_box_id is too close and
-                        // overlaps our stick_out region. We're obliged to do
-                        // the interaction directly.
+                        /*
+                        slnws_box_id failed the separation criterion (i.e.  is
+                        too close to the target box) for list 4 proper. Stick
+                        it in list 4 close.
+                        */
 
                         if (tgt_box_flags & BOX_HAS_OWN_TARGETS)
                         {
@@ -832,7 +820,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
                                 slnws_center, walk_level,
                                 stick_out_factor);
 
-                        bool in_parent_list_4 = (
+                        bool would_be_in_parent_list_4_not_considering_stickout = (
                                 !in_parent_list_1
                                 %if well_sep_is_n_away > 1:
                                     /*
@@ -855,37 +843,47 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
                                 %endif
                                 );
 
-                        if (!in_parent_list_4)
+                        if (would_be_in_parent_list_4_not_considering_stickout)
                         {
-                            // "Case 2" above: We're the first box down the chain
-                            // to be far enough away to let the interaction into
-                            // our local downward propagation.
-                            APPEND_from_sep_bigger(slnws_box_id);
-                        }
-                        else
-                        {
-                            // "Case 3" above: A parent box was already far
-                            // enough away to let the interaction into its
-                            // local downward subtree. We'll get the interaction
-                            // that way. Nothing to do, unless the box was too
-                            // close to the parent and ended up in the parent's
-                            // from_sep_close_bigger. If that's the case, we'll
-                            // simply let it enter the downward propagation
-                            // here.
+                            /*
+                            Our immediate parent box was already far enough
+                            away to (hypothetically) let the interaction into
+                            its downward propagation--so this happened either
+                            there or at a more distant ancestor. We'll get the
+                            interaction that way. Nothing to do, unless the box
+                            was too close to the parent and ended up in the
+                            parent's from_sep_close_bigger. If that's the case,
+                            we'll simply let it enter the downward propagation
+                            here.
+
+                            With-extent list 4 separation criterion.
+                            Needs to be monotone.  (see main comment narrative
+                            above for what that means) If you change this, also
+                            change the equivalent check for the target box, above.
+                            */
 
                             %if sources_have_extent or targets_have_extent:
-                                const bool a_or_o_parent_with_stick_out =
-                                    is_adjacent_or_overlapping_with_stick_out(root_extent,
+                                const bool parent_meets_with_ext_sep_criterion =
+                                    !is_adjacent_or_overlapping_with_stick_out(root_extent,
                                         parent_center, parent_level,
                                         ${well_sep_is_n_away},
                                         slnws_center, walk_level,
                                         stick_out_factor);
 
-                                if (a_or_o_parent_with_stick_out)
+                                if (!parent_meets_with_ext_sep_criterion)
                                 {
                                     APPEND_from_sep_bigger(slnws_box_id);
                                 }
                             %endif
+                        }
+                        else
+                        {
+                            /*
+                            We're the first box down the chain to be far enough
+                            away to let the interaction into our local downward
+                            propagation.
+                            */
+                            APPEND_from_sep_bigger(slnws_box_id);
                         }
                     }
                 }
