@@ -264,11 +264,12 @@ def draw_box_lists(tree_plotter, traversal, ibox):
             facecolor="purple")
 
     # list 4 close
-    _draw_box_list(tree_plotter, ibox,
-            traversal.from_sep_close_bigger_starts,
-            traversal.from_sep_close_bigger_lists,
-            key_to_box=traversal.target_or_target_parent_boxes,
-            facecolor="purple", hatch=".")
+    if traversal.from_sep_close_bigger_starts is not None:
+        _draw_box_list(tree_plotter, ibox,
+                traversal.from_sep_close_bigger_starts,
+                traversal.from_sep_close_bigger_lists,
+                key_to_box=traversal.target_or_target_parent_boxes,
+                facecolor="purple", hatch=".")
 
 # }}}
 
