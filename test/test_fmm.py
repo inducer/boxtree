@@ -425,7 +425,8 @@ def test_fmm_completeness(ctx_getter, dims, nsources_req, ntargets_req,
             print(src_boxes)
             print(tgt_boxes)
 
-            if 1:  # plot all sources/targets
+            # plot all sources/targets
+            if 0:
                 pt.plot(
                         host_tree.targets[0],
                         host_tree.targets[1],
@@ -434,14 +435,17 @@ def test_fmm_completeness(ctx_getter, dims, nsources_req, ntargets_req,
                         host_tree.sources[0],
                         host_tree.sources[1],
                         "gx", alpha=0.9)
-            pt.plot(
-                    host_tree.targets[0][tree_order_incorrect_tgts],
-                    host_tree.targets[1][tree_order_incorrect_tgts],
-                    "rv")
-            pt.plot(
-                    host_tree.sources[0][tree_order_incorrect_srcs],
-                    host_tree.sources[1][tree_order_incorrect_srcs],
-                    "go")
+
+            # plot offending sources/targets
+            if 0:
+                pt.plot(
+                        host_tree.targets[0][tree_order_incorrect_tgts],
+                        host_tree.targets[1][tree_order_incorrect_tgts],
+                        "rv")
+                pt.plot(
+                        host_tree.sources[0][tree_order_incorrect_srcs],
+                        host_tree.sources[1][tree_order_incorrect_srcs],
+                        "go")
             pt.gca().set_aspect("equal")
 
             from boxtree.visualization import draw_box_lists
