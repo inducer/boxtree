@@ -168,6 +168,27 @@ TRAVERSAL_PREAMBLE_TEMPLATE = (
 
 HELPER_FUNCTION_TEMPLATE = r"""//CL//
 
+/*
+These adjacency tests check the l^\infty distance between centers to check whether
+two boxes are adjacent or overlapping.
+
+Rather than a 'small floating point number', these adjacency test routines use the
+smaller of the source/target box radii as the floating point tolerance, which
+calls the following configuration 'adjacent' even though it actually is not:
+
+    +---------+     +---------+
+    |         |     |         |
+    |         |     |         |
+    |    o    |     |    o<--->
+    |         |  r  |       r |
+    |         |<--->|         |
+    +---------+     +---------+
+
+This is generically OK since one would expect the distance between the edge of
+a large box and the edge of a smaller box to be a integer multiple of the
+smaller box's diameter (which is twice its radius, our tolerance).
+*/
+
 inline bool is_adjacent_or_overlapping_with_stick_out(
     coord_t root_extent,
     // target and source order only matter if include_stick_out is true.
