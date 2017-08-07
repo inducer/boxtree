@@ -835,11 +835,9 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
                     %endif
                     {
                         bool in_parent_list_1 =
-                            is_adjacent_or_overlapping_with_stick_out(root_extent,
+                            is_adjacent_or_overlapping(root_extent,
                                 parent_center, parent_level,
-                                1,
-                                slnws_center, walk_level,
-                                stick_out_factor);
+                                slnws_center, walk_level);
 
                         bool would_be_in_parent_list_4_not_considering_stickout = (
                                 !in_parent_list_1
