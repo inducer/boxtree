@@ -636,7 +636,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
                     {
                     %if sources_have_extent or targets_have_extent:
                         // from_sep_smaller_source_level == -1 means "only build
-                        // build list 3 close", with sources on any level.
+                        // list 3 close", with sources on any level.
                         // This kernel will be run once per source level to
                         // generate per-level list 3, and once
                         // (not per level) to generate list 3 close.
@@ -680,7 +680,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
 #
 # For a box not well-separated from the target box or one of its parents, we
 # check whether the box is adjacent to our target box (in its list 1).  If so,
-# we don't need to conisder it (because the interaction to this box will be
+# we don't need to consider it (because the interaction to this box will be
 # mediated by list 1).
 #
 # Case I: Sources or targets do not have extent
@@ -694,7 +694,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
 # be monotone: Child boxes are subsets of parent boxes, and therefore any
 # minimum distance requirement satisfied by the parent will also be satisfied
 # by the child. Thus, if the source box is in the target box's parent's list 4,
-# then it entered downward propgation with it or another ancestor.
+# then it entered downward propagation with it or another ancestor.
 #
 # Case II: Sources or targets have extent
 #
@@ -707,7 +707,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
 # parent suffices to determine whether the target box may be responsible for
 # entering the source interaction into the downward propagation.
 #
-# In cases where the source box is not yet part of the downward propgation
+# In cases where the source box is not yet part of the downward propagation
 # received from the parent and also not eligible for entering downward
 # propagation at this box (noting that this can only happen in the with-extents
 # case), the interaction is added to the (non-downward-propagating) 'list 4
@@ -830,7 +830,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
                                     box size.
 
                                     For 1-away, that's guaranteed at this
-                                    point, because we only start ascendng the
+                                    point, because we only start ascending the
                                     tree at the parent's level, so any box we
                                     find here is naturally big enough. For
                                     2-away, we start looking at the target
@@ -1079,11 +1079,11 @@ class FMMTraversalInfo(DeviceDataRecord):
     (Note: This list contains global box numbers, not indices into
     :attr:`source_boxes`.)
 
-    If :attr:`boxtree.Tree.sources_have_extent`, then
+    If :attr:`boxtree.Tree.sources_have_extent` or
+    :attr:`boxtree.Tree.targets_have_extent`, then
     :attr:`from_sep_close_bigger_starts` will be non-*None*. It records
-    interactions between boxes that would ordinarily be handled
-    through "List 4", but must be evaluated specially/directly
-    because of :ref:`extent`.
+    interactions between boxes that would ordinarily be handled through "List
+    4", but must be evaluated specially/directly because of :ref:`extent`.
 
     Indexed like :attr:`target_or_target_parent_boxes`. See :ref:`csr`.
 
