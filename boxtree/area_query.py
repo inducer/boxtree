@@ -646,6 +646,7 @@ class AreaQueryBuilder(object):
             strict_undefined=True)
 
         render_vars = dict(
+            np=np,
             dimensions=dimensions,
             dtype_to_ctype=dtype_to_ctype,
             box_id_dtype=box_id_dtype,
