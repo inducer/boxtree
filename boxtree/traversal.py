@@ -626,7 +626,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
                                 walk_center, walk_level,
                                 stick_out_factor);
                     %else:
-                        const bool meets_sep_smaller_criterion = true;
+                        const bool meets_crit = true;
                     %endif
 
                     // We're no longer *immediately* adjacent to our target
