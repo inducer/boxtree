@@ -714,7 +714,6 @@ class ParticleListFilter(object):
         from pyopencl.tools import VectorArg, dtype_to_ctype
         from pyopencl.algorithm import ListOfListsBuilder
         from mako.template import Template
-        print("CACHE MISS 2")
 
         builder = ListOfListsBuilder(self.context,
             [("filt_tgt_list", particle_id_dtype)], Template("""//CL//
@@ -782,7 +781,6 @@ class ParticleListFilter(object):
         from boxtree.tree_build_kernels import (
                 TREE_ORDER_TARGET_FILTER_SCAN_TPL,
                 TREE_ORDER_TARGET_FILTER_INDEX_TPL)
-        print("CACHE MISS 3")
 
         scan_knl = TREE_ORDER_TARGET_FILTER_SCAN_TPL.build(
             self.context,
