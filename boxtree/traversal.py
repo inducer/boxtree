@@ -145,6 +145,8 @@ typedef ${dtype_to_ctype(box_id_dtype)} box_id_t;
 typedef ${dtype_to_ctype(coord_dtype)} coord_t;
 typedef ${dtype_to_ctype(vec_types_dict[coord_dtype, dimensions])} coord_vec_t;
 
+#define COORD_T_MACH_EPS ((coord_t) ${ repr(np.finfo(coord_dtype).eps) })
+
 #define NLEVELS ${max_levels}
 
 #define LEVEL_TO_RAD(level) \
@@ -189,50 +191,9 @@ a large box and the edge of a smaller box to be a integer multiple of the
 smaller box's diameter (which is twice its radius, our tolerance).
 */
 
-inline bool is_adjacent_or_overlapping_with_stick_out(
-    coord_t root_extent,
-    // target and source order only matter if include_stick_out is true.
-    coord_vec_t target_center, int target_level,
-    coord_t target_box_neighborhood_size,
-    coord_vec_t source_center, int source_level,
-    const coord_t stick_out_factor
-    )
-{
-    // This checks if the two boxes overlap
-    // with an amount of 'slack' corresponding to half the
-    // width of the smaller of the two boxes.
-    // (Without the 'slack', there wouldn't be any
-    // overlap.)
-
-    coord_t target_rad = LEVEL_TO_RAD(target_level);
-    coord_t source_rad = LEVEL_TO_RAD(source_level);
-    coord_t rad_sum = (
-        (2*(target_box_neighborhood_size-1) + 1) * target_rad
-        + source_rad);
-    coord_t slack = rad_sum + fmin(target_rad, source_rad);
-
-    slack += stick_out_factor * (
-        0
-        %if targets_have_extent:
-            + target_rad
-        %endif
-        %if sources_have_extent:
-            + source_rad
-        %endif
-        );
-
-    coord_t max_dist = 0;
-    %for i in range(dimensions):
-        max_dist = fmax(max_dist, fabs(target_center.s${i} - source_center.s${i}));
-    %endfor
-
-    return max_dist <= slack;
-}
-
 
 inline bool is_adjacent_or_overlapping_with_neighborhood(
     coord_t root_extent,
-    // note: order does not matter
     coord_vec_t target_center, int target_level,
     coord_t target_box_neighborhood_size,
     coord_vec_t source_center, int source_level)
@@ -248,12 +209,14 @@ inline bool is_adjacent_or_overlapping_with_neighborhood(
         + source_rad);
     coord_t slack = rad_sum + fmin(target_rad, source_rad);
 
-    coord_t max_dist = 0;
+    coord_t l_inf_dist = 0;
     %for i in range(dimensions):
-        max_dist = fmax(max_dist, fabs(target_center.s${i} - source_center.s${i}));
+        l_inf_dist = fmax(
+            l_inf_dist,
+            fabs(target_center.s${i} - source_center.s${i}));
     %endfor
 
-    return max_dist <= slack;
+    return l_inf_dist <= slack;
 }
 
 inline bool is_adjacent_or_overlapping(
@@ -545,6 +508,29 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
 
 FROM_SEP_SMALLER_TEMPLATE = r"""//CL//
 
+inline bool meets_sep_smaller_criterion(
+    coord_t root_extent,
+    coord_vec_t target_center, int target_level,
+    coord_vec_t source_center, int source_level,
+    coord_t stick_out_factor)
+{
+    coord_t target_rad = LEVEL_TO_RAD(target_level);
+    coord_t source_rad = LEVEL_TO_RAD(source_level);
+    coord_t max_allowed_center_l_inf_dist = (
+        3 * target_rad
+        + (1 + stick_out_factor) * source_rad);
+
+    coord_t l_inf_dist = 0;
+    %for i in range(dimensions):
+        l_inf_dist = fmax(
+            l_inf_dist,
+            fabs(target_center.s${i} - source_center.s${i}));
+    %endfor
+
+    return l_inf_dist >= max_allowed_center_l_inf_dist * (1 - 8 * COORD_T_MACH_EPS);
+}
+
+
 void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
 {
     // /!\ target_box_number is *not* a box_id, despite the type.
@@ -634,21 +620,20 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
                 else
                 {
                     %if sources_have_extent or targets_have_extent:
-                        const bool a_or_o_with_stick_out =
-                            is_adjacent_or_overlapping_with_stick_out(root_extent,
+                        const bool meets_crit =
+                            meets_sep_smaller_criterion(root_extent,
                                 center, level,
-                                1,
                                 walk_center, walk_level,
                                 stick_out_factor);
                     %else:
-                        const bool a_or_o_with_stick_out = false;
+                        const bool meets_sep_smaller_criterion = true;
                     %endif
 
                     // We're no longer *immediately* adjacent to our target
                     // box, but our stick-out regions might still have a
                     // non-empty intersection.
 
-                    if (!a_or_o_with_stick_out)
+                    if (meets_crit)
                     {
                         if (from_sep_smaller_source_level == walk_level)
                             APPEND_from_sep_smaller(walk_box_id);
@@ -737,6 +722,29 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
 
 FROM_SEP_BIGGER_TEMPLATE = r"""//CL//
 
+inline bool meets_sep_bigger_criterion(
+    coord_t root_extent,
+    coord_vec_t target_center, int target_level,
+    coord_vec_t source_center, int source_level,
+    coord_t stick_out_factor)
+{
+    coord_t target_rad = LEVEL_TO_RAD(target_level);
+    coord_t source_rad = LEVEL_TO_RAD(source_level);
+    coord_t max_allowed_center_l_inf_dist = (
+        3 * (1 + stick_out_factor) * target_rad
+        +  source_rad);
+
+    coord_t l_inf_dist = 0;
+    %for i in range(dimensions):
+        l_inf_dist = fmax(
+            l_inf_dist,
+            fabs(target_center.s${i} - source_center.s${i}));
+    %endfor
+
+    return l_inf_dist >= max_allowed_center_l_inf_dist * (1 - 8 * COORD_T_MACH_EPS);
+}
+
+
 void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
 {
     box_id_t tgt_ibox = target_or_target_parent_boxes[itarget_or_target_parent_box];
@@ -812,9 +820,8 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
                         change the equivalent check for the parent, below.
                         */
                         const bool tgt_meets_with_ext_sep_criterion =
-                            !is_adjacent_or_overlapping_with_stick_out(root_extent,
+                            meets_sep_bigger_criterion(root_extent,
                                 tgt_box_center, tgt_box_level,
-                                ${well_sep_is_n_away},
                                 slnws_center, walk_level,
                                 stick_out_factor);
 
@@ -883,9 +890,8 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
 
                             %if sources_have_extent or targets_have_extent:
                                 const bool parent_meets_with_ext_sep_criterion =
-                                    !is_adjacent_or_overlapping_with_stick_out(root_extent,
+                                    meets_sep_bigger_criterion(root_extent,
                                         parent_center, parent_level,
-                                        ${well_sep_is_n_away},
                                         slnws_center, walk_level,
                                         stick_out_factor);
 
@@ -1319,6 +1325,7 @@ class FMMTraversalBuilder:
         from pyopencl.tools import dtype_to_ctype
         from boxtree.tree import box_flags_enum
         render_vars = dict(
+                np=np,
                 dimensions=dimensions,
                 dtype_to_ctype=dtype_to_ctype,
                 particle_id_dtype=particle_id_dtype,
