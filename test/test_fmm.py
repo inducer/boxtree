@@ -455,15 +455,20 @@ def test_fmm_completeness(ctx_getter, dims, nsources_req, ntargets_req,
 # }}}
 
 
-# {{{ test Helmholtz fmm with pyfmmlib
+# {{{ test fmmlib integration
 
 @pytest.mark.parametrize("dims", [2, 3])
 @pytest.mark.parametrize("use_dipoles", [True, False])
-def test_pyfmmlib_fmm(ctx_getter, dims, use_dipoles):
+@pytest.mark.parametrize("helmholtz_k", [0, 2])
+def test_pyfmmlib_fmm(ctx_getter, dims, use_dipoles, helmholtz_k):
     logging.basicConfig(level=logging.INFO)
 
     from pytest import importorskip
     importorskip("pyfmmlib")
+
+    # FIXME
+    if helmholtz_k and dims == 2:
+        pytest.xfail("2D Laplace is not working yet")
 
     ctx = ctx_getter()
     queue = cl.CommandQueue(ctx)
@@ -471,8 +476,6 @@ def test_pyfmmlib_fmm(ctx_getter, dims, use_dipoles):
     nsources = 3000
     ntargets = 1000
     dtype = np.float64
-
-    helmholtz_k = 2
 
     sources = p_normal(queue, nsources, dims, dtype, seed=15)
     targets = (
@@ -522,7 +525,8 @@ def test_pyfmmlib_fmm(ctx_getter, dims, use_dipoles):
     import pyfmmlib
     fmmlib_routine = getattr(
             pyfmmlib,
-            "hpot%s%ddall%s_vec" % (
+            "%spot%s%ddall%s_vec" % (
+                wrangler.eqn_letter,
                 "fld" if dims == 3 else "grad",
                 dims,
                 "_dp" if use_dipoles else ""))
@@ -539,15 +543,18 @@ def test_pyfmmlib_fmm(ctx_getter, dims, use_dipoles):
         kwargs["dipvec"] = dipole_vec
     else:
         kwargs["charge"] = weights
+    if helmholtz_k:
+        kwargs["zk"] = helmholtz_k
+
     ref_pot = fmmlib_routine(
-            sources=sources_host.T, targets=targets_host.T, zk=helmholtz_k,
+            sources=sources_host.T, targets=targets_host.T,
             **kwargs)[0]
 
     # }}}
 
     rel_err = la.norm(pot - ref_pot, np.inf) / la.norm(ref_pot, np.inf)
     logger.info("relative l2 error: %g" % rel_err)
-    assert rel_err < 1e-5
+    assert rel_err < 1e-5, rel_err
 
 # }}}
 

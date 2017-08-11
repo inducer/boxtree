@@ -60,7 +60,7 @@ class FMMLibExpansionWrangler(object):
         self.dim = tree.dimensions
 
         common_extra_kwargs = {}
-        if self.dim == 3:
+        if self.dim == 3 and self.eqn_letter == "h":
             nquad = max(6, int(2.5*nterms))
             from pyfmmlib import legewhts
             xnodes, weights = legewhts(nquad, ifwhts=1)
@@ -235,7 +235,9 @@ class FMMLibExpansionWrangler(object):
         return result
 
     def expansion_shape(self, nterms):
-        if self.dim == 2:
+        if self.dim == 2 and self.eqn_letter == "l":
+            return (self.nterms+1,)
+        elif self.dim == 2 and self.eqn_letter == "h":
             return (2*self.nterms+1,)
         elif self.dim == 3:
             # This is the transpose of the Fortran format, to
@@ -404,7 +406,7 @@ class FMMLibExpansionWrangler(object):
                         child_center = tree.box_centers[:, child]
 
                         kwargs = {}
-                        if self.dim == 3:
+                        if self.dim == 3 and self.eqn_letter == "h":
                             kwargs["radius"] = tree.root_extent * 2**(-target_level)
 
                         kwargs.update(self.kernel_kwargs)
@@ -496,7 +498,7 @@ class FMMLibExpansionWrangler(object):
             rscale1_offsets = np.arange(nsrc_boxes)
 
             kwargs = {}
-            if self.dim == 3:
+            if self.dim == 3 and self.eqn_letter == "h":
                 kwargs["radius"] = (
                         tree.root_extent * 2**(-lev)
                         * np.ones(ntgt_boxes))
@@ -628,7 +630,7 @@ class FMMLibExpansionWrangler(object):
                 src_center = self.tree.box_centers[:, src_ibox]
 
                 kwargs = {}
-                if self.dim == 3:
+                if self.dim == 3 and self.eqn_letter == "h":
                     kwargs["radius"] = self.tree.root_extent * 2**(-target_lev)
 
                 kwargs.update(self.kernel_kwargs)
