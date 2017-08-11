@@ -545,7 +545,7 @@ def test_pyfmmlib_fmm(ctx_getter, dims, use_dipoles):
 
     # }}}
 
-    rel_err = la.norm(pot - ref_pot) / la.norm(ref_pot)
+    rel_err = la.norm(pot - ref_pot, np.inf) / la.norm(ref_pot, np.inf)
     logger.info("relative l2 error: %g" % rel_err)
     assert rel_err < 1e-5
 
