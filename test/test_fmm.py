@@ -466,9 +466,10 @@ def test_pyfmmlib_fmm(ctx_getter, dims, use_dipoles, helmholtz_k):
     from pytest import importorskip
     importorskip("pyfmmlib")
 
-    # FIXME
-    if helmholtz_k and dims == 2:
-        pytest.xfail("2D Laplace is not working yet")
+    if helmholtz_k == 0 and dims == 2 and use_dipoles:
+        # FIXME These use a complex-valued dipole strength.
+        # Code to handle that would need to be written.
+        pytest.skip("2D Laplace dipoles not yet implemented")
 
     ctx = ctx_getter()
     queue = cl.CommandQueue(ctx)
@@ -518,7 +519,7 @@ def test_pyfmmlib_fmm(ctx_getter, dims, use_dipoles, helmholtz_k):
     from boxtree.fmm import drive_fmm
     pot = drive_fmm(trav, wrangler, weights)
 
-    # {{{ ref computation
+    # {{{ ref fmmlib computation
 
     logger.info("computing direct (reference) result")
 
@@ -546,15 +547,63 @@ def test_pyfmmlib_fmm(ctx_getter, dims, use_dipoles, helmholtz_k):
     if helmholtz_k:
         kwargs["zk"] = helmholtz_k
 
-    ref_pot = fmmlib_routine(
-            sources=sources_host.T, targets=targets_host.T,
-            **kwargs)[0]
+    ref_pot = wrangler.finalize_potentials(
+            fmmlib_routine(
+                sources=sources_host.T, targets=targets_host.T,
+                **kwargs)[0]
+            )
+
+    rel_err = la.norm(pot - ref_pot, np.inf) / la.norm(ref_pot, np.inf)
+    logger.info("relative l2 error vs fmmlib direct: %g" % rel_err)
+    assert rel_err < 1e-5, rel_err
 
     # }}}
 
-    rel_err = la.norm(pot - ref_pot, np.inf) / la.norm(ref_pot, np.inf)
-    logger.info("relative l2 error: %g" % rel_err)
-    assert rel_err < 1e-5, rel_err
+    # {{{ check against sumpy
+
+    try:
+        import sumpy  # noqa
+    except ImportError:
+        have_sumpy = False
+        from warnings import warn
+        warn("sumpy unavailable: cannot compute independent reference "
+                "values for pyfmmlib")
+    else:
+        have_sumpy = True
+
+    if have_sumpy:
+        from sumpy.kernel import (
+                LaplaceKernel, HelmholtzKernel, DirectionalSourceDerivative)
+        from sumpy.p2p import P2P
+
+        sumpy_extra_kwargs = {}
+        if helmholtz_k:
+            knl = HelmholtzKernel(dims)
+            sumpy_extra_kwargs["k"] = helmholtz_k
+        else:
+            knl = LaplaceKernel(dims)
+
+        if use_dipoles:
+            knl = DirectionalSourceDerivative(knl)
+            sumpy_extra_kwargs["src_derivative_dir"] = dipole_vec
+
+        p2p = P2P(ctx,
+                [knl],
+                exclude_self=False)
+
+        evt, (sumpy_ref_pot,) = p2p(
+                queue, targets, sources, [weights],
+                out_host=True, **sumpy_extra_kwargs)
+
+        sumpy_rel_err = (
+                la.norm(pot - sumpy_ref_pot, np.inf)
+                /
+                la.norm(sumpy_ref_pot, np.inf))
+
+        logger.info("relative l2 error vs sumpy direct: %g" % sumpy_rel_err)
+        assert sumpy_rel_err < 1e-5, sumpy_rel_err
+
+    # }}}
 
 # }}}
 
