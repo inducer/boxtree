@@ -513,10 +513,15 @@ def test_pyfmmlib_fmm(ctx_getter, dims, use_dipoles, helmholtz_k):
     else:
         dipole_vec = None
 
+    if dims == 2 and helmholtz_k == 0:
+        base_nterms = 20
+    else:
+        base_nterms = 10
+
     from boxtree.pyfmmlib_integration import FMMLibExpansionWrangler
     wrangler = FMMLibExpansionWrangler(
             trav.tree, helmholtz_k,
-            nterms=11 if use_dipoles else 10,
+            nterms=base_nterms + (1 if use_dipoles else 0),
             dipole_vec=dipole_vec)
 
     from boxtree.fmm import drive_fmm
