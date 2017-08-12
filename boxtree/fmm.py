@@ -180,6 +180,9 @@ def drive_fmm(traversal, expansion_wrangler, src_weights):
     logger.debug("reorder potentials")
     result = wrangler.reorder_potentials(potentials)
 
+    logger.debug("finalize potentials")
+    result = wrangler.finalize_potentials(result)
+
     logger.info("fmm complete")
 
     return result
@@ -308,6 +311,13 @@ class ExpansionWranglerInterface:
         *local_exps* and return a new potential array.
 
         :returns: a new potential array, see :meth:`output_zeros`.
+        """
+
+    def finalize_potentials(self, potentials):
+        """
+        Postprocess the reordered potentials. This is where global scaling
+        factors could be applied. This is distinct from :meth:`reorder_potentials`
+        because some derived FMMs (notably the QBX FMM) do their own reordering.
         """
 
 # }}}

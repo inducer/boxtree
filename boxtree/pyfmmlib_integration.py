@@ -73,6 +73,11 @@ class FMMLibExpansionWrangler(object):
         self.common_extra_kwargs = common_extra_kwargs
 
         if dipole_vec is not None:
+            if self.eqn_letter == 2 and self.dim == 2:
+                # FIXME These use a complex-valued dipole strength.
+                # Code to handle that would need to be written.
+                raise NotImplementedError("2D Laplace dipoles")
+
             assert dipole_vec.shape == (self.dim, self.tree.nsources)
 
             if not dipoles_already_reordered:
@@ -673,5 +678,24 @@ class FMMLibExpansionWrangler(object):
                     output, tgt_pslice, tmp_pot, tmp_grad)
 
         return output
+
+    def finalize_potentials(self, potential):
+        if self.eqn_letter == "l" and self.dim == 2:
+            scale_factor = -1/(2*np.pi)
+        elif self.eqn_letter == "h" and self.dim == 2:
+            scale_factor = 1
+        elif self.eqn_letter in ["l", "h"] and self.dim == 3:
+            scale_factor = 1/(4*np.pi)
+        else:
+            raise NotImplementedError(
+                    "scale factor for pyfmmlib %s for %d dimensions" % (
+                        self.eqn_letter,
+                        self.dim))
+
+        if self.eqn_letter == "l" and self.dim == 2:
+            potential = potential.real
+
+        return potential * scale_factor
+
 
 # vim: foldmethod=marker
