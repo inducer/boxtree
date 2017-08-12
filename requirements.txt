@@ -5,4 +5,5 @@ git+https://github.com/inducer/loopy
 git+https://github.com/inducer/pyfmmlib
 
 # only for reference values for the fmmlib test
-git+https://github.com/inducer/sumpy
+# (unable to use--circular dep)
+# git+https://github.com/inducer/sumpy
