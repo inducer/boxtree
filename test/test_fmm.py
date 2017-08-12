@@ -194,6 +194,9 @@ class ConstantOneExpansionWrangler(object):
 
         return pot
 
+    def finalize_potentials(self, potentials):
+        return potentials
+
 
 class ConstantOneExpansionWranglerWithFilteredTargetsInTreeOrder(
         ConstantOneExpansionWrangler):
