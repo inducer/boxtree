@@ -106,9 +106,9 @@ class Tree(DeviceDataRecord):
 
     .. attribute:: stick_out_factor
 
-        The fraction of the box diameter by which the :math:`l^\infty` circles
-        given by :attr:`source_radii` may stick out the box in which they are
-        contained. A scalar.
+        The fraction of the (:math:`l^\infty`) box radius by which the
+        :math:`l^\infty` circles given by :attr:`source_radii` may stick out
+        the box in which they are contained. A scalar.
 
     .. attribute:: nsources
 
