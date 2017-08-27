@@ -89,12 +89,16 @@ class ConstantOneExpansionWrangler(object):
             source_parent_boxes, mpoles):
         tree = self.tree
 
-        # 2 is the last relevant source_level.
-        # 1 is the last relevant target_level.
-        # (Nobody needs a multipole on level 0, i.e. for the root box.)
-        for source_level in range(tree.nlevels-1, 1, -1):
+        # nlevels-1 is the last valid level index
+        # nlevels-2 is the last valid level that could have children
+        #
+        # 3 is the last relevant source_level.
+        # 2 is the last relevant target_level.
+        # (because no level 1 box will be well-separated from another)
+        for source_level in range(tree.nlevels-1, 2, -1):
+            target_level = source_level - 1
             start, stop = level_start_source_parent_box_nrs[
-                            source_level:source_level+2]
+                            target_level:target_level+2]
             for ibox in source_parent_boxes[start:stop]:
                 for child in tree.box_child_ids[:, ibox]:
                     if child:
