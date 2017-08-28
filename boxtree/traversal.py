@@ -671,9 +671,10 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
 
 # {{{ from separated bigger ("list 4")
 
-# List 4 consists of lists that 'missed the boat' on entering the downward
+# List 4 consists of source boxes that 'missed the boat' on entering the downward
 # propagation through list 2. That is, they are non-well-separated from the
-# target box itself or a box in its chain of parents.
+# target box itself or a box in its chain of parents. In addition, they are
+# not adjacent to the target box and have the same size or are bigger.
 #
 # To be in list 4, a box must have its own sources. In the no-extents case,
 # this will happen only if that box is a leaf, but for the with-extents case,
@@ -689,7 +690,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
 # we don't need to consider it (because the interaction to this box will be
 # mediated by list 1).
 #
-# Case I: Sources or targets do not have extent
+# Case I: Neither sources nor targets have extent
 #
 # In this case and once non-membership in list 1 has been verified, list 4
 # membership is simply a matter of deciding whether the source box's
@@ -769,7 +770,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
         int walk_level = tgt_box_level - 1;
         box_id_t current_parent_box_id = parent_box_id;
     %else:
-        // In a 2+-away FMM, tgt_ibox's same-level well-separated boxes *may*
+        // In a 2+-away FMM, tgt_ibox's same-level non-well-separated boxes *may*
         // be sufficiently separated from tgt_ibox to be in its list 4.
 
         int walk_level = tgt_box_level;
