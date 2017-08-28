@@ -415,6 +415,11 @@ class FMMLibExpansionWrangler(object):
             start, stop = level_start_source_parent_box_nrs[
                             target_level:target_level+2]
 
+            source_level_start_ibox, source_mpoles_view = \
+                    self.multipole_expansions_view(mpoles, source_level)
+            target_level_start_ibox, target_mpoles_view = \
+                    self.multipole_expansions_view(mpoles, target_level)
+
             for ibox in source_parent_boxes[start:stop]:
                 parent_center = tree.box_centers[:, ibox]
                 for child in tree.box_child_ids[:, ibox]:
@@ -430,7 +435,8 @@ class FMMLibExpansionWrangler(object):
                         new_mp = mpmp(
                                 rscale1=rscale,
                                 center1=child_center,
-                                expn1=mpoles[child].T,
+                                expn1=source_mpoles_view[
+                                    child - source_level_start_ibox].T,
 
                                 rscale2=rscale,
                                 center2=parent_center,
@@ -438,7 +444,8 @@ class FMMLibExpansionWrangler(object):
 
                                 **kwargs)
 
-                        mpoles[ibox] += new_mp[..., 0].T
+                        target_mpoles_view[
+                                ibox - target_level_start_ibox] += new_mp[..., 0].T
 
     def eval_direct(self, target_boxes, neighbor_sources_starts,
             neighbor_sources_lists, src_weights):
@@ -496,6 +503,11 @@ class FMMLibExpansionWrangler(object):
 
             starts_on_lvl = starts[lstart:lstop+1]
 
+            source_level_start_ibox, source_mpoles_view = \
+                    self.multipole_expansions_view(mpole_exps, lev)
+            target_level_start_ibox, target_local_exps_view = \
+                    self.local_expansions_view(local_exps, lev)
+
             ntgt_boxes = lstop-lstart
             itgt_box_vec = np.arange(ntgt_boxes)
             tgt_ibox_vec = target_or_target_parent_boxes[lstart:lstop]
@@ -542,8 +554,8 @@ class FMMLibExpansionWrangler(object):
                     center1_offsets=lists,
                     center1_starts=starts_on_lvl,
 
-                    expn1=mpole_exps.T,
-                    expn1_offsets=lists,
+                    expn1=source_mpoles_view.T,
+                    expn1_offsets=lists - source_level_start_ibox,
                     expn1_starts=starts_on_lvl,
 
                     rscale2=rscale2,
@@ -552,7 +564,7 @@ class FMMLibExpansionWrangler(object):
                     expn2=expn2.T,
                     **kwargs).T
 
-            local_exps[tgt_ibox_vec] += expn2
+            target_local_exps_view[tgt_ibox_vec - target_level_start_ibox] += expn2
 
         return local_exps
 
