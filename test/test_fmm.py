@@ -376,7 +376,6 @@ def test_fmm_completeness(ctx_getter, dims, nsources_req, ntargets_req,
 
     from boxtree.fmm import drive_fmm
     pot = drive_fmm(host_trav, wrangler, weights)
-    print(pot)
 
     if filter_kind:
         pot = pot[flags.get() > 0]
