@@ -1430,7 +1430,6 @@ class FMMTraversalBuilder:
                                 "same_level_non_well_sep_boxes_starts"),
                             VectorArg(box_id_dtype,
                                 "same_level_non_well_sep_boxes_lists"),
-                            #ScalarArg(box_id_dtype, "from_sep_bigger_source_level"),
                             ],
                             ["from_sep_close_bigger"]
                             if sources_have_extent or targets_have_extent
