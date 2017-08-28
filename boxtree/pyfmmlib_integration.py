@@ -34,6 +34,10 @@ __doc__ = """Integrates :mod:`boxtree` with
 """
 
 
+def level_to_rscale(tree, level):
+    return tree.root_extent * 2 ** -level
+
+
 class FMMLibExpansionWrangler(object):
     """Implements the :class:`boxtree.fmm.ExpansionWranglerInterface`
     by using pyfmmlib.
@@ -360,39 +364,46 @@ class FMMLibExpansionWrangler(object):
                     }
 
     def form_multipoles(self, level_start_source_box_nrs, source_boxes, src_weights):
-        rscale = 1  # FIXME
-
         formmp = self.get_routine("%ddformmp" + self.dp_suffix)
 
         mpoles = self.multipole_expansion_zeros()
-        for src_ibox in source_boxes:
-            pslice = self._get_source_slice(src_ibox)
-
-            if pslice.stop - pslice.start == 0:
+        for lev in range(self.tree.nlevels):
+            start, stop = level_start_source_box_nrs[lev:lev+2]
+            if start == stop:
                 continue
 
-            kwargs = {}
-            kwargs.update(self.kernel_kwargs)
-            kwargs.update(self.get_source_kwargs(src_weights, pslice))
+            level_start_ibox, mpoles_view = self.multipole_expansions_view(
+                    mpoles, lev)
 
-            ier, mpole = formmp(
-                    rscale=rscale,
-                    source=self._get_sources(pslice),
-                    center=self.tree.box_centers[:, src_ibox],
-                    nterms=self.nterms,
-                    **kwargs)
+            rscale = level_to_rscale(self.tree, lev)
 
-            if ier:
-                raise RuntimeError("formmp failed")
+            for src_ibox in source_boxes[start:stop]:
+                pslice = self._get_source_slice(src_ibox)
 
-            mpoles[src_ibox] = mpole.T
+                if pslice.stop - pslice.start == 0:
+                    continue
+
+                kwargs = {}
+                kwargs.update(self.kernel_kwargs)
+                kwargs.update(self.get_source_kwargs(src_weights, pslice))
+
+                ier, mpole = formmp(
+                        rscale=rscale,
+                        source=self._get_sources(pslice),
+                        center=self.tree.box_centers[:, src_ibox],
+                        nterms=self.nterms,
+                        **kwargs)
+
+                if ier:
+                    raise RuntimeError("formmp failed")
+
+                mpoles_view[src_ibox-level_start_ibox] = mpole.T
 
         return mpoles
 
     def coarsen_multipoles(self, level_start_source_parent_box_nrs,
             source_parent_boxes, mpoles):
         tree = self.tree
-        rscale = 1  # FIXME
 
         mpmp = self.get_translation_routine("%ddmpmp")
 
@@ -407,6 +418,14 @@ class FMMLibExpansionWrangler(object):
             start, stop = level_start_source_parent_box_nrs[
                             target_level:target_level+2]
 
+            source_level_start_ibox, source_mpoles_view = \
+                    self.multipole_expansions_view(mpoles, source_level)
+            target_level_start_ibox, target_mpoles_view = \
+                    self.multipole_expansions_view(mpoles, target_level)
+
+            source_rscale = level_to_rscale(tree, source_level)
+            target_rscale = level_to_rscale(tree, target_level)
+
             for ibox in source_parent_boxes[start:stop]:
                 parent_center = tree.box_centers[:, ibox]
                 for child in tree.box_child_ids[:, ibox]:
@@ -420,17 +439,19 @@ class FMMLibExpansionWrangler(object):
                         kwargs.update(self.kernel_kwargs)
 
                         new_mp = mpmp(
-                                rscale1=rscale,
+                                rscale1=source_rscale,
                                 center1=child_center,
-                                expn1=mpoles[child].T,
+                                expn1=source_mpoles_view[
+                                    child - source_level_start_ibox].T,
 
-                                rscale2=rscale,
+                                rscale2=target_rscale,
                                 center2=parent_center,
                                 nterms2=self.nterms,
 
                                 **kwargs)
 
-                        mpoles[ibox] += new_mp[..., 0].T
+                        target_mpoles_view[
+                                ibox - target_level_start_ibox] += new_mp[..., 0].T
 
     def eval_direct(self, target_boxes, neighbor_sources_starts,
             neighbor_sources_lists, src_weights):
@@ -488,6 +509,11 @@ class FMMLibExpansionWrangler(object):
 
             starts_on_lvl = starts[lstart:lstop+1]
 
+            source_level_start_ibox, source_mpoles_view = \
+                    self.multipole_expansions_view(mpole_exps, lev)
+            target_level_start_ibox, target_local_exps_view = \
+                    self.local_expansions_view(local_exps, lev)
+
             ntgt_boxes = lstop-lstart
             itgt_box_vec = np.arange(ntgt_boxes)
             tgt_ibox_vec = target_or_target_parent_boxes[lstart:lstop]
@@ -501,8 +527,9 @@ class FMMLibExpansionWrangler(object):
             src_boxes_starts[0] = 0
             src_boxes_starts[1:] = np.cumsum(nsrc_boxes_per_tgt_box)
 
-            # FIXME
-            rscale1 = np.ones(nsrc_boxes)
+            rscale = level_to_rscale(tree, lev)
+
+            rscale1 = np.ones(nsrc_boxes) * rscale
             rscale1_offsets = np.arange(nsrc_boxes)
 
             kwargs = {}
@@ -511,8 +538,7 @@ class FMMLibExpansionWrangler(object):
                         tree.root_extent * 2**(-lev)
                         * np.ones(ntgt_boxes))
 
-            # FIXME
-            rscale2 = np.ones(ntgt_boxes, np.float64)
+            rscale2 = np.ones(ntgt_boxes, np.float64) * rscale
 
             # These get max'd/added onto: pass initialized versions.
             if self.dim == 3:
@@ -534,8 +560,8 @@ class FMMLibExpansionWrangler(object):
                     center1_offsets=lists,
                     center1_starts=starts_on_lvl,
 
-                    expn1=mpole_exps.T,
-                    expn1_offsets=lists,
+                    expn1=source_mpoles_view.T,
+                    expn1_offsets=lists - source_level_start_ibox,
                     expn1_starts=starts_on_lvl,
 
                     rscale2=rscale2,
@@ -544,7 +570,7 @@ class FMMLibExpansionWrangler(object):
                     expn2=expn2.T,
                     **kwargs).T
 
-            local_exps[tgt_ibox_vec] += expn2
+            target_local_exps_view[tgt_ibox_vec - target_level_start_ibox] += expn2
 
         return local_exps
 
@@ -552,11 +578,14 @@ class FMMLibExpansionWrangler(object):
             sep_smaller_nonsiblings_by_level, mpole_exps):
         output = self.output_zeros()
 
-        rscale = 1
-
         mpeval = self.get_expn_eval_routine("mp")
 
-        for ssn in sep_smaller_nonsiblings_by_level:
+        for isrc_level, ssn in enumerate(sep_smaller_nonsiblings_by_level):
+            source_level_start_ibox, source_mpoles_view = \
+                    self.multipole_expansions_view(mpole_exps, isrc_level)
+
+            rscale = level_to_rscale(self.tree, isrc_level)
+
             for itgt_box, tgt_ibox in enumerate(target_boxes):
                 tgt_pslice = self._get_target_slice(tgt_ibox)
 
@@ -571,7 +600,8 @@ class FMMLibExpansionWrangler(object):
                     tmp_pot, tmp_grad = mpeval(
                             rscale=rscale,
                             center=self.tree.box_centers[:, src_ibox],
-                            expn=mpole_exps[src_ibox].T,
+                            expn=source_mpoles_view[
+                                src_ibox - source_level_start_ibox].T,
                             ztarg=self._get_targets(tgt_pslice),
                             **self.kernel_kwargs)
 
@@ -586,51 +616,70 @@ class FMMLibExpansionWrangler(object):
     def form_locals(self,
             level_start_target_or_target_parent_box_nrs,
             target_or_target_parent_boxes, starts, lists, src_weights):
-        rscale = 1  # FIXME
         local_exps = self.local_expansion_zeros()
 
         formta = self.get_routine("%ddformta" + self.dp_suffix)
 
-        for itgt_box, tgt_ibox in enumerate(target_or_target_parent_boxes):
-            start, end = starts[itgt_box:itgt_box+2]
+        for lev in range(self.tree.nlevels):
+            lev_start, lev_stop = \
+                    level_start_target_or_target_parent_box_nrs[lev:lev+2]
+            if lev_start == lev_stop:
+                continue
 
-            contrib = 0
+            target_level_start_ibox, target_local_exps_view = \
+                    self.local_expansions_view(local_exps, lev)
 
-            for src_ibox in lists[start:end]:
-                src_pslice = self._get_source_slice(src_ibox)
-                tgt_center = self.tree.box_centers[:, tgt_ibox]
+            rscale = level_to_rscale(self.tree, lev)
 
-                if src_pslice.stop - src_pslice.start == 0:
-                    continue
+            for itgt_box, tgt_ibox in enumerate(
+                    target_or_target_parent_boxes[lev_start:lev_stop]):
+                start, end = starts[lev_start+itgt_box:lev_start+itgt_box+2]
 
-                kwargs = {}
-                kwargs.update(self.kernel_kwargs)
-                kwargs.update(self.get_source_kwargs(src_weights, src_pslice))
+                contrib = 0
 
-                ier, mpole = formta(
-                        rscale=rscale,
-                        source=self._get_sources(src_pslice),
-                        center=tgt_center,
-                        nterms=self.nterms,
-                        **kwargs)
-                if ier:
-                    raise RuntimeError("formta failed")
+                for src_ibox in lists[start:end]:
+                    src_pslice = self._get_source_slice(src_ibox)
+                    tgt_center = self.tree.box_centers[:, tgt_ibox]
 
-                contrib = contrib + mpole.T
+                    if src_pslice.stop - src_pslice.start == 0:
+                        continue
 
-            local_exps[tgt_ibox] = contrib
+                    kwargs = {}
+                    kwargs.update(self.kernel_kwargs)
+                    kwargs.update(self.get_source_kwargs(src_weights, src_pslice))
+
+                    ier, mpole = formta(
+                            rscale=rscale,
+                            source=self._get_sources(src_pslice),
+                            center=tgt_center,
+                            nterms=self.nterms,
+                            **kwargs)
+                    if ier:
+                        raise RuntimeError("formta failed")
+
+                    contrib = contrib + mpole.T
+
+                target_local_exps_view[tgt_ibox-target_level_start_ibox] = contrib
 
         return local_exps
 
     def refine_locals(self, level_start_target_or_target_parent_box_nrs,
             target_or_target_parent_boxes, local_exps):
-        rscale = 1  # FIXME
 
         locloc = self.get_translation_routine("%ddlocloc")
 
         for target_lev in range(1, self.tree.nlevels):
             start, stop = level_start_target_or_target_parent_box_nrs[
                     target_lev:target_lev+2]
+
+            source_lev = target_lev - 1
+
+            source_level_start_ibox, source_local_exps_view = \
+                    self.local_expansions_view(local_exps, source_lev)
+            target_level_start_ibox, target_local_exps_view = \
+                    self.local_expansions_view(local_exps, target_lev)
+            source_rscale = level_to_rscale(self.tree, source_lev)
+            target_rscale = level_to_rscale(self.tree, target_lev)
 
             for tgt_ibox in target_or_target_parent_boxes[start:stop]:
                 tgt_center = self.tree.box_centers[:, tgt_ibox]
@@ -643,42 +692,53 @@ class FMMLibExpansionWrangler(object):
 
                 kwargs.update(self.kernel_kwargs)
                 tmp_loc_exp = locloc(
-                            rscale1=rscale,
+                            rscale1=source_rscale,
                             center1=src_center,
-                            expn1=local_exps[src_ibox].T,
+                            expn1=source_local_exps_view[
+                                src_ibox - source_level_start_ibox].T,
 
-                            rscale2=rscale,
+                            rscale2=target_rscale,
                             center2=tgt_center,
                             nterms2=self.nterms,
 
                             **kwargs)[..., 0]
 
-                local_exps[tgt_ibox] += tmp_loc_exp.T
+                target_local_exps_view[
+                        tgt_ibox - target_level_start_ibox] += tmp_loc_exp.T
 
         return local_exps
 
     def eval_locals(self, level_start_target_box_nrs, target_boxes, local_exps):
         output = self.output_zeros()
-        rscale = 1  # FIXME
-
         taeval = self.get_expn_eval_routine("ta")
 
-        for tgt_ibox in target_boxes:
-            tgt_pslice = self._get_target_slice(tgt_ibox)
-
-            if tgt_pslice.stop - tgt_pslice.start == 0:
+        for lev in range(self.tree.nlevels):
+            start, stop = level_start_target_box_nrs[lev:lev+2]
+            if start == stop:
                 continue
 
-            tmp_pot, tmp_grad = taeval(
-                    rscale=rscale,
-                    center=self.tree.box_centers[:, tgt_ibox],
-                    expn=local_exps[tgt_ibox].T,
-                    ztarg=self._get_targets(tgt_pslice),
+            source_level_start_ibox, source_local_exps_view = \
+                    self.local_expansions_view(local_exps, lev)
 
-                    **self.kernel_kwargs)
+            rscale = level_to_rscale(self.tree, lev)
 
-            self.add_potgrad_onto_output(
-                    output, tgt_pslice, tmp_pot, tmp_grad)
+            for tgt_ibox in target_boxes[start:stop]:
+                tgt_pslice = self._get_target_slice(tgt_ibox)
+
+                if tgt_pslice.stop - tgt_pslice.start == 0:
+                    continue
+
+                tmp_pot, tmp_grad = taeval(
+                        rscale=rscale,
+                        center=self.tree.box_centers[:, tgt_ibox],
+                        expn=source_local_exps_view[
+                            tgt_ibox - source_level_start_ibox].T,
+                        ztarg=self._get_targets(tgt_pslice),
+
+                        **self.kernel_kwargs)
+
+                self.add_potgrad_onto_output(
+                        output, tgt_pslice, tmp_pot, tmp_grad)
 
         return output
 
