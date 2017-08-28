@@ -37,16 +37,23 @@ logger = logging.getLogger(__name__)
 
 # {{{ preamble
 
+# This 'walk' mechanism walks over 'child' boxes in the tree.
+
 TRAVERSAL_PREAMBLE_MAKO_DEFS = r"""//CL:mako//
 <%def name="walk_init(start_box_id)">
-    box_id_t box_stack[NLEVELS];
-    int morton_nr_stack[NLEVELS];
+    box_id_t walk_box_stack[NLEVELS];
+    int walk_morton_nr_stack[NLEVELS];
 
     // start at root
-    int walk_level = 0;
-    box_id_t walk_box_id = ${start_box_id};
+    int walk_stack_size = 0;
+    box_id_t walk_parent_box_id = ${start_box_id};
     int walk_morton_nr = 0;
     bool continue_walk = true;
+</%def>
+
+<%def name="walk_get_box_id()">
+    box_id_t walk_box_id = box_child_ids[
+        walk_morton_nr * aligned_nboxes + walk_parent_box_id];
 </%def>
 
 <%def name="walk_advance()">
@@ -59,13 +66,17 @@ TRAVERSAL_PREAMBLE_MAKO_DEFS = r"""//CL:mako//
         // Ran out of children, pull the next guy off the stack
         // and advance him.
 
-        continue_walk = walk_level > 0;
+        continue_walk = (
+            // Stack empty? Abort.
+            walk_stack_size > 0
+            );
+
         if (continue_walk)
         {
-            --walk_level;
+            --walk_stack_size;
             dbg_printf(("    ascend\n"));
-            walk_box_id = box_stack[walk_level];
-            walk_morton_nr = morton_nr_stack[walk_level];
+            walk_parent_box_id = walk_box_stack[walk_stack_size];
+            walk_morton_nr = walk_morton_nr_stack[walk_stack_size];
         }
         else
         {
@@ -76,19 +87,19 @@ TRAVERSAL_PREAMBLE_MAKO_DEFS = r"""//CL:mako//
 </%def>
 
 <%def name="walk_push(new_box)">
-    box_stack[walk_level] = walk_box_id;
-    morton_nr_stack[walk_level] = walk_morton_nr;
-    ++walk_level;
+    walk_box_stack[walk_stack_size] = walk_parent_box_id;
+    walk_morton_nr_stack[walk_stack_size] = walk_morton_nr;
+    ++walk_stack_size;
 
     %if debug:
-    if (walk_level >= NLEVELS)
+    if (walk_stack_size >= NLEVELS)
     {
         dbg_printf(("  ** ERROR: overran levels stack\n"));
         return;
     }
     %endif
 
-    walk_box_id = ${new_box};
+    walk_parent_box_id = ${new_box};
     walk_morton_nr = 0;
 </%def>
 
@@ -134,6 +145,8 @@ typedef ${dtype_to_ctype(box_id_dtype)} box_id_t;
 typedef ${dtype_to_ctype(coord_dtype)} coord_t;
 typedef ${dtype_to_ctype(vec_types_dict[coord_dtype, dimensions])} coord_vec_t;
 
+#define COORD_T_MACH_EPS ((coord_t) ${ repr(np.finfo(coord_dtype).eps) })
+
 #define NLEVELS ${max_levels}
 
 #define LEVEL_TO_RAD(level) \
@@ -157,62 +170,66 @@ TRAVERSAL_PREAMBLE_TEMPLATE = (
 
 HELPER_FUNCTION_TEMPLATE = r"""//CL//
 
-inline bool is_adjacent_or_overlapping_with_stick_out(
+/*
+These adjacency tests check the l^\infty distance between centers to check whether
+two boxes are adjacent or overlapping.
+
+Rather than a 'small floating point number', these adjacency test routines use the
+smaller of the source/target box radii as the floating point tolerance, which
+calls the following configuration 'adjacent' even though it actually is not:
+
+    +---------+     +---------+
+    |         |     |         |
+    |         |     |         |
+    |    o    |     |    o<--->
+    |         |  r  |       r |
+    |         |<--->|         |
+    +---------+     +---------+
+
+This is generically OK since one would expect the distance between the edge of
+a large box and the edge of a smaller box to be a integer multiple of the
+smaller box's diameter (which is twice its radius, our tolerance).
+*/
+
+
+inline bool is_adjacent_or_overlapping_with_neighborhood(
     coord_t root_extent,
-    // target and source order only matter if include_stick_out is true.
     coord_vec_t target_center, int target_level,
-    coord_vec_t source_center, int source_level,
-    const coord_t stick_out_factor
-    )
+    coord_t target_box_neighborhood_size,
+    coord_vec_t source_center, int source_level)
 {
-    // This checks if the two boxes overlap
-    // with an amount of 'slack' corresponding to half the
-    // width of the smaller of the two boxes.
-    // (Without the 'slack', there wouldn't be any
-    // overlap.)
+    // This checks if the source box overlaps the target box
+    // including a neighborhood of target_box_neighborhood_size boxes
+    // of the same size as the target box.
 
     coord_t target_rad = LEVEL_TO_RAD(target_level);
     coord_t source_rad = LEVEL_TO_RAD(source_level);
-    coord_t rad_sum = target_rad + source_rad;
+    coord_t rad_sum = (
+        (2*(target_box_neighborhood_size-1) + 1) * target_rad
+        + source_rad);
     coord_t slack = rad_sum + fmin(target_rad, source_rad);
 
-    slack += stick_out_factor * (
-        0
-        %if targets_have_extent:
-            + target_rad
-        %endif
-        %if sources_have_extent:
-            + source_rad
-        %endif
-        );
-
-    coord_t max_dist = 0;
+    coord_t l_inf_dist = 0;
     %for i in range(dimensions):
-        max_dist = fmax(max_dist, fabs(target_center.s${i} - source_center.s${i}));
+        l_inf_dist = fmax(
+            l_inf_dist,
+            fabs(target_center.s${i} - source_center.s${i}));
     %endfor
 
-    return max_dist <= slack;
+    return l_inf_dist <= slack;
 }
-
 
 inline bool is_adjacent_or_overlapping(
     coord_t root_extent,
     // note: order does not matter
     coord_vec_t target_center, int target_level,
-    coord_vec_t source_center, int source_level) {
-    // This checks if the two boxes overlap.
-
-    coord_t target_rad = LEVEL_TO_RAD(target_level);
-    coord_t source_rad = LEVEL_TO_RAD(source_level);
-    coord_t rad_sum = target_rad + source_rad;
-    coord_t slack = rad_sum + fmin(target_rad, source_rad);
-
-    coord_t max_dist = 0;
-    %for i in range(dimensions):
-        max_dist = fmax(max_dist, fabs(target_center.s${i} - source_center.s${i}));
-    %endfor
-
-    return max_dist <= slack;
+    coord_vec_t source_center, int source_level)
+{
+    return is_adjacent_or_overlapping_with_neighborhood(
+        root_extent,
+        target_center, target_level,
+        1,
+        source_center, source_level);
 }
 
 """
@@ -281,9 +298,9 @@ LEVEL_START_BOX_NR_EXTRACTOR_TEMPLATE = ElementwiseTemplate(
 
 # }}}
 
-# {{{ colleagues
+# {{{ same-level non-well-separated boxes (generalization of "colleagues")
 
-COLLEAGUES_TEMPLATE = r"""//CL//
+SAME_LEVEL_NON_WELL_SEP_BOXES_TEMPLATE = r"""//CL//
 
 void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t box_id)
 {
@@ -291,7 +308,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t box_id)
 
     if (box_id == 0)
     {
-        // The root has no colleagues.
+        // The root has no boxes on the same level, nws or not.
         return;
     }
 
@@ -299,31 +316,34 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t box_id)
 
     dbg_printf(("box id: %d level: %d\n", box_id, level));
 
-    // To find this box's colleagues, start at the top of the tree, descend
+    // To find this box's same-level nws boxes, start at the top of the tree, descend
     // into adjacent (or overlapping) parents.
     ${walk_init(0)}
 
     while (continue_walk)
     {
-        box_id_t child_box_id = box_child_ids[
-                walk_morton_nr * aligned_nboxes + walk_box_id];
-        dbg_printf(("  level: %d walk box id: %d morton: %d child id: %d\n",
-            walk_level, walk_box_id, walk_morton_nr, child_box_id));
+        ${walk_get_box_id()}
 
-        if (child_box_id)
+        dbg_printf(("  level: %d walk parent box id: %d morton: %d child id: %d\n",
+            walk_stack_size, walk_parent_box_id, walk_morton_nr, walk_box_id));
+
+        if (walk_box_id)
         {
-            ${load_center("child_center", "child_box_id")}
+            ${load_center("walk_center", "walk_box_id")}
 
-            bool a_or_o = is_adjacent_or_overlapping(root_extent,
-                center, level, child_center, box_levels[child_box_id]);
+            bool a_or_o = is_adjacent_or_overlapping_with_neighborhood(
+                    root_extent,
+                    center, level,
+                    ${well_sep_is_n_away},
+                    walk_center, box_levels[walk_box_id]);
 
             if (a_or_o)
             {
-                // child_box_id lives on walk_level+1.
-                if (walk_level+1 == level  && child_box_id != box_id)
+                // walk_box_id lives on level walk_stack_size+1.
+                if (walk_stack_size+1 == level && walk_box_id != box_id)
                 {
-                    dbg_printf(("    colleague\n"));
-                    APPEND_colleagues(child_box_id);
+                    dbg_printf(("    found same-lev nws\n"));
+                    APPEND_same_level_non_well_sep_boxes(walk_box_id);
                 }
                 else
                 {
@@ -331,7 +351,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t box_id)
                     // on the stack.
 
                     dbg_printf(("    descend\n"));
-                    ${walk_push("child_box_id")}
+                    ${walk_push("walk_box_id")}
 
                     continue;
                 }
@@ -379,34 +399,35 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
         }
     }
 
-    // To find this box's colleagues, start at the top of the tree, descend
+    // To find this box's adjacent boxes, start at the top of the tree, descend
     // into adjacent (or overlapping) parents.
     ${walk_init(0)}
 
     while (continue_walk)
     {
-        box_id_t child_box_id = box_child_ids[
-                walk_morton_nr * aligned_nboxes + walk_box_id];
+        ${walk_get_box_id()}
 
-        dbg_printf(("  walk box id: %d morton: %d child id: %d level: %d\n",
-            walk_box_id, walk_morton_nr, child_box_id, walk_level));
+        dbg_printf(("  walk parent box id: %d morton: %d child id: %d level: %d\n",
+            walk_parent_box_id, walk_morton_nr, walk_box_id, walk_stack_size));
 
-        if (child_box_id)
+        if (walk_box_id)
         {
-            ${load_center("child_center", "child_box_id")}
+            ${load_center("walk_center", "walk_box_id")}
 
-            bool a_or_o = is_adjacent_or_overlapping(root_extent,
-                center, level, child_center, box_levels[child_box_id]);
+            bool a_or_o = is_adjacent_or_overlapping(
+                root_extent,
+                center, level,
+                walk_center, box_levels[walk_box_id]);
 
             if (a_or_o)
             {
-                box_flags_t flags = box_flags[child_box_id];
-                /* child_box_id == box_id is ok */
+                box_flags_t flags = box_flags[walk_box_id];
+                /* walk_box_id == box_id is ok */
                 if (flags & BOX_HAS_OWN_SOURCES)
                 {
                     dbg_printf(("    neighbor source box\n"));
 
-                    APPEND_neighbor_source_boxes(child_box_id);
+                    APPEND_neighbor_source_boxes(walk_box_id);
                 }
 
                 if (flags & BOX_HAS_CHILD_SOURCES)
@@ -416,7 +437,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
 
                     dbg_printf(("    descend\n"));
 
-                    ${walk_push("child_box_id")}
+                    ${walk_push("walk_box_id")}
 
                     continue;
                 }
@@ -435,9 +456,9 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
 
 # }}}
 
-# {{{ well-separated siblings ("list 2")
+# {{{ from well-separated siblings ("list 2")
 
-SEP_SIBLINGS_TEMPLATE = r"""//CL//
+FROM_SEP_SIBLINGS_TEMPLATE = r"""//CL//
 
 void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
 {
@@ -451,27 +472,30 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
     if (parent == box_id)
         return;
 
-    box_id_t parent_coll_start = colleagues_starts[parent];
-    box_id_t parent_coll_stop = colleagues_starts[parent+1];
+    box_id_t parent_slnf_start = same_level_non_well_sep_boxes_starts[parent];
+    box_id_t parent_slnf_stop = same_level_non_well_sep_boxes_starts[parent+1];
 
-    // /!\ i is not a box_id, it's an index into colleagues_list.
-    for (box_id_t i = parent_coll_start; i < parent_coll_stop; ++i)
+    // /!\ i is not a box_id, it's an index into same_level_non_well_sep_boxes_list.
+    for (box_id_t i = parent_slnf_start; i < parent_slnf_stop; ++i)
     {
-        box_id_t parent_colleague = colleagues_list[i];
+        box_id_t parent_nf = same_level_non_well_sep_boxes_lists[i];
 
         for (int morton_nr = 0; morton_nr < ${2**dimensions}; ++morton_nr)
         {
             box_id_t sib_box_id = box_child_ids[
-                    morton_nr * aligned_nboxes + parent_colleague];
+                    morton_nr * aligned_nboxes + parent_nf];
 
             ${load_center("sib_center", "sib_box_id")}
 
-            bool sep = !is_adjacent_or_overlapping(root_extent,
-                center, level, sib_center, box_levels[sib_box_id]);
+            bool sep = !is_adjacent_or_overlapping_with_neighborhood(
+                root_extent,
+                center, level,
+                ${well_sep_is_n_away},
+                sib_center, box_levels[sib_box_id]);
 
             if (sep)
             {
-                APPEND_sep_siblings(sib_box_id);
+                APPEND_from_sep_siblings(sib_box_id);
             }
         }
     }
@@ -482,7 +506,30 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
 
 # {{{ from separated smaller ("list 3")
 
-SEP_SMALLER_TEMPLATE = r"""//CL//
+FROM_SEP_SMALLER_TEMPLATE = r"""//CL//
+
+inline bool meets_sep_smaller_criterion(
+    coord_t root_extent,
+    coord_vec_t target_center, int target_level,
+    coord_vec_t source_center, int source_level,
+    coord_t stick_out_factor)
+{
+    coord_t target_rad = LEVEL_TO_RAD(target_level);
+    coord_t source_rad = LEVEL_TO_RAD(source_level);
+    coord_t max_allowed_center_l_inf_dist = (
+        3 * target_rad
+        + (1 + stick_out_factor) * source_rad);
+
+    coord_t l_inf_dist = 0;
+    %for i in range(dimensions):
+        l_inf_dist = fmax(
+            l_inf_dist,
+            fabs(target_center.s${i} - source_center.s${i}));
+    %endfor
+
+    return l_inf_dist >= max_allowed_center_l_inf_dist * (1 - 8 * COORD_T_MACH_EPS);
+}
+
 
 void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
 {
@@ -495,20 +542,30 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
 
     int level = box_levels[box_id];
 
-    box_id_t coll_start = colleagues_starts[box_id];
-    box_id_t coll_stop = colleagues_starts[box_id+1];
+    box_id_t slnws_start = same_level_non_well_sep_boxes_starts[box_id];
+    box_id_t slnws_stop = same_level_non_well_sep_boxes_starts[box_id+1];
 
-    // /!\ i is not a box_id, it's an index into colleagues_list.
-    for (box_id_t i = coll_start; i < coll_stop; ++i)
+    // /!\ i is not a box_id, it's an index into same_level_non_well_sep_boxes_lists.
+    for (box_id_t i = slnws_start; i < slnws_stop; ++i)
     {
-        box_id_t colleague = colleagues_list[i];
+        box_id_t same_lev_nws_box = same_level_non_well_sep_boxes_lists[i];
 
-        ${walk_init("colleague")}
+        if (same_lev_nws_box == box_id)
+            continue;
+
+        // Colleagues (same-level NWS boxes) for 1-away are always adjacent, so
+        // we always want to descend into them. For 2-away, we may already
+        // satisfy the criteria for being in list 3 and therefore may never
+        // need to descend. Hence include the start box in the search here
+        // if we're in the two-or-more-away case.
+        ${walk_init("same_lev_nws_box")}
 
         while (continue_walk)
         {
-            // Loop invariant: walk_box_id is, at first, always adjacent to box_id.
-            // This is true at the first level because colleagues are by adjacent
+            // Loop invariant:
+            // walk_parent_box_id is, at first, always adjacent to box_id.
+            //
+            // This is true at the first level because colleagues are adjacent
             // by definition, and is kept true throughout the walk by only descending
             // into adjacent boxes.
             //
@@ -516,46 +573,45 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
             // non-adjacent to box_id.
             //
             // If neither sources nor targets have extent, then that
-            // nonadjacent child box is added to box_id's sep_smaller ("list 3
+            // nonadjacent child box is added to box_id's from_sep_smaller ("list 3
             // far") and that's it.
             //
             // If they have extent, then while they may be separated, the
             // intersection of box_id's and the child box's stick-out region
             // may be non-empty, and we thus need to add that child to
-            // sep_close_smaller ("list 3 close") for the interaction to be
+            // from_sep_close_smaller ("list 3 close") for the interaction to be
             // done by direct evaluation. We also need to descend into that
             // child.
 
-            box_id_t child_box_id = box_child_ids[
-                    walk_morton_nr * aligned_nboxes + walk_box_id];
+            ${walk_get_box_id()}
 
-            dbg_printf(("  walk box id: %d morton: %d child id: %d\n",
-                walk_box_id, walk_morton_nr, child_box_id));
+            dbg_printf(("  walk parent box id: %d morton: %d child id: %d\n",
+                walk_parent_box_id, walk_morton_nr, walk_box_id));
 
-            box_flags_t child_box_flags = box_flags[child_box_id];
+            box_flags_t child_box_flags = box_flags[walk_box_id];
 
-            if (child_box_id &&
+            if (walk_box_id &&
                     (child_box_flags &
                             (BOX_HAS_OWN_SOURCES | BOX_HAS_CHILD_SOURCES)))
             {
-                ${load_center("child_center", "child_box_id")}
+                ${load_center("walk_center", "walk_box_id")}
 
-                int child_level = box_levels[child_box_id];
+                int walk_level = box_levels[walk_box_id];
 
-                bool a_or_o = is_adjacent_or_overlapping(root_extent,
-                    center, level, child_center, child_level);
+                bool in_list_1 = is_adjacent_or_overlapping(root_extent,
+                    center, level, walk_center, walk_level);
 
-                if (a_or_o)
+                if (in_list_1)
                 {
                     if (child_box_flags & BOX_HAS_CHILD_SOURCES)
                     {
                         // We want to descend into this box. Put the current state
                         // on the stack.
 
-                        if (child_level <= sep_smaller_source_level
-                                || sep_smaller_source_level == -1)
+                        if (walk_level <= from_sep_smaller_source_level
+                                || from_sep_smaller_source_level == -1)
                         {
-                            ${walk_push("child_box_id")}
+                            ${walk_push("walk_box_id")}
                             continue;
                         }
                         // otherwise there's no point to descending further.
@@ -564,47 +620,47 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
                 else
                 {
                     %if sources_have_extent or targets_have_extent:
-                        const bool a_or_o_with_stick_out =
-                            is_adjacent_or_overlapping_with_stick_out(root_extent,
-                                center, level, child_center,
-                                child_level, stick_out_factor);
+                        const bool meets_crit =
+                            meets_sep_smaller_criterion(root_extent,
+                                center, level,
+                                walk_center, walk_level,
+                                stick_out_factor);
                     %else:
-                        const bool a_or_o_with_stick_out = false;
+                        const bool meets_crit = true;
                     %endif
 
                     // We're no longer *immediately* adjacent to our target
                     // box, but our stick-out regions might still have a
                     // non-empty intersection.
 
-                    if (!a_or_o_with_stick_out)
+                    if (meets_crit)
                     {
-                        if (sep_smaller_source_level == child_level)
-                            APPEND_sep_smaller(child_box_id);
+                        if (from_sep_smaller_source_level == walk_level)
+                            APPEND_from_sep_smaller(walk_box_id);
                     }
                     else
                     {
                     %if sources_have_extent or targets_have_extent:
-                        // sep_smaller_source_level == -1 means "only build
-                        // build list 3 close", with sources on any level.
+                        // from_sep_smaller_source_level == -1 means "only build
+                        // list 3 close", with sources on any level.
                         // This kernel will be run once per source level to
                         // generate per-level list 3, and once
                         // (not per level) to generate list 3 close.
 
                         if (
                                (child_box_flags & BOX_HAS_OWN_SOURCES)
-                               && (sep_smaller_source_level == -1))
-                            APPEND_sep_close_smaller(child_box_id);
+                               && (from_sep_smaller_source_level == -1))
+                            APPEND_from_sep_close_smaller(walk_box_id);
 
                         if (child_box_flags & BOX_HAS_CHILD_SOURCES)
                         {
-                            ${walk_push("child_box_id")}
+                            ${walk_push("walk_box_id")}
                             continue;
                         }
                     %endif
                     }
                 }
             }
-
             ${walk_advance()}
         }
     }
@@ -615,165 +671,245 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
 
 # {{{ from separated bigger ("list 4")
 
-# "Normal" case: Sources/targets without extent
-# ---------------------------------------------
+# List 4 consists of source boxes that 'missed the boat' on entering the downward
+# propagation through list 2. That is, they are non-well-separated from the
+# target box itself or a box in its chain of parents. In addition, they are
+# not adjacent to the target box and have the same size or are bigger.
 #
-# List 4 interactions for box "B" are about a parent P's colleague A not
-# adjacent to B.
+# To be in list 4, a box must have its own sources. In the no-extents case,
+# this will happen only if that box is a leaf, but for the with-extents case,
+# any box can have sources.
 #
-# -------|----------|----------|
-# Case   |    1     |    2     |
-#        | adj to A | adj to A |
-# -------|----------|----------|
-#        |          |          |
-# A---P  |    X !   |    X !   |
-#     |  |          |          |
-#     o  |    X     |    X     |
-#     |  |          |          |
-#     o  |    X     |    X     |
-#     |  |          |          |
-#     o  |    X     |    O     |
-#     |  |          |          |
-#     B  |    O !   |    O !   |
+# (Yes, you read that right--same-level non-well separated boxes *can* be in
+# list 4, although only for 2+-away. They *could* also use list 3, but that
+# would be less efficient because it would not make use of the downward
+# propagation.)
 #
-# Note that once a parent is no longer adjacent, its children won't be either.
+# For a box not well-separated from the target box or one of its parents, we
+# check whether the box is adjacent to our target box (in its list 1).  If so,
+# we don't need to consider it (because the interaction to this box will be
+# mediated by list 1).
 #
-# (X: yes, O:no, exclamation marks denote that this *must* be the case. Entries
-# without exclamation mark are choices for this case)
+# Case I: Neither sources nor targets have extent
 #
-# Case 1: A->B interaction enters the downward propagation at B, i.e. A is in
-#    B's "sep_bigger". (list 4)
+# In this case and once non-membership in list 1 has been verified, list 4
+# membership is simply a matter of deciding whether the source box's
+# contribution should enter the downward propagation at this target box or
+# whether it has already entered it at a parent of the target box.
 #
-# Case 2: A->B interaction entered the downward propagation at B's parent, i.e.
-#    A is not in B's "sep_bigger". (list 4)
+# It suffices to check this for the immediate parent because the check has to
+# be monotone: Child boxes are subsets of parent boxes, and therefore any
+# minimum distance requirement satisfied by the parent will also be satisfied
+# by the child. Thus, if the source box is in the target box's parent's list 4,
+# then it entered downward propagation with it or another ancestor.
+#
+# Case II: Sources or targets have extent
+#
+# The with-extents case is conceptually similar to the no-extents case, however
+# there is an extra 'separation requirement' based on the extents that, if not
+# satisfied, may prevent a source box from entering the downward propagation
+# at a given box. If we once again assume monotonicity of this 'separation
+# requirement' check, then simply verifying whether or not the interaction from
+# the source box would be *allowed* to enter the downward propagation at the
+# parent suffices to determine whether the target box may be responsible for
+# entering the source interaction into the downward propagation.
+#
+# In cases where the source box is not yet part of the downward propagation
+# received from the parent and also not eligible for entering downward
+# propagation at this box (noting that this can only happen in the with-extents
+# case), the interaction is added to the (non-downward-propagating) 'list 4
+# close' (from_sep_close_bigger).
 
-# Sources/targets with extent
-# ---------------------------
-#
-# List 4 interactions for box "B" are about a parent P's colleague A not
-# adjacent to B.
-#
-# -------|----------|----------|----------|
-# Case   |    1     |    2     |    3     |
-#        | so   adj | so   adj | so   adj |
-# -------|----------|----------|----------|
-#        |          |          |          |
-# A---P  | X!    X! | X!    X! | X!    X! |
-#     |  |          |          |          |
-#     o  | X     ?  | X     ?  | X     ?  |
-#     |  |          |          |          |
-#     o  | X     ?  | X     ?  | X     ?  |
-#     |  |          |          |          |
-#     o  | X     ?  | X     ?  | O     O  |
-#     |  |          |          |          |
-#     B  | X     O! | O     O! | O     O! |
-#
-# "so": adjacent or overlapping when stick-out is taken into account (to A)
-# "adj": adjacent to A without stick-out
-#
-# Note that once a parent is no longer "adj" or "so", its children won't be
-# either.  Also note that "adj" => "so". (And there by "not so" => "not adj".)
-#
-# (X: yes, O:no, ?: doesn't matter, exclamation marks denote that this *must*
-# be the case. Entries without exclamation mark are choices for this case)
-#
-# Case 1: A->B interaction must be processed by direct eval because of "so",
-#    i.e. it is in B's "sep_close_bigger".
-#
-# Case 2: A->B interaction enters downward the propagation at B,
-#    i.e. it is in B's "sep_bigger".
-#
-# Case 3: A->B interaction enters downward the propagation at B's parent,
-#    i.e. A is not in B's "sep*bigger"
 
-SEP_BIGGER_TEMPLATE = r"""//CL//
+FROM_SEP_BIGGER_TEMPLATE = r"""//CL//
+
+inline bool meets_sep_bigger_criterion(
+    coord_t root_extent,
+    coord_vec_t target_center, int target_level,
+    coord_vec_t source_center, int source_level,
+    coord_t stick_out_factor)
+{
+    coord_t target_rad = LEVEL_TO_RAD(target_level);
+    coord_t source_rad = LEVEL_TO_RAD(source_level);
+    coord_t max_allowed_center_l_inf_dist = (
+        3 * (1 + stick_out_factor) * target_rad
+        +  source_rad);
+
+    coord_t l_inf_dist = 0;
+    %for i in range(dimensions):
+        l_inf_dist = fmax(
+            l_inf_dist,
+            fabs(target_center.s${i} - source_center.s${i}));
+    %endfor
+
+    return l_inf_dist >= max_allowed_center_l_inf_dist * (1 - 8 * COORD_T_MACH_EPS);
+}
+
 
 void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
 {
     box_id_t tgt_ibox = target_or_target_parent_boxes[itarget_or_target_parent_box];
-    ${load_center("center", "tgt_ibox")}
+    ${load_center("tgt_box_center", "tgt_ibox")}
 
-    int box_level = box_levels[tgt_ibox];
+    int tgt_box_level = box_levels[tgt_ibox];
     // The root box has no parents, so no list 4.
-    if (box_level == 0)
+    if (tgt_box_level == 0)
         return;
 
     box_id_t parent_box_id = box_parent_ids[tgt_ibox];
+    const int parent_level = tgt_box_level - 1;
     ${load_center("parent_center", "parent_box_id")}
-
-    box_id_t current_parent_box_id = parent_box_id;
-    int walk_level = box_level - 1;
 
     box_flags_t tgt_box_flags = box_flags[tgt_ibox];
 
-    // Look for colleagues of parents that are non-adjacent to tgt_ibox.
-    // Walk up the tree from tgt_ibox.
+    %if well_sep_is_n_away == 1:
+        // In a 1-away FMM, tgt_ibox's colleagues are by default uninteresting
+        // (i.e. not in list 4) because they're adjacent. So in this case, we
+        // may directly jump to the parent level.
 
-    // Box 0 (== level 0) doesn't have any colleagues, so we can stop the
-    // search for such colleagues there.
-    for (int walk_level = box_level - 1; walk_level != 0;
+        int walk_level = tgt_box_level - 1;
+        box_id_t current_parent_box_id = parent_box_id;
+    %else:
+        // In a 2+-away FMM, tgt_ibox's same-level non-well-separated boxes *may*
+        // be sufficiently separated from tgt_ibox to be in its list 4.
+
+        int walk_level = tgt_box_level;
+        box_id_t current_parent_box_id = tgt_ibox;
+    %endif
+
+    /*
+    Look for same-level non-well-separated boxes of parents that are
+    non-adjacent to tgt_ibox.
+    Walk up the tree from tgt_ibox.
+
+    Box 0 (== level 0) doesn't have any slnws boxes, so we can stop the
+    search for such slnws boxes there.
+    */
+    for (; walk_level != 0;
             // {{{ advance
             --walk_level,
             current_parent_box_id = box_parent_ids[current_parent_box_id]
             // }}}
             )
     {
-        box_id_t coll_start = colleagues_starts[current_parent_box_id];
-        box_id_t coll_stop = colleagues_starts[current_parent_box_id+1];
+        box_id_t slnws_start =
+            same_level_non_well_sep_boxes_starts[current_parent_box_id];
+        box_id_t slnws_stop =
+            same_level_non_well_sep_boxes_starts[current_parent_box_id+1];
 
-        // /!\ i is not a box id, it's an index into colleagues_list.
-        for (box_id_t i = coll_start; i < coll_stop; ++i)
+        // /!\ i is not a box id, it's an index into
+        // same_level_non_well_sep_boxes_lists.
+        for (box_id_t i = slnws_start; i < slnws_stop; ++i)
         {
-            box_id_t colleague_box_id = colleagues_list[i];
+            box_id_t slnws_box_id = same_level_non_well_sep_boxes_lists[i];
 
-            if (box_flags[colleague_box_id] & BOX_HAS_OWN_SOURCES)
+            if (box_flags[slnws_box_id] & BOX_HAS_OWN_SOURCES)
             {
-                ${load_center("colleague_center", "colleague_box_id")}
-                bool a_or_o = is_adjacent_or_overlapping(root_extent,
-                    center, box_level, colleague_center, walk_level);
+                ${load_center("slnws_center", "slnws_box_id")}
 
-                if (!a_or_o)
+                bool in_list_1 = is_adjacent_or_overlapping(root_extent,
+                    tgt_box_center, tgt_box_level,
+                    slnws_center, walk_level);
+
+                if (!in_list_1)
                 {
-                    // Found one.
-
                     %if sources_have_extent or targets_have_extent:
-                        const bool a_or_o_with_stick_out =
-                            is_adjacent_or_overlapping_with_stick_out(root_extent,
-                                center, box_level, colleague_center,
-                                walk_level, stick_out_factor);
+                        /*
+                        With-extent list 4 separation criterion.
+                        Needs to be monotone.  (see main comment narrative
+                        above for what that means) If you change this, also
+                        change the equivalent check for the parent, below.
+                        */
+                        const bool tgt_meets_with_ext_sep_criterion =
+                            meets_sep_bigger_criterion(root_extent,
+                                tgt_box_center, tgt_box_level,
+                                slnws_center, walk_level,
+                                stick_out_factor);
 
-                    if (a_or_o_with_stick_out)
+                    if (!tgt_meets_with_ext_sep_criterion)
                     {
-                        // "Case 1" above: colleague_box_id is too close and
-                        // overlaps our stick_out region. We're obliged to do
-                        // the interaction directly.
+                        /*
+                        slnws_box_id failed the separation criterion (i.e.  is
+                        too close to the target box) for list 4 proper. Stick
+                        it in list 4 close.
+                        */
 
                         if (tgt_box_flags & BOX_HAS_OWN_TARGETS)
                         {
-                            APPEND_sep_close_bigger(colleague_box_id);
+                            APPEND_from_sep_close_bigger(slnws_box_id);
                         }
                     }
                     else
                     %endif
                     {
-                        bool parent_a_or_o_with_stick_out =
-                            is_adjacent_or_overlapping_with_stick_out(root_extent,
-                                parent_center, box_level-1, colleague_center,
-                                walk_level, stick_out_factor);
+                        bool in_parent_list_1 =
+                            is_adjacent_or_overlapping(root_extent,
+                                parent_center, parent_level,
+                                slnws_center, walk_level);
 
-                        if (parent_a_or_o_with_stick_out)
+                        bool would_be_in_parent_list_4_not_considering_stickout = (
+                                !in_parent_list_1
+                                %if well_sep_is_n_away > 1:
+                                    /*
+                                    From-sep-bigger boxes can only be in the
+                                    parent's from-sep-bigger list if they're
+                                    actually bigger (or equal) to the parent
+                                    box size.
+
+                                    For 1-away, that's guaranteed at this
+                                    point, because we only start ascending the
+                                    tree at the parent's level, so any box we
+                                    find here is naturally big enough. For
+                                    2-away, we start looking at the target
+                                    box's level, so slnws_box_id may actually
+                                    be too small (at too deep a level) to be in
+                                    the parent's from-sep-bigger list.
+                                    */
+
+                                    && walk_level < tgt_box_level
+                                %endif
+                                );
+
+                        if (would_be_in_parent_list_4_not_considering_stickout)
                         {
-                            // "Case 2" above: We're the first box down the chain
-                            // to be far enough away to let the interaction into
-                            // our local downward subtree.
-                            APPEND_sep_bigger(colleague_box_id);
+                            /*
+                            Our immediate parent box was already far enough
+                            away to (hypothetically) let the interaction into
+                            its downward propagation--so this happened either
+                            there or at a more distant ancestor. We'll get the
+                            interaction that way. Nothing to do, unless the box
+                            was too close to the parent and ended up in the
+                            parent's from_sep_close_bigger. If that's the case,
+                            we'll simply let it enter the downward propagation
+                            here.
+
+                            With-extent list 4 separation criterion.
+                            Needs to be monotone.  (see main comment narrative
+                            above for what that means) If you change this, also
+                            change the equivalent check for the target box, above.
+                            */
+
+                            %if sources_have_extent or targets_have_extent:
+                                const bool parent_meets_with_ext_sep_criterion =
+                                    meets_sep_bigger_criterion(root_extent,
+                                        parent_center, parent_level,
+                                        slnws_center, walk_level,
+                                        stick_out_factor);
+
+                                if (!parent_meets_with_ext_sep_criterion)
+                                {
+                                    APPEND_from_sep_bigger(slnws_box_id);
+                                }
+                            %endif
                         }
                         else
                         {
-                            // "Case 2" above: A parent box was already far
-                            // enough away to let the interaction into its
-                            // local downward subtree. We'll get the interaction
-                            // that way. Nothing to do.
+                            /*
+                            We're the first box down the chain to be far enough
+                            away to let the interaction into our local downward
+                            propagation.
+                            */
+                            APPEND_from_sep_bigger(slnws_box_id);
                         }
                     }
                 }
@@ -792,7 +928,7 @@ class FMMTraversalInfo(DeviceDataRecord):
     """Interaction lists needed for a fast-multipole-like linear-time gather of
     particle interactions.
 
-    Terminology follows this article:
+    Terminology (largely) follows this article:
 
         Carrier, J., Greengard, L. and Rokhlin, V. "A Fast
         Adaptive Multipole Algorithm for Particle Simulations." SIAM Journal on
@@ -805,6 +941,12 @@ class FMMTraversalInfo(DeviceDataRecord):
     .. attribute:: tree
 
         An instance of :class:`boxtree.Tree`.
+
+    .. attribute:: well_sep_is_n_away
+
+        The distance (measured in target box diameters in the :math:`l^\infty`
+        norm) from the edge of the target box at which the 'well-separated'
+        (i.e. M2L-handled) 'far-field' starts.
 
     .. ------------------------------------------------------------------------
     .. rubric:: Basic box lists for iteration
@@ -872,16 +1014,21 @@ class FMMTraversalInfo(DeviceDataRecord):
         each level starts and ends.
 
     .. ------------------------------------------------------------------------
-    .. rubric:: Colleagues
+    .. rubric:: Same-level non-well-separated boxes
     .. ------------------------------------------------------------------------
 
-    Immediately adjacent boxes on the same level. See :ref:`csr`.
+    Boxes considered to be within the 'non-well-separated area' according to
+    :attr:`well_sep_is_n_away` that are on the same level as their reference
+    box. See :ref:`csr`.
 
-    .. attribute:: colleagues_starts
+    This is a generalization of the "colleagues" concept from the Carrier paper
+    to the case in which :attr:`well_sep_is_n_away` is not 1.
+
+    .. attribute:: same_level_non_well_sep_boxes_starts
 
         ``box_id_t [nboxes+1]``
 
-    .. attribute:: colleagues_lists
+    .. attribute:: same_level_non_well_sep_boxes_lists
 
         ``box_id_t [*]``
 
@@ -890,7 +1037,8 @@ class FMMTraversalInfo(DeviceDataRecord):
     .. ------------------------------------------------------------------------
 
     List of source boxes immediately adjacent to each target box. Indexed like
-    :attr:`target_boxes`. See :ref:`csr`.
+    :attr:`target_boxes`. See :ref:`csr`. (Note: This list contains global box
+    numbers, not indices into :attr:`source_boxes`.)
 
     .. attribute:: neighbor_source_boxes_starts
 
@@ -907,11 +1055,11 @@ class FMMTraversalInfo(DeviceDataRecord):
     Well-separated boxes on the same level.  Indexed like
     :attr:`target_or_target_parent_boxes`. See :ref:`csr`.
 
-    .. attribute:: sep_siblings_starts
+    .. attribute:: from_sep_siblings_starts
 
         ``box_id_t [ntarget_or_target_parent_boxes+1]``
 
-    .. attribute:: sep_siblings_lists
+    .. attribute:: from_sep_siblings_lists
 
         ``box_id_t [*]``
 
@@ -922,28 +1070,29 @@ class FMMTraversalInfo(DeviceDataRecord):
     Smaller source boxes separated from the target box by their own size.
 
     If :attr:`boxtree.Tree.targets_have_extent`, then
-    :attr:`sep_close_smaller_starts` will be non-*None*. It records
+    :attr:`from_sep_close_smaller_starts` will be non-*None*. It records
     interactions between boxes that would ordinarily be handled
     through "List 3", but must be evaluated specially/directly
     because of :ref:`extent`.
 
     Indexed like :attr:`target_or_target_parent_boxes`.  See :ref:`csr`.
 
-    .. attribute:: sep_smaller_by_level
+    .. attribute:: from_sep_smaller_by_level
 
         A list of :attr:`boxtree.Tree.nlevels` (corresponding to the levels on
         which each listed source box resides) objects, each of which has
         attributes *count*, *starts* and *lists*, which form a CSR list of List
-        3source boxes.
+        3 source boxes.
 
-        *starts* has shape/type ``box_id_t [ntargets+1]``. *lists* is of type
-        ``box_id_t``.
+        *starts* has shape/type ``box_id_t [ntarget_boxes+1]``. *lists* is of type
+        ``box_id_t``.  (Note: This list contains global box numbers, not
+        indices into :attr:`source_boxes`.)
 
-    .. attribute:: sep_close_smaller_starts
+    .. attribute:: from_sep_close_smaller_starts
 
         ``box_id_t [ntargets+1]`` (or *None*)
 
-    .. attribute:: sep_close_smaller_lists
+    .. attribute:: from_sep_close_smaller_lists
 
         ``box_id_t [*]`` (or *None*)
 
@@ -953,28 +1102,30 @@ class FMMTraversalInfo(DeviceDataRecord):
 
     Bigger source boxes separated from the target box by the (smaller) target
     box's size.
+    (Note: This list contains global box numbers, not indices into
+    :attr:`source_boxes`.)
 
-    If :attr:`boxtree.Tree.sources_have_extent`, then
-    :attr:`sep_close_bigger_starts` will be non-*None*. It records
-    interactions between boxes that would ordinarily be handled
-    through "List 4", but must be evaluated specially/directly
-    because of :ref:`extent`.
+    If :attr:`boxtree.Tree.sources_have_extent` or
+    :attr:`boxtree.Tree.targets_have_extent`, then
+    :attr:`from_sep_close_bigger_starts` will be non-*None*. It records
+    interactions between boxes that would ordinarily be handled through "List
+    4", but must be evaluated specially/directly because of :ref:`extent`.
 
     Indexed like :attr:`target_or_target_parent_boxes`. See :ref:`csr`.
 
-    .. attribute:: sep_bigger_starts
+    .. attribute:: from_sep_bigger_starts
 
         ``box_id_t [ntarget_or_target_parent_boxes+1]``
 
-    .. attribute:: sep_bigger_lists
+    .. attribute:: from_sep_bigger_lists
 
         ``box_id_t [*]``
 
-    .. attribute:: sep_close_bigger_starts
+    .. attribute:: from_sep_close_bigger_starts
 
         ``box_id_t [ntarget_or_target_parent_boxes+1]`` (or *None*)
 
-    .. attribute:: sep_close_bigger_lists
+    .. attribute:: from_sep_close_bigger_lists
 
         ``box_id_t [*]`` (or *None*)
     """
@@ -983,9 +1134,10 @@ class FMMTraversalInfo(DeviceDataRecord):
 
     def merge_close_lists(self, queue, debug=False):
         """Return a new :class:`FMMTraversalInfo` instance with the contents of
-        :attr:`sep_close_smaller_starts` and :attr:`sep_close_bigger_starts`
-        merged into :attr:`neighbor_source_boxes_starts` and these two
-        attributes set to *None*.
+        :attr:`from_sep_close_smaller_starts` and
+        :attr:`from_sep_close_bigger_starts` merged into
+        :attr:`neighbor_source_boxes_starts` and these two attributes set to
+        *None*.
         """
 
         from boxtree.tools import reverse_index_array
@@ -1005,13 +1157,13 @@ class FMMTraversalInfo(DeviceDataRecord):
                 /* input: */
                 box_id_t *target_or_target_parent_boxes_from_tgt_boxes,
                 box_id_t *neighbor_source_boxes_starts,
-                box_id_t *sep_close_smaller_starts,
-                box_id_t *sep_close_bigger_starts,
+                box_id_t *from_sep_close_smaller_starts,
+                box_id_t *from_sep_close_bigger_starts,
 
                 %if not write_counts:
                     box_id_t *neighbor_source_boxes_lists,
-                    box_id_t *sep_close_smaller_lists,
-                    box_id_t *sep_close_bigger_lists,
+                    box_id_t *from_sep_close_smaller_lists,
+                    box_id_t *from_sep_close_bigger_lists,
 
                     box_id_t *new_neighbor_source_boxes_starts,
                 %endif
@@ -1035,17 +1187,17 @@ class FMMTraversalInfo(DeviceDataRecord):
                     neighbor_source_boxes_starts[itgt_box + 1]
                     - neighbor_source_boxes_start;
 
-                box_id_t sep_close_smaller_start =
-                    sep_close_smaller_starts[itgt_box];
-                box_id_t sep_close_smaller_count =
-                    sep_close_smaller_starts[itgt_box + 1]
-                    - sep_close_smaller_start;
+                box_id_t from_sep_close_smaller_start =
+                    from_sep_close_smaller_starts[itgt_box];
+                box_id_t from_sep_close_smaller_count =
+                    from_sep_close_smaller_starts[itgt_box + 1]
+                    - from_sep_close_smaller_start;
 
-                box_id_t sep_close_bigger_start =
-                    sep_close_bigger_starts[itarget_or_target_parent_box];
-                box_id_t sep_close_bigger_count =
-                    sep_close_bigger_starts[itarget_or_target_parent_box + 1]
-                    - sep_close_bigger_start;
+                box_id_t from_sep_close_bigger_start =
+                    from_sep_close_bigger_starts[itarget_or_target_parent_box];
+                box_id_t from_sep_close_bigger_count =
+                    from_sep_close_bigger_starts[itarget_or_target_parent_box + 1]
+                    - from_sep_close_bigger_start;
 
                 %if write_counts:
                     if (itgt_box == 0)
@@ -1053,8 +1205,8 @@ class FMMTraversalInfo(DeviceDataRecord):
 
                     new_neighbor_source_boxes_counts[itgt_box + 1] =
                         neighbor_source_boxes_count
-                        + sep_close_smaller_count
-                        + sep_close_bigger_count
+                        + from_sep_close_smaller_count
+                        + from_sep_close_bigger_count
                         ;
                 %else:
 
@@ -1066,8 +1218,8 @@ class FMMTraversalInfo(DeviceDataRecord):
                                 NAME##_lists[NAME##_start+i];
 
                     COPY_FROM(neighbor_source_boxes)
-                    COPY_FROM(sep_close_smaller)
-                    COPY_FROM(sep_close_bigger)
+                    COPY_FROM(from_sep_close_smaller)
+                    COPY_FROM(from_sep_close_bigger)
 
                 %endif
                 """).build(
@@ -1087,8 +1239,8 @@ class FMMTraversalInfo(DeviceDataRecord):
             # input:
             target_or_target_parent_boxes_from_tgt_boxes,
             self.neighbor_source_boxes_starts,
-            self.sep_close_smaller_starts,
-            self.sep_close_bigger_starts,
+            self.from_sep_close_smaller_starts,
+            self.from_sep_close_bigger_starts,
 
             # output:
             new_neighbor_source_boxes_counts,
@@ -1111,11 +1263,11 @@ class FMMTraversalInfo(DeviceDataRecord):
             target_or_target_parent_boxes_from_tgt_boxes,
 
             self.neighbor_source_boxes_starts,
-            self.sep_close_smaller_starts,
-            self.sep_close_bigger_starts,
+            self.from_sep_close_smaller_starts,
+            self.from_sep_close_bigger_starts,
             self.neighbor_source_boxes_lists,
-            self.sep_close_smaller_lists,
-            self.sep_close_bigger_lists,
+            self.from_sep_close_smaller_lists,
+            self.from_sep_close_bigger_lists,
 
             new_neighbor_source_boxes_starts,
 
@@ -1127,10 +1279,10 @@ class FMMTraversalInfo(DeviceDataRecord):
         return self.copy(
             neighbor_source_boxes_starts=new_neighbor_source_boxes_starts,
             neighbor_source_boxes_lists=new_neighbor_source_boxes_lists,
-            sep_close_smaller_starts=None,
-            sep_close_smaller_lists=None,
-            sep_close_bigger_starts=None,
-            sep_close_bigger_lists=None)
+            from_sep_close_smaller_starts=None,
+            from_sep_close_smaller_lists=None,
+            from_sep_close_bigger_starts=None,
+            from_sep_close_bigger_lists=None)
 
     # }}}
 
@@ -1156,8 +1308,9 @@ class _KernelInfo(Record):
 
 
 class FMMTraversalBuilder:
-    def __init__(self, context):
+    def __init__(self, context, well_sep_is_n_away=1):
         self.context = context
+        self.well_sep_is_n_away = well_sep_is_n_away
 
     # {{{ kernel builder
 
@@ -1173,6 +1326,7 @@ class FMMTraversalBuilder:
         from pyopencl.tools import dtype_to_ctype
         from boxtree.tree import box_flags_enum
         render_vars = dict(
+                np=np,
                 dimensions=dimensions,
                 dtype_to_ctype=dtype_to_ctype,
                 particle_id_dtype=particle_id_dtype,
@@ -1186,6 +1340,7 @@ class FMMTraversalBuilder:
                 sources_are_targets=sources_are_targets,
                 sources_have_extent=sources_have_extent,
                 targets_have_extent=targets_have_extent,
+                well_sep_is_n_away=self.well_sep_is_n_away,
                 )
         from pyopencl.algorithm import ListOfListsBuilder
         from pyopencl.tools import VectorArg, ScalarArg
@@ -1238,39 +1393,45 @@ class FMMTraversalBuilder:
                 ]
 
         for list_name, template, extra_args, extra_lists in [
-                ("colleagues", COLLEAGUES_TEMPLATE, [], []),
+                ("same_level_non_well_sep_boxes",
+                    SAME_LEVEL_NON_WELL_SEP_BOXES_TEMPLATE, [], []),
                 ("neighbor_source_boxes", NEIGBHOR_SOURCE_BOXES_TEMPLATE,
                         [
                             VectorArg(box_id_dtype, "target_boxes"),
                             ], []),
-                ("sep_siblings", SEP_SIBLINGS_TEMPLATE,
+                ("from_sep_siblings", FROM_SEP_SIBLINGS_TEMPLATE,
                         [
                             VectorArg(box_id_dtype, "target_or_target_parent_boxes"),
                             VectorArg(box_id_dtype, "box_parent_ids"),
-                            VectorArg(box_id_dtype, "colleagues_starts"),
-                            VectorArg(box_id_dtype, "colleagues_list"),
+                            VectorArg(box_id_dtype,
+                                "same_level_non_well_sep_boxes_starts"),
+                            VectorArg(box_id_dtype,
+                                "same_level_non_well_sep_boxes_lists"),
                             ], []),
-                ("sep_smaller", SEP_SMALLER_TEMPLATE,
+                ("from_sep_smaller", FROM_SEP_SMALLER_TEMPLATE,
                         [
                             ScalarArg(coord_dtype, "stick_out_factor"),
                             VectorArg(box_id_dtype, "target_boxes"),
-                            VectorArg(box_id_dtype, "colleagues_starts"),
-                            VectorArg(box_id_dtype, "colleagues_list"),
-                            ScalarArg(box_id_dtype, "sep_smaller_source_level"),
+                            VectorArg(box_id_dtype,
+                                "same_level_non_well_sep_boxes_starts"),
+                            VectorArg(box_id_dtype,
+                                "same_level_non_well_sep_boxes_lists"),
+                            ScalarArg(box_id_dtype, "from_sep_smaller_source_level"),
                             ],
-                            ["sep_close_smaller"]
+                            ["from_sep_close_smaller"]
                             if sources_have_extent or targets_have_extent
                             else []),
-                ("sep_bigger", SEP_BIGGER_TEMPLATE,
+                ("from_sep_bigger", FROM_SEP_BIGGER_TEMPLATE,
                         [
                             ScalarArg(coord_dtype, "stick_out_factor"),
                             VectorArg(box_id_dtype, "target_or_target_parent_boxes"),
                             VectorArg(box_id_dtype, "box_parent_ids"),
-                            VectorArg(box_id_dtype, "colleagues_starts"),
-                            VectorArg(box_id_dtype, "colleagues_list"),
-                            #ScalarArg(box_id_dtype, "sep_bigger_source_level"),
+                            VectorArg(box_id_dtype,
+                                "same_level_non_well_sep_boxes_starts"),
+                            VectorArg(box_id_dtype,
+                                "same_level_non_well_sep_boxes_lists"),
                             ],
-                            ["sep_close_bigger"]
+                            ["from_sep_close_bigger"]
                             if sources_have_extent or targets_have_extent
                             else []),
                 ]:
@@ -1313,6 +1474,12 @@ class FMMTraversalBuilder:
 
         if not tree._is_pruned:
             raise ValueError("tree must be pruned for traversal generation")
+
+        if tree.sources_have_extent:
+            # YAGNI
+            raise NotImplementedError(
+                    "trees with source extent are not supported for "
+                    "traversal generation")
 
         # Generated code shouldn't depend on the *exact* number of tree levels.
         # So round up to the next multiple of 5.
@@ -1400,17 +1567,20 @@ class FMMTraversalBuilder:
 
         # }}}
 
-        # {{{ colleagues
+        # {{{ same-level near-field
 
-        fin_debug("finding colleagues")
+        # If well_sep_is_n_away is 1, this agrees with the definition of
+        # 'colleagues' from the classical FMM literature.
 
-        result, evt = knl_info.colleagues_builder(
+        fin_debug("finding same-level near-field boxes")
+
+        result, evt = knl_info.same_level_non_well_sep_boxes_builder(
                 queue, tree.nboxes,
                 tree.box_centers.data, tree.root_extent, tree.box_levels.data,
                 tree.aligned_nboxes, tree.box_child_ids.data, tree.box_flags.data,
                 wait_for=wait_for)
         wait_for = [evt]
-        colleagues = result["colleagues"]
+        same_level_non_well_sep_boxes = result["same_level_non_well_sep_boxes"]
 
         # }}}
 
@@ -1433,14 +1603,16 @@ class FMMTraversalBuilder:
 
         fin_debug("finding well-separated siblings ('list 2')")
 
-        result, evt = knl_info.sep_siblings_builder(
+        result, evt = knl_info.from_sep_siblings_builder(
                 queue, len(target_or_target_parent_boxes),
                 tree.box_centers.data, tree.root_extent, tree.box_levels.data,
                 tree.aligned_nboxes, tree.box_child_ids.data, tree.box_flags.data,
                 target_or_target_parent_boxes.data, tree.box_parent_ids.data,
-                colleagues.starts.data, colleagues.lists.data, wait_for=wait_for)
+                same_level_non_well_sep_boxes.starts.data,
+                same_level_non_well_sep_boxes.lists.data,
+                wait_for=wait_for)
         wait_for = [evt]
-        sep_siblings = result["sep_siblings"]
+        from_sep_siblings = result["from_sep_siblings"]
 
         # }}}
 
@@ -1450,65 +1622,80 @@ class FMMTraversalBuilder:
 
         fin_debug("finding separated smaller ('list 3')")
 
-        sep_smaller_base_args = (
+        from_sep_smaller_base_args = (
                 queue, len(target_boxes),
                 tree.box_centers.data, tree.root_extent, tree.box_levels.data,
                 tree.aligned_nboxes, tree.box_child_ids.data, tree.box_flags.data,
                 tree.stick_out_factor, target_boxes.data,
-                colleagues.starts.data, colleagues.lists.data)
+                same_level_non_well_sep_boxes.starts.data,
+                same_level_non_well_sep_boxes.lists.data,
+                )
 
-        wait_for = []
-        sep_smaller_by_level = []
+        from_sep_smaller_wait_for = []
+        from_sep_smaller_by_level = []
 
         for ilevel in range(tree.nlevels):
             fin_debug("finding separated smaller ('list 3 level %d')" % ilevel)
 
-            result, evt = knl_info.sep_smaller_builder(
-                    *(sep_smaller_base_args + (ilevel,)),
-                    omit_lists=("sep_close_smaller",) if with_extent else (),
+            result, evt = knl_info.from_sep_smaller_builder(
+                    *(from_sep_smaller_base_args + (ilevel,)),
+                    omit_lists=("from_sep_close_smaller",) if with_extent else (),
                     wait_for=wait_for)
 
-            sep_smaller_by_level.append(result["sep_smaller"])
-            wait_for.append(evt)
+            from_sep_smaller_by_level.append(result["from_sep_smaller"])
+            from_sep_smaller_wait_for.append(evt)
 
         if with_extent:
             fin_debug("finding separated smaller close ('list 3 close')")
-            result, evt = knl_info.sep_smaller_builder(
-                    *(sep_smaller_base_args + (-1,)),
-                    omit_lists=("sep_smaller",),
+            result, evt = knl_info.from_sep_smaller_builder(
+                    *(from_sep_smaller_base_args + (-1,)),
+                    omit_lists=("from_sep_smaller",),
                     wait_for=wait_for)
-            sep_close_smaller_starts = result["sep_close_smaller"].starts
-            sep_close_smaller_lists = result["sep_close_smaller"].lists
+            from_sep_close_smaller_starts = result["from_sep_close_smaller"].starts
+            from_sep_close_smaller_lists = result["from_sep_close_smaller"].lists
 
-            wait_for.append(evt)
+            from_sep_smaller_wait_for.append(evt)
         else:
-            sep_close_smaller_starts = None
-            sep_close_smaller_lists = None
+            from_sep_close_smaller_starts = None
+            from_sep_close_smaller_lists = None
 
         # }}}
+
+        wait_for = from_sep_smaller_wait_for
+        del from_sep_smaller_wait_for
 
         # {{{ separated bigger ("list 4")
 
         fin_debug("finding separated bigger ('list 4')")
 
-        result, evt = knl_info.sep_bigger_builder(
+        result, evt = knl_info.from_sep_bigger_builder(
                 queue, len(target_or_target_parent_boxes),
                 tree.box_centers.data, tree.root_extent, tree.box_levels.data,
                 tree.aligned_nboxes, tree.box_child_ids.data, tree.box_flags.data,
                 tree.stick_out_factor, target_or_target_parent_boxes.data,
                 tree.box_parent_ids.data,
-                colleagues.starts.data, colleagues.lists.data, wait_for=wait_for)
+                same_level_non_well_sep_boxes.starts.data,
+                same_level_non_well_sep_boxes.lists.data,
+                wait_for=wait_for)
+
         wait_for = [evt]
-        sep_bigger = result["sep_bigger"]
+        from_sep_bigger = result["from_sep_bigger"]
 
         if with_extent:
-            sep_close_bigger_starts = result["sep_close_bigger"].starts
-            sep_close_bigger_lists = result["sep_close_bigger"].lists
+            from_sep_close_bigger_starts = result["from_sep_close_bigger"].starts
+            from_sep_close_bigger_lists = result["from_sep_close_bigger"].lists
         else:
-            sep_close_bigger_starts = None
-            sep_close_bigger_lists = None
+            from_sep_close_bigger_starts = None
+            from_sep_close_bigger_lists = None
 
         # }}}
+
+        if self.well_sep_is_n_away == 1:
+            colleagues_starts = same_level_non_well_sep_boxes.starts
+            colleagues_lists = same_level_non_well_sep_boxes.lists
+        else:
+            colleagues_starts = None
+            colleagues_lists = None
 
         evt, = wait_for
 
@@ -1516,6 +1703,7 @@ class FMMTraversalBuilder:
 
         return FMMTraversalInfo(
                 tree=tree,
+                well_sep_is_n_away=self.well_sep_is_n_away,
 
                 source_boxes=source_boxes,
                 target_boxes=target_boxes,
@@ -1530,25 +1718,30 @@ class FMMTraversalBuilder:
                 level_start_target_or_target_parent_box_nrs=(
                     level_start_target_or_target_parent_box_nrs),
 
-                colleagues_starts=colleagues.starts,
-                colleagues_lists=colleagues.lists,
+                same_level_non_well_sep_boxes_starts=(
+                    same_level_non_well_sep_boxes.starts),
+                same_level_non_well_sep_boxes_lists=(
+                    same_level_non_well_sep_boxes.lists),
+                # Deprecated, but we'll keep these alive for the time being.
+                colleagues_starts=colleagues_starts,
+                colleagues_lists=colleagues_lists,
 
                 neighbor_source_boxes_starts=neighbor_source_boxes.starts,
                 neighbor_source_boxes_lists=neighbor_source_boxes.lists,
 
-                sep_siblings_starts=sep_siblings.starts,
-                sep_siblings_lists=sep_siblings.lists,
+                from_sep_siblings_starts=from_sep_siblings.starts,
+                from_sep_siblings_lists=from_sep_siblings.lists,
 
-                sep_smaller_by_level=sep_smaller_by_level,
+                from_sep_smaller_by_level=from_sep_smaller_by_level,
 
-                sep_close_smaller_starts=sep_close_smaller_starts,
-                sep_close_smaller_lists=sep_close_smaller_lists,
+                from_sep_close_smaller_starts=from_sep_close_smaller_starts,
+                from_sep_close_smaller_lists=from_sep_close_smaller_lists,
 
-                sep_bigger_starts=sep_bigger.starts,
-                sep_bigger_lists=sep_bigger.lists,
+                from_sep_bigger_starts=from_sep_bigger.starts,
+                from_sep_bigger_lists=from_sep_bigger.lists,
 
-                sep_close_bigger_starts=sep_close_bigger_starts,
-                sep_close_bigger_lists=sep_close_bigger_lists,
+                from_sep_close_bigger_starts=from_sep_close_bigger_starts,
+                from_sep_close_bigger_lists=from_sep_close_bigger_lists,
                 ).with_queue(None), evt
 
     # }}}

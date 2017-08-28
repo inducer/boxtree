@@ -97,8 +97,8 @@ def drive_fmm(traversal, expansion_wrangler, src_weights):
     local_exps = wrangler.multipole_to_local(
             traversal.level_start_target_or_target_parent_box_nrs,
             traversal.target_or_target_parent_boxes,
-            traversal.sep_siblings_starts,
-            traversal.sep_siblings_lists,
+            traversal.from_sep_siblings_starts,
+            traversal.from_sep_siblings_lists,
             mpole_exps)
 
     # local_exps represents both Gamma and Delta in [1]
@@ -115,19 +115,19 @@ def drive_fmm(traversal, expansion_wrangler, src_weights):
     potentials = potentials + wrangler.eval_multipoles(
             traversal.level_start_target_box_nrs,
             traversal.target_boxes,
-            traversal.sep_smaller_by_level,
+            traversal.from_sep_smaller_by_level,
             mpole_exps)
 
     # these potentials are called beta in [1]
 
-    if traversal.sep_close_smaller_starts is not None:
+    if traversal.from_sep_close_smaller_starts is not None:
         logger.debug("evaluate separated close smaller interactions directly "
                 "('list 3 close')")
 
         potentials = potentials + wrangler.eval_direct(
                 traversal.target_boxes,
-                traversal.sep_close_smaller_starts,
-                traversal.sep_close_smaller_lists,
+                traversal.from_sep_close_smaller_starts,
+                traversal.from_sep_close_smaller_lists,
                 src_weights)
 
     # }}}
@@ -139,18 +139,18 @@ def drive_fmm(traversal, expansion_wrangler, src_weights):
     local_exps = local_exps + wrangler.form_locals(
             traversal.level_start_target_or_target_parent_box_nrs,
             traversal.target_or_target_parent_boxes,
-            traversal.sep_bigger_starts,
-            traversal.sep_bigger_lists,
+            traversal.from_sep_bigger_starts,
+            traversal.from_sep_bigger_lists,
             src_weights)
 
-    if traversal.sep_close_bigger_starts is not None:
+    if traversal.from_sep_close_bigger_starts is not None:
         logger.debug("evaluate separated close bigger interactions directly "
                 "('list 4 close')")
 
         potentials = potentials + wrangler.eval_direct(
                 traversal.target_or_target_parent_boxes,
-                traversal.sep_close_bigger_starts,
-                traversal.sep_close_bigger_lists,
+                traversal.from_sep_close_bigger_starts,
+                traversal.from_sep_close_bigger_lists,
                 src_weights)
 
     # }}}

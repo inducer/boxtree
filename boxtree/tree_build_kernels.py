@@ -788,13 +788,13 @@ LEVEL_RESTRICT_TPL = Template(
     %for morton_nr in range(2**dimensions):
         if (walk_morton_nr == ${morton_nr})
         {
-            child_box_id = box_child_ids_mnr_${morton_nr}[walk_box_id];
+            child_box_id = box_child_ids_mnr_${morton_nr}[walk_parent_box_id];
         }
     %endfor
 
         if (child_box_id)
         {
-            int child_level = walk_level + 1;
+            int child_level = walk_stack_size + 1;
 
             // Check adjacency.
             bool is_adjacent;

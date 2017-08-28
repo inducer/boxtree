@@ -1,7 +1,4 @@
-from __future__ import division
-from __future__ import absolute_import
-from six.moves import range
-from six.moves import zip
+from __future__ import division, absolute_import
 
 __copyright__ = "Copyright (C) 2012 Andreas Kloeckner"
 
@@ -25,6 +22,11 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+from six.moves import range, zip
+import numpy as np
+
+
+# {{{ utilities
 
 def int_to_roman(inp):
     """
@@ -48,6 +50,10 @@ def int_to_roman(inp):
         inp -= ints[i] * count
     return result
 
+# }}}
+
+
+# {{{ tree plotting
 
 class TreePlotter:
     """Assumes that the tree has data living on the host.
@@ -85,6 +91,12 @@ class TreePlotter:
         """
 
         el, eh = self.tree.get_box_extent(ibox)
+
+        shrink_factor = kwargs.pop("shrink_factor", 0)
+        if shrink_factor:
+            center = 0.5*(el+eh)
+            el += (center-el)*shrink_factor
+            eh += (center-eh)*shrink_factor
 
         import matplotlib.pyplot as pt
         import matplotlib.patches as mpatches
@@ -157,5 +169,108 @@ class TreePlotter:
                 r"\node [font=\tiny] at (boxc\ibox) {\ibox};"
                 r"}}")
         return "\n".join(lines)
+
+# }}}
+
+
+# {{{ traversal plotting
+
+def _draw_box_list(tree_plotter, ibox, starts, lists, key_to_box=None, **kwargs):
+    default_facecolor = "blue"
+
+    if key_to_box is not None:
+        ind, = np.where(key_to_box == ibox)
+        if len(ind):
+            key, = ind
+        else:
+            # indicate empty list
+            actual_kwargs = {
+                    "edgecolor": getattr(kwargs, "facecolor", default_facecolor),
+                    "fill": False,
+                    "alpha": 0.5,
+                    "shrink_factor": -0.1+0.1*np.random.rand(),
+                    }
+            tree_plotter.draw_box(ibox, **actual_kwargs)
+            return
+    else:
+        key = ibox
+
+    start, end = starts[key:key+2]
+    if start == end:
+        return
+
+    actual_kwargs = {
+            "facecolor": default_facecolor,
+            "linewidth": 0,
+            "alpha": 0.5,
+            "shrink_factor": 0.1 + np.random.rand()*0.2,
+            }
+    actual_kwargs.update(kwargs)
+    print(actual_kwargs["facecolor"], ibox, lists[start:end])
+    for jbox in lists[start:end]:
+        tree_plotter.draw_box(jbox, **actual_kwargs)
+
+
+def draw_same_level_non_well_sep_boxes(tree_plotter, traversal, ibox):
+    tree_plotter.draw_box(ibox, facecolor='red',
+            alpha=0.5)
+
+    # same-level non-well-sep
+    _draw_box_list(tree_plotter, ibox,
+            traversal.same_level_non_well_sep_boxes_starts,
+            traversal.same_level_non_well_sep_boxes_lists,
+            facecolor="green")
+
+
+def draw_box_lists(tree_plotter, traversal, ibox):
+    tree_plotter.draw_box(ibox, facecolor='red',
+            alpha=0.5)
+
+    # from near neighbors ("list 1")
+    _draw_box_list(tree_plotter, ibox,
+            traversal.neighbor_source_boxes_starts,
+            traversal.neighbor_source_boxes_lists,
+            key_to_box=traversal.target_boxes,
+            facecolor="green")
+
+    # from well-separated siblings (list 2)
+    _draw_box_list(tree_plotter, ibox,
+            traversal.from_sep_siblings_starts,
+            traversal.from_sep_siblings_lists,
+            key_to_box=traversal.target_or_target_parent_boxes,
+            facecolor="blue")
+
+    # from separated smaller (list 3)
+    for ilev in range(tree_plotter.tree.nlevels):
+        _draw_box_list(tree_plotter, ibox,
+                traversal.from_sep_smaller_by_level[ilev].starts,
+                traversal.from_sep_smaller_by_level[ilev].lists,
+                key_to_box=traversal.target_boxes,
+                facecolor="orange")
+
+    # list 3 close
+    if traversal.from_sep_close_smaller_starts is not None:
+        _draw_box_list(tree_plotter, ibox,
+                traversal.from_sep_close_smaller_starts,
+                traversal.from_sep_close_smaller_lists,
+                key_to_box=traversal.target_boxes,
+                facecolor="orange", hatch=".")
+
+    # from separated bigger (list 4)
+    _draw_box_list(tree_plotter, ibox,
+            traversal.from_sep_bigger_starts,
+            traversal.from_sep_bigger_lists,
+            key_to_box=traversal.target_or_target_parent_boxes,
+            facecolor="purple")
+
+    # list 4 close
+    if traversal.from_sep_close_bigger_starts is not None:
+        _draw_box_list(tree_plotter, ibox,
+                traversal.from_sep_close_bigger_starts,
+                traversal.from_sep_close_bigger_lists,
+                key_to_box=traversal.target_or_target_parent_boxes,
+                facecolor="purple", hatch=".")
+
+# }}}
 
 # vim: filetype=pyopencl:fdm=marker

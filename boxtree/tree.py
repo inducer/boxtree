@@ -106,9 +106,9 @@ class Tree(DeviceDataRecord):
 
     .. attribute:: stick_out_factor
 
-        The fraction of the box diameter by which the :math:`l^\infty` circles
-        given by :attr:`source_radii` may stick out the box in which they are
-        contained. A scalar.
+        The fraction of the (:math:`l^\infty`) box radius by which the
+        :math:`l^\infty` circles given by :attr:`source_radii` may stick out
+        the box in which they are contained. A scalar.
 
     .. attribute:: nsources
 
@@ -714,7 +714,6 @@ class ParticleListFilter(object):
         from pyopencl.tools import VectorArg, dtype_to_ctype
         from pyopencl.algorithm import ListOfListsBuilder
         from mako.template import Template
-        print("CACHE MISS 2")
 
         builder = ListOfListsBuilder(self.context,
             [("filt_tgt_list", particle_id_dtype)], Template("""//CL//
@@ -782,7 +781,6 @@ class ParticleListFilter(object):
         from boxtree.tree_build_kernels import (
                 TREE_ORDER_TARGET_FILTER_SCAN_TPL,
                 TREE_ORDER_TARGET_FILTER_INDEX_TPL)
-        print("CACHE MISS 3")
 
         scan_knl = TREE_ORDER_TARGET_FILTER_SCAN_TPL.build(
             self.context,
