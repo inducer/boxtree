@@ -564,7 +564,7 @@ class FMMLibExpansionWrangler(object):
 
         mpeval = self.get_expn_eval_routine("mp")
 
-        for ssn in sep_smaller_nonsiblings_by_level:
+        for isrc_level, ssn in enumerate(sep_smaller_nonsiblings_by_level):
             for itgt_box, tgt_ibox in enumerate(target_boxes):
                 tgt_pslice = self._get_target_slice(tgt_ibox)
 
@@ -599,34 +599,44 @@ class FMMLibExpansionWrangler(object):
 
         formta = self.get_routine("%ddformta" + self.dp_suffix)
 
-        for itgt_box, tgt_ibox in enumerate(target_or_target_parent_boxes):
-            start, end = starts[itgt_box:itgt_box+2]
+        for lev in range(self.tree.nlevels):
+            lev_start, lev_stop = \
+                    level_start_target_or_target_parent_box_nrs[lev:lev+2]
+            if lev_start == lev_stop:
+                continue
 
-            contrib = 0
+            target_level_start_ibox, target_local_exps_view = \
+                    self.local_expansions_view(local_exps, lev)
 
-            for src_ibox in lists[start:end]:
-                src_pslice = self._get_source_slice(src_ibox)
-                tgt_center = self.tree.box_centers[:, tgt_ibox]
+            for itgt_box, tgt_ibox in enumerate(
+                    target_or_target_parent_boxes[lev_start:lev_stop]):
+                start, end = starts[lev_start+itgt_box:lev_start+itgt_box+2]
 
-                if src_pslice.stop - src_pslice.start == 0:
-                    continue
+                contrib = 0
 
-                kwargs = {}
-                kwargs.update(self.kernel_kwargs)
-                kwargs.update(self.get_source_kwargs(src_weights, src_pslice))
+                for src_ibox in lists[start:end]:
+                    src_pslice = self._get_source_slice(src_ibox)
+                    tgt_center = self.tree.box_centers[:, tgt_ibox]
 
-                ier, mpole = formta(
-                        rscale=rscale,
-                        source=self._get_sources(src_pslice),
-                        center=tgt_center,
-                        nterms=self.nterms,
-                        **kwargs)
-                if ier:
-                    raise RuntimeError("formta failed")
+                    if src_pslice.stop - src_pslice.start == 0:
+                        continue
 
-                contrib = contrib + mpole.T
+                    kwargs = {}
+                    kwargs.update(self.kernel_kwargs)
+                    kwargs.update(self.get_source_kwargs(src_weights, src_pslice))
 
-            local_exps[tgt_ibox] = contrib
+                    ier, mpole = formta(
+                            rscale=rscale,
+                            source=self._get_sources(src_pslice),
+                            center=tgt_center,
+                            nterms=self.nterms,
+                            **kwargs)
+                    if ier:
+                        raise RuntimeError("formta failed")
+
+                    contrib = contrib + mpole.T
+
+                target_local_exps_view[tgt_ibox-target_level_start_ibox] = contrib
 
         return local_exps
 
