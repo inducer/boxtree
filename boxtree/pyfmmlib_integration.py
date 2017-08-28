@@ -577,6 +577,9 @@ class FMMLibExpansionWrangler(object):
         mpeval = self.get_expn_eval_routine("mp")
 
         for isrc_level, ssn in enumerate(sep_smaller_nonsiblings_by_level):
+            source_level_start_ibox, source_mpoles_view = \
+                    self.multipole_expansions_view(mpole_exps, isrc_level)
+
             for itgt_box, tgt_ibox in enumerate(target_boxes):
                 tgt_pslice = self._get_target_slice(tgt_ibox)
 
@@ -591,7 +594,8 @@ class FMMLibExpansionWrangler(object):
                     tmp_pot, tmp_grad = mpeval(
                             rscale=rscale,
                             center=self.tree.box_centers[:, src_ibox],
-                            expn=mpole_exps[src_ibox].T,
+                            expn=source_mpoles_view[
+                                src_ibox - source_level_start_ibox].T,
                             ztarg=self._get_targets(tgt_pslice),
                             **self.kernel_kwargs)
 
@@ -662,6 +666,13 @@ class FMMLibExpansionWrangler(object):
             start, stop = level_start_target_or_target_parent_box_nrs[
                     target_lev:target_lev+2]
 
+            source_lev = target_lev - 1
+
+            source_level_start_ibox, source_local_exps_view = \
+                    self.local_expansions_view(local_exps, source_lev)
+            target_level_start_ibox, target_local_exps_view = \
+                    self.local_expansions_view(local_exps, target_lev)
+
             for tgt_ibox in target_or_target_parent_boxes[start:stop]:
                 tgt_center = self.tree.box_centers[:, tgt_ibox]
                 src_ibox = self.tree.box_parent_ids[tgt_ibox]
@@ -675,7 +686,8 @@ class FMMLibExpansionWrangler(object):
                 tmp_loc_exp = locloc(
                             rscale1=rscale,
                             center1=src_center,
-                            expn1=local_exps[src_ibox].T,
+                            expn1=source_local_exps_view[
+                                src_ibox - source_level_start_ibox].T,
 
                             rscale2=rscale,
                             center2=tgt_center,
@@ -683,7 +695,8 @@ class FMMLibExpansionWrangler(object):
 
                             **kwargs)[..., 0]
 
-                local_exps[tgt_ibox] += tmp_loc_exp.T
+                target_local_exps_view[
+                        tgt_ibox - target_level_start_ibox] += tmp_loc_exp.T
 
         return local_exps
 
@@ -693,22 +706,31 @@ class FMMLibExpansionWrangler(object):
 
         taeval = self.get_expn_eval_routine("ta")
 
-        for tgt_ibox in target_boxes:
-            tgt_pslice = self._get_target_slice(tgt_ibox)
-
-            if tgt_pslice.stop - tgt_pslice.start == 0:
+        for lev in range(self.tree.nlevels):
+            start, stop = level_start_target_box_nrs[lev:lev+2]
+            if start == stop:
                 continue
 
-            tmp_pot, tmp_grad = taeval(
-                    rscale=rscale,
-                    center=self.tree.box_centers[:, tgt_ibox],
-                    expn=local_exps[tgt_ibox].T,
-                    ztarg=self._get_targets(tgt_pslice),
+            source_level_start_ibox, source_local_exps_view = \
+                    self.local_expansions_view(local_exps, lev)
 
-                    **self.kernel_kwargs)
+            for tgt_ibox in target_boxes[start:stop]:
+                tgt_pslice = self._get_target_slice(tgt_ibox)
 
-            self.add_potgrad_onto_output(
-                    output, tgt_pslice, tmp_pot, tmp_grad)
+                if tgt_pslice.stop - tgt_pslice.start == 0:
+                    continue
+
+                tmp_pot, tmp_grad = taeval(
+                        rscale=rscale,
+                        center=self.tree.box_centers[:, tgt_ibox],
+                        expn=source_local_exps_view[
+                            tgt_ibox - source_level_start_ibox].T,
+                        ztarg=self._get_targets(tgt_pslice),
+
+                        **self.kernel_kwargs)
+
+                self.add_potgrad_onto_output(
+                        output, tgt_pslice, tmp_pot, tmp_grad)
 
         return output
 
