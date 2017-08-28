@@ -365,27 +365,35 @@ class FMMLibExpansionWrangler(object):
         formmp = self.get_routine("%ddformmp" + self.dp_suffix)
 
         mpoles = self.multipole_expansion_zeros()
-        for src_ibox in source_boxes:
-            pslice = self._get_source_slice(src_ibox)
-
-            if pslice.stop - pslice.start == 0:
+        for lev in range(self.tree.nlevels):
+            start, stop = level_start_source_box_nrs[lev:lev+2]
+            if start == stop:
                 continue
 
-            kwargs = {}
-            kwargs.update(self.kernel_kwargs)
-            kwargs.update(self.get_source_kwargs(src_weights, pslice))
+            level_start_ibox, mpoles_view = self.multipole_expansions_view(
+                    mpoles, lev)
 
-            ier, mpole = formmp(
-                    rscale=rscale,
-                    source=self._get_sources(pslice),
-                    center=self.tree.box_centers[:, src_ibox],
-                    nterms=self.nterms,
-                    **kwargs)
+            for src_ibox in source_boxes[start:stop]:
+                pslice = self._get_source_slice(src_ibox)
 
-            if ier:
-                raise RuntimeError("formmp failed")
+                if pslice.stop - pslice.start == 0:
+                    continue
 
-            mpoles[src_ibox] = mpole.T
+                kwargs = {}
+                kwargs.update(self.kernel_kwargs)
+                kwargs.update(self.get_source_kwargs(src_weights, pslice))
+
+                ier, mpole = formmp(
+                        rscale=rscale,
+                        source=self._get_sources(pslice),
+                        center=self.tree.box_centers[:, src_ibox],
+                        nterms=self.nterms,
+                        **kwargs)
+
+                if ier:
+                    raise RuntimeError("formmp failed")
+
+                mpoles_view[src_ibox-level_start_ibox] = mpole.T
 
         return mpoles
 
