@@ -504,11 +504,6 @@ def test_pyfmmlib_fmm(ctx_getter, dims, use_dipoles, helmholtz_k):
     from pytest import importorskip
     importorskip("pyfmmlib")
 
-    if helmholtz_k == 0 and dims == 2 and use_dipoles:
-        # FIXME These use a complex-valued dipole strength.
-        # Code to handle that would need to be written.
-        pytest.skip("2D Laplace dipoles not yet implemented")
-
     ctx = ctx_getter()
     queue = cl.CommandQueue(ctx)
 
@@ -583,8 +578,11 @@ def test_pyfmmlib_fmm(ctx_getter, dims, use_dipoles, helmholtz_k):
         kwargs["ifhess"] = False
 
     if use_dipoles:
-        kwargs["dipstr"] = weights
-        kwargs["dipvec"] = dipole_vec
+        if helmholtz_k == 0:
+            kwargs["dipstr"] = -weights * (dipole_vec[0] + 1j * dipole_vec[1])
+        else:
+            kwargs["dipstr"] = weights
+            kwargs["dipvec"] = dipole_vec
     else:
         kwargs["charge"] = weights
     if helmholtz_k:

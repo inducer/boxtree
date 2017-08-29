@@ -77,11 +77,6 @@ class FMMLibExpansionWrangler(object):
         self.common_extra_kwargs = common_extra_kwargs
 
         if dipole_vec is not None:
-            if self.eqn_letter == 2 and self.dim == 2:
-                # FIXME These use a complex-valued dipole strength.
-                # Code to handle that would need to be written.
-                raise NotImplementedError("2D Laplace dipoles")
-
             assert dipole_vec.shape == (self.dim, self.tree.nsources)
 
             if not dipoles_already_reordered:
@@ -358,10 +353,17 @@ class FMMLibExpansionWrangler(object):
                     "charge": src_weights[pslice],
                     }
         else:
-            return {
-                    "dipstr": src_weights[pslice],
-                    "dipvec": self.dipole_vec[:, pslice],
-                    }
+            if self.eqn_letter == "l" and self.dim == 2:
+                return {
+                        "dipstr": -src_weights[pslice] * (
+                            self.dipole_vec[0, pslice]
+                            + 1j * self.dipole_vec[1, pslice])
+                        }
+            else:
+                return {
+                        "dipstr": src_weights[pslice],
+                        "dipvec": self.dipole_vec[:, pslice],
+                        }
 
     def form_multipoles(self, level_start_source_box_nrs, source_boxes, src_weights):
         formmp = self.get_routine("%ddformmp" + self.dp_suffix)
