@@ -578,7 +578,7 @@ def test_pyfmmlib_fmm(ctx_getter, dims, use_dipoles, helmholtz_k):
         kwargs["ifhess"] = False
 
     if use_dipoles:
-        if helmholtz_k == 0:
+        if helmholtz_k == 0 and dims == 2:
             kwargs["dipstr"] = -weights * (dipole_vec[0] + 1j * dipole_vec[1])
         else:
             kwargs["dipstr"] = weights
