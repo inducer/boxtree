@@ -240,13 +240,13 @@ class FMMLibExpansionWrangler(object):
 
     def expansion_shape(self, nterms):
         if self.dim == 2 and self.eqn_letter == "l":
-            return (self.nterms+1,)
+            return (nterms+1,)
         elif self.dim == 2 and self.eqn_letter == "h":
-            return (2*self.nterms+1,)
+            return (2*nterms+1,)
         elif self.dim == 3:
             # This is the transpose of the Fortran format, to
             # minimize mismatch between C and Fortran orders.
-            return (2*self.nterms+1, self.nterms+1,)
+            return (2*nterms+1, nterms+1,)
         else:
             raise ValueError("unsupported dimensionality")
 
