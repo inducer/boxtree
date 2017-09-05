@@ -548,10 +548,22 @@ def test_pyfmmlib_fmm(ctx_getter, dims, use_dipoles, helmholtz_k):
     else:
         base_nterms = 10
 
+    def fmm_level_to_nterms(lev):
+        result = base_nterms
+
+        if lev < 3 and helmholtz_k:
+            # exercise order-varies-by-level capability
+            result += 5
+
+        if use_dipoles:
+            result += 1
+
+        return result
+
     from boxtree.pyfmmlib_integration import FMMLibExpansionWrangler
     wrangler = FMMLibExpansionWrangler(
             trav.tree, helmholtz_k,
-            nterms=base_nterms + (1 if use_dipoles else 0),
+            fmm_level_to_nterms=fmm_level_to_nterms,
             dipole_vec=dipole_vec)
 
     from boxtree.fmm import drive_fmm
