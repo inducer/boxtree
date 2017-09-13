@@ -287,7 +287,7 @@ class DeviceDataRecord(Record):
 
         return self.copy(**result)
 
-    def get(self, **kwargs):
+    def get(self, queue, **kwargs):
         """Return a copy of `self` in which all data lives on the host, i.e.
         all :class:`pyopencl.array.Array` objects are replaced by corresponding
         :class:`numpy.ndarray` instances on the host.
@@ -299,7 +299,7 @@ class DeviceDataRecord(Record):
             except AttributeError:
                 return attr
 
-            return get_meth(**kwargs)
+            return get_meth(queue=queue, **kwargs)
 
         return self._transform_arrays(try_get)
 
