@@ -1,0 +1,41 @@
+\def\sout{0.25}
+\def\pr{0.55}
+
+\begin{tikzpicture}[scale=1.5,baseline={(0,0)}]
+  \def\sout{0.25}
+
+  \draw (-1,-1) rectangle (1,1);
+  \draw [dashed] (-1-\sout,-1-\sout) rectangle (1+\sout,1+\sout);
+
+  \node [anchor=south] at (0,-1) {Box};
+  \node [anchor=north] at (0,-1-\sout) {`Stick-out' region };
+  \node [anchor=north] at (0,-1.85) {\texttt{'linf'}};
+  \draw [|<->|] (0,0) -- (1+\sout,0) node [pos=0.5, anchor=north] {$(1+\alpha)R$};
+
+  \coordinate (pc) at (-0.25, 0.9);
+  \fill [red] (pc) circle (1pt);
+  \draw [red] (pc) ++(-\pr,-\pr) rectangle ++(2*\pr,2*\pr);
+  \draw [red,|<->|] (pc) -- ++(0,-\pr) node [pos=0.5,anchor=east] {$r$};
+
+  \node [anchor=north] at ($ (pc) + (0,-\pr)$) {Particle not in box};
+
+\end{tikzpicture}
+\begin{tikzpicture}[scale=1.5,baseline={(0,0)}]
+  \def\sqrttwo{1.4145}
+
+  \draw (-1,-1) rectangle (1,1);
+  \draw [dashed] (0,0) circle ((\sqrttwo+\sout*\sqrttwo);
+  \draw [|<->|] (0,0) -- (-1-\sout,-1-\sout) node [pos=0.3, anchor=west] {$\sqrt2(1+\alpha)R$};
+
+  \node [anchor=south] at (0,-1) {Box};
+  \node [anchor=north] at (0,-1-\sout) {`Stick-out' region };
+  \node [anchor=north] at (0,-1.85) {\texttt{'l2'}};
+
+  \coordinate (pc) at (-0.25, 0.9);
+  \fill [green] (pc) circle (1pt);
+  \draw [green] (pc) circle (\pr);
+  \draw [green,|<->|] (pc) -- ++(0,-\pr) node [pos=0.5,anchor=east] {$r$};
+
+  \node [anchor=north] at ($ (pc) + (0,-\pr)$) {Particle in box};
+
+\end{tikzpicture}

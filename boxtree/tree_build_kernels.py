@@ -324,7 +324,8 @@ MORTON_NR_SCAN_PREAMBLE_TPL = Template(r"""//CL//
         %for ax in axis_names:
             // Most FMMs are isotropic, i.e. global_extent_{x,y,z} are all the same.
             // Nonetheless, the gain from exploiting this assumption seems so
-            // minimal that doing so here didn't seem worthwhile.
+            // minimal that doing so here didn't seem worthwhile in the
+            // srcntgts_extent_norm == "linf" case.
 
             coord_t global_min_${ax} = bbox->min_${ax};
             coord_t global_extent_${ax} = bbox->max_${ax} - global_min_${ax};
@@ -346,19 +347,24 @@ MORTON_NR_SCAN_PREAMBLE_TPL = Template(r"""//CL//
                 ((srcntgt_${ax} - global_min_${ax}) / global_extent_${ax})
                 * (1U << (1 + particle_level)));
 
-            %if srcntgts_have_extent:
-                // Need to compute center to compare excess with stick_out_factor.
-                coord_t next_level_box_center_${ax} =
-                    global_min_${ax}
-                    + global_extent_${ax}
-                    * (${ax}_bits + one_half)
-                    * next_level_box_size_factor;
+            // Need to compute center to compare excess with stick_out_factor.
+            // Unused if no stickout, relying on compiler to eliminate this.
+            const coord_t next_level_box_center_${ax} =
+                global_min_${ax}
+                + global_extent_${ax}
+                * (${ax}_bits + one_half)
+                * next_level_box_size_factor;
 
-                coord_t next_level_box_stick_out_radius_${ax} =
-                    box_radius_factor
-                    * global_extent_${ax}
-                    * next_level_box_size_factor;
+            const coord_t next_level_box_stick_out_radius_${ax} =
+                box_radius_factor
+                * global_extent_${ax}
+                * next_level_box_size_factor;
 
+        %endfor
+
+        %if srcntgts_extent_norm == "linf":
+            %for ax in axis_names:
+                // stop descent here if particle sticks out of next-level box
                 stop_srcntgt_descent = stop_srcntgt_descent ||
                     (srcntgt_${ax} + srcntgt_radius >=
                         next_level_box_center_${ax}
@@ -367,8 +373,39 @@ MORTON_NR_SCAN_PREAMBLE_TPL = Template(r"""//CL//
                     (srcntgt_${ax} - srcntgt_radius <
                         next_level_box_center_${ax}
                         - next_level_box_stick_out_radius_${ax});
-            %endif
-        %endfor
+            %endfor
+
+        %elif srcntgts_extent_norm == "l2":
+
+            coord_t next_level_box_stick_out_radius =
+                box_radius_factor
+                * global_extent_x  /* assume isotropy */
+                * next_level_box_size_factor;
+
+            coord_t next_level_box_center_to_srcntgt_bdry_l2_dist_squared = 0
+                %for ax in axis_names:
+                    +   (srcntgt_${ax} - next_level_box_center_${ax})
+                      * (srcntgt_${ax} - next_level_box_center_${ax})
+                %endfor
+                + srcntgt_radius*srcntgt_radius
+                ;
+
+            // stop descent here if particle sticks out of next-level box
+            stop_srcntgt_descent = stop_srcntgt_descent ||
+                (next_level_box_center_to_srcntgt_bdry_l2_dist_squared
+                    >= ${dimensions}
+                        * next_level_box_stick_out_radius
+                        * next_level_box_stick_out_radius);
+
+        %elif srcntgts_extent_norm is None:
+            // nothing to do
+
+        %else:
+            <%
+                raise ValueError("unexpected value of 'srcntgts_extent_norm': %s"
+                    % srcntgts_extent_norm)
+            %>
+        %endif
 
         // Pick off the lowest-order bit for each axis, put it in its place.
         int level_morton_number = 0
@@ -1244,8 +1281,11 @@ BOX_INFO_KERNEL_TPL = ElementwiseTemplate(
 
 def get_tree_build_kernel_info(context, dimensions, coord_dtype,
         particle_id_dtype, box_id_dtype,
-        sources_are_targets, srcntgts_have_extent,
+        sources_are_targets, srcntgts_extent_norm,
         morton_nr_dtype, box_level_dtype, kind):
+    """
+    :arg srcntgts_extent_norm: one of ``None``, ``"l2"`` or ``"linf"``
+    """
 
     level_restrict = (kind == "adaptive-level-restricted")
     adaptive = not (kind == "non-adaptive")
@@ -1269,7 +1309,7 @@ def get_tree_build_kernel_info(context, dimensions, coord_dtype,
     dev = context.devices[0]
     morton_bin_count_dtype, _ = make_morton_bin_count_type(
             dev, dimensions, particle_id_dtype,
-            srcntgts_have_extent)
+            srcntgts_have_extent=srcntgts_extent_norm is not None)
 
     from boxtree.bounding_box import make_bounding_box_dtype
     bbox_dtype, bbox_type_decl = make_bounding_box_dtype(
@@ -1301,7 +1341,8 @@ def get_tree_build_kernel_info(context, dimensions, coord_dtype,
             level_restrict=level_restrict,
 
             sources_are_targets=sources_are_targets,
-            srcntgts_have_extent=srcntgts_have_extent,
+            srcntgts_have_extent=srcntgts_extent_norm is not None,
+            srcntgts_extent_norm=srcntgts_extent_norm,
 
             enable_assert=False,
             enable_printf=False,
@@ -1379,12 +1420,12 @@ def get_tree_build_kernel_info(context, dimensions, coord_dtype,
             + [VectorArg(coord_dtype, ax) for ax in axis_names]
 
             + ([VectorArg(coord_dtype, "srcntgt_radii")]
-                if srcntgts_have_extent else [])
+                if srcntgts_extent_norm is not None else [])
             )
 
     morton_count_scan_arguments = list(common_arguments)
 
-    if srcntgts_have_extent:
+    if srcntgts_extent_norm is not None:
         morton_count_scan_arguments += [
             (ScalarArg(coord_dtype, "stick_out_factor"))
         ]
@@ -1402,7 +1443,7 @@ def get_tree_build_kernel_info(context, dimensions, coord_dtype,
                     ]
                     + ["%s" % ax for ax in axis_names]
                     + (["srcntgt_radii, stick_out_factor"]
-                       if srcntgts_have_extent else []))),
+                       if srcntgts_extent_norm is not None else []))),
             scan_expr="scan_t_add(a, b, across_seg_boundary)",
             neutral="scan_t_neutral()",
             is_segment_start_expr="box_start_flags[i]",
@@ -1428,7 +1469,8 @@ def get_tree_build_kernel_info(context, dimensions, coord_dtype,
                 ),
             var_values=(
                 ("dimensions", dimensions),
-                ("srcntgts_have_extent", srcntgts_have_extent),
+                ("srcntgts_have_extent", srcntgts_extent_norm is not None),
+                ("srcntgts_extent_norm", srcntgts_extent_norm),
                 ("adaptive", adaptive),
                 ("padded_bin", padded_bin),
                 ("level_restrict", level_restrict),
@@ -1520,7 +1562,7 @@ def get_tree_build_kernel_info(context, dimensions, coord_dtype,
 
     # END KERNELS IN LEVEL LOOP
 
-    if srcntgts_have_extent:
+    if srcntgts_extent_norm is not None:
         extract_nonchild_srcntgt_count_kernel = \
                 EXTRACT_NONCHILD_SRCNTGT_COUNT_TPL.build(
                         context,
@@ -1636,7 +1678,7 @@ def get_tree_build_kernel_info(context, dimensions, coord_dtype,
                     ("box_id_t", box_id_dtype),
                     ),
                 var_values=(
-                    ("srcntgts_have_extent", srcntgts_have_extent),
+                    ("srcntgts_have_extent", srcntgts_extent_norm is not None),
                     ("sources_are_targets", sources_are_targets),
                     ),
                 more_preamble=generic_preamble)

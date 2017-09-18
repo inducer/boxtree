@@ -61,13 +61,13 @@ class TreeBuilder(object):
     @memoize_method
     def get_kernel_info(self, dimensions, coord_dtype,
             particle_id_dtype, box_id_dtype,
-            sources_are_targets, srcntgts_have_extent,
+            sources_are_targets, srcntgts_extent_norm,
             kind):
 
         from boxtree.tree_build_kernels import get_tree_build_kernel_info
         return get_tree_build_kernel_info(self.context, dimensions, coord_dtype,
             particle_id_dtype, box_id_dtype,
-            sources_are_targets, srcntgts_have_extent,
+            sources_are_targets, srcntgts_extent_norm,
             self.morton_nr_dtype, self.box_level_dtype,
             kind=kind)
 
@@ -77,7 +77,9 @@ class TreeBuilder(object):
             max_particles_in_box=None, allocator=None, debug=False,
             targets=None, source_radii=None, target_radii=None,
             stick_out_factor=None, refine_weights=None,
-            max_leaf_refine_weight=None, wait_for=None, **kwargs):
+            max_leaf_refine_weight=None, wait_for=None,
+            extent_norm="linf",
+            **kwargs):
         """
         :arg queue: a :class:`pyopencl.CommandQueue` instance
         :arg particles: an object array of (XYZ) point coordinate arrays.
@@ -114,6 +116,8 @@ class TreeBuilder(object):
         :arg wait_for: may either be *None* or a list of :class:`pyopencl.Event`
             instances for whose completion this command waits before starting
             execution.
+        :arg extent_norm: ``"l2"`` or ``"linf"``. Indicates the norm with respect
+            to which particle stick-out is measured. See :attr:`Tree.extent_norm`.
         :arg kwargs: Used internally for debugging.
 
         :returns: a tuple ``(tree, event)``, where *tree* is an instance of
@@ -140,9 +144,19 @@ class TreeBuilder(object):
         sources_are_targets = targets is None
         sources_have_extent = source_radii is not None
         targets_have_extent = target_radii is not None
-        srcntgts_have_extent = sources_have_extent or targets_have_extent
 
-        if srcntgts_have_extent and targets is None:
+        if extent_norm not in ["linf", "l2"]:
+            raise ValueError("unexpected value of 'extent_norm': %s"
+                    % extent_norm)
+
+        srcntgts_extent_norm = extent_norm
+        srcntgts_have_extent = sources_have_extent or targets_have_extent
+        if not srcntgts_have_extent:
+            srcntgts_extent_norm = None
+
+        del extent_norm
+
+        if srcntgts_extent_norm and targets is None:
             raise ValueError("must specify targets when specifying "
                     "any kind of radii")
 
@@ -192,7 +206,7 @@ class TreeBuilder(object):
 
         knl_info = self.get_kernel_info(dimensions, coord_dtype,
                 particle_id_dtype, box_id_dtype,
-                sources_are_targets, srcntgts_have_extent,
+                sources_are_targets, srcntgts_extent_norm,
                 kind=kind)
 
         logger.info("tree build: start")
@@ -1559,6 +1573,7 @@ class TreeBuilder(object):
 
                 root_extent=root_extent,
                 stick_out_factor=stick_out_factor,
+                extent_norm=srcntgts_extent_norm,
 
                 bounding_box=(bbox_min, bbox_max),
                 level_start_box_nrs=level_start_box_nrs,
