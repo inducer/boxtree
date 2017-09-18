@@ -355,14 +355,14 @@ MORTON_NR_SCAN_PREAMBLE_TPL = Template(r"""//CL//
                 * (${ax}_bits + one_half)
                 * next_level_box_size_factor;
 
+        %endfor
+
+        %if srcntgts_extent_norm == "linf":
             const coord_t next_level_box_stick_out_radius_${ax} =
                 box_radius_factor
                 * global_extent_${ax}
                 * next_level_box_size_factor;
 
-        %endfor
-
-        %if srcntgts_extent_norm == "linf":
             %for ax in axis_names:
                 // stop descent here if particle sticks out of next-level box
                 stop_srcntgt_descent = stop_srcntgt_descent ||
@@ -382,17 +382,19 @@ MORTON_NR_SCAN_PREAMBLE_TPL = Template(r"""//CL//
                 * global_extent_x  /* assume isotropy */
                 * next_level_box_size_factor;
 
-            coord_t next_level_box_center_to_srcntgt_bdry_l2_dist_squared = 0
+            coord_t next_level_box_center_to_srcntgt_bdry_l2_dist =
+                sqrt(
                 %for ax in axis_names:
                     +   (srcntgt_${ax} - next_level_box_center_${ax})
                       * (srcntgt_${ax} - next_level_box_center_${ax})
                 %endfor
-                + srcntgt_radius*srcntgt_radius
-                ;
+                ) + srcntgt_radius;
 
             // stop descent here if particle sticks out of next-level box
             stop_srcntgt_descent = stop_srcntgt_descent ||
-                (next_level_box_center_to_srcntgt_bdry_l2_dist_squared
+                (
+                next_level_box_center_to_srcntgt_bdry_l2_dist
+                * next_level_box_center_to_srcntgt_bdry_l2_dist
                     >= ${dimensions}
                         * next_level_box_stick_out_radius
                         * next_level_box_stick_out_radius);
