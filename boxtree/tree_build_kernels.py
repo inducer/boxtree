@@ -358,12 +358,12 @@ MORTON_NR_SCAN_PREAMBLE_TPL = Template(r"""//CL//
         %endfor
 
         %if srcntgts_extent_norm == "linf":
-            const coord_t next_level_box_stick_out_radius_${ax} =
-                box_radius_factor
-                * global_extent_${ax}
-                * next_level_box_size_factor;
-
             %for ax in axis_names:
+                const coord_t next_level_box_stick_out_radius_${ax} =
+                    box_radius_factor
+                    * global_extent_${ax}
+                    * next_level_box_size_factor;
+
                 // stop descent here if particle sticks out of next-level box
                 stop_srcntgt_descent = stop_srcntgt_descent ||
                     (srcntgt_${ax} + srcntgt_radius >=
