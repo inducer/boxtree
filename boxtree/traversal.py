@@ -1717,16 +1717,15 @@ class FMMTraversalBuilder:
                 dtype=tree.coord_dtype)
 
         if tree.sources_are_targets:
+            box_target_bounding_box_min = box_source_bounding_box_min
+            box_target_bounding_box_max = box_source_bounding_box_max
+        else:
             box_target_bounding_box_min = cl.array.empty(
                     queue, (tree.dimensions, tree.aligned_nboxes),
                     dtype=tree.coord_dtype)
             box_target_bounding_box_max = cl.array.empty(
                     queue, (tree.dimensions, tree.aligned_nboxes),
                     dtype=tree.coord_dtype)
-
-        else:
-            box_target_bounding_box_min = box_source_bounding_box_min
-            box_target_bounding_box_max = box_source_bounding_box_max
 
         bogus_radii_array = cl.array.empty(queue, 1, dtype=tree.coord_dtype)
 
