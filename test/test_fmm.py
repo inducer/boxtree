@@ -548,7 +548,7 @@ def test_pyfmmlib_fmm(ctx_getter, dims, use_dipoles, helmholtz_k):
     else:
         base_nterms = 10
 
-    def fmm_level_to_nterms(lev):
+    def fmm_level_to_nterms(tree, lev):
         result = base_nterms
 
         if lev < 3 and helmholtz_k:
