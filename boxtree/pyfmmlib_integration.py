@@ -48,9 +48,9 @@ class FMMLibExpansionWrangler(object):
     def __init__(self, tree, helmholtz_k, fmm_level_to_nterms=None, ifgrad=False,
             dipole_vec=None, dipoles_already_reordered=False, nterms=None):
         """
-        :arg fmm_level_to_nterms: a callable that, upon being passed the tree level
-            as an integer, returns the value of *nterms* for the multipole and
-            local expansions on that level.
+        :arg fmm_level_to_nterms: a callable that, upon being passed the tree
+            and the tree level as an integer, returns the value of *nterms* for the
+            multipole and local expansions on that level.
         """
 
         if nterms is not None and fmm_level_to_nterms is not None:
@@ -62,7 +62,7 @@ class FMMLibExpansionWrangler(object):
             warn("Passing nterms is deprecated. Pass fmm_level_to_nterms instead.",
                     DeprecationWarning, stacklevel=2)
 
-            def fmm_level_to_nterms(level):
+            def fmm_level_to_nterms(tree, level):
                 return nterms
 
         self.tree = tree
@@ -75,7 +75,7 @@ class FMMLibExpansionWrangler(object):
             self.kernel_kwargs = {"zk": helmholtz_k}
 
         self.level_nterms = np.array([
-            fmm_level_to_nterms(lev) for lev in range(tree.nlevels)
+            fmm_level_to_nterms(tree, lev) for lev in range(tree.nlevels)
             ], dtype=np.int32)
         self.dtype = np.complex128
 
