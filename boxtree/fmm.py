@@ -132,9 +132,9 @@ def drive_fmm(traversal, expansion_wrangler, src_weights):
 
     # }}}
 
-    # {{{ "Stage 6:" form locals for separated bigger mpoles ("list 4")
+    # {{{ "Stage 6:" form locals for separated bigger source boxes ("list 4")
 
-    logger.debug("form locals for separated bigger mpoles ('list 4 far')")
+    logger.debug("form locals for separated bigger source boxes ('list 4 far')")
 
     local_exps = local_exps + wrangler.form_locals(
             traversal.level_start_target_or_target_parent_box_nrs,
