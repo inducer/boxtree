@@ -516,9 +516,9 @@ inline bool meets_sep_smaller_criterion(
 {
     coord_t target_rad = LEVEL_TO_RAD(target_level);
     coord_t source_rad = LEVEL_TO_RAD(source_level);
-    coord_t max_allowed_center_l_inf_dist = (
-        3 * target_rad
-        + (1 + stick_out_factor) * source_rad);
+    coord_t min_allowed_center_l_inf_dist = (
+        3 * source_rad
+        + (1 + stick_out_factor) * target_rad);
 
     coord_t l_inf_dist = 0;
     %for i in range(dimensions):
@@ -527,7 +527,7 @@ inline bool meets_sep_smaller_criterion(
             fabs(target_center.s${i} - source_center.s${i}));
     %endfor
 
-    return l_inf_dist >= max_allowed_center_l_inf_dist * (1 - 8 * COORD_T_MACH_EPS);
+    return l_inf_dist >= min_allowed_center_l_inf_dist * (1 - 8 * COORD_T_MACH_EPS);
 }
 
 
