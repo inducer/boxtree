@@ -851,9 +851,9 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
     if (tgt_box_level == 0)
         return;
 
-    box_id_t parent_box_id = box_parent_ids[tgt_ibox];
-    const int parent_level = tgt_box_level - 1;
-    ${load_center("parent_center", "parent_box_id")}
+    box_id_t tgt_parent_box_id = box_parent_ids[tgt_ibox];
+    const int tgt_parent_level = tgt_box_level - 1;
+    ${load_center("parent_center", "tgt_parent_box_id")}
 
     box_flags_t tgt_box_flags = box_flags[tgt_ibox];
 
@@ -863,13 +863,13 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
         // may directly jump to the parent level.
 
         int walk_level = tgt_box_level - 1;
-        box_id_t current_parent_box_id = parent_box_id;
+        box_id_t current_tgt_parent_box_id = tgt_parent_box_id;
     %else:
         // In a 2+-away FMM, tgt_ibox's same-level non-well-separated boxes *may*
         // be sufficiently separated from tgt_ibox to be in its list 4.
 
         int walk_level = tgt_box_level;
-        box_id_t current_parent_box_id = tgt_ibox;
+        box_id_t current_tgt_parent_box_id = tgt_ibox;
     %endif
 
     /*
@@ -883,14 +883,14 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
     for (; walk_level != 0;
             // {{{ advance
             --walk_level,
-            current_parent_box_id = box_parent_ids[current_parent_box_id]
+            current_tgt_parent_box_id = box_parent_ids[current_tgt_parent_box_id]
             // }}}
             )
     {
         box_id_t slnws_start =
-            same_level_non_well_sep_boxes_starts[current_parent_box_id];
+            same_level_non_well_sep_boxes_starts[current_tgt_parent_box_id];
         box_id_t slnws_stop =
-            same_level_non_well_sep_boxes_starts[current_parent_box_id+1];
+            same_level_non_well_sep_boxes_starts[current_tgt_parent_box_id+1];
 
         // /!\ i is not a box id, it's an index into
         // same_level_non_well_sep_boxes_lists.
@@ -939,7 +939,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
                     {
                         bool in_parent_list_1 =
                             is_adjacent_or_overlapping(root_extent,
-                                parent_center, parent_level,
+                                parent_center, tgt_parent_level,
                                 slnws_center, walk_level);
 
                         bool would_be_in_parent_list_4_not_considering_stickout = (
@@ -987,7 +987,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
                             %if sources_have_extent or targets_have_extent:
                                 const bool parent_meets_with_ext_sep_criterion =
                                     meets_sep_bigger_criterion(root_extent,
-                                        parent_center, parent_level,
+                                        parent_center, tgt_parent_level,
                                         slnws_center, walk_level,
                                         stick_out_factor);
 
