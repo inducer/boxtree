@@ -98,11 +98,18 @@ class FMMLibExpansionWrangler(object):
     # }}}
 
     @memoize_method
-    def projection_quad_extra_kwargs(self, level):
+    def projection_quad_extra_kwargs(self, level=None, nterms=None):
+        if level is None and nterms is None:
+            raise TypeError("must pass exactly one of level or nterms")
+        if level is not None and nterms is not None:
+            raise TypeError("must pass exactly one of level or nterms")
+        if level is not None:
+            nterms = self.level_nterms[level]
+
         common_extra_kwargs = {}
 
         if self.dim == 3 and self.eqn_letter == "h":
-            nquad = max(6, int(2.5*self.level_nterms[level]))
+            nquad = max(6, int(2.5*nterms))
             from pyfmmlib import legewhts
             xnodes, weights = legewhts(nquad, ifwhts=1)
 
@@ -149,15 +156,15 @@ class FMMLibExpansionWrangler(object):
         if self.dim == 2:
             def wrapper(*args, **kwargs):
                 # not used
-                kwargs.pop("level_for_projection")
+                kwargs.pop("level_for_projection", None)
 
                 return rout(*args, **kwargs)
         else:
 
             def wrapper(*args, **kwargs):
-                level_for_projection = kwargs.pop("level_for_projection")
-                kwargs.update(self.projection_quad_extra_kwargs(
-                    level_for_projection))
+                kwargs.pop("level_for_projection", None)
+                nterms2 = kwargs["nterms2"]
+                kwargs.update(self.projection_quad_extra_kwargs(nterms=nterms2))
 
                 val, ier = rout(*args, **kwargs)
                 if (ier != 0).any():
@@ -483,8 +490,6 @@ class FMMLibExpansionWrangler(object):
                                 center2=parent_center,
                                 nterms2=self.level_nterms[target_level],
 
-                                level_for_projection=source_level,
-
                                 **kwargs)
 
                         target_mpoles_view[
@@ -606,7 +611,7 @@ class FMMLibExpansionWrangler(object):
                     center2=tree.box_centers[:, tgt_ibox_vec],
                     expn2=expn2.T,
 
-                    level_for_projection=lev,
+                    nterms2=self.level_nterms[lev],
 
                     **kwargs).T
 
@@ -740,8 +745,6 @@ class FMMLibExpansionWrangler(object):
                             rscale2=target_rscale,
                             center2=tgt_center,
                             nterms2=self.level_nterms[target_lev],
-
-                            level_for_projection=target_lev,
 
                             **kwargs)[..., 0]
 
