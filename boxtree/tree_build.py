@@ -78,7 +78,7 @@ class TreeBuilder(object):
             targets=None, source_radii=None, target_radii=None,
             stick_out_factor=None, refine_weights=None,
             max_leaf_refine_weight=None, wait_for=None,
-            extent_norm="linf",
+            extent_norm=None,
             **kwargs):
         """
         :arg queue: a :class:`pyopencl.CommandQueue` instance
@@ -144,6 +144,9 @@ class TreeBuilder(object):
         sources_are_targets = targets is None
         sources_have_extent = source_radii is not None
         targets_have_extent = target_radii is not None
+
+        if extent_norm is None:
+            extent_norm = "linf"
 
         if extent_norm not in ["linf", "l2"]:
             raise ValueError("unexpected value of 'extent_norm': %s"
