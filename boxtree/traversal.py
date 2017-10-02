@@ -105,30 +105,61 @@ TRAVERSAL_PREAMBLE_MAKO_DEFS = r"""//CL:mako//
 
 <%def name="load_center(name, box_id, declare=True)">
     %if declare:
-        coord_vec_t ${name};
+        coord_vec_t ${name} = (coord_vec_t)(
+    %else:
+        ${name} = (coord_vec_t)(
     %endif
-    %for i in range(dimensions):
-        ${name}.${AXIS_NAMES[i]} = box_centers[aligned_nboxes * ${i} + ${box_id}];
+        %for i in range(dimensions):
+            box_centers[aligned_nboxes * ${i} + ${box_id}]
+            %if i + 1 < dimensions:
+                ,
+            %endif
+        %endfor
+        );
+</%def>
+
+<%def name="load_true_box_extent(name, box_id, kind, declare=True)">
+    %if declare:
+        coord_vec_t ${name}_ext_center, ${name}_radii_vec;
+    %endif
+
+    {
+        %for bound in ["min", "max"]:
+                coord_vec_t ${name}_${bound} = (coord_vec_t)(
+                %for iaxis in range(dimensions):
+                    box_${kind}_bounding_box_${bound}[
+                        ${iaxis} * aligned_nboxes + ${box_id}]
+                    %if iaxis + 1 < dimensions:
+                        ,
+                    %endif
+                %endfor
+                );
+        %endfor
+
+        ${name}_ext_center = 0.5*(${name}_min + ${name}_max);
+        ${name}_radii_vec = 0.5*(${name}_max - ${name}_min);
+    }
+</%def>
+
+<%def name="load_true_box_linf_radius(name, center, box_id, kind, declare=True)">
+    %if declare:
+        coord_t ${name};
+    %endif
+
+    ${name} = 0;
+
+    %for iaxis in range(dimensions):
+        %for bound in ["min", "max"]:
+            ${name} = fmax(
+                ${name},
+                fabs(
+                    ${center}.${AXIS_NAMES[iaxis]}
+                    - box_${kind}_bounding_box_${bound}[
+                        ${iaxis} * aligned_nboxes + ${box_id}]));
+        %endfor
     %endfor
 </%def>
 
-<%def name="check_l_infty_ball_overlap(
-        is_overlapping, box_id, ball_radius, ball_center)">
-    {
-        ${load_center("box_center", box_id)}
-        int box_level = box_levels[${box_id}];
-
-        coord_t size_sum = LEVEL_TO_RAD(box_level) + ${ball_radius};
-
-        coord_t max_dist = 0;
-        %for i in range(dimensions):
-            max_dist = fmax(max_dist,
-                fabs(${ball_center}.s${i} - box_center.s${i}));
-        %endfor
-
-        ${is_overlapping} = max_dist <= size_sum;
-    }
-</%def>
 """
 
 
@@ -603,49 +634,37 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
 
 FROM_SEP_SMALLER_TEMPLATE = r"""//CL//
 
-inline bool meets_sep_smaller_criterion(
-    coord_t root_extent,
-    coord_vec_t target_center, int target_level,
-    coord_vec_t source_center, int source_level,
-    coord_t stick_out_factor)
-{
-    coord_t target_rad = LEVEL_TO_RAD(target_level);
-    coord_t source_rad = LEVEL_TO_RAD(source_level);
-    coord_t min_allowed_center_l_inf_dist = (
-        3 * source_rad
-        + (1 + stick_out_factor) * target_rad);
-
-    coord_t l_inf_dist = 0;
-    %for i in range(dimensions):
-        l_inf_dist = fmax(
-            l_inf_dist,
-            fabs(target_center.s${i} - source_center.s${i}));
-    %endfor
-
-    return l_inf_dist >= min_allowed_center_l_inf_dist * (1 - 8 * COORD_T_MACH_EPS);
-}
-
-
 void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
 {
     // /!\ target_box_number is *not* a box_id, despite the type.
     // It's the number of the target box we're currently processing.
 
-    box_id_t box_id = target_boxes[target_box_number];
+    box_id_t tgt_box_id = target_boxes[target_box_number];
 
-    ${load_center("center", "box_id")}
+    ${load_center("tgt_center", "tgt_box_id")}
 
-    int level = box_levels[box_id];
+    int tgt_level = box_levels[tgt_box_id];
 
-    box_id_t slnws_start = same_level_non_well_sep_boxes_starts[box_id];
-    box_id_t slnws_stop = same_level_non_well_sep_boxes_starts[box_id+1];
+    %if targets_have_extent:
+        %if from_sep_smaller_crit == "static_linf":
+            coord_t tgt_stickout_rad =
+                (1 + stick_out_factor) * LEVEL_TO_RAD(tgt_level);
+
+        %elif from_sep_smaller_crit == "precise_linf":
+            ${load_true_box_extent("tgt", "tgt_box_id", "target")}
+
+        %endif
+    %endif
+
+    box_id_t slnws_start = same_level_non_well_sep_boxes_starts[tgt_box_id];
+    box_id_t slnws_stop = same_level_non_well_sep_boxes_starts[tgt_box_id+1];
 
     // /!\ i is not a box_id, it's an index into same_level_non_well_sep_boxes_lists.
     for (box_id_t i = slnws_start; i < slnws_stop; ++i)
     {
         box_id_t same_lev_nws_box = same_level_non_well_sep_boxes_lists[i];
 
-        if (same_lev_nws_box == box_id)
+        if (same_lev_nws_box == tgt_box_id)
             continue;
 
         // Colleagues (same-level NWS boxes) for 1-away are always adjacent, so
@@ -658,21 +677,21 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
         while (continue_walk)
         {
             // Loop invariant:
-            // walk_parent_box_id is, at first, always adjacent to box_id.
+            // walk_parent_box_id is, at first, always adjacent to tgt_box_id.
             //
             // This is true at the first level because colleagues are adjacent
             // by definition, and is kept true throughout the walk by only descending
             // into adjacent boxes.
             //
             // As we descend, we may find a child of an adjacent box that is
-            // non-adjacent to box_id.
+            // non-adjacent to tgt_box_id.
             //
             // If neither sources nor targets have extent, then that
-            // nonadjacent child box is added to box_id's from_sep_smaller ("list 3
-            // far") and that's it.
+            // nonadjacent child box is added to tgt_box_id's from_sep_smaller
+            // ("list 3far") and that's it.
             //
             // If they have extent, then while they may be separated, the
-            // intersection of box_id's and the child box's stick-out region
+            // intersection of tgt_box_id's and the child box's stick-out region
             // may be non-empty, and we thus need to add that child to
             // from_sep_close_smaller ("list 3 close") for the interaction to be
             // done by direct evaluation. We also need to descend into that
@@ -694,7 +713,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
                 int walk_level = box_levels[walk_box_id];
 
                 bool in_list_1 = is_adjacent_or_overlapping(root_extent,
-                    center, level, walk_center, walk_level);
+                    tgt_center, tgt_level, walk_center, walk_level);
 
                 if (in_list_1)
                 {
@@ -714,21 +733,62 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
                 }
                 else
                 {
-                    %if sources_have_extent or targets_have_extent:
-                        const bool meets_crit =
-                            meets_sep_smaller_criterion(root_extent,
-                                center, level,
-                                walk_center, walk_level,
-                                stick_out_factor);
+                    bool meets_sep_crit;
+
+                    <% assert not sources_have_extent %>
+
+                    %if not targets_have_extent:
+                        meets_sep_crit = true;
+
+                    %elif from_sep_smaller_crit == "static_linf":
+                        {
+                            coord_t source_rad = LEVEL_TO_RAD(walk_level);
+
+                            // l-infty distance between source box and target box.
+                            // Negative indicates overlap.
+                            coord_t l_inf_dist = 0;
+                            %for i in range(dimensions):
+                                l_inf_dist = fmax(
+                                    l_inf_dist,
+                                    fabs(tgt_center.s${i} - walk_center.s${i})
+                                    - tgt_stickout_rad
+                                    - source_rad);
+                            %endfor
+
+                            meets_sep_crit = l_inf_dist >=
+                                (2 - 8 * COORD_T_MACH_EPS) * source_rad;
+                        }
+
+                    %elif from_sep_smaller_crit == "precise_linf":
+                        {
+                            coord_t source_rad = LEVEL_TO_RAD(walk_level);
+
+                            // l-infty distance between source box and target box.
+                            // Negative indicates overlap.
+                            coord_t l_inf_dist = 0;
+                            %for i in range(dimensions):
+                                l_inf_dist = fmax(
+                                    l_inf_dist,
+                                    fabs(tgt_ext_center.s${i} - walk_center.s${i})
+                                    - tgt_radii_vec.s${i}
+                                    - source_rad);
+                            %endfor
+
+                            meets_sep_crit = l_inf_dist >=
+                                (2 - 8 * COORD_T_MACH_EPS) * source_rad;
+                        }
+
                     %else:
-                        const bool meets_crit = true;
+                        <% raise ValueError(
+                            "unknown value of from_sep_smaller_crit: %s"
+                            % from_sep_smaller_crit) %>
                     %endif
 
                     // We're no longer *immediately* adjacent to our target
                     // box, but our stick-out regions might still have a
                     // non-empty intersection.
 
-                    if (meets_crit)
+                    if (meets_sep_crit)
                     {
                         if (from_sep_smaller_source_level == walk_level)
                             APPEND_from_sep_smaller(walk_box_id);
@@ -1429,16 +1489,62 @@ class _KernelInfo(Record):
 
 
 class FMMTraversalBuilder:
-    def __init__(self, context, well_sep_is_n_away=1):
+    def __init__(self, context, well_sep_is_n_away=1, from_sep_smaller_crit=None):
         self.context = context
         self.well_sep_is_n_away = well_sep_is_n_away
+        self.from_sep_smaller_crit = from_sep_smaller_crit
 
     # {{{ kernel builder
 
     @memoize_method
     def get_kernel_info(self, dimensions, particle_id_dtype, box_id_dtype,
             coord_dtype, box_level_dtype, max_levels,
-            sources_are_targets, sources_have_extent, targets_have_extent):
+            sources_are_targets, sources_have_extent, targets_have_extent,
+            extent_norm):
+
+        # {{{ process from_sep_smaller_crit
+
+        from_sep_smaller_crit = self.from_sep_smaller_crit
+
+        # FIXME Adjust these defaults once it's known what they should be.
+        if extent_norm == "linf":
+            if from_sep_smaller_crit is None:
+                # same as before
+                from_sep_smaller_crit = "static_linf"
+
+        elif extent_norm == "l2":
+            if from_sep_smaller_crit is None:
+                raise NotImplementedError(
+                        "'from_sep_smaller_crit' was not specified. "
+                        "Not specifying it should substitute in a "
+                        "reasonable default. "
+                        "Unfortunately, a reasonable default is not yet "
+                        "known in the l^2 extent norms case.")
+
+            if from_sep_smaller_crit == "static_linf":
+                raise ValueError(
+                        "The static l^inf from-sep-smaller criterion "
+                        "cannot be used with the l^2 extent norm")
+
+        elif extent_norm is None:
+            assert not (sources_have_extent or targets_have_extent)
+
+            if from_sep_smaller_crit is None:
+                # doesn't matter
+                from_sep_smaller_crit = "static_linf"
+
+        else:
+            raise ValueError("unexpected value of 'extent_norm': %s"
+                    % extent_norm)
+
+        if from_sep_smaller_crit not in [
+                "static_linf", "precise_linf",
+                "static_l2", "precise_l2",
+                ]:
+            raise ValueError("unexpected value of 'from_sep_smaller_crit': %s"
+                    % from_sep_smaller_crit)
+
+        # }}}
 
         logger.info("traversal build kernels: start build")
 
@@ -1462,6 +1568,7 @@ class FMMTraversalBuilder:
                 sources_have_extent=sources_have_extent,
                 targets_have_extent=targets_have_extent,
                 well_sep_is_n_away=self.well_sep_is_n_away,
+                from_sep_smaller_crit=from_sep_smaller_crit,
                 )
         from pyopencl.algorithm import ListOfListsBuilder
         from pyopencl.tools import VectorArg, ScalarArg
@@ -1554,6 +1661,8 @@ class FMMTraversalBuilder:
                                 "same_level_non_well_sep_boxes_starts"),
                             VectorArg(box_id_dtype,
                                 "same_level_non_well_sep_boxes_lists"),
+                            VectorArg(coord_dtype, "box_target_bounding_box_min"),
+                            VectorArg(coord_dtype, "box_target_bounding_box_max"),
                             ScalarArg(box_id_dtype, "from_sep_smaller_source_level"),
                             ],
                             ["from_sep_close_smaller"]
@@ -1628,7 +1737,8 @@ class FMMTraversalBuilder:
                 tree.dimensions, tree.particle_id_dtype, tree.box_id_dtype,
                 tree.coord_dtype, tree.box_level_dtype, max_levels,
                 tree.sources_are_targets,
-                tree.sources_have_extent, tree.targets_have_extent)
+                tree.sources_have_extent, tree.targets_have_extent,
+                tree.extent_norm)
 
         def fin_debug(s):
             if debug:
@@ -1851,6 +1961,8 @@ class FMMTraversalBuilder:
                 tree.stick_out_factor, target_boxes.data,
                 same_level_non_well_sep_boxes.starts.data,
                 same_level_non_well_sep_boxes.lists.data,
+                box_target_bounding_box_min.data,
+                box_target_bounding_box_max.data,
                 )
 
         from_sep_smaller_wait_for = []

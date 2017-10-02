@@ -240,6 +240,14 @@ class ConstantOneExpansionWranglerWithFilteredTargetsInUserOrder(
 
 
 @pytest.mark.parametrize("well_sep_is_n_away", [1, 2])
+@pytest.mark.parametrize(("extent_norm", "from_sep_smaller_crit"), [
+    ("linf", "static_linf"),
+    ("linf", "precise_linf"),
+    ("l2", "precise_linf"),
+    # NYI
+    #("l2", "static_l2"),
+    #("l2", "precise_l2"),
+    ])
 @pytest.mark.parametrize(("dims", "nsources_req", "ntargets_req",
         "who_has_extent", "source_gen", "target_gen", "filter_kind"),
         [
@@ -261,18 +269,19 @@ class ConstantOneExpansionWranglerWithFilteredTargetsInUserOrder(
             (3, 5 * 10**4, 4*10**4, "", p_normal, p_normal, "user"),
             #(2, 5 * 10**5, 4*10**4, "s", p_normal, p_normal, "user"),
             #(2, 5 * 10**5, 4*10**4, "st", p_normal, p_normal, "user"),
-            (2, 5 * 10**5, 4*10**4, "t", p_normal, p_normal, "user"),
+            (3, 5 * 10**5, 4*10**4, "t", p_normal, p_normal, "user"),
             #(2, 5 * 10**5, 4*10**4, "st", p_surface, p_uniform, "user"),
 
             (2, 10**5, None, "", p_normal, p_normal, "tree"),
             (3, 5 * 10**4, 4*10**4, "", p_normal, p_normal, "tree"),
             #(2, 5 * 10**5, 4*10**4, "s", p_normal, p_normal, "tree"),
             #(2, 5 * 10**5, 4*10**4, "st", p_normal, p_normal, "tree"),
-            (2, 5 * 10**5, 4*10**4, "t", p_normal, p_normal, "tree"),
+            (3, 5 * 10**5, 4*10**4, "t", p_normal, p_normal, "tree"),
             #(2, 5 * 10**5, 4*10**4, "st", p_surface, p_uniform, "tree"),
             ])
 def test_fmm_completeness(ctx_getter, dims, nsources_req, ntargets_req,
-         who_has_extent, source_gen, target_gen, filter_kind, well_sep_is_n_away):
+         who_has_extent, source_gen, target_gen, filter_kind, well_sep_is_n_away,
+         extent_norm, from_sep_smaller_crit):
     """Tests whether the built FMM traversal structures and driver completely
     capture all interactions.
     """
@@ -322,14 +331,16 @@ def test_fmm_completeness(ctx_getter, dims, nsources_req, ntargets_req,
     tree, _ = tb(queue, sources, targets=targets,
             max_particles_in_box=30,
             source_radii=source_radii, target_radii=target_radii,
-            debug=True, stick_out_factor=0.25)
+            debug=True, stick_out_factor=0.25, extent_norm=extent_norm)
     if 0:
         tree.get().plot()
         import matplotlib.pyplot as pt
         pt.show()
 
     from boxtree.traversal import FMMTraversalBuilder
-    tbuild = FMMTraversalBuilder(ctx, well_sep_is_n_away=well_sep_is_n_away)
+    tbuild = FMMTraversalBuilder(ctx,
+            well_sep_is_n_away=well_sep_is_n_away,
+            from_sep_smaller_crit=from_sep_smaller_crit)
     trav, _ = tbuild(queue, tree, debug=True)
 
     if who_has_extent:
