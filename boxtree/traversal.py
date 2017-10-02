@@ -141,25 +141,6 @@ TRAVERSAL_PREAMBLE_MAKO_DEFS = r"""//CL:mako//
     }
 </%def>
 
-<%def name="load_true_box_linf_radius(name, center, box_id, kind, declare=True)">
-    %if declare:
-        coord_t ${name};
-    %endif
-
-    ${name} = 0;
-
-    %for iaxis in range(dimensions):
-        %for bound in ["min", "max"]:
-            ${name} = fmax(
-                ${name},
-                fabs(
-                    ${center}.${AXIS_NAMES[iaxis]}
-                    - box_${kind}_bounding_box_${bound}[
-                        ${iaxis} * aligned_nboxes + ${box_id}]));
-        %endfor
-    %endfor
-</%def>
-
 <%def name="check_l_infty_ball_overlap(
         is_overlapping, box_id, ball_radius, ball_center)">
     {
@@ -202,6 +183,8 @@ typedef ${dtype_to_ctype(vec_types_dict[coord_dtype, dimensions])} coord_vec_t;
 %else:
     #define dbg_printf(ARGS) /* */
 %endif
+
+#define square(x) ((x)*(x))
 """
 
 
@@ -660,12 +643,34 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
     int tgt_level = box_levels[tgt_box_id];
 
     %if targets_have_extent:
-        %if from_sep_smaller_crit == "static_linf":
-            coord_t tgt_stickout_rad =
+        %if from_sep_smaller_crit in ["static_linf", "static_l2"]:
+            coord_t tgt_stickout_l_inf_rad =
                 (1 + stick_out_factor) * LEVEL_TO_RAD(tgt_level);
 
         %elif from_sep_smaller_crit == "precise_linf":
             ${load_true_box_extent("tgt", "tgt_box_id", "target")}
+
+        %elif from_sep_smaller_crit == "precise_l2":
+            ${load_true_box_extent("tgt", "tgt_box_id", "target")}
+
+            coord_t tgt_l_2_true_radius;
+            {
+                coord_t tgt_l_2_true_radius_squared = 0;
+
+                %for iaxis in range(dimensions):
+                    tgt_l_2_true_radius_squared += square(fmax(
+                        %for bound, trailing_comma in [("min", ","), ("max", "")]:
+                            fabs(
+                                tgt_center.s${iaxis}
+                                - box_target_bounding_box_${bound}[
+                                    ${iaxis} * aligned_nboxes + tgt_box_id])
+                            ${trailing_comma}
+                        %endfor
+                        ));
+                %endfor
+
+                tgt_l_2_true_radius = sqrt(tgt_l_2_true_radius_squared);
+            }
 
         %endif
     %endif
@@ -758,14 +763,14 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
                         {
                             coord_t source_rad = LEVEL_TO_RAD(walk_level);
 
-                            // l-infty distance between source box and target box.
+                            // l^infty distance between source box and target box.
                             // Negative indicates overlap.
                             coord_t l_inf_dist = 0;
                             %for i in range(dimensions):
                                 l_inf_dist = fmax(
                                     l_inf_dist,
                                     fabs(tgt_center.s${i} - walk_center.s${i})
-                                    - tgt_stickout_rad
+                                    - tgt_stickout_l_inf_rad
                                     - source_rad);
                             %endfor
 
@@ -777,7 +782,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
                         {
                             coord_t source_rad = LEVEL_TO_RAD(walk_level);
 
-                            // l-infty distance between source box and target box.
+                            // l^infty distance between source box and target box.
                             // Negative indicates overlap.
                             coord_t l_inf_dist = 0;
                             %for i in range(dimensions):
@@ -790,6 +795,61 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
 
                             meets_sep_crit = l_inf_dist >=
                                 (2 - 8 * COORD_T_MACH_EPS) * source_rad;
+                        }
+
+                    %elif from_sep_smaller_crit == "static_l2":
+                        {
+                            coord_t source_l_inf_rad = LEVEL_TO_RAD(walk_level);
+
+                            // l^2 distance between source box and target centers.
+                            coord_t l_2_squared_center_dist =
+                                0
+                                %for i in range(dimensions):
+                                    + square(tgt_center.s${i} - walk_center.s${i})
+                                %endfor
+                                ;
+
+                            // l^2 distance between source box and target box.
+                            // Negative indicates overlap.
+                            coord_t l_2_box_dist =
+                                sqrt(l_2_squared_center_dist)
+                                - sqrt((coord_t) (${dimensions}))
+                                    * tgt_stickout_l_inf_rad
+                                - source_l_inf_rad;
+
+                            meets_sep_crit = l_2_box_dist >=
+                                (2 - 8 * COORD_T_MACH_EPS) * source_l_inf_rad;
+                        }
+
+                    %elif from_sep_smaller_crit in ["precise_l2", "static_l2"]:
+                        {
+                            coord_t source_l_inf_rad = LEVEL_TO_RAD(walk_level);
+
+                            // l^2 distance between source box and target centers.
+                            coord_t l_2_squared_center_dist =
+                                0
+                                %for i in range(dimensions):
+                                    + square(tgt_center.s${i} - walk_center.s${i});
+                                %endfor
+                                ;
+
+                            // l^2 distance between source box and target box.
+                            // Negative indicates overlap.
+                            coord_t l_2_box_dist =
+                                sqrt(l_2_squared_center_dist)
+                                - sqrt((coord_t) (${dimensions}))
+                                    %if from_sep_smaller_crit == "static_l2":
+                                        * tgt_stickout_l_inf_rad
+                                    %elif from_sep_smaller_crit == "precise_l2":
+                                        * tgt_l_2_true_radius
+                                    %else:
+                                        <% raise ValueError(
+                                            "from_sep_smaller_crit") %>
+                                    %endif
+                                - source_l_inf_rad;
+
+                            meets_sep_crit = l_2_box_dist >=
+                                (2 - 8 * COORD_T_MACH_EPS) * source_l_inf_rad;
                         }
 
                     %else:

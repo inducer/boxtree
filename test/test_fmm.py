@@ -244,9 +244,8 @@ class ConstantOneExpansionWranglerWithFilteredTargetsInUserOrder(
     ("linf", "static_linf"),
     ("linf", "precise_linf"),
     ("l2", "precise_linf"),
-    # NYI
-    #("l2", "static_l2"),
-    #("l2", "precise_l2"),
+    ("l2", "static_l2"),
+    ("l2", "precise_l2"),
     ])
 @pytest.mark.parametrize(("dims", "nsources_req", "ntargets_req",
         "who_has_extent", "source_gen", "target_gen", "filter_kind"),
