@@ -240,43 +240,29 @@ class ConstantOneExpansionWranglerWithFilteredTargetsInUserOrder(
 
 
 @pytest.mark.parametrize("well_sep_is_n_away", [1, 2])
-@pytest.mark.parametrize(("extent_norm", "from_sep_smaller_crit"), [
-    ("linf", "static_linf"),
-    ("linf", "precise_linf"),
-    ("l2", "precise_linf"),
-    ("l2", "static_l2"),
-    ("l2", "precise_l2"),
-    ])
 @pytest.mark.parametrize(("dims", "nsources_req", "ntargets_req",
-        "who_has_extent", "source_gen", "target_gen", "filter_kind"),
+        "who_has_extent", "source_gen", "target_gen", "filter_kind",
+        "extent_norm", "from_sep_smaller_crit"),
         [
-            (2, 10**5, None, "", p_normal, p_normal, None),
-            (3, 5 * 10**4, 4*10**4, "", p_normal, p_normal, None),
-            #(2, 5 * 10**5, 4*10**4, "s", p_normal, p_normal, None),
-            #(2, 5 * 10**5, 4*10**4, "st", p_normal, p_normal, None),
-            (2, 5 * 10**5, 4*10**4, "t", p_normal, p_normal, None),
-            #(2, 5 * 10**5, 4*10**4, "st", p_surface, p_uniform, None),
+            (2, 10**5, None, "", p_normal, p_normal, None, "linf", "static_linf"),
+            (2, 5 * 10**4, 4*10**4, "", p_normal, p_normal, None, "linf", "static_linf"),  # noqa: E501
+            (2, 5 * 10**5, 4*10**4, "t", p_normal, p_normal, None, "linf", "static_linf"),  # noqa: E501
 
-            (3, 10**5, None, "", p_normal, p_normal, None),
-            (3, 5 * 10**4, 4*10**4, "", p_normal, p_normal, None),
-            #(3, 5 * 10**5, 4*10**4, "s", p_normal, p_normal, None),
-            #(3, 5 * 10**5, 4*10**4, "st", p_normal, p_normal, None),
-            (3, 5 * 10**5, 4*10**4, "t", p_normal, p_normal, None),
-            #(3, 5 * 10**5, 4*10**4, "st", p_surface, p_uniform, None),
+            (3, 10**5, None, "", p_normal, p_normal, None, "linf", "static_linf"),
+            (3, 5 * 10**5, 4*10**4, "", p_normal, p_normal, None, "linf", "static_linf"),  # noqa: E501
+            (3, 5 * 10**5, 4*10**4, "t", p_normal, p_normal, None, "linf", "static_linf"),  # noqa: E501
 
-            (2, 10**5, None, "", p_normal, p_normal, "user"),
-            (3, 5 * 10**4, 4*10**4, "", p_normal, p_normal, "user"),
-            #(2, 5 * 10**5, 4*10**4, "s", p_normal, p_normal, "user"),
-            #(2, 5 * 10**5, 4*10**4, "st", p_normal, p_normal, "user"),
-            (3, 5 * 10**5, 4*10**4, "t", p_normal, p_normal, "user"),
-            #(2, 5 * 10**5, 4*10**4, "st", p_surface, p_uniform, "user"),
+            (2, 10**5, None, "", p_normal, p_normal, "user", "linf", "static_linf"),
+            (3, 5 * 10**5, 4*10**4, "t", p_normal, p_normal, "user", "linf", "static_linf"),  # noqa: E501
+            (2, 10**5, None, "", p_normal, p_normal, "tree", "linf", "static_linf"),
+            (3, 5 * 10**5, 4*10**4, "t", p_normal, p_normal, "tree", "linf", "static_linf"),  # noqa: E501
 
-            (2, 10**5, None, "", p_normal, p_normal, "tree"),
-            (3, 5 * 10**4, 4*10**4, "", p_normal, p_normal, "tree"),
-            #(2, 5 * 10**5, 4*10**4, "s", p_normal, p_normal, "tree"),
-            #(2, 5 * 10**5, 4*10**4, "st", p_normal, p_normal, "tree"),
-            (3, 5 * 10**5, 4*10**4, "t", p_normal, p_normal, "tree"),
-            #(2, 5 * 10**5, 4*10**4, "st", p_surface, p_uniform, "tree"),
+            (3, 5 * 10**5, 4*10**4, "t", p_normal, p_normal, None, "linf", "static_linf"),  # noqa: E501
+            (3, 5 * 10**5, 4*10**4, "t", p_normal, p_normal, None, "linf", "precise_linf"),  # noqa: E501
+            (3, 5 * 10**5, 4*10**4, "t", p_normal, p_normal, None, "l2", "precise_linf"),  # noqa: E501
+            (3, 5 * 10**5, 4*10**4, "t", p_normal, p_normal, None, "l2", "static_l2"),  # noqa: E501
+            (3, 5 * 10**5, 4*10**4, "t", p_normal, p_normal, None, "l2", "precise_l2"),  # noqa: E501
+
             ])
 def test_fmm_completeness(ctx_getter, dims, nsources_req, ntargets_req,
          who_has_extent, source_gen, target_gen, filter_kind, well_sep_is_n_away,
