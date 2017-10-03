@@ -799,7 +799,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
                                 (2 - 8 * COORD_T_MACH_EPS) * source_l_inf_rad;
                         }
 
-                    %elif from_sep_smaller_crit in == "static_l2":
+                    %elif from_sep_smaller_crit == "static_l2":
                         {
                             coord_t source_l_inf_rad = LEVEL_TO_RAD(walk_level);
 
