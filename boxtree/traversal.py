@@ -650,28 +650,6 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
         %elif from_sep_smaller_crit == "precise_linf":
             ${load_true_box_extent("tgt", "tgt_box_id", "target")}
 
-        %elif from_sep_smaller_crit == "precise_l2":
-            ${load_true_box_extent("tgt", "tgt_box_id", "target")}
-
-            coord_t tgt_l_2_true_radius;
-            {
-                coord_t tgt_l_2_true_radius_squared = 0;
-
-                %for iaxis in range(dimensions):
-                    tgt_l_2_true_radius_squared += square(fmax(
-                        %for bound, trailing_comma in [("min", ","), ("max", "")]:
-                            fabs(
-                                tgt_center.s${iaxis}
-                                - box_target_bounding_box_${bound}[
-                                    ${iaxis} * aligned_nboxes + tgt_box_id])
-                            ${trailing_comma}
-                        %endfor
-                        ));
-                %endfor
-
-                tgt_l_2_true_radius = sqrt(tgt_l_2_true_radius_squared);
-            }
-
         %endif
     %endif
 
@@ -821,7 +799,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
                                 (2 - 8 * COORD_T_MACH_EPS) * source_l_inf_rad;
                         }
 
-                    %elif from_sep_smaller_crit in ["precise_l2", "static_l2"]:
+                    %elif from_sep_smaller_crit in == "static_l2":
                         {
                             coord_t source_l_inf_rad = LEVEL_TO_RAD(walk_level);
 
@@ -838,14 +816,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
                             coord_t l_2_box_dist =
                                 sqrt(l_2_squared_center_dist)
                                 - sqrt((coord_t) (${dimensions}))
-                                    %if from_sep_smaller_crit == "static_l2":
-                                        * tgt_stickout_l_inf_rad
-                                    %elif from_sep_smaller_crit == "precise_l2":
-                                        * tgt_l_2_true_radius
-                                    %else:
-                                        <% raise ValueError(
-                                            "from_sep_smaller_crit") %>
-                                    %endif
+                                    * tgt_stickout_l_inf_rad
                                 - source_l_inf_rad;
 
                             meets_sep_crit = l_2_box_dist >=
@@ -1613,7 +1584,7 @@ class FMMTraversalBuilder:
 
         if from_sep_smaller_crit not in [
                 "static_linf", "precise_linf",
-                "static_l2", "precise_l2",
+                "static_l2",
                 ]:
             raise ValueError("unexpected value of 'from_sep_smaller_crit': %s"
                     % from_sep_smaller_crit)

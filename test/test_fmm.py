@@ -261,7 +261,6 @@ class ConstantOneExpansionWranglerWithFilteredTargetsInUserOrder(
             (3, 5 * 10**5, 4*10**4, "t", p_normal, p_normal, None, "linf", "precise_linf"),  # noqa: E501
             (3, 5 * 10**5, 4*10**4, "t", p_normal, p_normal, None, "l2", "precise_linf"),  # noqa: E501
             (3, 5 * 10**5, 4*10**4, "t", p_normal, p_normal, None, "l2", "static_l2"),  # noqa: E501
-            (3, 5 * 10**5, 4*10**4, "t", p_normal, p_normal, None, "l2", "precise_l2"),  # noqa: E501
 
             ])
 def test_fmm_completeness(ctx_getter, dims, nsources_req, ntargets_req,
