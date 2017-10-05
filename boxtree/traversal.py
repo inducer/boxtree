@@ -833,7 +833,9 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
                     // box, but our stick-out regions might still have a
                     // non-empty intersection.
 
-                    if (meets_sep_crit)
+                    if (meets_sep_crit
+                            && box_source_counts_cumul[walk_box_id]
+                                >= from_sep_smaller_min_nsources_cumul)
                     {
                         if (from_sep_smaller_source_level == walk_level)
                             APPEND_from_sep_smaller(walk_box_id);
@@ -1708,6 +1710,9 @@ class FMMTraversalBuilder:
                                 "same_level_non_well_sep_boxes_lists"),
                             VectorArg(coord_dtype, "box_target_bounding_box_min"),
                             VectorArg(coord_dtype, "box_target_bounding_box_max"),
+                            VectorArg(particle_id_dtype, "box_source_counts_cumul"),
+                            ScalarArg(particle_id_dtype,
+                                "from_sep_smaller_min_nsources_cumul"),
                             ScalarArg(box_id_dtype, "from_sep_smaller_source_level"),
                             ],
                             ["from_sep_close_smaller"]
@@ -1752,7 +1757,8 @@ class FMMTraversalBuilder:
 
     # {{{ driver
 
-    def __call__(self, queue, tree, wait_for=None, debug=False):
+    def __call__(self, queue, tree, wait_for=None, debug=False,
+            _from_sep_smaller_min_nsources_cumul=None):
         """
         :arg queue: A :class:`pyopencl.CommandQueue` instance.
         :arg tree: A :class:`boxtree.Tree` instance.
@@ -1763,6 +1769,10 @@ class FMMTraversalBuilder:
             :class:`FMMTraversalInfo` and *event* is a :class:`pyopencl.Event`
             for dependency management.
         """
+
+        if _from_sep_smaller_min_nsources_cumul is None:
+            # default to old no-threshold behavior
+            _from_sep_smaller_min_nsources_cumul = 0
 
         if not tree._is_pruned:
             raise ValueError("tree must be pruned for traversal generation")
@@ -2008,6 +2018,8 @@ class FMMTraversalBuilder:
                 same_level_non_well_sep_boxes.lists.data,
                 box_target_bounding_box_min.data,
                 box_target_bounding_box_max.data,
+                tree.box_source_counts_cumul.data,
+                _from_sep_smaller_min_nsources_cumul,
                 )
 
         from_sep_smaller_wait_for = []
