@@ -1553,21 +1553,14 @@ class FMMTraversalBuilder:
 
         from_sep_smaller_crit = self.from_sep_smaller_crit
 
-        # FIXME Adjust these defaults once it's known what they should be.
+        if from_sep_smaller_crit is None:
+            from_sep_smaller_crit = "precise_linf"
+
         if extent_norm == "linf":
-            if from_sep_smaller_crit is None:
-                # same as before
-                from_sep_smaller_crit = "static_linf"
+            # no special checks needed
+            pass
 
         elif extent_norm == "l2":
-            if from_sep_smaller_crit is None:
-                raise NotImplementedError(
-                        "'from_sep_smaller_crit' was not specified. "
-                        "Not specifying it should substitute in a "
-                        "reasonable default. "
-                        "Unfortunately, a reasonable default is not yet "
-                        "known in the l^2 extent norms case.")
-
             if from_sep_smaller_crit == "static_linf":
                 raise ValueError(
                         "The static l^inf from-sep-smaller criterion "
