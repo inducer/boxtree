@@ -114,7 +114,7 @@ class Tree(DeviceDataRecord):
 
         One of ``None``, ``"l2"`` or ``"linf"``. If *None*, particles do not have
         extent. If not *None*, indicates the norm with which extent-bearing particles
-        are determined to lie 'inside' a box's, taking into account the box's
+        are determined to lie 'inside' a box, taking into account the box's
         :attr:`stick_out_factor`.
 
         This image illustrates the difference in semantics:
