@@ -1,0 +1,57 @@
+#! /bin/bash
+
+set -e
+set -x
+
+if test "$1" = "" || test "$2" = ""; then
+  echo "Usage: $0 pic.tikz pic.png [CONVERT FLAGS ...]"
+  exit 1
+fi
+
+TIKZ="$1"
+OUTF="$2"
+shift
+shift
+
+TMPDIR=$(mktemp -d)
+TEX="$TMPDIR/source.tex"
+
+cat <<END > $TEX
+\documentclass[preview]{standalone}
+\nonstopmode
+\usepackage{tikz}
+\usetikzlibrary{calc}
+\usetikzlibrary{positioning}
+\usetikzlibrary{fadings}
+\usetikzlibrary{chains}
+\usetikzlibrary{scopes}
+\usetikzlibrary{shadows}
+\usetikzlibrary{arrows}
+\usetikzlibrary{snakes}
+\usetikzlibrary{shapes.misc}
+\usetikzlibrary{shapes.symbols}
+\usetikzlibrary{shapes.multipart}
+\usetikzlibrary{fit}
+\usetikzlibrary{shapes.arrows}
+\usetikzlibrary{shapes.geometric}
+\usetikzlibrary{shapes.callouts}
+\usetikzlibrary{decorations.text}
+
+\pgfdeclarelayer{background}
+\pgfdeclarelayer{foreground}
+\pgfsetlayers{background,main,foreground}
+
+\renewcommand*\familydefault{\sfdefault}
+
+\begin{document}
+END
+
+cat $TIKZ >> $TEX
+
+cat <<END >> $TEX
+\end{document}
+END
+
+(cd "$TMPDIR"; pdflatex source)
+(cd "$TMPDIR"; convert "$@" source.pdf source.png)
+cp "$TMPDIR/source.png" "$OUTF"

@@ -249,6 +249,30 @@ def test_tree_connectivity(ctx_getter, dims, sources_are_targets):
 
     # }}}
 
+    # {{{ box extents make sense
+
+    for ibox in range(tree.nboxes):
+        ext_low, ext_high = tree.get_box_extent(ibox)
+        center = tree.box_centers[:, ibox]
+
+        for which, bbox_min, bbox_max in [
+                (
+                    "source",
+                    trav.box_source_bounding_box_min[:, ibox],
+                    trav.box_source_bounding_box_max[:, ibox]),
+                (
+                    "target",
+                    trav.box_target_bounding_box_min[:, ibox],
+                    trav.box_target_bounding_box_max[:, ibox]),
+                ]:
+            assert (ext_low <= bbox_min).all()
+            assert (bbox_min <= center).all()
+
+            assert (bbox_max <= ext_high).all()
+            assert (center <= bbox_max).all()
+
+    # }}}
+
 # }}}
 
 

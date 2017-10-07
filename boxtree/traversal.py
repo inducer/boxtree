@@ -105,11 +105,40 @@ TRAVERSAL_PREAMBLE_MAKO_DEFS = r"""//CL:mako//
 
 <%def name="load_center(name, box_id, declare=True)">
     %if declare:
-        coord_vec_t ${name};
+        coord_vec_t ${name} = (coord_vec_t)(
+    %else:
+        ${name} = (coord_vec_t)(
     %endif
-    %for i in range(dimensions):
-        ${name}.${AXIS_NAMES[i]} = box_centers[aligned_nboxes * ${i} + ${box_id}];
-    %endfor
+        %for i in range(dimensions):
+            box_centers[aligned_nboxes * ${i} + ${box_id}]
+            %if i + 1 < dimensions:
+                ,
+            %endif
+        %endfor
+        );
+</%def>
+
+<%def name="load_true_box_extent(name, box_id, kind, declare=True)">
+    %if declare:
+        coord_vec_t ${name}_ext_center, ${name}_radii_vec;
+    %endif
+
+    {
+        %for bound in ["min", "max"]:
+                coord_vec_t ${name}_${bound} = (coord_vec_t)(
+                %for iaxis in range(dimensions):
+                    box_${kind}_bounding_box_${bound}[
+                        ${iaxis} * aligned_nboxes + ${box_id}]
+                    %if iaxis + 1 < dimensions:
+                        ,
+                    %endif
+                %endfor
+                );
+        %endfor
+
+        ${name}_ext_center = 0.5*(${name}_min + ${name}_max);
+        ${name}_radii_vec = 0.5*(${name}_max - ${name}_min);
+    }
 </%def>
 
 <%def name="check_l_infty_ball_overlap(
@@ -117,15 +146,12 @@ TRAVERSAL_PREAMBLE_MAKO_DEFS = r"""//CL:mako//
     {
         ${load_center("box_center", box_id)}
         int box_level = box_levels[${box_id}];
-
         coord_t size_sum = LEVEL_TO_RAD(box_level) + ${ball_radius};
-
         coord_t max_dist = 0;
         %for i in range(dimensions):
             max_dist = fmax(max_dist,
                 fabs(${ball_center}.s${i} - box_center.s${i}));
         %endfor
-
         ${is_overlapping} = max_dist <= size_sum;
     }
 </%def>
@@ -157,6 +183,8 @@ typedef ${dtype_to_ctype(vec_types_dict[coord_dtype, dimensions])} coord_vec_t;
 %else:
     #define dbg_printf(ARGS) /* */
 %endif
+
+#define square(x) ((x)*(x))
 """
 
 
@@ -295,6 +323,98 @@ LEVEL_START_BOX_NR_EXTRACTOR_TEMPLATE = ElementwiseTemplate(
             list_level_start_box_nrs[my_level] = i;
     """,
     name="extract_level_start_box_nrs")
+
+# }}}
+
+# {{{ box extents
+
+BOX_EXTENTS_FINDER_TEMPLATE = ElementwiseTemplate(
+    arguments="""//CL:mako//
+    box_id_t aligned_nboxes,
+    box_id_t *box_child_ids,
+    coord_t *box_centers,
+    particle_id_t *box_particle_starts,
+    particle_id_t *box_particle_counts_nonchild
+
+    %for iaxis in range(dimensions):
+        , const coord_t *particle_${AXIS_NAMES[iaxis]}
+    %endfor
+    ,
+    const coord_t *particle_radii,
+    int enable_radii,
+
+    coord_t *box_particle_bounding_box_min,
+    coord_t *box_particle_bounding_box_max,
+    """,
+
+    operation=TRAVERSAL_PREAMBLE_MAKO_DEFS + r"""//CL:mako//
+        box_id_t ibox = i;
+
+        ${load_center("box_center", "ibox")}
+
+        <% axis_names = AXIS_NAMES[:dimensions] %>
+
+        // incorporate own particles
+        %for iaxis, ax in enumerate(axis_names):
+            coord_t min_particle_${ax} = box_center.s${iaxis};
+            coord_t max_particle_${ax} = box_center.s${iaxis};
+        %endfor
+
+        particle_id_t start = box_particle_starts[ibox];
+        particle_id_t stop = start + box_particle_counts_nonchild[ibox];
+
+        for (particle_id_t iparticle = start; iparticle < stop; ++iparticle)
+        {
+            coord_t particle_rad = 0;
+            %if sources_have_extent or targets_have_extent:
+                // If only one has extent, then the radius array for the other
+                // may well be a null pointer.
+                if (enable_radii)
+                    particle_rad = particle_radii[iparticle];
+            %endif
+
+            %for iaxis, ax in enumerate(axis_names):
+                coord_t particle_coord_${ax} = particle_${ax}[iparticle];
+
+                min_particle_${ax} = min(
+                    min_particle_${ax},
+                    particle_coord_${ax} - particle_rad);
+                max_particle_${ax} = max(
+                    max_particle_${ax},
+                    particle_coord_${ax} + particle_rad);
+            %endfor
+        }
+
+        // incorporate child boxes
+        for (int morton_nr = 0; morton_nr < ${2**dimensions}; ++morton_nr)
+        {
+            box_id_t child_id = box_child_ids[
+                    morton_nr * aligned_nboxes + ibox];
+
+            if (child_id == 0)
+                continue;
+
+            %for iaxis, ax in enumerate(axis_names):
+                min_particle_${ax} = min(
+                    min_particle_${ax},
+                    box_particle_bounding_box_min[
+                        ${iaxis} * aligned_nboxes + child_id]);
+                max_particle_${ax} = max(
+                    max_particle_${ax},
+                    box_particle_bounding_box_max[
+                        ${iaxis} * aligned_nboxes + child_id]);
+            %endfor
+        }
+
+        // write result
+        %for iaxis, ax in enumerate(axis_names):
+            box_particle_bounding_box_min[
+                ${iaxis} * aligned_nboxes + ibox] = min_particle_${ax};
+            box_particle_bounding_box_max[
+                ${iaxis} * aligned_nboxes + ibox] = max_particle_${ax};
+        %endfor
+    """,
+    name="find_box_extents")
 
 # }}}
 
@@ -485,6 +605,9 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
             box_id_t sib_box_id = box_child_ids[
                     morton_nr * aligned_nboxes + parent_nf];
 
+            if (sib_box_id == 0)
+                continue;
+
             ${load_center("sib_center", "sib_box_id")}
 
             bool sep = !is_adjacent_or_overlapping_with_neighborhood(
@@ -508,49 +631,38 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
 
 FROM_SEP_SMALLER_TEMPLATE = r"""//CL//
 
-inline bool meets_sep_smaller_criterion(
-    coord_t root_extent,
-    coord_vec_t target_center, int target_level,
-    coord_vec_t source_center, int source_level,
-    coord_t stick_out_factor)
-{
-    coord_t target_rad = LEVEL_TO_RAD(target_level);
-    coord_t source_rad = LEVEL_TO_RAD(source_level);
-    coord_t min_allowed_center_l_inf_dist = (
-        3 * source_rad
-        + (1 + stick_out_factor) * target_rad);
-
-    coord_t l_inf_dist = 0;
-    %for i in range(dimensions):
-        l_inf_dist = fmax(
-            l_inf_dist,
-            fabs(target_center.s${i} - source_center.s${i}));
-    %endfor
-
-    return l_inf_dist >= min_allowed_center_l_inf_dist * (1 - 8 * COORD_T_MACH_EPS);
-}
-
-
 void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
 {
     // /!\ target_box_number is *not* a box_id, despite the type.
     // It's the number of the target box we're currently processing.
 
-    box_id_t box_id = target_boxes[target_box_number];
+    box_id_t tgt_box_id = target_boxes[target_box_number];
 
-    ${load_center("center", "box_id")}
+    ${load_center("tgt_center", "tgt_box_id")}
 
-    int level = box_levels[box_id];
+    int tgt_level = box_levels[tgt_box_id];
 
-    box_id_t slnws_start = same_level_non_well_sep_boxes_starts[box_id];
-    box_id_t slnws_stop = same_level_non_well_sep_boxes_starts[box_id+1];
+    %if targets_have_extent:
+        %if from_sep_smaller_crit in ["static_linf", "static_l2"]:
+            coord_t tgt_stickout_l_inf_rad =
+                (1 + stick_out_factor) * LEVEL_TO_RAD(tgt_level);
+
+        %elif from_sep_smaller_crit == "precise_linf":
+            ${load_true_box_extent("tgt", "tgt_box_id", "target")}
+            // defines tgt_ext_center, tgt_radii_vec
+
+        %endif
+    %endif
+
+    box_id_t slnws_start = same_level_non_well_sep_boxes_starts[tgt_box_id];
+    box_id_t slnws_stop = same_level_non_well_sep_boxes_starts[tgt_box_id+1];
 
     // /!\ i is not a box_id, it's an index into same_level_non_well_sep_boxes_lists.
     for (box_id_t i = slnws_start; i < slnws_stop; ++i)
     {
         box_id_t same_lev_nws_box = same_level_non_well_sep_boxes_lists[i];
 
-        if (same_lev_nws_box == box_id)
+        if (same_lev_nws_box == tgt_box_id)
             continue;
 
         // Colleagues (same-level NWS boxes) for 1-away are always adjacent, so
@@ -563,21 +675,21 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
         while (continue_walk)
         {
             // Loop invariant:
-            // walk_parent_box_id is, at first, always adjacent to box_id.
+            // walk_parent_box_id is, at first, always adjacent to tgt_box_id.
             //
             // This is true at the first level because colleagues are adjacent
             // by definition, and is kept true throughout the walk by only descending
             // into adjacent boxes.
             //
             // As we descend, we may find a child of an adjacent box that is
-            // non-adjacent to box_id.
+            // non-adjacent to tgt_box_id.
             //
             // If neither sources nor targets have extent, then that
-            // nonadjacent child box is added to box_id's from_sep_smaller ("list 3
-            // far") and that's it.
+            // nonadjacent child box is added to tgt_box_id's from_sep_smaller
+            // ("list 3far") and that's it.
             //
             // If they have extent, then while they may be separated, the
-            // intersection of box_id's and the child box's stick-out region
+            // intersection of tgt_box_id's and the child box's stick-out region
             // may be non-empty, and we thus need to add that child to
             // from_sep_close_smaller ("list 3 close") for the interaction to be
             // done by direct evaluation. We also need to descend into that
@@ -599,7 +711,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
                 int walk_level = box_levels[walk_box_id];
 
                 bool in_list_1 = is_adjacent_or_overlapping(root_extent,
-                    center, level, walk_center, walk_level);
+                    tgt_center, tgt_level, walk_center, walk_level);
 
                 if (in_list_1)
                 {
@@ -619,21 +731,88 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
                 }
                 else
                 {
-                    %if sources_have_extent or targets_have_extent:
-                        const bool meets_crit =
-                            meets_sep_smaller_criterion(root_extent,
-                                center, level,
-                                walk_center, walk_level,
-                                stick_out_factor);
+                    bool meets_sep_crit;
+
+                    <% assert not sources_have_extent %>
+
+                    %if not targets_have_extent:
+                        meets_sep_crit = true;
+
+                    %elif from_sep_smaller_crit == "static_linf":
+                        {
+                            coord_t source_rad = LEVEL_TO_RAD(walk_level);
+
+                            // l^infty distance between source box and target box.
+                            // Negative indicates overlap.
+                            coord_t l_inf_dist = 0;
+                            %for i in range(dimensions):
+                                l_inf_dist = fmax(
+                                    l_inf_dist,
+                                    fabs(tgt_center.s${i} - walk_center.s${i})
+                                    - tgt_stickout_l_inf_rad
+                                    - source_rad);
+                            %endfor
+
+                            meets_sep_crit = l_inf_dist >=
+                                (2 - 8 * COORD_T_MACH_EPS) * source_rad;
+                        }
+
+                    %elif from_sep_smaller_crit == "precise_linf":
+                        {
+                            coord_t source_rad = LEVEL_TO_RAD(walk_level);
+
+                            // l^infty distance between source box and target box.
+                            // Negative indicates overlap.
+                            coord_t l_inf_dist = 0;
+                            %for i in range(dimensions):
+                                l_inf_dist = fmax(
+                                    l_inf_dist,
+                                    fabs(tgt_ext_center.s${i} - walk_center.s${i})
+                                    - tgt_radii_vec.s${i}
+                                    - source_rad);
+                            %endfor
+
+                            meets_sep_crit = l_inf_dist >=
+                                (2 - 8 * COORD_T_MACH_EPS) * source_rad;
+                        }
+
+                    %elif from_sep_smaller_crit == "static_l2":
+                        {
+                            coord_t source_l_inf_rad = LEVEL_TO_RAD(walk_level);
+
+                            // l^2 distance between source box and target centers.
+                            coord_t l_2_squared_center_dist =
+                                0
+                                %for i in range(dimensions):
+                                    + square(tgt_center.s${i} - walk_center.s${i})
+                                %endfor
+                                ;
+
+                            // l^2 distance between source box and target box.
+                            // Negative indicates overlap.
+                            coord_t l_2_box_dist =
+                                sqrt(l_2_squared_center_dist)
+                                - sqrt((coord_t) (${dimensions}))
+                                    * tgt_stickout_l_inf_rad
+                                - source_l_inf_rad;
+
+                            meets_sep_crit = l_2_box_dist >=
+                                (2 - 8 * COORD_T_MACH_EPS) * source_l_inf_rad;
+                        }
+
                     %else:
-                        const bool meets_crit = true;
+                        <% raise ValueError(
+                            "unknown value of from_sep_smaller_crit: %s"
+                            % from_sep_smaller_crit) %>
                     %endif
 
                     // We're no longer *immediately* adjacent to our target
                     // box, but our stick-out regions might still have a
                     // non-empty intersection.
 
-                    if (meets_crit)
+                    if (meets_sep_crit
+                            && box_source_counts_cumul[walk_box_id]
+                                >= from_sep_smaller_min_nsources_cumul)
                     {
                         if (from_sep_smaller_source_level == walk_level)
                             APPEND_from_sep_smaller(walk_box_id);
@@ -756,9 +935,9 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
     if (tgt_box_level == 0)
         return;
 
-    box_id_t parent_box_id = box_parent_ids[tgt_ibox];
-    const int parent_level = tgt_box_level - 1;
-    ${load_center("parent_center", "parent_box_id")}
+    box_id_t tgt_parent_box_id = box_parent_ids[tgt_ibox];
+    const int tgt_parent_level = tgt_box_level - 1;
+    ${load_center("parent_center", "tgt_parent_box_id")}
 
     box_flags_t tgt_box_flags = box_flags[tgt_ibox];
 
@@ -768,13 +947,13 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
         // may directly jump to the parent level.
 
         int walk_level = tgt_box_level - 1;
-        box_id_t current_parent_box_id = parent_box_id;
+        box_id_t current_tgt_parent_box_id = tgt_parent_box_id;
     %else:
         // In a 2+-away FMM, tgt_ibox's same-level non-well-separated boxes *may*
         // be sufficiently separated from tgt_ibox to be in its list 4.
 
         int walk_level = tgt_box_level;
-        box_id_t current_parent_box_id = tgt_ibox;
+        box_id_t current_tgt_parent_box_id = tgt_ibox;
     %endif
 
     /*
@@ -788,14 +967,14 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
     for (; walk_level != 0;
             // {{{ advance
             --walk_level,
-            current_parent_box_id = box_parent_ids[current_parent_box_id]
+            current_tgt_parent_box_id = box_parent_ids[current_tgt_parent_box_id]
             // }}}
             )
     {
         box_id_t slnws_start =
-            same_level_non_well_sep_boxes_starts[current_parent_box_id];
+            same_level_non_well_sep_boxes_starts[current_tgt_parent_box_id];
         box_id_t slnws_stop =
-            same_level_non_well_sep_boxes_starts[current_parent_box_id+1];
+            same_level_non_well_sep_boxes_starts[current_tgt_parent_box_id+1];
 
         // /!\ i is not a box id, it's an index into
         // same_level_non_well_sep_boxes_lists.
@@ -844,7 +1023,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
                     {
                         bool in_parent_list_1 =
                             is_adjacent_or_overlapping(root_extent,
-                                parent_center, parent_level,
+                                parent_center, tgt_parent_level,
                                 slnws_center, walk_level);
 
                         bool would_be_in_parent_list_4_not_considering_stickout = (
@@ -892,7 +1071,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
                             %if sources_have_extent or targets_have_extent:
                                 const bool parent_meets_with_ext_sep_criterion =
                                     meets_sep_bigger_criterion(root_extent,
-                                        parent_center, parent_level,
+                                        parent_center, tgt_parent_level,
                                         slnws_center, walk_level,
                                         stick_out_factor);
 
@@ -1012,6 +1191,31 @@ class FMMTraversalInfo(DeviceDataRecord):
 
         Indices into :attr:`target_or_target_parent_boxes` indicating where
         each level starts and ends.
+
+    .. ------------------------------------------------------------------------
+    .. rubric:: Box extents
+    .. ------------------------------------------------------------------------
+
+    The attributes in this section are only available if the respective
+    particle type (source/target) has extents.
+
+    If they are not available, the corresponding attributes will be *None*.
+
+    .. attribute:: box_source_bounding_box_min
+
+        ``coordt_t [dimensions, aligned_nboxes]``
+
+    .. attribute:: box_source_bounding_box_max
+
+        ``coordt_t [dimensions, aligned_nboxes]``
+
+    .. attribute:: box_target_bounding_box_min
+
+        ``coordt_t [dimensions, aligned_nboxes]``
+
+    .. attribute:: box_target_bounding_box_max
+
+        ``coordt_t [dimensions, aligned_nboxes]``
 
     .. ------------------------------------------------------------------------
     .. rubric:: Same-level non-well-separated boxes
@@ -1308,16 +1512,70 @@ class _KernelInfo(Record):
 
 
 class FMMTraversalBuilder:
-    def __init__(self, context, well_sep_is_n_away=1):
+    def __init__(self, context, well_sep_is_n_away=1, from_sep_smaller_crit=None):
+        """
+        :arg well_sep_is_n_away: Either An integer 1 or greater. (Only 2 is tested)
+            The spacing between boxes that is considered "well-separated" for
+            :attr:`from_sep_siblings` (List 2).
+        :arg from_sep_smaller_crit: The criterion used to determine separation
+            box dimensions and separation for :attr:`from_sep_smaller_by_level`
+            (List 3). May be one of ``"static_linf"`` (use the box square,
+            possibly enlarged by :attr:`Tree.stick_out_factor`), ``"precise_linf"`
+            (use the precise extent of targets in the box, including their radii),
+            or ``"static_l2"`` (use the circumcircle of the box,
+            possibly enlarged by :attr:`Tree.stick_out_factor`).
+        """
         self.context = context
         self.well_sep_is_n_away = well_sep_is_n_away
+        self.from_sep_smaller_crit = from_sep_smaller_crit
 
     # {{{ kernel builder
 
     @memoize_method
     def get_kernel_info(self, dimensions, particle_id_dtype, box_id_dtype,
             coord_dtype, box_level_dtype, max_levels,
-            sources_are_targets, sources_have_extent, targets_have_extent):
+            sources_are_targets, sources_have_extent, targets_have_extent,
+            extent_norm):
+
+        # {{{ process from_sep_smaller_crit
+
+        from_sep_smaller_crit = self.from_sep_smaller_crit
+
+        if from_sep_smaller_crit is None:
+            from_sep_smaller_crit = "precise_linf"
+
+        if extent_norm == "linf":
+            # no special checks needed
+            pass
+
+        elif extent_norm == "l2":
+            if from_sep_smaller_crit == "static_linf":
+                # Not technically necessary, but static linf will assume box
+                # bounds that are not guaranteed to contain all particle
+                # extents.
+                raise ValueError(
+                        "The static l^inf from-sep-smaller criterion "
+                        "cannot be used with the l^2 extent norm")
+
+        elif extent_norm is None:
+            assert not (sources_have_extent or targets_have_extent)
+
+            if from_sep_smaller_crit is None:
+                # doesn't matter
+                from_sep_smaller_crit = "static_linf"
+
+        else:
+            raise ValueError("unexpected value of 'extent_norm': %s"
+                    % extent_norm)
+
+        if from_sep_smaller_crit not in [
+                "static_linf", "precise_linf",
+                "static_l2",
+                ]:
+            raise ValueError("unexpected value of 'from_sep_smaller_crit': %s"
+                    % from_sep_smaller_crit)
+
+        # }}}
 
         logger.info("traversal build kernels: start build")
 
@@ -1341,6 +1599,7 @@ class FMMTraversalBuilder:
                 sources_have_extent=sources_have_extent,
                 targets_have_extent=targets_have_extent,
                 well_sep_is_n_away=self.well_sep_is_n_away,
+                from_sep_smaller_crit=from_sep_smaller_crit,
                 )
         from pyopencl.algorithm import ListOfListsBuilder
         from pyopencl.tools import VectorArg, ScalarArg
@@ -1370,6 +1629,23 @@ class FMMTraversalBuilder:
                             ],
                         debug=debug,
                         name_prefix="sources_parents_and_targets")
+
+        result["box_extents_finder"] = \
+                BOX_EXTENTS_FINDER_TEMPLATE.build(self.context,
+                    type_aliases=(
+                        ("box_id_t", box_id_dtype),
+                        ("coord_t", coord_dtype),
+                        ("coord_vec_t", cl.cltypes.vec_types[
+                            coord_dtype, dimensions]),
+                        ("particle_id_t", particle_id_dtype),
+                        ),
+                    var_values=(
+                        ("dimensions", dimensions),
+                        ("AXIS_NAMES", AXIS_NAMES),
+                        ("sources_have_extent", sources_have_extent),
+                        ("targets_have_extent", targets_have_extent),
+                        ),
+                    )
 
         result["level_start_box_nrs_extractor"] = \
                 LEVEL_START_BOX_NR_EXTRACTOR_TEMPLATE.build(self.context,
@@ -1416,6 +1692,11 @@ class FMMTraversalBuilder:
                                 "same_level_non_well_sep_boxes_starts"),
                             VectorArg(box_id_dtype,
                                 "same_level_non_well_sep_boxes_lists"),
+                            VectorArg(coord_dtype, "box_target_bounding_box_min"),
+                            VectorArg(coord_dtype, "box_target_bounding_box_max"),
+                            VectorArg(particle_id_dtype, "box_source_counts_cumul"),
+                            ScalarArg(particle_id_dtype,
+                                "from_sep_smaller_min_nsources_cumul"),
                             ScalarArg(box_id_dtype, "from_sep_smaller_source_level"),
                             ],
                             ["from_sep_close_smaller"]
@@ -1460,7 +1741,8 @@ class FMMTraversalBuilder:
 
     # {{{ driver
 
-    def __call__(self, queue, tree, wait_for=None, debug=False):
+    def __call__(self, queue, tree, wait_for=None, debug=False,
+            _from_sep_smaller_min_nsources_cumul=None):
         """
         :arg queue: A :class:`pyopencl.CommandQueue` instance.
         :arg tree: A :class:`boxtree.Tree` instance.
@@ -1471,6 +1753,10 @@ class FMMTraversalBuilder:
             :class:`FMMTraversalInfo` and *event* is a :class:`pyopencl.Event`
             for dependency management.
         """
+
+        if _from_sep_smaller_min_nsources_cumul is None:
+            # default to old no-threshold behavior
+            _from_sep_smaller_min_nsources_cumul = 0
 
         if not tree._is_pruned:
             raise ValueError("tree must be pruned for traversal generation")
@@ -1490,7 +1776,8 @@ class FMMTraversalBuilder:
                 tree.dimensions, tree.particle_id_dtype, tree.box_id_dtype,
                 tree.coord_dtype, tree.box_level_dtype, max_levels,
                 tree.sources_are_targets,
-                tree.sources_have_extent, tree.targets_have_extent)
+                tree.sources_have_extent, tree.targets_have_extent,
+                tree.extent_norm)
 
         def fin_debug(s):
             if debug:
@@ -1567,7 +1854,91 @@ class FMMTraversalBuilder:
 
         # }}}
 
-        # {{{ same-level near-field
+        # {{{ box extents
+
+        fin_debug("finding box extents")
+
+        box_source_bounding_box_min = cl.array.empty(
+                queue, (tree.dimensions, tree.aligned_nboxes),
+                dtype=tree.coord_dtype)
+        box_source_bounding_box_max = cl.array.empty(
+                queue, (tree.dimensions, tree.aligned_nboxes),
+                dtype=tree.coord_dtype)
+
+        if tree.sources_are_targets:
+            box_target_bounding_box_min = box_source_bounding_box_min
+            box_target_bounding_box_max = box_source_bounding_box_max
+        else:
+            box_target_bounding_box_min = cl.array.empty(
+                    queue, (tree.dimensions, tree.aligned_nboxes),
+                    dtype=tree.coord_dtype)
+            box_target_bounding_box_max = cl.array.empty(
+                    queue, (tree.dimensions, tree.aligned_nboxes),
+                    dtype=tree.coord_dtype)
+
+        bogus_radii_array = cl.array.empty(queue, 1, dtype=tree.coord_dtype)
+
+        # nlevels-1 is the highest valid level index
+        for level in range(tree.nlevels-1, -1, -1):
+            start, stop = tree.level_start_box_nrs[level:level+2]
+
+            for (skip, enable_radii, bbox_min, bbox_max,
+                    pstarts, pcounts, radii_tree_attr, particles) in [
+                    (
+                        # never skip
+                        False,
+
+                        tree.sources_have_extent,
+                        box_source_bounding_box_min,
+                        box_source_bounding_box_max,
+                        tree.box_source_starts,
+                        tree.box_source_counts_nonchild,
+                        "source_radii",
+                        tree.sources),
+                    (
+                        # skip the 'target' round if sources and targets
+                        # are the same.
+                        tree.sources_are_targets,
+
+                        tree.targets_have_extent,
+                        box_target_bounding_box_min,
+                        box_target_bounding_box_max,
+                        tree.box_target_starts,
+                        tree.box_target_counts_nonchild,
+                        "target_radii",
+                        tree.targets),
+                    ]:
+
+                if skip:
+                    continue
+
+                args = (
+                        (
+                            tree.aligned_nboxes,
+                            tree.box_child_ids,
+                            tree.box_centers,
+                            pstarts, pcounts,)
+                        + tuple(particles)
+                        + (
+                            getattr(tree, radii_tree_attr, bogus_radii_array),
+                            enable_radii,
+
+                            bbox_min,
+                            bbox_max))
+
+                evt = knl_info.box_extents_finder(
+                        *args,
+
+                        range=slice(start, stop),
+                        queue=queue, wait_for=wait_for)
+
+            wait_for = [evt]
+
+        del bogus_radii_array
+
+        # }}}
+
+        # {{{ same-level non-well-separated boxes
 
         # If well_sep_is_n_away is 1, this agrees with the definition of
         # 'colleagues' from the classical FMM literature.
@@ -1629,6 +2000,10 @@ class FMMTraversalBuilder:
                 tree.stick_out_factor, target_boxes.data,
                 same_level_non_well_sep_boxes.starts.data,
                 same_level_non_well_sep_boxes.lists.data,
+                box_target_bounding_box_min.data,
+                box_target_bounding_box_max.data,
+                tree.box_source_counts_cumul.data,
+                _from_sep_smaller_min_nsources_cumul,
                 )
 
         from_sep_smaller_wait_for = []
@@ -1717,6 +2092,11 @@ class FMMTraversalBuilder:
                 target_or_target_parent_boxes=target_or_target_parent_boxes,
                 level_start_target_or_target_parent_box_nrs=(
                     level_start_target_or_target_parent_box_nrs),
+
+                box_source_bounding_box_min=box_source_bounding_box_min,
+                box_source_bounding_box_max=box_source_bounding_box_max,
+                box_target_bounding_box_min=box_target_bounding_box_min,
+                box_target_bounding_box_max=box_target_bounding_box_max,
 
                 same_level_non_well_sep_boxes_starts=(
                     same_level_non_well_sep_boxes.starts),
