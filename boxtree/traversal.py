@@ -649,6 +649,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
 
         %elif from_sep_smaller_crit == "precise_linf":
             ${load_true_box_extent("tgt", "tgt_box_id", "target")}
+            // defines tgt_ext_center, tgt_radii_vec
 
         %endif
     %endif
@@ -784,30 +785,6 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
                                 0
                                 %for i in range(dimensions):
                                     + square(tgt_center.s${i} - walk_center.s${i})
-                                %endfor
-                                ;
-
-                            // l^2 distance between source box and target box.
-                            // Negative indicates overlap.
-                            coord_t l_2_box_dist =
-                                sqrt(l_2_squared_center_dist)
-                                - sqrt((coord_t) (${dimensions}))
-                                    * tgt_stickout_l_inf_rad
-                                - source_l_inf_rad;
-
-                            meets_sep_crit = l_2_box_dist >=
-                                (2 - 8 * COORD_T_MACH_EPS) * source_l_inf_rad;
-                        }
-
-                    %elif from_sep_smaller_crit == "static_l2":
-                        {
-                            coord_t source_l_inf_rad = LEVEL_TO_RAD(walk_level);
-
-                            // l^2 distance between source box and target centers.
-                            coord_t l_2_squared_center_dist =
-                                0
-                                %for i in range(dimensions):
-                                    + square(tgt_center.s${i} - walk_center.s${i});
                                 %endfor
                                 ;
 
@@ -1220,8 +1197,7 @@ class FMMTraversalInfo(DeviceDataRecord):
     .. ------------------------------------------------------------------------
 
     The attributes in this section are only available if the respective
-    particle type (source/target) has extents and if :attr:`Tree.extent_norm`
-    is ``"linf"``.
+    particle type (source/target) has extents.
 
     If they are not available, the corresponding attributes will be *None*.
 
@@ -1537,6 +1513,18 @@ class _KernelInfo(Record):
 
 class FMMTraversalBuilder:
     def __init__(self, context, well_sep_is_n_away=1, from_sep_smaller_crit=None):
+        """
+        :arg well_sep_is_n_away: Either An integer 1 or greater. (Only 2 is tested)
+            The spacing between boxes that is considered "well-separated" for
+            :attr:`from_sep_siblings` (List 2).
+        :arg from_sep_smaller_crit: The criterion used to determine separation
+            box dimensions and separation for :attr:`from_sep_smaller_by_level`
+            (List 3). May be one of ``"static_linf"`` (use the box square,
+            possibly enlarged by :attr:`Tree.stick_out_factor`), ``"precise_linf"`
+            (use the precise extent of targets in the box, including their radii),
+            or ``"static_l2"`` (use the circumcircle of the box,
+            possibly enlarged by :attr:`Tree.stick_out_factor`).
+        """
         self.context = context
         self.well_sep_is_n_away = well_sep_is_n_away
         self.from_sep_smaller_crit = from_sep_smaller_crit
@@ -1562,6 +1550,9 @@ class FMMTraversalBuilder:
 
         elif extent_norm == "l2":
             if from_sep_smaller_crit == "static_linf":
+                # Not technically necessary, but static linf will assume box
+                # bounds that are not guaranteed to contain all particle
+                # extetns.
                 raise ValueError(
                         "The static l^inf from-sep-smaller criterion "
                         "cannot be used with the l^2 extent norm")

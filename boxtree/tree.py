@@ -106,9 +106,14 @@ class Tree(DeviceDataRecord):
 
     .. attribute:: stick_out_factor
 
-        The fraction of the (:math:`l^\infty`) box radius by which the
-        :math:`l^\infty` circles given by :attr:`source_radii` may stick out
-        the box in which they are contained. A scalar.
+        A scalar used for calculating how much particles with extent may
+        overextend their containing box.
+
+        Each box in the tree can be thought of as being surrounded by a
+        fictitious box whose :math:`l^\infty` radius is `1 + stick_out_factor`
+        larger. Particles with extent are allowed to extend inside (a) the
+        ficitious box or (b) a disk surrounding the fictious box, depending on
+        :attr:`extent_norm`.
 
     .. attribute:: extent_norm
 
@@ -121,8 +126,9 @@ class Tree(DeviceDataRecord):
 
         .. image:: images/linf-l2.png
 
-        In the figure, the box has radius :math:`R`, the particle has radius
-        :math:`r`, and :attr:`stick_out_factor` is denoted :math:`\alpha`.
+        In the figure, the box has (:math:`\ell^\infty`) radius :math:`R`, the
+        particle has radius :math:`r`, and :attr:`stick_out_factor` is denoted
+        :math:`\alpha`.
 
     .. attribute:: nsources
 
