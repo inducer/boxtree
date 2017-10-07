@@ -1552,7 +1552,7 @@ class FMMTraversalBuilder:
             if from_sep_smaller_crit == "static_linf":
                 # Not technically necessary, but static linf will assume box
                 # bounds that are not guaranteed to contain all particle
-                # extetns.
+                # extents.
                 raise ValueError(
                         "The static l^inf from-sep-smaller criterion "
                         "cannot be used with the l^2 extent norm")
