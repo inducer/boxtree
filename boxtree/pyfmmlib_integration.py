@@ -28,14 +28,13 @@ THE SOFTWARE.
 import numpy as np
 from pytools import memoize_method
 
+import logging
+logger = logging.getLogger(__name__)
+
 
 __doc__ = """Integrates :mod:`boxtree` with
 `pyfmmlib <http://pypi.python.org/pypi/pyfmmlib>`_.
 """
-
-
-def level_to_rscale(tree, level):
-    return tree.root_extent * 2 ** -level
 
 
 class FMMLibExpansionWrangler(object):
@@ -70,9 +69,11 @@ class FMMLibExpansionWrangler(object):
         if helmholtz_k == 0:
             self.eqn_letter = "l"
             self.kernel_kwargs = {}
+            self.rscale_factor = 1
         else:
             self.eqn_letter = "h"
             self.kernel_kwargs = {"zk": helmholtz_k}
+            self.rscale_factor = abs(helmholtz_k)
 
         self.level_nterms = np.array([
             fmm_level_to_nterms(tree, lev) for lev in range(tree.nlevels)
@@ -101,6 +102,12 @@ class FMMLibExpansionWrangler(object):
             self.dp_suffix = ""
 
     # }}}
+
+    def level_to_rscale(self, level):
+        result = self.tree.root_extent * 2 ** -level * self.rscale_factor
+        if abs(result) > 1:
+            result = 1
+        return result
 
     @memoize_method
     def projection_quad_extra_kwargs(self, level=None, nterms=None):
@@ -422,7 +429,7 @@ class FMMLibExpansionWrangler(object):
             level_start_ibox, mpoles_view = self.multipole_expansions_view(
                     mpoles, lev)
 
-            rscale = level_to_rscale(self.tree, lev)
+            rscale = self.level_to_rscale(lev)
 
             for src_ibox in source_boxes[start:stop]:
                 pslice = self._get_source_slice(src_ibox)
@@ -470,8 +477,8 @@ class FMMLibExpansionWrangler(object):
             target_level_start_ibox, target_mpoles_view = \
                     self.multipole_expansions_view(mpoles, target_level)
 
-            source_rscale = level_to_rscale(tree, source_level)
-            target_rscale = level_to_rscale(tree, target_level)
+            source_rscale = self.level_to_rscale(source_level)
+            target_rscale = self.level_to_rscale(target_level)
 
             for ibox in source_parent_boxes[start:stop]:
                 parent_center = tree.box_centers[:, ibox]
@@ -574,7 +581,7 @@ class FMMLibExpansionWrangler(object):
             src_boxes_starts[0] = 0
             src_boxes_starts[1:] = np.cumsum(nsrc_boxes_per_tgt_box)
 
-            rscale = level_to_rscale(tree, lev)
+            rscale = self.level_to_rscale(lev)
 
             rscale1 = np.ones(nsrc_boxes) * rscale
             rscale1_offsets = np.arange(nsrc_boxes)
@@ -634,7 +641,7 @@ class FMMLibExpansionWrangler(object):
             source_level_start_ibox, source_mpoles_view = \
                     self.multipole_expansions_view(mpole_exps, isrc_level)
 
-            rscale = level_to_rscale(self.tree, isrc_level)
+            rscale = self.level_to_rscale(isrc_level)
 
             for itgt_box, tgt_ibox in enumerate(target_boxes):
                 tgt_pslice = self._get_target_slice(tgt_ibox)
@@ -679,7 +686,7 @@ class FMMLibExpansionWrangler(object):
             target_level_start_ibox, target_local_exps_view = \
                     self.local_expansions_view(local_exps, lev)
 
-            rscale = level_to_rscale(self.tree, lev)
+            rscale = self.level_to_rscale(lev)
 
             for itgt_box, tgt_ibox in enumerate(
                     target_or_target_parent_boxes[lev_start:lev_stop]):
@@ -728,8 +735,8 @@ class FMMLibExpansionWrangler(object):
                     self.local_expansions_view(local_exps, source_lev)
             target_level_start_ibox, target_local_exps_view = \
                     self.local_expansions_view(local_exps, target_lev)
-            source_rscale = level_to_rscale(self.tree, source_lev)
-            target_rscale = level_to_rscale(self.tree, target_lev)
+            source_rscale = self.level_to_rscale(source_lev)
+            target_rscale = self.level_to_rscale(target_lev)
 
             for tgt_ibox in target_or_target_parent_boxes[start:stop]:
                 tgt_center = self.tree.box_centers[:, tgt_ibox]
@@ -770,7 +777,7 @@ class FMMLibExpansionWrangler(object):
             source_level_start_ibox, source_local_exps_view = \
                     self.local_expansions_view(local_exps, lev)
 
-            rscale = level_to_rscale(self.tree, lev)
+            rscale = self.level_to_rscale(lev)
 
             for tgt_ibox in target_boxes[start:stop]:
                 tgt_pslice = self._get_target_slice(tgt_ibox)
