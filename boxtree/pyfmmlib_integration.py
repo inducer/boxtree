@@ -77,6 +77,11 @@ class FMMLibExpansionWrangler(object):
         self.level_nterms = np.array([
             fmm_level_to_nterms(tree, lev) for lev in range(tree.nlevels)
             ], dtype=np.int32)
+
+        if helmholtz_k:
+            logger.info("expansion orders by level used in Helmholtz FMM: %s",
+                    self.level_nterms)
+
         self.dtype = np.complex128
 
         self.ifgrad = ifgrad
