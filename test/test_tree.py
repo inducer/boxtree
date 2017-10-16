@@ -444,7 +444,8 @@ def test_source_target_tree(ctx_getter, dims, do_plot=False):
 
 @pytest.mark.opencl
 @pytest.mark.parametrize("dims", [2, 3])
-def test_extent_tree(ctx_getter, dims, do_plot=False):
+@pytest.mark.parametrize("extent_norm", ["linf", "l2"])
+def test_extent_tree(ctx_getter, dims, extent_norm, do_plot=False):
     logging.basicConfig(level=logging.INFO)
 
     ctx = ctx_getter()
@@ -477,6 +478,7 @@ def test_extent_tree(ctx_getter, dims, do_plot=False):
     dev_tree, _ = tb(queue, sources, targets=targets,
             source_radii=source_radii,
             target_radii=target_radii,
+            extent_norm=extent_norm,
 
             refine_weights=refine_weights,
             max_leaf_refine_weight=20,
@@ -555,9 +557,6 @@ def test_extent_tree(ctx_getter, dims, do_plot=False):
     for ibox in range(tree.nboxes):
         extent_low, extent_high = tree.get_box_extent(ibox)
 
-        box_radius = np.max(extent_high-extent_low) * 0.5
-        stick_out_dist = tree.stick_out_factor * box_radius
-
         assert (extent_low >=
                 tree.bounding_box[0] - 1e-12*tree.root_extent).all(), ibox
         assert (extent_high <=
@@ -573,6 +572,19 @@ def test_extent_tree(ctx_getter, dims, do_plot=False):
                 + np.sum(tree.box_target_counts_cumul[existing_children])
                 == tree.box_target_counts_cumul[ibox])
 
+    del existing_children
+    del box_children
+
+    for ibox in range(tree.nboxes):
+        lev = int(tree.box_levels[ibox])
+        box_radius = 0.5 * tree.root_extent / (1 << lev)
+        box_center = tree.box_centers[:, ibox]
+        extent_low = box_center - box_radius
+        extent_high = box_center + box_radius
+
+        stick_out_dist = tree.stick_out_factor * box_radius
+        radius_with_stickout = (1 + tree.stick_out_factor) * box_radius
+
         for what, starts, counts, points, radii in [
                 ("source", tree.box_source_starts, tree.box_source_counts_cumul,
                     sorted_sources, sorted_source_radii),
@@ -584,18 +596,33 @@ def test_extent_tree(ctx_getter, dims, do_plot=False):
             check_particles = points[:, bslice]
             check_radii = radii[bslice]
 
-            good = (
-                    (check_particles + check_radii
-                        < extent_high[:, np.newaxis] + stick_out_dist)
-                    &
-                    (extent_low[:, np.newaxis] - stick_out_dist
-                        <= check_particles - check_radii)
-                    ).all(axis=0)
+            if extent_norm == "linf":
+                good = (
+                        (check_particles + check_radii
+                            < extent_high[:, np.newaxis] + stick_out_dist)
+                        &
+                        (extent_low[:, np.newaxis] - stick_out_dist
+                            <= check_particles - check_radii)
+                        ).all(axis=0)
+
+            elif extent_norm == "l2":
+                center_dists = np.sqrt(
+                        np.sum(
+                            (check_particles - box_center.reshape(-1, 1))**2,
+                            axis=0))
+
+                good = (
+                        (center_dists + check_radii)**2
+                        < dims * radius_with_stickout**2)
+
+            else:
+                raise ValueError("unexpected value of extent_norm")
 
             all_good_here = good.all()
 
             if not all_good_here:
-                print("BAD BOX %s %d level %d" % (what, ibox, tree.box_levels[ibox]))
+                print("BAD BOX %s %d level %d"
+                        % (what, ibox, tree.box_levels[ibox]))
 
             all_good_so_far = all_good_so_far and all_good_here
             assert all_good_here
