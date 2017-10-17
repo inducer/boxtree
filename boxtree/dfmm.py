@@ -26,63 +26,58 @@ THE SOFTWARE.
 import logging
 logger = logging.getLogger(__name__)
 
+from mpi4py import MPI
 import numpy as np
-import hpx
 
-@hpx.create_action()
-def main(sources, num_particles_per_block):
+def drive_dfmm(traversal, expansion_wrangler, src_weights):
     
-    # {{{ Distribute source array
-    
-    num_particles = sources.shape[0]
-    import math
-    num_block = math.ceil(num_particles / num_particles_per_block)
-    d_sources = hpx.GlobalMemory.alloc_cyclic(num_block, 
-        (num_particles_per_block, 2), sources.dtype)
-    finished_copy = hpx.And(num_block)
-    for i in range(num_block):
-        d_sources[i].set(sources[i*num_particles_per_block : (i+1)*num_particles_per_block],
-                         sync='async', rsync_lco=finished_copy)
-    finished_copy.wait()
+    #  {{{ Get MPI information
+
+    comm = MPI.COMM_WORLD
+    current_rank = comm.Get_rank()
+    total_rank = comm.Get_size()
 
     # }}}
 
-    # WIP: this is a placeholder
-    potentials = np.empty((num_particles,), dtype=float) 
-    hpx.exit(array=potentials)
+    # {{{ Distribute problem parameters
 
-def ddrive_fmm(traversal, expansion_wrangler, src_weights, num_particles_per_block=10000, 
-               hpx_options=[]):
-    """Distributed implementation of top-level driver routine for a fast 
-    multipole calculation.
-
-    :arg traversal: A :class:`boxtree.traversal.FMMTraversalInfo` instance.
-    :arg expansion_wrangler: An object exhibiting the
-        :class:`ExpansionWranglerInterface`.
-    :arg src_weights: Source 'density/weights/charges'.
-        Passed unmodified to *expansion_wrangler*.
-    :arg hpx_options: Options for HPX runtime. Pass directly to hpx.init.
-
-    Returns the potentials computed by *expansion_wrangler*.
-    """
-    wrangler = expansion_wrangler
-    logger.info("start fmm")
+    if current_rank == 0:
+        tree = traversal.tree
+        parameters = {"nsources":tree.nsources, 
+                      "dimensions":tree.sources.shape[0], 
+                      "coord_dtype":tree.coord_dtype}
+    else:
+        parameters = None
+    parameters = comm.bcast(parameters, root=0)
     
-    logger.debug("reorder source weights")
-    src_weights = wrangler.reorder_sources(src_weights)
+    # }}}
 
-    logger.debug("start hpx runtime")
-    hpx.init(argv=hpx_options)
-
-    # launch the main action
-    sources = np.stack([wrangler.tree.sources[0], wrangler.tree.sources[1]], 
-                       axis=-1)
-    num_particles = sources.shape[0]
-    potentials = hpx.run(main, sources, num_particles_per_block, 
-                         shape=(num_particles,), dtype=float)
-
-    logger.debug("finalize hpx runtime")
-    hpx.finalize()
-
-    return potentials
+    # {{{ Distribute source particles
     
+    num_sources_per_rank = (parameters["nsources"] + total_rank - 1) // total_rank
+    sources = []
+
+    for i in range(parameters["dimensions"]):
+        # Prepare send buffer
+        if current_rank == 0:
+            sendbuf = np.empty((num_sources_per_rank * total_rank,), 
+                               dtype=parameters['coord_dtype'])
+            sendbuf[:parameters["nsources"]] = tree.sources[i]
+        else:
+            sendbuf = None
+
+        # Prepare receive buffer
+        recvbuf = np.empty((num_sources_per_rank,), dtype=parameters['coord_dtype'])
+
+        # Scatter send buffer
+        comm.Scatter(sendbuf, recvbuf, root=0)
+
+        # Trim the receive buffer for the last rank
+        if current_rank == total_rank - 1:
+            num_sources_current_rank = parameters["nsources"] - \
+                num_sources_per_rank * (total_rank - 1)
+            sources.append(recvbuf[:num_sources_current_rank])
+        else:
+            sources.append(recvbuf)
+    
+    # }}}
