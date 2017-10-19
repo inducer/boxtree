@@ -2,15 +2,20 @@ import numpy as np
 import sys
 from mpi4py import MPI
 
-# Get MPI information
+# Parameters
+dims = 2
+nsources = 30
+ntargets = 10
+dtype = np.float64
+
+# Get the current rank
 comm = MPI.COMM_WORLD
 rank = comm.Get_rank()
 
-# Parameters
-dims = 2
-nsources = 3000
-ntargets = 1000
-dtype = np.float64
+# Initialization
+trav = None
+sources_weights = None
+wrangler = None
 
 # Generate particles and run shared-memory parallelism on rank 0
 if rank == 0:
@@ -39,7 +44,7 @@ if rank == 0:
         plt.plot(targets_host[:, 0], targets_host[:, 1], "ro")
         plt.show()
 
-    # Calculate potentials in naive algorithm
+    # Calculate potentials using direct evaluation
     import numpy.linalg as la
     distances = la.norm(sources_host.reshape(1, nsources, 2) - \
                         targets_host.reshape(ntargets, 1, 2), 
@@ -67,4 +72,9 @@ if rank == 0:
     pot_fmm = drive_fmm(trav, wrangler, sources_weights)* 2 * np.pi
     print(la.norm(pot_fmm - pot_naive, ord=2))
 
-# Next: Compute FMM using distributed memory parallelism
+# Compute FMM using distributed memory parallelism
+from boxtree.dfmm import drive_dfmm
+# Note: The drive_dfmm interface works as follows: 
+# Rank 0 passes the correct trav, wrangler, and sources_weights
+# All other ranks pass None to these arguments
+pot_dfmm = drive_dfmm(trav, wrangler, sources_weights)
