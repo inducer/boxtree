@@ -31,7 +31,7 @@ import numpy as np
 
 def drive_dfmm(traversal, expansion_wrangler, src_weights):
     
-    #  {{{ Get MPI information
+    # {{{ Get MPI information
 
     comm = MPI.COMM_WORLD
     current_rank = comm.Get_rank()
@@ -39,79 +39,35 @@ def drive_dfmm(traversal, expansion_wrangler, src_weights):
 
     # }}}
 
-    # {{{ Distribute tree parameters
+    # {{{ Broadcast traversal object without particles
 
     if current_rank == 0:
-        tree = traversal.tree
-        # TODO: distribute more parameters of the tree
-        parameters = {"sources_are_targets": tree.sources_are_targets,
-                      "sources_have_extent": tree.sources_have_extent,
-                      "nsources":tree.nsources,
-                      "nboxes":tree.box_source_starts.shape[0], 
-                      "dimensions":tree.sources.shape[0], 
-                      "coord_dtype":tree.coord_dtype,
-                      "box_id_dtype":tree.box_id_dtype}
+        local_traversal = traversal.copy()
+        local_tree = local_traversal.tree
+        local_tree.sources = None
+        if local_tree.sources_have_extent == True:
+            local_tree.source_radii = None
+        local_tree.targets = None
+        if local_tree.targets_have_extent == True:
+            local_tree.target_radii = None
+        local_tree.user_source_ids = None
+        local_tree.sorted_target_ids = None
     else:
-        parameters = None
-    parameters = comm.bcast(parameters, root=0)
-    
-    # }}}
+        local_traversal = None
 
-    # {{{ Fill tree parameters to the locally essentail tree
-
-    from boxtree import Tree
-    letree = Tree()
-    # TODO: add more parameters to the locally essential tree
-    letree.sources_are_targets = parameters["sources_are_targets"]
+    comm.bcast(local_traversal, root=0)
 
     # }}}
 
-    # {{{ Construct locally essential tree mask for each rank
+    # {{{ Generate an array which contains responsible box indices
 
-    # Problem: Current implementation divides all boxes evenly across all 
-    # ranks. This scheme is subject to significant load imbalance. A better way to do 
-    # this is to assign a weight to each box according to its interaction list, and then 
-    # divides boxes evenly by the total weights.
-
-    if current_rank == 0:
-        # mask[i][j] is true iff box j is in the locally essential tree of rank i
-        mask = np.zeros((total_rank, parameters["nboxes"]), dtype=bool)
-        num_boxes_per_rank = (parameters["nboxes"] + total_rank - 1) // total_rank
-        
-        for i in range(total_rank):
-            # Get the start and end box index for rank i 
-            box_start_idx = num_boxes_per_rank * i
-            if current_rank == total_rank - 1:
-                box_end_idx = parameters["nboxes"]
-            else:
-                box_end_idx = num_boxes_per_rank * (i + 1)
-
-            # Mark all ancestors of boxes of rank i
-            new_mask = np.zeros(parameters["nboxes"], dtype=bool)
-            new_mask[box_start_idx:box_end_idx] = True
-            while np.count_nonzero(new_mask) != 0:
-                np.logical_or(mask[i, :], new_mask, out=mask[i, :])
-                new_mask_idx = np.nonzero(new_mask)
-                new_mask_parent_idx = tree.box_parent_ids[new_mask_idx]
-                new_mask[:] = False
-                new_mask[new_mask_parent_idx] = True
-                new_mask = np.logical_and(new_mask, np.logical_not(mask[i, :]), 
-                                          out=new_mask)
-            
-            # Generate interaction list mask for mask[i, :]
-            interaction_mask = np.zeros(parameters["nboxes"], dtype=bool)
-            box_indices = np.nonzero(mask[i, :])
-            for j in range(len(box_indices)):
-                box_index = box_indices[j]
-                # List 1
-                start, end = traversal.neighbor_source_boxes_starts[box_index:box_index + 2]
-                list1_idx = traversal.neighbor_source_boxes_lists[start:end]
-                interaction_mask[list1_idx] = True
-                # List 2
-                start, end = traversal.from_sep_siblings_starts[box_index:box_index + 2]
-                list2_idx = traversal.from_sep_siblings_lists[start:end]
-                interaction_mask[list2_idx] = True
-                # List 3
-                
+    num_boxes = local_traversal.tree.box_source_starts.shape[0]
+    num_responsible_boxes_per_rank = (num_boxes + total_rank - 1) // total_rank
+    if current_rank == total_rank - 1:
+        responsible_boxes = np.arange(num_responsible_boxes_per_rank * current_rank,
+                                      num_boxes, dtype=box_id_dtype)
+    else:
+        responsible_boxes = np.arange(num_responsible_boxes_per_rank * current_rank,
+            num_responsible_boxes_per_rank * (current_rank + 1), dtype=box_id_dtype)
 
     # }}}
