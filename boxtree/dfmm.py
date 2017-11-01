@@ -31,6 +31,7 @@ import numpy as np
 import pyopencl as cl
 from mako.template import Template
 from pyopencl.tools import dtype_to_ctype
+from pyopencl.scan import GenericScanKernel
 
 
 def partition_work(tree, total_rank, queue):
@@ -67,8 +68,9 @@ __kernel void generate_particle_mask(__global const box_id_t *res_boxes,
     __global mask_t *particle_mask) 
 {
     int gid = get_global_id(0);
-    for(particle_id_t i = box_particle_starts[gid];
-        i < box_particle_starts[gid] + box_particle_counts_nonchild[gid];
+    box_id_t cur_box = res_boxes[gid];
+    for(particle_id_t i = box_particle_starts[cur_box];
+        i < box_particle_starts[cur_box] + box_particle_counts_nonchild[cur_box];
         i++) {
         particle_mask[i] = 1;
     }
@@ -101,13 +103,23 @@ def drive_dfmm(traversal, expansion_wrangler, src_weights):
             tree.box_source_counts_nonchild)
 
         # Generate particle mask program
-        mask_dtype = np.dtype(np.int8)
+        mask_dtype = tree.particle_id_dtype
         gen_particle_mask_prg = cl.Program(ctx, gen_particle_mask_tpl.render(
             tree=tree,
             dtype_to_ctype=dtype_to_ctype,
             mask_dtype=mask_dtype)).build()
 
+        # Construct mask scan kernel
+        arg_tpl = Template(r"__global ${mask_t} *ary, __global ${mask_t} *out")
+        mask_scan_knl = GenericScanKernel(
+            ctx, mask_dtype,
+            arguments=arg_tpl.render(mask_t=dtype_to_ctype(mask_dtype)),
+            input_expr="ary[i]",
+            scan_expr="a+b", neutral="0",
+            output_statement="out[i] = item;")
+
         for rank in range(total_rank):
+            # Generate the particle mask array
             d_source_mask = cl.array.zeros(queue, (tree.nsources,), 
                                            dtype=mask_dtype)
             gen_particle_mask_prg.generate_particle_mask(
@@ -119,3 +131,10 @@ def drive_dfmm(traversal, expansion_wrangler, src_weights):
                 d_box_source_counts_nonchild.data,
                 d_source_mask.data
                 )
+
+            # Generate the scan of the particle mask array
+            d_source_scan = cl.array.empty(queue, (tree.nsources,),
+                                           dtype=tree.particle_id_dtype)
+            mask_scan_knl(d_source_mask, d_source_scan)
+
+            l_nsources = d_source_scan[-1].get(queue)
