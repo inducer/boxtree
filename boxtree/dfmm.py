@@ -28,6 +28,53 @@ logger = logging.getLogger(__name__)
 
 from mpi4py import MPI
 import numpy as np
+import pyopencl as cl
+from mako.template import Template
+from pyopencl.tools import dtype_to_ctype
+
+
+def partition_work(tree, total_rank, queue):
+    # This function returns a list of total_rank elements, where element i is a
+    # pyopencl array of indices of process i's responsible boxes. 
+    responsible_boxes = []
+    num_boxes = tree.box_source_starts.shape[0]
+    num_boxes_per_rank = (num_boxes + total_rank - 1) // total_rank
+    for current_rank in range(total_rank):
+        if current_rank == total_rank - 1:
+            responsible_boxes.append(cl.array.arange(
+                queue,
+                num_boxes_per_rank * current_rank,
+                num_boxes, 
+                dtype=tree.box_id_dtype))
+        else:
+            responsible_boxes.append(cl.array.arange(
+                queue,
+                num_boxes_per_rank * current_rank,
+                num_boxes_per_rank * (current_rank + 1), 
+                dtype=tree.box_id_dtype))
+    return responsible_boxes
+
+
+# gen_particle_mask takes the responsible box indices as input and generate a mask 
+# for responsible particles. 
+gen_particle_mask_tpl = Template(r"""
+typedef ${dtype_to_ctype(tree.box_id_dtype)} box_id_t;
+typedef ${dtype_to_ctype(tree.particle_id_dtype)} particle_id_t;
+typedef ${dtype_to_ctype(mask_dtype)} mask_t;
+__kernel void generate_particle_mask(__global const box_id_t *res_boxes, 
+    __global const particle_id_t *box_particle_starts,
+    __global const particle_id_t *box_particle_counts_nonchild,
+    __global mask_t *particle_mask) 
+{
+    int gid = get_global_id(0);
+    for(particle_id_t i = box_particle_starts[gid];
+        i < box_particle_starts[gid] + box_particle_counts_nonchild[gid];
+        i++) {
+        particle_mask[i] = 1;
+    }
+}
+""", strict_undefined=True)
+
 
 def drive_dfmm(traversal, expansion_wrangler, src_weights):
     
@@ -38,36 +85,37 @@ def drive_dfmm(traversal, expansion_wrangler, src_weights):
     total_rank = comm.Get_size()
 
     # }}}
-
-    # {{{ Broadcast traversal object without particles
-
+    
+    ctx = cl.create_some_context()
+    queue = cl.CommandQueue(ctx)
+    
     if current_rank == 0:
-        local_traversal = traversal.copy()
-        local_tree = local_traversal.tree
-        local_tree.sources = None
-        if local_tree.sources_have_extent == True:
-            local_tree.source_radii = None
-        local_tree.targets = None
-        if local_tree.targets_have_extent == True:
-            local_tree.target_radii = None
-        local_tree.user_source_ids = None
-        local_tree.sorted_target_ids = None
-    else:
-        local_traversal = None
+        tree = traversal.tree
 
-    comm.bcast(local_traversal, root=0)
+        # Partition the work across all ranks by allocating responsible boxes
+        responsible_boxes = partition_work(tree, total_rank, queue)
 
-    # }}}
+        # Convert tree structures to device memory
+        d_box_source_starts = cl.array.to_device(queue, tree.box_source_starts)
+        d_box_source_counts_nonchild = cl.array.to_device(queue, 
+            tree.box_source_counts_nonchild)
 
-    # {{{ Generate an array which contains responsible box indices
+        # Generate particle mask program
+        mask_dtype = np.dtype(np.int8)
+        gen_particle_mask_prg = cl.Program(ctx, gen_particle_mask_tpl.render(
+            tree=tree,
+            dtype_to_ctype=dtype_to_ctype,
+            mask_dtype=mask_dtype)).build()
 
-    num_boxes = local_traversal.tree.box_source_starts.shape[0]
-    num_responsible_boxes_per_rank = (num_boxes + total_rank - 1) // total_rank
-    if current_rank == total_rank - 1:
-        responsible_boxes = np.arange(num_responsible_boxes_per_rank * current_rank,
-                                      num_boxes, dtype=box_id_dtype)
-    else:
-        responsible_boxes = np.arange(num_responsible_boxes_per_rank * current_rank,
-            num_responsible_boxes_per_rank * (current_rank + 1), dtype=box_id_dtype)
-
-    # }}}
+        for rank in range(total_rank):
+            d_source_mask = cl.array.zeros(queue, (tree.nsources,), 
+                                           dtype=mask_dtype)
+            gen_particle_mask_prg.generate_particle_mask(
+                queue, 
+                responsible_boxes[rank].shape,
+                None,
+                responsible_boxes[rank].data,
+                d_box_source_starts.data,
+                d_box_source_counts_nonchild.data,
+                d_source_mask.data
+                )
