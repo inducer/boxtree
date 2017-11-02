@@ -56,25 +56,71 @@ def partition_work(tree, total_rank, queue):
     return responsible_boxes
 
 
-# gen_particle_mask takes the responsible box indices as input and generate a mask 
-# for responsible particles. 
-gen_particle_mask_tpl = Template(r"""
+gen_local_tree_tpl = Template(r"""
 typedef ${dtype_to_ctype(tree.box_id_dtype)} box_id_t;
 typedef ${dtype_to_ctype(tree.particle_id_dtype)} particle_id_t;
 typedef ${dtype_to_ctype(mask_dtype)} mask_t;
-__kernel void generate_particle_mask(__global const box_id_t *res_boxes, 
+typedef ${dtype_to_ctype(tree.coord_dtype)} coord_t;
+
+__kernel void generate_particle_mask(
+    __global const box_id_t *res_boxes, 
     __global const particle_id_t *box_particle_starts,
     __global const particle_id_t *box_particle_counts_nonchild,
+    const int total_num_res_boxes,
     __global mask_t *particle_mask) 
 {
+    /* generate_particle_mask takes the responsible box indices as input and generate 
+     * a mask for responsible particles.
+     */
     int gid = get_global_id(0);
-    box_id_t cur_box = res_boxes[gid];
-    for(particle_id_t i = box_particle_starts[cur_box];
-        i < box_particle_starts[cur_box] + box_particle_counts_nonchild[cur_box];
-        i++) {
-        particle_mask[i] = 1;
+    int gsize = get_global_size(0);
+    int num_res_boxes = (total_num_res_boxes + gsize - 1) / gsize;
+    box_id_t res_boxes_start = num_res_boxes * gid;
+    
+    for(box_id_t cur_box = res_boxes_start;
+        cur_box < res_boxes_start + num_res_boxes && cur_box < total_num_res_boxes;
+        cur_box ++) 
+    {
+        for(particle_id_t i = box_particle_starts[cur_box];
+            i < box_particle_starts[cur_box] + box_particle_counts_nonchild[cur_box];
+            i++) 
+        {
+            particle_mask[i] = 1;
+        }
     }
 }
+
+__kernel void generate_local_particles(
+    const int total_num_particles,
+    const int total_num_local_particles,
+    __global const coord_t *particles,
+    __global const mask_t *particle_mask,
+    __global const mask_t *particle_scan,
+    __global coord_t *local_particles)
+{
+    /* generate_local_particles generates an array of particles for which a process 
+     * is responsible for.
+     */
+    int gid = get_global_id(0);
+    int gsize = get_global_size(0);
+    int num_particles = (total_num_particles + gsize - 1) / gsize;
+    particle_id_t start = num_particles * gid;
+
+    for(particle_id_t i = start;
+        i < start + num_particles && i < total_num_particles;
+        i++) 
+    {
+        if(particle_mask[i]) 
+        {
+            particle_id_t des = particle_scan[i];
+            % for dim in range(ndims):
+                local_particles[total_num_local_particles * ${dim} + des]
+                = particles[total_num_particles * ${dim} + i];
+            % endfor
+        }
+    }
+}
+
 """, strict_undefined=True)
 
 
@@ -93,6 +139,7 @@ def drive_dfmm(traversal, expansion_wrangler, src_weights):
     
     if current_rank == 0:
         tree = traversal.tree
+        ndims = tree.sources.shape[0]
 
         # Partition the work across all ranks by allocating responsible boxes
         responsible_boxes = partition_work(tree, total_rank, queue)
@@ -102,12 +149,13 @@ def drive_dfmm(traversal, expansion_wrangler, src_weights):
         d_box_source_counts_nonchild = cl.array.to_device(queue, 
             tree.box_source_counts_nonchild)
 
-        # Generate particle mask program
+        # Compile the program
         mask_dtype = tree.particle_id_dtype
-        gen_particle_mask_prg = cl.Program(ctx, gen_particle_mask_tpl.render(
+        gen_local_tree_prg = cl.Program(ctx, gen_local_tree_tpl.render(
             tree=tree,
             dtype_to_ctype=dtype_to_ctype,
-            mask_dtype=mask_dtype)).build()
+            mask_dtype=mask_dtype,
+            ndims=ndims)).build()
 
         # Construct mask scan kernel
         arg_tpl = Template(r"__global ${mask_t} *ary, __global ${mask_t} *out")
@@ -122,13 +170,14 @@ def drive_dfmm(traversal, expansion_wrangler, src_weights):
             # Generate the particle mask array
             d_source_mask = cl.array.zeros(queue, (tree.nsources,), 
                                            dtype=mask_dtype)
-            gen_particle_mask_prg.generate_particle_mask(
+            gen_local_tree_prg.generate_particle_mask(
                 queue, 
-                responsible_boxes[rank].shape,
+                (2048,),
                 None,
                 responsible_boxes[rank].data,
                 d_box_source_starts.data,
                 d_box_source_counts_nonchild.data,
+                np.int32(responsible_boxes[rank].shape[0]),
                 d_source_mask.data
                 )
 
@@ -137,4 +186,6 @@ def drive_dfmm(traversal, expansion_wrangler, src_weights):
                                            dtype=tree.particle_id_dtype)
             mask_scan_knl(d_source_mask, d_source_scan)
 
-            l_nsources = d_source_scan[-1].get(queue)
+            local_nsources = d_source_scan[-1].get(queue)
+            local_sources = cl.array.empty(queue, (ndims, local_nsources),
+                                           dtype=tree.coord_dtype)
