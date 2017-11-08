@@ -144,10 +144,13 @@ def drive_dfmm(traversal, expansion_wrangler, src_weights):
         # Partition the work across all ranks by allocating responsible boxes
         responsible_boxes = partition_work(tree, total_rank, queue)
 
-        # Convert tree structures to device memory
+        # Put tree structures to device memory
         d_box_source_starts = cl.array.to_device(queue, tree.box_source_starts)
         d_box_source_counts_nonchild = cl.array.to_device(queue, 
             tree.box_source_counts_nonchild)
+        d_sources = np.empty((ndims,), dtype=object)
+        for i in range(ndims):
+            d_sources[i] = cl.array.to_device(queue, tree.sources[i])
 
         # Compile the program
         mask_dtype = tree.particle_id_dtype
@@ -171,21 +174,31 @@ def drive_dfmm(traversal, expansion_wrangler, src_weights):
             d_source_mask = cl.array.zeros(queue, (tree.nsources,), 
                                            dtype=mask_dtype)
             gen_local_tree_prg.generate_particle_mask(
-                queue, 
-                (2048,),
-                None,
+                queue, (2048,), None,
                 responsible_boxes[rank].data,
                 d_box_source_starts.data,
                 d_box_source_counts_nonchild.data,
                 np.int32(responsible_boxes[rank].shape[0]),
-                d_source_mask.data
-                )
+                d_source_mask.data)
 
             # Generate the scan of the particle mask array
             d_source_scan = cl.array.empty(queue, (tree.nsources,),
                                            dtype=tree.particle_id_dtype)
             mask_scan_knl(d_source_mask, d_source_scan)
 
+            # Generate sources of rank's local tree
             local_nsources = d_source_scan[-1].get(queue)
-            local_sources = cl.array.empty(queue, (ndims, local_nsources),
-                                           dtype=tree.coord_dtype)
+            d_local_sources = np.empty((local_nsources,), dtype=object)
+            for i in range(ndims):
+                cur_local_sources = cl.array.empty(queue, (local_nsources),
+                                                   dtype=tree.coord_dtype)
+                gen_local_tree_prg.generate_local_particles(
+                    queue, (2048,), None,
+                    np.int32(tree.nsources),
+                    np.int32(local_nsources),
+                    d_sources[i].data,
+                    d_source_mask.data,
+                    d_source_scan.data,
+                    cur_local_sources.data)
+
+                d_local_sources[i] = cur_local_sources
