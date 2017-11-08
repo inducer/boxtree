@@ -123,7 +123,6 @@ __kernel void generate_local_particles(
 
 """, strict_undefined=True)
 
-
 def drive_dfmm(traversal, expansion_wrangler, src_weights):
     
     # {{{ Get MPI information
@@ -144,14 +143,6 @@ def drive_dfmm(traversal, expansion_wrangler, src_weights):
         # Partition the work across all ranks by allocating responsible boxes
         responsible_boxes = partition_work(tree, total_rank, queue)
 
-        # Put tree structures to device memory
-        d_box_source_starts = cl.array.to_device(queue, tree.box_source_starts)
-        d_box_source_counts_nonchild = cl.array.to_device(queue, 
-            tree.box_source_counts_nonchild)
-        d_sources = np.empty((ndims,), dtype=object)
-        for i in range(ndims):
-            d_sources[i] = cl.array.to_device(queue, tree.sources[i])
-
         # Compile the program
         mask_dtype = tree.particle_id_dtype
         gen_local_tree_prg = cl.Program(ctx, gen_local_tree_tpl.render(
@@ -169,36 +160,63 @@ def drive_dfmm(traversal, expansion_wrangler, src_weights):
             scan_expr="a+b", neutral="0",
             output_statement="out[i] = item;")
 
-        for rank in range(total_rank):
+
+        def gen_local_particles(rank, particles, nparticles,
+                                box_particle_starts, 
+                                box_particle_counts_nonchild):
+            """
+            This helper function generates the sources/targets related fields for
+            a local tree
+            """
+            # Put particle structures to device memory
+            d_box_particle_starts = cl.array.to_device(queue, box_particle_starts)
+            d_box_particle_counts_nonchild = cl.array.to_device(
+                queue, box_particle_counts_nonchild)
+            d_particles = np.empty((ndims,), dtype=object)
+            for i in range(ndims):
+                d_particles[i] = cl.array.to_device(queue, particles[i])
+
             # Generate the particle mask array
-            d_source_mask = cl.array.zeros(queue, (tree.nsources,), 
-                                           dtype=mask_dtype)
+            d_particle_mask = cl.array.zeros(
+                queue, (nparticles,), dtype=mask_dtype
+            )
             gen_local_tree_prg.generate_particle_mask(
                 queue, (2048,), None,
                 responsible_boxes[rank].data,
-                d_box_source_starts.data,
-                d_box_source_counts_nonchild.data,
+                d_box_particle_starts.data,
+                d_box_particle_counts_nonchild.data,
                 np.int32(responsible_boxes[rank].shape[0]),
-                d_source_mask.data)
+                d_particle_mask.data)
 
             # Generate the scan of the particle mask array
-            d_source_scan = cl.array.empty(queue, (tree.nsources,),
-                                           dtype=tree.particle_id_dtype)
-            mask_scan_knl(d_source_mask, d_source_scan)
+            d_particle_scan = cl.array.empty(queue, (nparticles,), 
+                                             dtype=tree.particle_id_dtype)
+            mask_scan_knl(d_particle_mask, d_particle_scan)
 
-            # Generate sources of rank's local tree
-            local_nsources = d_source_scan[-1].get(queue)
-            d_local_sources = np.empty((local_nsources,), dtype=object)
+            # Generate particles for rank's local tree
+            local_nparticles = d_particle_scan[-1].get(queue)
+            d_local_particles = np.empty((local_nparticles,), dtype=object)
             for i in range(ndims):
-                cur_local_sources = cl.array.empty(queue, (local_nsources),
-                                                   dtype=tree.coord_dtype)
+                d_local_particles[i] = cl.array.empty(queue, (local_nparticles,),
+                                                      dtype=tree.coord_dtype)
                 gen_local_tree_prg.generate_local_particles(
                     queue, (2048,), None,
-                    np.int32(tree.nsources),
-                    np.int32(local_nsources),
-                    d_sources[i].data,
-                    d_source_mask.data,
-                    d_source_scan.data,
-                    cur_local_sources.data)
+                    np.int32(nparticles),
+                    np.int32(local_nparticles),
+                    d_particles[i].data,
+                    d_particle_mask.data,
+                    d_particle_scan.data,
+                    d_local_particles[i].data)
 
-                d_local_sources[i] = cur_local_sources
+            return d_local_particles
+
+
+        for rank in range(total_rank):
+            d_local_sources = gen_local_particles(rank, tree.sources, tree.nsources,
+                                                  tree.box_source_starts,
+                                                  tree.box_source_counts_nonchild)
+            d_local_targets = gen_local_particles(rank, tree.targets, tree.ntargets,
+                                                  tree.box_target_starts,
+                                                  tree.box_target_counts_nonchild)
+            
+
