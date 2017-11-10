@@ -4,8 +4,8 @@ from mpi4py import MPI
 
 # Parameters
 dims = 2
-nsources = 30
-ntargets = 10
+nsources = 300
+ntargets = 100
 dtype = np.float64
 
 # Get the current rank
@@ -73,7 +73,7 @@ if rank == 0:
     print(la.norm(pot_fmm - pot_naive, ord=2))
 
 # Compute FMM using distributed memory parallelism
-from boxtree.dfmm import drive_dfmm
+from boxtree.distributed import drive_dfmm
 # Note: The drive_dfmm interface works as follows: 
 # Rank 0 passes the correct trav, wrangler, and sources_weights
 # All other ranks pass None to these arguments

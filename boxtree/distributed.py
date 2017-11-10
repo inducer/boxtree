@@ -50,7 +50,7 @@ def partition_work(tree, total_rank, queue):
                                                  dtype=tree.box_id_dtype))
         start_idx = end_idx
 
-    for current_rank in range(extra_boxes, num_boxes):
+    for current_rank in range(extra_boxes, total_rank):
         end_idx = start_idx + num_boxes_per_rank
         responsible_boxes.append(cl.array.arange(queue, start_idx, end_idx, 
                                                  dtype=tree.box_id_dtype))
@@ -116,6 +116,7 @@ __kernel void generate_local_particles(
 }
 """, strict_undefined=True)
 
+
 def drive_dfmm(traversal, expansion_wrangler, src_weights, comm=MPI.COMM_WORLD):
     
     # Get MPI information
@@ -147,10 +148,10 @@ def drive_dfmm(traversal, expansion_wrangler, src_weights, comm=MPI.COMM_WORLD):
             scan_expr="a+b", neutral="0",
         )
 
-        def gen_local_tree(rank, particles, nparticles,
-                           box_particle_starts, 
-                           box_particle_counts_nonchild,
-                           box_particle_counts_cumul):
+        def gen_local_particles(rank, particles, nparticles,
+                                box_particle_starts, 
+                                box_particle_counts_nonchild,
+                                box_particle_counts_cumul):
             """
             This helper function generates the sources/targets related fields for
             a local tree
@@ -268,15 +269,49 @@ def drive_dfmm(traversal, expansion_wrangler, src_weights, comm=MPI.COMM_WORLD):
                                                l_box_particle_counts_cumul,
                                                d_particle_scan)
 
-            return d_local_particles
+            local_particles = np.empty((ndims,), dtype=object)
+            for i in range(ndims):
+                local_particles[i] = d_local_particles[i].get()
+            local_box_particle_starts = d_box_particle_starts.get()
+            local_box_particle_counts_nonchild = d_box_particle_counts_nonchild.get()
+            local_box_particle_counts_cumul = d_box_particle_counts_cumul.get()
 
+            return (local_particles, 
+                    local_box_particle_starts, 
+                    local_box_particle_counts_nonchild, 
+                    local_box_particle_counts_cumul)
+
+        local_tree = np.empty((total_rank,), dtype=object)
+        # request object for non-blocking communication
+        req = np.empty((total_rank,), dtype=object)
 
         for rank in range(total_rank):
-            d_local_sources = gen_local_tree(rank, tree.sources, tree.nsources,
-                                             tree.box_source_starts,
-                                             tree.box_source_counts_nonchild,
-                                             tree.box_source_counts_cumul)
-            d_local_targets = gen_local_tree(rank, tree.targets, tree.ntargets,
-                                             tree.box_target_starts,
-                                             tree.box_target_counts_nonchild,
-                                             tree.box_source_counts_cumul)
+            local_tree[rank] = tree.copy()
+
+            (local_tree[rank].sources, 
+             local_tree[rank].box_source_starts, 
+             local_tree[rank].box_source_counts_nonchild, 
+             local_tree[rank].box_source_counts_cumul)  = \
+            gen_local_particles(rank, tree.sources, tree.nsources,
+                tree.box_source_starts,
+                tree.box_source_counts_nonchild,
+                tree.box_source_counts_cumul)
+
+            (local_tree[rank].targets,
+             local_tree[rank].box_target_starts,
+             local_tree[rank].box_target_counts_nonchild,
+             local_tree[rank].local_box_target_counts_cumul) = \
+            gen_local_particles(rank, tree.targets, tree.ntargets,
+                                tree.box_target_starts,
+                                tree.box_target_counts_nonchild,
+                                tree.box_source_counts_cumul)
+
+            local_tree[rank].user_source_ids = None
+            local_tree[rank].sorted_target_ids = None
+
+            req[rank] = comm.isend(local_tree[rank], dest=rank)
+
+    # All ranks begin
+    local_tree_req = comm.irecv(source=0)
+    local_tree = local_tree_req.wait()
+
