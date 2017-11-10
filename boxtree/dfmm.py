@@ -31,7 +31,7 @@ import numpy as np
 import pyopencl as cl
 from mako.template import Template
 from pyopencl.tools import dtype_to_ctype
-from pyopencl.scan import GenericScanKernel
+from pyopencl.scan import ExclusiveScanKernel
 
 
 def partition_work(tree, total_rank, queue):
@@ -110,11 +110,10 @@ __kernel void generate_local_particles(
     {
         particle_id_t des = particle_scan[particle_idx];
         % for dim in range(ndims):
-            local_particles_${dim}[des - 1] = particles_${dim}[particle_idx];
+            local_particles_${dim}[des] = particles_${dim}[particle_idx];
         % endfor
     }
 }
-
 """, strict_undefined=True)
 
 def drive_dfmm(traversal, expansion_wrangler, src_weights, comm=MPI.COMM_WORLD):
@@ -129,6 +128,7 @@ def drive_dfmm(traversal, expansion_wrangler, src_weights, comm=MPI.COMM_WORLD):
     if current_rank == 0:
         tree = traversal.tree
         ndims = tree.sources.shape[0]
+        nboxes = tree.box_source_starts.shape[0]
 
         # Partition the work across all ranks by allocating responsible boxes
         responsible_boxes = partition_work(tree, total_rank, queue)
@@ -142,17 +142,15 @@ def drive_dfmm(traversal, expansion_wrangler, src_weights, comm=MPI.COMM_WORLD):
             ndims=ndims)).build()
 
         # Construct mask scan kernel
-        arg_tpl = Template(r"__global ${mask_t} *ary, __global ${mask_t} *out")
-        mask_scan_knl = GenericScanKernel(
+        mask_scan_knl = ExclusiveScanKernel(
             ctx, mask_dtype,
-            arguments=arg_tpl.render(mask_t=dtype_to_ctype(mask_dtype)),
-            input_expr="ary[i]",
             scan_expr="a+b", neutral="0",
-            output_statement="out[i] = item;")
+        )
 
-        def gen_local_particles(rank, particles, nparticles,
-                                box_particle_starts, 
-                                box_particle_counts_nonchild):
+        def gen_local_tree(rank, particles, nparticles,
+                           box_particle_starts, 
+                           box_particle_counts_nonchild,
+                           box_particle_counts_cumul):
             """
             This helper function generates the sources/targets related fields for
             a local tree
@@ -161,6 +159,8 @@ def drive_dfmm(traversal, expansion_wrangler, src_weights, comm=MPI.COMM_WORLD):
             d_box_particle_starts = cl.array.to_device(queue, box_particle_starts)
             d_box_particle_counts_nonchild = cl.array.to_device(
                 queue, box_particle_counts_nonchild)
+            d_box_particle_counts_cumul = cl.array.to_device(queue,
+                box_particle_counts_cumul)
             d_particles = np.empty((ndims,), dtype=object)
             for i in range(ndims):
                 d_particles[i] = cl.array.to_device(queue, particles[i])
@@ -183,7 +183,7 @@ def drive_dfmm(traversal, expansion_wrangler, src_weights, comm=MPI.COMM_WORLD):
             mask_scan_knl(d_particle_mask, d_particle_scan)
 
             # Generate particles for rank's local tree
-            local_nparticles = d_particle_scan[-1].get(queue)
+            local_nparticles = d_particle_scan[-1].get(queue) + 1
             d_local_particles = np.empty((ndims,), dtype=object)
             for i in range(ndims):
                 d_local_particles[i] = cl.array.empty(queue, (local_nparticles,),
@@ -205,13 +205,78 @@ def drive_dfmm(traversal, expansion_wrangler, src_weights, comm=MPI.COMM_WORLD):
                 *d_local_particles_list,
                 g_times_l=True)
 
+            # Generate "box_particle_starts" of the local tree
+            l_box_particle_starts = cl.array.empty(queue, (nboxes,), 
+                                                   dtype=tree.particle_id_dtype)
+            generate_box_particle_starts = cl.elementwise.ElementwiseKernel(
+                queue.context,
+                Template("""
+                    __global ${particle_id_t} *old_starts, 
+                    __global ${scan_t} *particle_scan, 
+                    __global ${particle_id_t} *new_starts
+                """).render(particle_id_t=dtype_to_ctype(tree.particle_id_dtype),
+                            scan_t=dtype_to_ctype(mask_dtype)),
+                "new_starts[i] = particle_scan[old_starts[i]]",
+                name="generate_box_particle_starts"
+            )
+
+            generate_box_particle_starts(d_box_particle_starts, d_particle_scan, 
+                                         l_box_particle_starts)
+
+            # Generate "box_particle_counts_nonchild" of the local tree
+            l_box_particle_counts_nonchild = cl.array.zeros(queue, (nboxes,), 
+                dtype=tree.particle_id_dtype)
+            
+            generate_box_particle_counts_nonchild = cl.elementwise.ElementwiseKernel(
+                queue.context,
+                Template("""
+                    __global ${box_id_t} *res_boxes,
+                    __global ${particle_id_t} *old_counts_nonchild,
+                    __global ${particle_id_t} *new_counts_nonchild
+                """).render(box_id_t=dtype_to_ctype(tree.box_id_dtype),
+                            particle_id_t=dtype_to_ctype(tree.particle_id_dtype)),
+                "new_counts_nonchild[res_boxes[i]] = "
+                "old_counts_nonchild[res_boxes[i]]",
+                name="generate_box_particle_counts_nonchild"
+            )
+            
+            generate_box_particle_counts_nonchild(responsible_boxes[rank], 
+                                                  d_box_particle_counts_nonchild,
+                                                  l_box_particle_counts_nonchild)
+
+            # Generate "box_particle_counts_cumul"
+            l_box_particle_counts_cumul = cl.array.empty(queue, (nboxes,),
+                dtype=tree.particle_id_dtype)
+
+            generate_box_particle_counts_cumul = cl.elementwise.ElementwiseKernel(
+                queue.context,
+                Template("""
+                    __global ${particle_id_t} *old_counts_cumul,
+                    __global ${particle_id_t} *old_starts,
+                    __global ${particle_id_t} *new_counts_cumul,
+                    __global ${mask_t} *particle_scan
+                """).render(particle_id_t=dtype_to_ctype(tree.particle_id_dtype),
+                            mask_t=dtype_to_ctype(mask_dtype)),
+                "new_counts_cumul[i] = "
+                "particle_scan[old_starts[i] + old_counts_cumul[i]] - "
+                "particle_scan[old_starts[i]]",
+                name="generate_box_particle_counts_cumul"
+            )
+
+            generate_box_particle_counts_cumul(d_box_particle_counts_cumul,
+                                               d_box_particle_starts,
+                                               l_box_particle_counts_cumul,
+                                               d_particle_scan)
+
             return d_local_particles
 
 
         for rank in range(total_rank):
-            d_local_sources = gen_local_particles(rank, tree.sources, tree.nsources,
-                                                  tree.box_source_starts,
-                                                  tree.box_source_counts_nonchild)
-            d_local_targets = gen_local_particles(rank, tree.targets, tree.ntargets,
-                                                  tree.box_target_starts,
-                                                  tree.box_target_counts_nonchild)
+            d_local_sources = gen_local_tree(rank, tree.sources, tree.nsources,
+                                             tree.box_source_starts,
+                                             tree.box_source_counts_nonchild,
+                                             tree.box_source_counts_cumul)
+            d_local_targets = gen_local_tree(rank, tree.targets, tree.ntargets,
+                                             tree.box_target_starts,
+                                             tree.box_target_counts_nonchild,
+                                             tree.box_source_counts_cumul)
