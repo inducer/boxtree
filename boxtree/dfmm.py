@@ -35,24 +35,27 @@ from pyopencl.scan import GenericScanKernel
 
 
 def partition_work(tree, total_rank, queue):
-    # This function returns a list of total_rank elements, where element i is a
-    # pyopencl array of indices of process i's responsible boxes. 
+    """ This function returns a list of total_rank elements, where element i is a
+    pyopencl array of indices of process i's responsible boxes. 
+    """
     responsible_boxes = []
     num_boxes = tree.box_source_starts.shape[0]
-    num_boxes_per_rank = (num_boxes + total_rank - 1) // total_rank
-    for current_rank in range(total_rank):
-        if current_rank == total_rank - 1:
-            responsible_boxes.append(cl.array.arange(
-                queue,
-                num_boxes_per_rank * current_rank,
-                num_boxes, 
-                dtype=tree.box_id_dtype))
-        else:
-            responsible_boxes.append(cl.array.arange(
-                queue,
-                num_boxes_per_rank * current_rank,
-                num_boxes_per_rank * (current_rank + 1), 
-                dtype=tree.box_id_dtype))
+    num_boxes_per_rank = num_boxes // total_rank
+    extra_boxes = num_boxes - num_boxes_per_rank * total_rank
+    start_idx = 0
+    
+    for current_rank in range(extra_boxes):
+        end_idx = start_idx + num_boxes_per_rank + 1
+        responsible_boxes.append(cl.array.arange(queue, start_idx, end_idx, 
+                                                 dtype=tree.box_id_dtype))
+        start_idx = end_idx
+
+    for current_rank in range(extra_boxes, num_boxes):
+        end_idx = start_idx + num_boxes_per_rank
+        responsible_boxes.append(cl.array.arange(queue, start_idx, end_idx, 
+                                                 dtype=tree.box_id_dtype))
+        start_idx = end_idx
+
     return responsible_boxes
 
 
@@ -73,10 +76,10 @@ __kernel void generate_particle_mask(
      * generate_particle_mask takes the responsible box indices as input and generate 
      * a mask for responsible particles.
      */
-    int gid = get_global_id(0);
+    int res_box_idx = get_global_id(0);
     
-    if(gid < total_num_res_boxes) {
-        box_id_t cur_box = res_boxes[gid];
+    if(res_box_idx < total_num_res_boxes) {
+        box_id_t cur_box = res_boxes[res_box_idx];
         for(particle_id_t i = box_particle_starts[cur_box];
             i < box_particle_starts[cur_box] + box_particle_counts_nonchild[cur_box];
             i++) {
@@ -101,28 +104,24 @@ __kernel void generate_local_particles(
      * generate_local_particles generates an array of particles for which a process 
      * is responsible for.
      */
-    int gid = get_global_id(0);
+    int particle_idx = get_global_id(0);
 
-    if(gid < total_num_particles && particle_mask[gid])
+    if(particle_idx < total_num_particles && particle_mask[particle_idx])
     {
-        particle_id_t des = particle_scan[gid];
+        particle_id_t des = particle_scan[particle_idx];
         % for dim in range(ndims):
-            local_particles_${dim}[des - 1] = particles_${dim}[gid];
+            local_particles_${dim}[des - 1] = particles_${dim}[particle_idx];
         % endfor
     }
 }
 
 """, strict_undefined=True)
 
-def drive_dfmm(traversal, expansion_wrangler, src_weights):
+def drive_dfmm(traversal, expansion_wrangler, src_weights, comm=MPI.COMM_WORLD):
     
-    # {{{ Get MPI information
-
-    comm = MPI.COMM_WORLD
+    # Get MPI information
     current_rank = comm.Get_rank()
     total_rank = comm.Get_size()
-
-    # }}}
     
     ctx = cl.create_some_context()
     queue = cl.CommandQueue(ctx)
@@ -216,4 +215,3 @@ def drive_dfmm(traversal, expansion_wrangler, src_weights):
             d_local_targets = gen_local_particles(rank, tree.targets, tree.ntargets,
                                                   tree.box_target_starts,
                                                   tree.box_target_counts_nonchild)
-            
