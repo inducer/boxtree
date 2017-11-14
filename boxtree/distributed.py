@@ -32,6 +32,23 @@ import pyopencl as cl
 from mako.template import Template
 from pyopencl.tools import dtype_to_ctype
 from pyopencl.scan import ExclusiveScanKernel
+from boxtree import Tree
+
+class LocalTree(Tree):
+
+    @property
+    def nsources(self):
+        return self.sources[0].shape[0]
+
+    @property
+    def ntargets(self):
+        return self.targets[0].shape[0]
+
+    @classmethod
+    def copy_from_global_tree(cls, global_tree):
+        local_tree = global_tree.copy()
+        local_tree.__class__ = cls
+        return local_tree
 
 
 def partition_work(tree, total_rank, queue):
@@ -286,7 +303,7 @@ def drive_dfmm(traversal, expansion_wrangler, src_weights, comm=MPI.COMM_WORLD):
         req = np.empty((total_rank,), dtype=object)
 
         for rank in range(total_rank):
-            local_tree[rank] = tree.copy()
+            local_tree[rank] = LocalTree.copy_from_global_tree(tree)
 
             (local_tree[rank].sources, 
              local_tree[rank].box_source_starts, 
