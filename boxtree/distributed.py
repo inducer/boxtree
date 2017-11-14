@@ -312,6 +312,5 @@ def drive_dfmm(traversal, expansion_wrangler, src_weights, comm=MPI.COMM_WORLD):
             req[rank] = comm.isend(local_tree[rank], dest=rank)
 
     # All ranks begin
-    local_tree_req = comm.irecv(source=0)
-    local_tree = local_tree_req.wait()
+    local_tree = comm.recv(source=0)
 
