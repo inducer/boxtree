@@ -37,6 +37,10 @@ logger = logging.getLogger(__name__)
 class LocalTree(Tree):
 
     @property
+    def nboxes(self):
+        return self.box_source_starts.shape[0]
+
+    @property
     def nsources(self):
         return self.sources[0].shape[0]
 
@@ -130,6 +134,36 @@ __kernel void generate_local_particles(
             local_particles_${dim}[des] = particles_${dim}[particle_idx];
         % endfor
     }
+}
+""", strict_undefined=True)
+
+gen_traversal_tpl = Template(r"""
+#define HAS_CHILD_SOURCES ${HAS_CHILD_SOURCES}
+#define HAS_CHILD_TARGETS ${HAS_CHILD_TARGETS}
+#define HAS_OWN_SOURCES ${HAS_OWN_SOURCES}
+#define HAS_OWN_TARGETS ${HAS_OWN_TARGETS}
+typedef ${box_flag_t} box_flag_t;
+typedef ${box_id_t} box_id_t;
+typedef ${particle_id_t} particle_id_t;
+
+__kernel void generate_tree_flags(
+    __global box_flag_t *tree_flags,
+    __global const particle_id_t *box_source_counts_nonchild,
+    __global const particle_id_t *box_source_counts_cumul,
+    __global const particle_id_t *box_target_counts_nonchild,
+    __global const particle_id_t *box_target_counts_cumul)
+{
+    box_id_t box_idx = get_global_id(0);
+    box_flag_t flag = 0;
+    if (box_source_counts_nonchild[box_idx])
+        flag |= HAS_OWN_SOURCES;
+    if (box_source_counts_cumul[box_idx] > box_source_counts_nonchild[box_idx])
+        flag |= HAS_CHILD_SOURCES;
+    if (box_target_counts_nonchild[box_idx])
+        flag |= HAS_OWN_TARGETS;
+    if (box_target_counts_cumul[box_idx] > box_target_counts_nonchild[box_idx])
+        flag |= HAS_CHILD_TARGETS;
+    tree_flags[box_idx] = flag;
 }
 """, strict_undefined=True)
 
@@ -318,7 +352,7 @@ def drive_dfmm(traversal, expansion_wrangler, src_weights, comm=MPI.COMM_WORLD):
             (local_tree[rank].targets,
              local_tree[rank].box_target_starts,
              local_tree[rank].box_target_counts_nonchild,
-             local_tree[rank].local_box_target_counts_cumul) = \
+             local_tree[rank].box_target_counts_cumul) = \
                 gen_local_particles(rank, tree.targets, tree.ntargets,
                                     tree.box_target_starts,
                                     tree.box_target_counts_nonchild,
@@ -326,6 +360,7 @@ def drive_dfmm(traversal, expansion_wrangler, src_weights, comm=MPI.COMM_WORLD):
 
             local_tree[rank].user_source_ids = None
             local_tree[rank].sorted_target_ids = None
+            local_tree[rank].box_flags = None
 
             req[rank] = comm.isend(local_tree[rank], dest=rank)
 
@@ -335,3 +370,34 @@ def drive_dfmm(traversal, expansion_wrangler, src_weights, comm=MPI.COMM_WORLD):
         local_tree = local_tree[0]
     else:
         local_tree = comm.recv(source=0)
+
+    d_box_source_counts_nonchild = cl.array.to_device(
+        queue, local_tree.box_source_counts_nonchild)
+    d_box_source_counts_cumul = cl.array.to_device(
+        queue, local_tree.box_source_counts_cumul)
+    d_box_target_counts_nonchild = cl.array.to_device(
+        queue, local_tree.box_target_counts_nonchild)
+    d_box_target_counts_cumul = cl.array.to_device(
+        queue, local_tree.box_target_counts_cumul)
+
+    from boxtree.tree import box_flags_enum
+    local_tree.box_flags = cl.array.empty(queue, (local_tree.nboxes,),
+                                          box_flags_enum.dtype)
+    gen_traversal_src = gen_traversal_tpl.render(
+        box_flag_t=dtype_to_ctype(box_flags_enum.dtype),
+        box_id_t=dtype_to_ctype(local_tree.box_id_dtype),
+        particle_id_t=dtype_to_ctype(local_tree.particle_id_dtype),
+        HAS_CHILD_SOURCES=box_flags_enum.HAS_CHILD_SOURCES,
+        HAS_CHILD_TARGETS=box_flags_enum.HAS_CHILD_TARGETS,
+        HAS_OWN_SOURCES=box_flags_enum.HAS_OWN_SOURCES,
+        HAS_OWN_TARGETS=box_flags_enum.HAS_OWN_TARGETS
+    )
+    gen_traversal_prg = cl.Program(ctx, gen_traversal_src).build()
+    gen_traversal_prg.generate_tree_flags(
+        queue, ((local_tree.nboxes + 127) // 128,), (128,),
+        local_tree.box_flags.data,
+        d_box_source_counts_nonchild.data,
+        d_box_source_counts_cumul.data,
+        d_box_target_counts_nonchild.data,
+        d_box_target_counts_cumul.data,
+        g_times_l=True)
