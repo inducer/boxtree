@@ -137,15 +137,17 @@ __kernel void generate_local_particles(
 }
 """, strict_undefined=True)
 
-gen_traversal_tpl = Template(r"""
-#define HAS_CHILD_SOURCES ${HAS_CHILD_SOURCES}
-#define HAS_CHILD_TARGETS ${HAS_CHILD_TARGETS}
-#define HAS_OWN_SOURCES ${HAS_OWN_SOURCES}
-#define HAS_OWN_TARGETS ${HAS_OWN_TARGETS}
-typedef ${box_flag_t} box_flag_t;
-typedef ${box_id_t} box_id_t;
-typedef ${particle_id_t} particle_id_t;
+traversal_preamble_tpl = Template(r"""
+    #define HAS_CHILD_SOURCES ${HAS_CHILD_SOURCES}
+    #define HAS_CHILD_TARGETS ${HAS_CHILD_TARGETS}
+    #define HAS_OWN_SOURCES ${HAS_OWN_SOURCES}
+    #define HAS_OWN_TARGETS ${HAS_OWN_TARGETS}
+    typedef ${box_flag_t} box_flag_t;
+    typedef ${box_id_t} box_id_t;
+    typedef ${particle_id_t} particle_id_t;
+""", strict_undefined=True)
 
+gen_traversal_tpl = Template(r"""
 __kernel void generate_tree_flags(
     __global box_flag_t *tree_flags,
     __global const particle_id_t *box_source_counts_nonchild,
@@ -167,6 +169,26 @@ __kernel void generate_tree_flags(
 }
 """, strict_undefined=True)
 
+SOURCES_PARENTS_AND_TARGETS_TEMPLATE = r"""//CL//
+void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t box_id)
+{
+    box_flag_t flags = box_flags[box_id];
+
+    if (flags & HAS_OWN_SOURCES)
+    { APPEND_source_boxes(box_id); }
+
+    if (flags & HAS_CHILD_SOURCES)
+    { APPEND_source_parent_boxes(box_id); }
+
+    %if not sources_are_targets:
+        if (flags & HAS_OWN_TARGETS)
+        { APPEND_target_boxes(box_id); }
+    %endif
+    if (flags & (HAS_CHILD_TARGETS | HAS_OWN_TARGETS))
+    { APPEND_target_or_target_parent_boxes(box_id); }
+}
+"""
+
 
 def drive_dfmm(traversal, expansion_wrangler, src_weights, comm=MPI.COMM_WORLD):
 
@@ -176,6 +198,8 @@ def drive_dfmm(traversal, expansion_wrangler, src_weights, comm=MPI.COMM_WORLD):
 
     ctx = cl.create_some_context()
     queue = cl.CommandQueue(ctx)
+
+    # {{{ Construct local traversal on root
 
     if current_rank == 0:
         tree = traversal.tree
@@ -332,44 +356,71 @@ def drive_dfmm(traversal, expansion_wrangler, src_weights, comm=MPI.COMM_WORLD):
                     local_box_particle_counts_nonchild,
                     local_box_particle_counts_cumul)
 
-        local_tree = np.empty((total_rank,), dtype=object)
+        local_trav = np.empty((total_rank,), dtype=object)
         # request object for non-blocking communication
         req = np.empty((total_rank,), dtype=object)
 
         for rank in range(total_rank):
-            local_tree[rank] = LocalTree.copy_from_global_tree(
+            local_tree = LocalTree.copy_from_global_tree(
                 tree, responsible_boxes[rank].get())
 
-            (local_tree[rank].sources,
-             local_tree[rank].box_source_starts,
-             local_tree[rank].box_source_counts_nonchild,
-             local_tree[rank].box_source_counts_cumul) = \
+            (local_tree.sources,
+             local_tree.box_source_starts,
+             local_tree.box_source_counts_nonchild,
+             local_tree.box_source_counts_cumul) = \
                 gen_local_particles(rank, tree.sources, tree.nsources,
                                     tree.box_source_starts,
                                     tree.box_source_counts_nonchild,
                                     tree.box_source_counts_cumul)
 
-            (local_tree[rank].targets,
-             local_tree[rank].box_target_starts,
-             local_tree[rank].box_target_counts_nonchild,
-             local_tree[rank].box_target_counts_cumul) = \
+            (local_tree.targets,
+             local_tree.box_target_starts,
+             local_tree.box_target_counts_nonchild,
+             local_tree.box_target_counts_cumul) = \
                 gen_local_particles(rank, tree.targets, tree.ntargets,
                                     tree.box_target_starts,
                                     tree.box_target_counts_nonchild,
                                     tree.box_source_counts_cumul)
 
-            local_tree[rank].user_source_ids = None
-            local_tree[rank].sorted_target_ids = None
-            local_tree[rank].box_flags = None
+            local_tree.user_source_ids = None
+            local_tree.sorted_target_ids = None
+            local_tree.box_flags = None
 
-            req[rank] = comm.isend(local_tree[rank], dest=rank)
+            local_trav[rank] = traversal.copy()
+            local_trav[rank].tree = local_tree
+            local_trav[rank].source_boxes = None
+            local_trav[rank].target_boxes = None
+            local_trav[rank].source_parent_boxes = None
+            local_trav[rank].level_start_source_box_nrs = None
+            local_trav[rank].level_start_source_parent_box_nrs = None
+            local_trav[rank].target_or_target_parent_boxes = None
+            local_trav[rank].level_start_target_box_nrs = None
+            local_trav[rank].level_start_target_or_target_parent_box_nrs = None
+            req[rank] = comm.isend(local_trav[rank], dest=rank)
 
+    # }}}
+
+    # Distribute the local trav to each rank
     if current_rank == 0:
         for rank in range(1, total_rank):
             req[rank].wait()
-        local_tree = local_tree[0]
+        local_trav = local_trav[0]
     else:
-        local_tree = comm.recv(source=0)
+        local_trav = comm.recv(source=0)
+    local_tree = local_trav.tree
+
+    from boxtree.tree import box_flags_enum
+    traversal_preamble = traversal_preamble_tpl.render(
+        box_flag_t=dtype_to_ctype(box_flags_enum.dtype),
+        box_id_t=dtype_to_ctype(local_tree.box_id_dtype),
+        particle_id_t=dtype_to_ctype(local_tree.particle_id_dtype),
+        HAS_CHILD_SOURCES=box_flags_enum.HAS_CHILD_SOURCES,
+        HAS_CHILD_TARGETS=box_flags_enum.HAS_CHILD_TARGETS,
+        HAS_OWN_SOURCES=box_flags_enum.HAS_OWN_SOURCES,
+        HAS_OWN_TARGETS=box_flags_enum.HAS_OWN_TARGETS
+    )
+
+    # {{{ Fetch local tree to device memory
 
     d_box_source_counts_nonchild = cl.array.to_device(
         queue, local_tree.box_source_counts_nonchild)
@@ -379,20 +430,14 @@ def drive_dfmm(traversal, expansion_wrangler, src_weights, comm=MPI.COMM_WORLD):
         queue, local_tree.box_target_counts_nonchild)
     d_box_target_counts_cumul = cl.array.to_device(
         queue, local_tree.box_target_counts_cumul)
-
-    from boxtree.tree import box_flags_enum
     local_tree.box_flags = cl.array.empty(queue, (local_tree.nboxes,),
                                           box_flags_enum.dtype)
-    gen_traversal_src = gen_traversal_tpl.render(
-        box_flag_t=dtype_to_ctype(box_flags_enum.dtype),
-        box_id_t=dtype_to_ctype(local_tree.box_id_dtype),
-        particle_id_t=dtype_to_ctype(local_tree.particle_id_dtype),
-        HAS_CHILD_SOURCES=box_flags_enum.HAS_CHILD_SOURCES,
-        HAS_CHILD_TARGETS=box_flags_enum.HAS_CHILD_TARGETS,
-        HAS_OWN_SOURCES=box_flags_enum.HAS_OWN_SOURCES,
-        HAS_OWN_TARGETS=box_flags_enum.HAS_OWN_TARGETS
-    )
+
+    # }}}
+
+    gen_traversal_src = traversal_preamble + gen_traversal_tpl.render()
     gen_traversal_prg = cl.Program(ctx, gen_traversal_src).build()
+
     gen_traversal_prg.generate_tree_flags(
         queue, ((local_tree.nboxes + 127) // 128,), (128,),
         local_tree.box_flags.data,
@@ -401,3 +446,23 @@ def drive_dfmm(traversal, expansion_wrangler, src_weights, comm=MPI.COMM_WORLD):
         d_box_target_counts_nonchild.data,
         d_box_target_counts_cumul.data,
         g_times_l=True)
+
+    # {{{
+
+    from pyopencl.algorithm import ListOfListsBuilder
+    from pyopencl.tools import VectorArg
+
+    sources_parents_and_targets_builder = ListOfListsBuilder(
+        ctx,
+        [("source_parent_boxes", local_tree.box_id_dtype),
+         ("source_boxes", local_tree.box_id_dtype),
+         ("target_or_target_parent_boxes", local_tree.box_id_dtype)] + (
+            [("target_boxes", local_tree.box_id_dtype)]
+            if not local_tree.sources_are_targets else []),
+        traversal_preamble + Template(SOURCES_PARENTS_AND_TARGETS_TEMPLATE).render(),
+        arg_decls=[VectorArg(box_flags_enum.dtype, "box_flags")],
+        name_prefix="sources_parents_and_targets")
+
+    result = sources_parents_and_targets_builder(
+        queue, local_tree.nboxes, local_tree.box_flags.data)
+    # }}}
