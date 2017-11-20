@@ -282,8 +282,8 @@ def drive_dfmm(traversal, expansion_wrangler, src_weights, comm=MPI.COMM_WORLD):
                 g_times_l=True)
 
             # Generate "box_particle_starts" of the local tree
-            l_box_particle_starts = cl.array.empty(queue, (nboxes,),
-                                                   dtype=tree.particle_id_dtype)
+            local_box_particle_starts = cl.array.empty(queue, (nboxes,),
+                                                       dtype=tree.particle_id_dtype)
             generate_box_particle_starts = cl.elementwise.ElementwiseKernel(
                 queue.context,
                 Template("""
@@ -297,10 +297,10 @@ def drive_dfmm(traversal, expansion_wrangler, src_weights, comm=MPI.COMM_WORLD):
             )
 
             generate_box_particle_starts(d_box_particle_starts, d_particle_scan,
-                                         l_box_particle_starts)
+                                         local_box_particle_starts)
 
             # Generate "box_particle_counts_nonchild" of the local tree
-            l_box_particle_counts_nonchild = cl.array.zeros(
+            local_box_particle_counts_nonchild = cl.array.zeros(
                 queue, (nboxes,), dtype=tree.particle_id_dtype)
 
             generate_box_particle_counts_nonchild = cl.elementwise.ElementwiseKernel(
@@ -318,10 +318,10 @@ def drive_dfmm(traversal, expansion_wrangler, src_weights, comm=MPI.COMM_WORLD):
 
             generate_box_particle_counts_nonchild(responsible_boxes[rank],
                                                   d_box_particle_counts_nonchild,
-                                                  l_box_particle_counts_nonchild)
+                                                  local_box_particle_counts_nonchild)
 
             # Generate "box_particle_counts_cumul"
-            l_box_particle_counts_cumul = cl.array.empty(
+            local_box_particle_counts_cumul = cl.array.empty(
                 queue, (nboxes,), dtype=tree.particle_id_dtype)
 
             generate_box_particle_counts_cumul = cl.elementwise.ElementwiseKernel(
@@ -341,15 +341,16 @@ def drive_dfmm(traversal, expansion_wrangler, src_weights, comm=MPI.COMM_WORLD):
 
             generate_box_particle_counts_cumul(d_box_particle_counts_cumul,
                                                d_box_particle_starts,
-                                               l_box_particle_counts_cumul,
+                                               local_box_particle_counts_cumul,
                                                d_particle_scan)
 
             local_particles = np.empty((ndims,), dtype=object)
             for i in range(ndims):
                 local_particles[i] = d_local_particles[i].get()
-            local_box_particle_starts = d_box_particle_starts.get()
-            local_box_particle_counts_nonchild = d_box_particle_counts_nonchild.get()
-            local_box_particle_counts_cumul = d_box_particle_counts_cumul.get()
+            local_box_particle_starts = local_box_particle_starts.get()
+            local_box_particle_counts_nonchild = \
+                local_box_particle_counts_nonchild.get()
+            local_box_particle_counts_cumul = local_box_particle_counts_cumul.get()
 
             return (local_particles,
                     local_box_particle_starts,
@@ -463,6 +464,7 @@ def drive_dfmm(traversal, expansion_wrangler, src_weights, comm=MPI.COMM_WORLD):
         arg_decls=[VectorArg(box_flags_enum.dtype, "box_flags")],
         name_prefix="sources_parents_and_targets")
 
-    result = sources_parents_and_targets_builder(
+    result, evt = sources_parents_and_targets_builder(
         queue, local_tree.nboxes, local_tree.box_flags.data)
+
     # }}}
