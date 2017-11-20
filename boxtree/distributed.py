@@ -145,6 +145,7 @@ traversal_preamble_tpl = Template(r"""
     typedef ${box_flag_t} box_flag_t;
     typedef ${box_id_t} box_id_t;
     typedef ${particle_id_t} particle_id_t;
+    typedef ${box_level_t} box_level_t;
 """, strict_undefined=True)
 
 gen_traversal_tpl = Template(r"""
@@ -415,6 +416,7 @@ def drive_dfmm(traversal, expansion_wrangler, src_weights, comm=MPI.COMM_WORLD):
         box_flag_t=dtype_to_ctype(box_flags_enum.dtype),
         box_id_t=dtype_to_ctype(local_tree.box_id_dtype),
         particle_id_t=dtype_to_ctype(local_tree.particle_id_dtype),
+        box_level_t=dtype_to_ctype(local_tree.box_level_dtype),
         HAS_CHILD_SOURCES=box_flags_enum.HAS_CHILD_SOURCES,
         HAS_CHILD_TARGETS=box_flags_enum.HAS_CHILD_TARGETS,
         HAS_OWN_SOURCES=box_flags_enum.HAS_OWN_SOURCES,
@@ -433,6 +435,10 @@ def drive_dfmm(traversal, expansion_wrangler, src_weights, comm=MPI.COMM_WORLD):
         queue, local_tree.box_target_counts_cumul)
     local_tree.box_flags = cl.array.empty(queue, (local_tree.nboxes,),
                                           box_flags_enum.dtype)
+    d_level_start_box_nrs = cl.array.to_device(
+        queue, local_tree.level_start_box_nrs)
+    d_box_levels = cl.array.to_device(
+        queue, local_tree.box_levels)
 
     # }}}
 
@@ -466,5 +472,86 @@ def drive_dfmm(traversal, expansion_wrangler, src_weights, comm=MPI.COMM_WORLD):
 
     result, evt = sources_parents_and_targets_builder(
         queue, local_tree.nboxes, local_tree.box_flags.data)
+
+    local_trav.source_boxes = result["source_boxes"].lists
+    if not tree.sources_are_targets:
+        local_trav.target_boxes = result["target_boxes"].lists
+    else:
+        local_trav.target_boxes = local_trav.source_boxes
+    local_trav.source_parent_boxes = result["source_parent_boxes"].lists
+    local_trav.target_or_target_parent_boxes = \
+        result["target_or_target_parent_boxes"].lists
+
+    # }}}
+
+    # {{{
+    level_start_box_nrs_extractor = cl.elementwise.ElementwiseTemplate(
+        arguments="""//CL//
+        box_id_t *level_start_box_nrs,
+        box_level_t *box_levels,
+        box_id_t *box_list,
+        box_id_t *list_level_start_box_nrs,
+        """,
+
+        operation=r"""//CL//
+            // Kernel is ranged so that this is true:
+            // assert(i > 0);
+
+            box_id_t my_box_id = box_list[i];
+            int my_level = box_levels[my_box_id];
+
+            bool is_level_leading_box;
+            if (i == 0)
+                is_level_leading_box = true;
+            else
+            {
+                box_id_t prev_box_id = box_list[i-1];
+                box_id_t my_level_start = level_start_box_nrs[my_level];
+
+                is_level_leading_box = (
+                        prev_box_id < my_level_start
+                        && my_level_start <= my_box_id);
+            }
+
+            if (is_level_leading_box)
+                list_level_start_box_nrs[my_level] = i;
+        """,
+        name="extract_level_start_box_nrs").build(ctx,
+            type_aliases=(
+                ("box_id_t", local_tree.box_id_dtype),
+                ("box_level_t", local_tree.box_level_dtype),
+            )
+        )
+
+    def extract_level_start_box_nrs(box_list, wait_for):
+        result = cl.array.empty(queue, local_tree.nlevels + 1,
+                                local_tree.box_id_dtype) \
+                                .fill(len(box_list))
+        evt = level_start_box_nrs_extractor(
+                d_level_start_box_nrs,
+                d_box_levels,
+                box_list,
+                result,
+                range=slice(0, len(box_list)),
+                queue=queue, wait_for=wait_for)
+
+        result = result.get()
+
+        # Postprocess result for unoccupied levels
+        prev_start = len(box_list)
+        for ilev in range(tree.nlevels-1, -1, -1):
+            result[ilev] = prev_start = min(result[ilev], prev_start)
+
+        return result, evt
+
+    local_trav.level_start_source_box_nrs, _ = \
+        extract_level_start_box_nrs(local_trav.source_boxes, wait_for=[])
+    local_trav.level_start_source_parent_box_nrs, _ = \
+        extract_level_start_box_nrs(local_trav.source_parent_boxes, wait_for=[])
+    local_trav.level_start_target_box_nrs, _ = \
+        extract_level_start_box_nrs(local_trav.target_boxes, wait_for=[])
+    local_trav.level_start_target_or_target_parent_box_nrs, _ = \
+        extract_level_start_box_nrs(local_trav.target_or_target_parent_boxes,
+                                    wait_for=[])
 
     # }}}
