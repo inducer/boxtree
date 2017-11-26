@@ -24,6 +24,7 @@ Python 3.5 K40:
     - nvidia-k40
     except:
     - tags
+    - distributed-fmm-global
   
 Python 2.7 POCL:
     script:
@@ -37,6 +38,7 @@ Python 2.7 POCL:
     - pocl
     except:
     - tags
+    - distributed-fmm-global
 
 Python 3.5 POCL:
     script:
@@ -84,4 +86,3 @@ Flake8:
     - python3.5
     except:
     - tags
-    - distributed-fmm-global
