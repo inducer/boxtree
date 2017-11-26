@@ -50,6 +50,7 @@ Python 3.5 POCL:
     - pocl
     except:
     - tags
+    - distributed-fmm-global
 
 Python 3.6 POCL:
     script:
@@ -63,6 +64,7 @@ Python 3.6 POCL:
     - pocl
     except:
     - tags
+    - distributed-fmm-global
 
 Documentation:
     script:
@@ -82,3 +84,4 @@ Flake8:
     - python3.5
     except:
     - tags
+    - distributed-fmm-global
