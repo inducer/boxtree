@@ -84,6 +84,7 @@ class LocalTree(Tree):
 class MPI_Tags():
     DIST_TREE = 0
     DIST_WEIGHT = 1
+    GATHER_POTENTIALS = 2
 
 
 def partition_work(tree, total_rank, queue):
@@ -154,7 +155,8 @@ def gen_local_particles(queue, particles, nparticles, tree,
                         box_particle_starts,
                         box_particle_counts_nonchild,
                         box_particle_counts_cumul,
-                        particle_weights=None):
+                        particle_weights=None,
+                        return_mask_scan=False):
     """
     This helper function generates the sources/targets related fields for
     a local tree
@@ -335,17 +337,18 @@ def gen_local_particles(queue, particles, nparticles, tree,
 
     # }}}
 
+    rtv = (local_particles,
+           local_box_particle_starts,
+           local_box_particle_counts_nonchild,
+           local_box_particle_counts_cumul)
+
     if particle_weights is not None:
-        return (local_particles,
-                local_box_particle_starts,
-                local_box_particle_counts_nonchild,
-                local_box_particle_counts_cumul,
-                local_particle_weights.get())
-    else:
-        return (local_particles,
-                local_box_particle_starts,
-                local_box_particle_counts_nonchild,
-                local_box_particle_counts_cumul)
+        rtv = rtv + (local_particle_weights.get(),)
+
+    if return_mask_scan:
+        rtv = rtv + (d_particle_mask, d_particle_scan, local_nparticles)
+
+    return rtv
 
 
 def drive_dfmm(traversal, src_weights, comm=MPI.COMM_WORLD):
@@ -359,8 +362,11 @@ def drive_dfmm(traversal, src_weights, comm=MPI.COMM_WORLD):
     # {{{ Construct local tree for each rank on root
 
     if current_rank == 0:
-        local_tree = np.empty((total_rank,), dtype=object)
         tree = traversal.tree
+        local_tree = np.empty((total_rank,), dtype=object)
+        local_target_mask = np.empty((total_rank,), dtype=object)
+        local_target_scan = np.empty((total_rank,), dtype=object)
+        local_ntargets = np.empty((total_rank,), dtype=tree.particle_id_dtype)
 
         d_box_parent_ids = cl.array.to_device(queue, tree.box_parent_ids)
 
@@ -372,10 +378,54 @@ def drive_dfmm(traversal, src_weights, comm=MPI.COMM_WORLD):
             partition_work(tree, total_rank, queue)
 
         # In order to evaluate, each rank needs sources in boxes in
-        # *src_boxes*
-        src_boxes = responsible_boxes_mask.copy()
+        # *src_boxes_mask*
+        src_boxes_mask = responsible_boxes_mask.copy()
 
-        # Add list 1 and list 4 of responsible boxes to src_boxes
+        # Add list 1 and list 4 of responsible boxes to src_boxes_mask
+        for rank in range(total_rank):
+            add_interaction_list_boxes = cl.elementwise.ElementwiseKernel(
+                ctx,
+                Template("""
+                    __global ${box_id_t} *box_list,
+                    __global char *responsible_boxes_mask,
+                    __global ${box_id_t} *interaction_boxes_starts,
+                    __global ${box_id_t} *interaction_boxes_lists,
+                    __global char *src_boxes_mask
+                """).render(box_id_t=dtype_to_ctype(tree.box_id_dtype)),
+                Template("""
+                    typedef ${box_id_t} box_id_t;
+                    box_id_t current_box = box_list[i];
+                    if(responsible_boxes_mask[current_box]) {
+                        for(box_id_t box_idx = interaction_boxes_starts[i];
+                            box_idx < interaction_boxes_starts[i + 1];
+                            ++box_idx)
+                            src_boxes_mask[interaction_boxes_lists[box_idx]] = 1;
+                    }
+                """).render(box_id_t=dtype_to_ctype(tree.box_id_dtype)),
+            )
+
+            d_target_boxes = cl.array.to_device(queue, traversal.target_boxes)
+            d_neighbor_source_boxes_starts = cl.array.to_device(
+                queue, traversal.neighbor_source_boxes_starts)
+            d_neighbor_source_boxes_lists = cl.array.to_device(
+                queue, traversal.neighbor_source_boxes_lists)
+            add_interaction_list_boxes(
+                d_target_boxes, responsible_boxes_mask[rank],
+                d_neighbor_source_boxes_starts,
+                d_neighbor_source_boxes_lists, src_boxes_mask[rank],
+                range=range(0, traversal.target_boxes.shape[0]))
+
+            d_target_or_target_parent_boxes = cl.array.to_device(
+                queue, traversal.target_or_target_parent_boxes)
+            d_from_sep_bigger_starts = cl.array.to_device(
+                queue, traversal.from_sep_bigger_starts)
+            d_from_sep_bigger_lists = cl.array.to_device(
+                queue, traversal.from_sep_bigger_lists)
+            add_interaction_list_boxes(
+                d_target_or_target_parent_boxes, responsible_boxes_mask[rank],
+                d_from_sep_bigger_starts, d_from_sep_bigger_lists,
+                src_boxes_mask[rank],
+                range=range(0, traversal.target_or_target_parent_boxes.shape[0]))
 
         # Calculate ancestors of responsible boxes
         ancestor_boxes = cl.array.zeros(queue, (total_rank, tree.nboxes),
@@ -420,7 +470,7 @@ def drive_dfmm(traversal, src_weights, comm=MPI.COMM_WORLD):
              local_tree[rank].box_source_counts_cumul,
              local_src_weights[rank]) = \
                 gen_local_particles(queue, tree.sources, tree.nsources, tree,
-                                    src_boxes[rank],
+                                    src_boxes_mask[rank],
                                     tree.box_source_starts,
                                     tree.box_source_counts_nonchild,
                                     tree.box_source_counts_cumul,
@@ -429,13 +479,16 @@ def drive_dfmm(traversal, src_weights, comm=MPI.COMM_WORLD):
             (local_tree[rank].targets,
              local_tree[rank].box_target_starts,
              local_tree[rank].box_target_counts_nonchild,
-             local_tree[rank].box_target_counts_cumul) = \
+             local_tree[rank].box_target_counts_cumul,
+             local_target_mask[rank],
+             local_target_scan[rank],
+             local_ntargets[rank]) = \
                 gen_local_particles(queue, tree.targets, tree.ntargets, tree,
                                     responsible_boxes_mask[rank],
                                     tree.box_target_starts,
                                     tree.box_target_counts_nonchild,
                                     tree.box_target_counts_cumul,
-                                    None)
+                                    None, return_mask_scan=True)
 
             local_tree[rank].source_radii = None
             local_tree[rank].target_radii = None
@@ -562,4 +615,135 @@ def drive_dfmm(traversal, src_weights, comm=MPI.COMM_WORLD):
     mpole_exps_all = np.empty_like(mpole_exps)
     comm.Allreduce(mpole_exps, mpole_exps_all)
 
+    mpole_exps = mpole_exps_all
+
     # }}}
+
+    # {{{ "Stage 3:" Direct evaluation from neighbor source boxes ("list 1")
+
+    logger.debug("direct evaluation from neighbor source boxes ('list 1')")
+    potentials = wrangler.eval_direct(
+            trav_global.target_boxes,
+            trav_global.neighbor_source_boxes_starts,
+            trav_global.neighbor_source_boxes_lists,
+            local_src_weights)
+
+    # these potentials are called alpha in [1]
+
+    # }}}
+
+    # {{{ "Stage 4:" translate separated siblings' ("list 2") mpoles to local
+
+    logger.debug("translate separated siblings' ('list 2') mpoles to local")
+    local_exps = wrangler.multipole_to_local(
+            trav_global.level_start_target_or_target_parent_box_nrs,
+            trav_global.target_or_target_parent_boxes,
+            trav_global.from_sep_siblings_starts,
+            trav_global.from_sep_siblings_lists,
+            mpole_exps)
+
+    # local_exps represents both Gamma and Delta in [1]
+
+    # }}}
+
+    # {{{ "Stage 5:" evaluate sep. smaller mpoles ("list 3") at particles
+
+    logger.debug("evaluate sep. smaller mpoles at particles ('list 3 far')")
+
+    # (the point of aiming this stage at particles is specifically to keep its
+    # contribution *out* of the downward-propagating local expansions)
+
+    potentials = potentials + wrangler.eval_multipoles(
+            trav_global.level_start_target_box_nrs,
+            trav_global.target_boxes,
+            trav_global.from_sep_smaller_by_level,
+            mpole_exps)
+
+    # }}}
+
+    # {{{ "Stage 6:" form locals for separated bigger source boxes ("list 4")
+
+    logger.debug("form locals for separated bigger source boxes ('list 4 far')")
+
+    local_exps = local_exps + wrangler.form_locals(
+            trav_global.level_start_target_or_target_parent_box_nrs,
+            trav_global.target_or_target_parent_boxes,
+            trav_global.from_sep_bigger_starts,
+            trav_global.from_sep_bigger_lists,
+            local_src_weights)
+
+    # }}}
+
+    # {{{ "Stage 7:" propagate local_exps downward
+
+    logger.debug("propagate local_exps downward")
+
+    wrangler.refine_locals(
+            trav_global.level_start_target_or_target_parent_box_nrs,
+            trav_global.target_or_target_parent_boxes,
+            local_exps)
+
+    # }}}
+
+    # {{{ "Stage 8:" evaluate locals
+
+    logger.debug("evaluate locals")
+
+    potentials = potentials + wrangler.eval_locals(
+            trav_global.level_start_target_box_nrs,
+            trav_global.target_boxes,
+            local_exps)
+
+    # }}}
+
+    potentials_mpi_type = MPI._typedict[potentials.dtype.char]
+    if current_rank == 0:
+        potentials_all_ranks = np.empty((total_rank,), dtype=object)
+        for i in range(1, total_rank):
+            potentials_all_ranks[i] = np.empty(
+                (local_ntargets[i],), dtype=potentials.dtype)
+            comm.Recv([potentials_all_ranks[i], potentials_mpi_type],
+                      source=i, tag=MPI_Tags.GATHER_POTENTIALS)
+    else:
+        comm.Send([potentials, potentials_mpi_type],
+                  dest=0, tag=MPI_Tags.GATHER_POTENTIALS)
+
+    if current_rank == 0:
+        d_potentials = cl.array.to_device(queue, potentials)
+        fill_potentials_knl = cl.elementwise.ElementwiseKernel(
+            ctx,
+            Template("""
+                __global char *particle_mask,
+                __global ${particle_id_t} *particle_scan,
+                __global ${potential_t} *local_potentials,
+                __global ${potential_t} *potentials
+            """).render(
+                particle_id_t=dtype_to_ctype(tree.particle_id_dtype),
+                potential_t=dtype_to_ctype(potentials.dtype)),
+            """
+                if(particle_mask[i]) {
+                    potentials[i] = local_potentials[particle_scan[i]];
+                }
+            """
+        )
+
+        for i in range(1, total_rank):
+            local_potentials = cl.array.to_device(queue, potentials_all_ranks[i])
+            fill_potentials_knl(
+                local_target_mask[i], local_target_scan[i],
+                local_potentials, d_potentials)
+
+        potentials = d_potentials.get()
+
+        global_wrangler = FMMLibExpansionWrangler(
+            tree, 0, fmm_level_to_nterms=fmm_level_to_nterms)
+
+        logger.debug("reorder potentials")
+        result = global_wrangler.reorder_potentials(potentials)
+
+        logger.debug("finalize potentials")
+        result = global_wrangler.finalize_potentials(result)
+
+        logger.info("fmm complete")
+
+        return result

@@ -2,11 +2,12 @@ import numpy as np
 import sys
 from mpi4py import MPI
 from boxtree.distributed import drive_dfmm
+import numpy.linalg as la
 
 # Parameters
 dims = 2
-nsources = 3000
-ntargets = 1000
+nsources = 100000
+ntargets = 20000
 dtype = np.float64
 
 # Get the current rank
@@ -47,7 +48,6 @@ if rank == 0:
         plt.show()
 
     # Calculate potentials using direct evaluation
-    # import numpy.linalg as la
     # distances = la.norm(sources_host.reshape(1, nsources, 2) - \
     #                    targets_host.reshape(ntargets, 1, 2),
     #                    ord=2, axis=2)
@@ -61,24 +61,27 @@ if rank == 0:
 
     from boxtree.traversal import FMMTraversalBuilder
     tg = FMMTraversalBuilder(ctx)
-    trav, _ = tg(queue, tree, debug=True)
-    trav = trav.get(queue=queue)
+    d_trav, _ = tg(queue, tree, debug=True)
+    trav = d_trav.get(queue=queue)
 
     # Get pyfmmlib expansion wrangler
     from boxtree.pyfmmlib_integration import FMMLibExpansionWrangler
 
     def fmm_level_to_nterms(tree, level):
-        return 20
+        return 3
     wrangler = FMMLibExpansionWrangler(
         trav.tree, 0, fmm_level_to_nterms=fmm_level_to_nterms)
 
     # Compute FMM using shared memory parallelism
-    # from boxtree.fmm import drive_fmm
-    # pot_fmm = drive_fmm(trav, wrangler, sources_weights)* 2 * np.pi
+    from boxtree.fmm import drive_fmm
+    pot_fmm = drive_fmm(trav, wrangler, sources_weights) * 2 * np.pi
     # print(la.norm(pot_fmm - pot_naive, ord=2))
 
 # Compute FMM using distributed memory parallelism
 # Note: The drive_dfmm interface works as follows:
 # Rank 0 passes the correct trav, wrangler, and sources_weights
 # All other ranks pass None to these arguments
-pot_dfmm = drive_dfmm(trav, wrangler, sources_weights)
+pot_dfmm = drive_dfmm(trav, sources_weights)
+
+if rank == 0:
+    print(la.norm(pot_fmm - pot_dfmm * 2 * np.pi, ord=2))
