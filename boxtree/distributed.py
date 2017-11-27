@@ -699,6 +699,7 @@ def drive_dfmm(traversal, src_weights, comm=MPI.COMM_WORLD):
     potentials_mpi_type = MPI._typedict[potentials.dtype.char]
     if current_rank == 0:
         potentials_all_ranks = np.empty((total_rank,), dtype=object)
+        potentials_all_ranks[0] = potentials
         for i in range(1, total_rank):
             potentials_all_ranks[i] = np.empty(
                 (local_ntargets[i],), dtype=potentials.dtype)
@@ -709,26 +710,29 @@ def drive_dfmm(traversal, src_weights, comm=MPI.COMM_WORLD):
                   dest=0, tag=MPI_Tags.GATHER_POTENTIALS)
 
     if current_rank == 0:
-        d_potentials = cl.array.to_device(queue, potentials)
+        d_potentials = cl.array.empty(queue, (tree.ntargets,),
+                                      dtype=potentials.dtype)
         fill_potentials_knl = cl.elementwise.ElementwiseKernel(
             ctx,
             Template("""
-                __global char *particle_mask,
+                __global ${particle_id_t} *particle_mask,
                 __global ${particle_id_t} *particle_scan,
                 __global ${potential_t} *local_potentials,
                 __global ${potential_t} *potentials
             """).render(
                 particle_id_t=dtype_to_ctype(tree.particle_id_dtype),
                 potential_t=dtype_to_ctype(potentials.dtype)),
-            """
+            r"""
+                // printf("%d ", particle_mask[i]);
                 if(particle_mask[i]) {
                     potentials[i] = local_potentials[particle_scan[i]];
                 }
             """
         )
 
-        for i in range(1, total_rank):
+        for i in range(total_rank):
             local_potentials = cl.array.to_device(queue, potentials_all_ranks[i])
+            print(local_target_mask[i])
             fill_potentials_knl(
                 local_target_mask[i], local_target_scan[i],
                 local_potentials, d_potentials)
