@@ -362,6 +362,10 @@ def drive_dfmm(traversal, src_weights, comm=MPI.COMM_WORLD):
     # {{{ Construct local tree for each rank on root
 
     if current_rank == 0:
+        import time
+        start_time = time.time()
+        print("time start")
+
         tree = traversal.tree
         local_tree = np.empty((total_rank,), dtype=object)
         local_target_mask = np.empty((total_rank,), dtype=object)
@@ -376,56 +380,6 @@ def drive_dfmm(traversal, src_weights, comm=MPI.COMM_WORLD):
         # evaluating target potentials in *responsible_boxes*
         responsible_boxes_mask, responsible_boxes_list = \
             partition_work(tree, total_rank, queue)
-
-        # In order to evaluate, each rank needs sources in boxes in
-        # *src_boxes_mask*
-        src_boxes_mask = responsible_boxes_mask.copy()
-
-        # Add list 1 and list 4 of responsible boxes to src_boxes_mask
-        for rank in range(total_rank):
-            add_interaction_list_boxes = cl.elementwise.ElementwiseKernel(
-                ctx,
-                Template("""
-                    __global ${box_id_t} *box_list,
-                    __global char *responsible_boxes_mask,
-                    __global ${box_id_t} *interaction_boxes_starts,
-                    __global ${box_id_t} *interaction_boxes_lists,
-                    __global char *src_boxes_mask
-                """).render(box_id_t=dtype_to_ctype(tree.box_id_dtype)),
-                Template("""
-                    typedef ${box_id_t} box_id_t;
-                    box_id_t current_box = box_list[i];
-                    if(responsible_boxes_mask[current_box]) {
-                        for(box_id_t box_idx = interaction_boxes_starts[i];
-                            box_idx < interaction_boxes_starts[i + 1];
-                            ++box_idx)
-                            src_boxes_mask[interaction_boxes_lists[box_idx]] = 1;
-                    }
-                """).render(box_id_t=dtype_to_ctype(tree.box_id_dtype)),
-            )
-
-            d_target_boxes = cl.array.to_device(queue, traversal.target_boxes)
-            d_neighbor_source_boxes_starts = cl.array.to_device(
-                queue, traversal.neighbor_source_boxes_starts)
-            d_neighbor_source_boxes_lists = cl.array.to_device(
-                queue, traversal.neighbor_source_boxes_lists)
-            add_interaction_list_boxes(
-                d_target_boxes, responsible_boxes_mask[rank],
-                d_neighbor_source_boxes_starts,
-                d_neighbor_source_boxes_lists, src_boxes_mask[rank],
-                range=range(0, traversal.target_boxes.shape[0]))
-
-            d_target_or_target_parent_boxes = cl.array.to_device(
-                queue, traversal.target_or_target_parent_boxes)
-            d_from_sep_bigger_starts = cl.array.to_device(
-                queue, traversal.from_sep_bigger_starts)
-            d_from_sep_bigger_lists = cl.array.to_device(
-                queue, traversal.from_sep_bigger_lists)
-            add_interaction_list_boxes(
-                d_target_or_target_parent_boxes, responsible_boxes_mask[rank],
-                d_from_sep_bigger_starts, d_from_sep_bigger_lists,
-                src_boxes_mask[rank],
-                range=range(0, traversal.target_or_target_parent_boxes.shape[0]))
 
         # Calculate ancestors of responsible boxes
         ancestor_boxes = cl.array.zeros(queue, (total_rank, tree.nboxes),
@@ -448,7 +402,62 @@ def drive_dfmm(traversal, src_weights, comm=MPI.COMM_WORLD):
                     ancestor_boxes[rank, :] | ancestor_boxes_new
                 ancestor_boxes_last = ancestor_boxes_new
 
+        # In order to evaluate, each rank needs sources in boxes in
+        # *src_boxes_mask*
+        src_boxes_mask = responsible_boxes_mask.copy()
+
+        # Add list 1 and list 4 to src_boxes_mask
+        add_interaction_list_boxes = cl.elementwise.ElementwiseKernel(
+            ctx,
+            Template("""
+                __global ${box_id_t} *box_list,
+                __global char *responsible_boxes_mask,
+                __global ${box_id_t} *interaction_boxes_starts,
+                __global ${box_id_t} *interaction_boxes_lists,
+                __global char *src_boxes_mask
+            """).render(box_id_t=dtype_to_ctype(tree.box_id_dtype)),
+            Template(r"""
+                typedef ${box_id_t} box_id_t;
+                box_id_t current_box = box_list[i];
+                if(responsible_boxes_mask[current_box]) {
+                    for(box_id_t box_idx = interaction_boxes_starts[i];
+                        box_idx < interaction_boxes_starts[i + 1];
+                        ++box_idx)
+                        src_boxes_mask[interaction_boxes_lists[box_idx]] = 1;
+                }
+            """).render(box_id_t=dtype_to_ctype(tree.box_id_dtype)),
+        )
+
+        for rank in range(total_rank):
+            # Add list 1 of responsible boxes
+            d_target_boxes = cl.array.to_device(queue, traversal.target_boxes)
+            d_neighbor_source_boxes_starts = cl.array.to_device(
+                queue, traversal.neighbor_source_boxes_starts)
+            d_neighbor_source_boxes_lists = cl.array.to_device(
+                queue, traversal.neighbor_source_boxes_lists)
+            add_interaction_list_boxes(
+                d_target_boxes, responsible_boxes_mask[rank],
+                d_neighbor_source_boxes_starts,
+                d_neighbor_source_boxes_lists, src_boxes_mask[rank],
+                range=range(0, traversal.target_boxes.shape[0]))
+
+            # Add list 4 of responsible boxes or ancestor boxes
+            d_target_or_target_parent_boxes = cl.array.to_device(
+                queue, traversal.target_or_target_parent_boxes)
+            d_from_sep_bigger_starts = cl.array.to_device(
+                queue, traversal.from_sep_bigger_starts)
+            d_from_sep_bigger_lists = cl.array.to_device(
+                queue, traversal.from_sep_bigger_lists)
+            add_interaction_list_boxes(
+                d_target_or_target_parent_boxes,
+                responsible_boxes_mask[rank] | ancestor_boxes[rank],
+                d_from_sep_bigger_starts, d_from_sep_bigger_lists,
+                src_boxes_mask[rank],
+                range=range(0, traversal.target_or_target_parent_boxes.shape[0]))
+
         # }}}
+
+        print("Partition the work " + str(time.time() - start_time))
 
         # Convert src_weights to tree order
         src_weights = src_weights[tree.user_source_ids]
@@ -489,7 +498,6 @@ def drive_dfmm(traversal, src_weights, comm=MPI.COMM_WORLD):
                                     tree.box_target_counts_nonchild,
                                     tree.box_target_counts_cumul,
                                     None, return_mask_scan=True)
-
             local_tree[rank].source_radii = None
             local_tree[rank].target_radii = None
             local_tree[rank].user_source_ids = None
@@ -499,6 +507,8 @@ def drive_dfmm(traversal, src_weights, comm=MPI.COMM_WORLD):
                                         tag=MPI_Tags.DIST_TREE)
             weight_req[rank] = comm.isend(local_src_weights[rank], dest=rank,
                                           tag=MPI_Tags.DIST_WEIGHT)
+
+        print("Construct local tree " + str(time.time() - start_time))
 
     # }}}
 
@@ -515,6 +525,7 @@ def drive_dfmm(traversal, src_weights, comm=MPI.COMM_WORLD):
         for rank in range(1, total_rank):
             weight_req[rank].wait()
         local_src_weights = local_src_weights[0]
+        print("Communicate local tree " + str(time.time() - start_time))
     else:
         local_src_weights = comm.recv(source=0, tag=MPI_Tags.DIST_WEIGHT)
 
@@ -612,7 +623,7 @@ def drive_dfmm(traversal, src_weights, comm=MPI.COMM_WORLD):
 
     # {{{ Communicate mpole
 
-    mpole_exps_all = np.empty_like(mpole_exps)
+    mpole_exps_all = np.zeros_like(mpole_exps)
     comm.Allreduce(mpole_exps, mpole_exps_all)
 
     mpole_exps = mpole_exps_all
@@ -688,7 +699,6 @@ def drive_dfmm(traversal, src_weights, comm=MPI.COMM_WORLD):
     # {{{ "Stage 8:" evaluate locals
 
     logger.debug("evaluate locals")
-
     potentials = potentials + wrangler.eval_locals(
             trav_global.level_start_target_box_nrs,
             trav_global.target_boxes,
@@ -698,6 +708,7 @@ def drive_dfmm(traversal, src_weights, comm=MPI.COMM_WORLD):
 
     potentials_mpi_type = MPI._typedict[potentials.dtype.char]
     if current_rank == 0:
+        print("Calculate potentials " + str(time.time() - start_time))
         potentials_all_ranks = np.empty((total_rank,), dtype=object)
         potentials_all_ranks[0] = potentials
         for i in range(1, total_rank):
@@ -705,6 +716,7 @@ def drive_dfmm(traversal, src_weights, comm=MPI.COMM_WORLD):
                 (local_ntargets[i],), dtype=potentials.dtype)
             comm.Recv([potentials_all_ranks[i], potentials_mpi_type],
                       source=i, tag=MPI_Tags.GATHER_POTENTIALS)
+        print("Communicate potentials " + str(time.time() - start_time))
     else:
         comm.Send([potentials, potentials_mpi_type],
                   dest=0, tag=MPI_Tags.GATHER_POTENTIALS)
@@ -723,7 +735,6 @@ def drive_dfmm(traversal, src_weights, comm=MPI.COMM_WORLD):
                 particle_id_t=dtype_to_ctype(tree.particle_id_dtype),
                 potential_t=dtype_to_ctype(potentials.dtype)),
             r"""
-                // printf("%d ", particle_mask[i]);
                 if(particle_mask[i]) {
                     potentials[i] = local_potentials[particle_scan[i]];
                 }
@@ -732,7 +743,6 @@ def drive_dfmm(traversal, src_weights, comm=MPI.COMM_WORLD):
 
         for i in range(total_rank):
             local_potentials = cl.array.to_device(queue, potentials_all_ranks[i])
-            print(local_target_mask[i])
             fill_potentials_knl(
                 local_target_mask[i], local_target_scan[i],
                 local_potentials, d_potentials)
@@ -750,4 +760,5 @@ def drive_dfmm(traversal, src_weights, comm=MPI.COMM_WORLD):
 
         logger.info("fmm complete")
 
+        print("Assembly potentials " + str(time.time() - start_time))
         return result

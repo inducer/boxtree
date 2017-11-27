@@ -6,7 +6,7 @@ import numpy.linalg as la
 
 # Parameters
 dims = 2
-nsources = 100000
+nsources = 40000
 ntargets = 20000
 dtype = np.float64
 
@@ -84,4 +84,4 @@ if rank == 0:
 pot_dfmm = drive_dfmm(trav, sources_weights)
 
 if rank == 0:
-    print(la.norm(pot_fmm - pot_dfmm * 2 * np.pi, ord=2))
+    print(la.norm(pot_fmm - pot_dfmm * 2 * np.pi, ord=np.inf))
