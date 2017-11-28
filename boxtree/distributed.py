@@ -6,7 +6,6 @@ from mako.template import Template
 from pyopencl.tools import dtype_to_ctype
 from pyopencl.scan import GenericScanKernel
 from boxtree import Tree
-from boxtree.pyfmmlib_integration import FMMLibExpansionWrangler
 
 __copyright__ = "Copyright (C) 2012 Andreas Kloeckner \
                  Copyright (C) 2017 Hao Gao"
@@ -33,6 +32,9 @@ THE SOFTWARE.
 
 import logging
 logger = logging.getLogger(__name__)
+
+ctx = cl.create_some_context()
+queue = cl.CommandQueue(ctx)
 
 
 class LocalTree(Tree):
@@ -81,7 +83,7 @@ class LocalTree(Tree):
         return d_tree
 
 
-class MPI_Tags():
+class MPITags():
     DIST_TREE = 0
     DIST_WEIGHT = 1
     GATHER_POTENTIALS = 2
@@ -351,26 +353,22 @@ def gen_local_particles(queue, particles, nparticles, tree,
     return rtv
 
 
-def drive_dfmm(traversal, src_weights, comm=MPI.COMM_WORLD):
-
-    # Get MPI and pyopencl information
+def generate_local_tree(traversal, src_weights, comm=MPI.COMM_WORLD):
+    # Get MPI information
     current_rank = comm.Get_rank()
     total_rank = comm.Get_size()
-    ctx = cl.create_some_context()
-    queue = cl.CommandQueue(ctx)
 
     # {{{ Construct local tree for each rank on root
-
+    local_target = {"mask": None, "scan": None, "size": None}
     if current_rank == 0:
-        import time
-        start_time = time.time()
-        print("time start")
-
         tree = traversal.tree
         local_tree = np.empty((total_rank,), dtype=object)
         local_target_mask = np.empty((total_rank,), dtype=object)
         local_target_scan = np.empty((total_rank,), dtype=object)
         local_ntargets = np.empty((total_rank,), dtype=tree.particle_id_dtype)
+        local_target["mask"] = local_target_mask
+        local_target["scan"] = local_target_scan
+        local_target["size"] = local_ntargets
 
         d_box_parent_ids = cl.array.to_device(queue, tree.box_parent_ids)
 
@@ -457,8 +455,6 @@ def drive_dfmm(traversal, src_weights, comm=MPI.COMM_WORLD):
 
         # }}}
 
-        print("Partition the work " + str(time.time() - start_time))
-
         # Convert src_weights to tree order
         src_weights = src_weights[tree.user_source_ids]
         src_weights = cl.array.to_device(queue, src_weights)
@@ -504,11 +500,9 @@ def drive_dfmm(traversal, src_weights, comm=MPI.COMM_WORLD):
             local_tree[rank].sorted_target_ids = None
 
             tree_req[rank] = comm.isend(local_tree[rank], dest=rank,
-                                        tag=MPI_Tags.DIST_TREE)
+                                        tag=MPITags.DIST_TREE)
             weight_req[rank] = comm.isend(local_src_weights[rank], dest=rank,
-                                          tag=MPI_Tags.DIST_WEIGHT)
-
-        print("Construct local tree " + str(time.time() - start_time))
+                                          tag=MPITags.DIST_WEIGHT)
 
     # }}}
 
@@ -518,17 +512,20 @@ def drive_dfmm(traversal, src_weights, comm=MPI.COMM_WORLD):
             tree_req[rank].wait()
         local_tree = local_tree[0]
     else:
-        local_tree = comm.recv(source=0, tag=MPI_Tags.DIST_TREE)
+        local_tree = comm.recv(source=0, tag=MPITags.DIST_TREE)
 
     # Recieve source weights from root
     if current_rank == 0:
         for rank in range(1, total_rank):
             weight_req[rank].wait()
         local_src_weights = local_src_weights[0]
-        print("Communicate local tree " + str(time.time() - start_time))
     else:
-        local_src_weights = comm.recv(source=0, tag=MPI_Tags.DIST_WEIGHT)
+        local_src_weights = comm.recv(source=0, tag=MPITags.DIST_WEIGHT)
 
+    return local_tree, local_src_weights, local_target
+
+
+def generate_local_travs(local_tree, local_src_weights, comm=MPI.COMM_WORLD):
     d_tree = local_tree.to_device(queue)
 
     # Modify box flags for targets
@@ -593,10 +590,15 @@ def drive_dfmm(traversal, src_weights, comm=MPI.COMM_WORLD):
     d_trav_local, _ = tg(queue, d_tree, debug=True)
     trav_local = d_trav_local.get(queue=queue)
 
-    def fmm_level_to_nterms(tree, level):
-        return 3
-    wrangler = FMMLibExpansionWrangler(
-        local_tree, 0, fmm_level_to_nterms=fmm_level_to_nterms)
+    return trav_local, trav_global
+
+
+def drive_dfmm(wrangler, trav_local, trav_global, local_src_weights, global_wrangler,
+               local_target_mask, local_target_scan, local_ntargets,
+               comm=MPI.COMM_WORLD):
+    # Get MPI information
+    current_rank = comm.Get_rank()
+    total_rank = comm.Get_size()
 
     # {{{ "Step 2.1:" Construct local multipoles
 
@@ -708,21 +710,19 @@ def drive_dfmm(traversal, src_weights, comm=MPI.COMM_WORLD):
 
     potentials_mpi_type = MPI._typedict[potentials.dtype.char]
     if current_rank == 0:
-        print("Calculate potentials " + str(time.time() - start_time))
         potentials_all_ranks = np.empty((total_rank,), dtype=object)
         potentials_all_ranks[0] = potentials
         for i in range(1, total_rank):
             potentials_all_ranks[i] = np.empty(
                 (local_ntargets[i],), dtype=potentials.dtype)
             comm.Recv([potentials_all_ranks[i], potentials_mpi_type],
-                      source=i, tag=MPI_Tags.GATHER_POTENTIALS)
-        print("Communicate potentials " + str(time.time() - start_time))
+                      source=i, tag=MPITags.GATHER_POTENTIALS)
     else:
         comm.Send([potentials, potentials_mpi_type],
-                  dest=0, tag=MPI_Tags.GATHER_POTENTIALS)
+                  dest=0, tag=MPITags.GATHER_POTENTIALS)
 
     if current_rank == 0:
-        d_potentials = cl.array.empty(queue, (tree.ntargets,),
+        d_potentials = cl.array.empty(queue, (global_wrangler.tree.ntargets,),
                                       dtype=potentials.dtype)
         fill_potentials_knl = cl.elementwise.ElementwiseKernel(
             ctx,
@@ -732,7 +732,7 @@ def drive_dfmm(traversal, src_weights, comm=MPI.COMM_WORLD):
                 __global ${potential_t} *local_potentials,
                 __global ${potential_t} *potentials
             """).render(
-                particle_id_t=dtype_to_ctype(tree.particle_id_dtype),
+                particle_id_t=dtype_to_ctype(global_wrangler.tree.particle_id_dtype),
                 potential_t=dtype_to_ctype(potentials.dtype)),
             r"""
                 if(particle_mask[i]) {
@@ -749,9 +749,6 @@ def drive_dfmm(traversal, src_weights, comm=MPI.COMM_WORLD):
 
         potentials = d_potentials.get()
 
-        global_wrangler = FMMLibExpansionWrangler(
-            tree, 0, fmm_level_to_nterms=fmm_level_to_nterms)
-
         logger.debug("reorder potentials")
         result = global_wrangler.reorder_potentials(potentials)
 
@@ -760,5 +757,4 @@ def drive_dfmm(traversal, src_weights, comm=MPI.COMM_WORLD):
 
         logger.info("fmm complete")
 
-        print("Assembly potentials " + str(time.time() - start_time))
         return result

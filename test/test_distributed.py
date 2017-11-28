@@ -1,13 +1,17 @@
 import numpy as np
 import sys
 from mpi4py import MPI
-from boxtree.distributed import drive_dfmm
+from boxtree.distributed import generate_local_tree, generate_local_travs, drive_dfmm
 import numpy.linalg as la
+from boxtree.pyfmmlib_integration import FMMLibExpansionWrangler
+
+import time
+print("program start")
 
 # Parameters
 dims = 2
-nsources = 40000
-ntargets = 20000
+nsources = 100000
+ntargets = 50000
 dtype = np.float64
 
 # Get the current rank
@@ -21,6 +25,8 @@ wrangler = None
 
 # Generate particles and run shared-memory parallelism on rank 0
 if rank == 0:
+    last_time = time.time()
+
     # Configure PyOpenCL
     import pyopencl as cl
     ctx = cl.create_some_context()
@@ -47,6 +53,10 @@ if rank == 0:
         plt.plot(targets_host[:, 0], targets_host[:, 1], "ro")
         plt.show()
 
+    now = time.time()
+    print("Generate particles " + str(now - last_time))
+    last_time = now
+
     # Calculate potentials using direct evaluation
     # distances = la.norm(sources_host.reshape(1, nsources, 2) - \
     #                    targets_host.reshape(ntargets, 1, 2),
@@ -59,14 +69,20 @@ if rank == 0:
     tree, _ = tb(queue, sources, targets=targets, max_particles_in_box=30,
                  debug=True)
 
+    now = time.time()
+    print("Generate tree " + str(now - last_time))
+    last_time = now
+
     from boxtree.traversal import FMMTraversalBuilder
     tg = FMMTraversalBuilder(ctx)
     d_trav, _ = tg(queue, tree, debug=True)
     trav = d_trav.get(queue=queue)
 
-    # Get pyfmmlib expansion wrangler
-    from boxtree.pyfmmlib_integration import FMMLibExpansionWrangler
+    now = time.time()
+    print("Generate traversal " + str(now - last_time))
+    last_time = now
 
+    # Get pyfmmlib expansion wrangler
     def fmm_level_to_nterms(tree, level):
         return 3
     wrangler = FMMLibExpansionWrangler(
@@ -75,13 +91,48 @@ if rank == 0:
     # Compute FMM using shared memory parallelism
     from boxtree.fmm import drive_fmm
     pot_fmm = drive_fmm(trav, wrangler, sources_weights) * 2 * np.pi
+
+    now = time.time()
+    print("Shared memory FMM " + str(now - last_time))
     # print(la.norm(pot_fmm - pot_naive, ord=2))
 
+last_time = time.time()
+
 # Compute FMM using distributed memory parallelism
-# Note: The drive_dfmm interface works as follows:
-# Rank 0 passes the correct trav, wrangler, and sources_weights
-# All other ranks pass None to these arguments
-pot_dfmm = drive_dfmm(trav, sources_weights)
+local_tree, local_src_weights, local_target = \
+    generate_local_tree(trav, sources_weights)
+
+now = time.time()
+print("Generate local tree " + str(now - last_time))
+last_time = now
+
+trav_local, trav_global = generate_local_travs(local_tree, local_src_weights)
+
+now = time.time()
+print("Generate local trav " + str(now - last_time))
+last_time = now
+
+
+def fmm_level_to_nterms(tree, level):
+    return 3
+
+
+local_wrangler = FMMLibExpansionWrangler(
+    local_tree, 0, fmm_level_to_nterms=fmm_level_to_nterms)
+if rank == 0:
+    global_wrangler = FMMLibExpansionWrangler(
+        trav.tree, 0, fmm_level_to_nterms=fmm_level_to_nterms)
+else:
+    global_wrangler = None
+
+pot_dfmm = drive_dfmm(
+    local_wrangler, trav_local, trav_global, local_src_weights, global_wrangler,
+    local_target["mask"], local_target["scan"], local_target["size"]
+)
+
+now = time.time()
+print("Distributed FMM " + str(now - last_time))
+last_time = now
 
 if rank == 0:
     print(la.norm(pot_fmm - pot_dfmm * 2 * np.pi, ord=np.inf))
