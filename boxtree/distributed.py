@@ -35,6 +35,11 @@ logger = logging.getLogger(__name__)
 
 ctx = cl.create_some_context()
 queue = cl.CommandQueue(ctx)
+print("Process %d of %d on %s with ctx %s.\n" % (
+    MPI.COMM_WORLD.Get_rank(),
+    MPI.COMM_WORLD.Get_size(),
+    MPI.Get_processor_name(),
+    queue.context.devices))
 
 
 class LocalTree(Tree):
@@ -600,6 +605,9 @@ def drive_dfmm(wrangler, trav_local, trav_global, local_src_weights, global_wran
     current_rank = comm.Get_rank()
     total_rank = comm.Get_size()
 
+    import time
+    last_time = time.time()
+
     # {{{ "Step 2.1:" Construct local multipoles
 
     logger.debug("construct local multipoles")
@@ -623,6 +631,10 @@ def drive_dfmm(wrangler, trav_local, trav_global, local_src_weights, global_wran
 
     # }}}
 
+    now = time.time()
+    print("Step 1 and Step 2 " + str(now - last_time))
+    last_time = now
+
     # {{{ Communicate mpole
 
     mpole_exps_all = np.zeros_like(mpole_exps)
@@ -631,6 +643,10 @@ def drive_dfmm(wrangler, trav_local, trav_global, local_src_weights, global_wran
     mpole_exps = mpole_exps_all
 
     # }}}
+
+    now = time.time()
+    print("Communication " + str(now - last_time))
+    last_time = now
 
     # {{{ "Stage 3:" Direct evaluation from neighbor source boxes ("list 1")
 
@@ -708,6 +724,10 @@ def drive_dfmm(wrangler, trav_local, trav_global, local_src_weights, global_wran
 
     # }}}
 
+    now = time.time()
+    print("Step 3-8 " + str(now - last_time))
+    last_time = now
+
     potentials_mpi_type = MPI._typedict[potentials.dtype.char]
     if current_rank == 0:
         potentials_all_ranks = np.empty((total_rank,), dtype=object)
@@ -756,5 +776,9 @@ def drive_dfmm(wrangler, trav_local, trav_global, local_src_weights, global_wran
         result = global_wrangler.finalize_potentials(result)
 
         logger.info("fmm complete")
+
+        now = time.time()
+        print("Assemble result " + str(now - last_time))
+        last_time = now
 
         return result

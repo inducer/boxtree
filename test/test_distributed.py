@@ -10,8 +10,8 @@ print("program start")
 
 # Parameters
 dims = 2
-nsources = 100000
-ntargets = 50000
+nsources = 1000000
+ntargets = 500000
 dtype = np.float64
 
 # Get the current rank
@@ -31,6 +31,7 @@ if rank == 0:
     import pyopencl as cl
     ctx = cl.create_some_context()
     queue = cl.CommandQueue(ctx)
+    print(queue.context.devices)
 
     # Generate random particles and source weights
     from boxtree.tools import make_normal_particle_array as p_normal
@@ -96,7 +97,8 @@ if rank == 0:
     print("Shared memory FMM " + str(now - last_time))
     # print(la.norm(pot_fmm - pot_naive, ord=2))
 
-last_time = time.time()
+comm.barrier()
+start_time = last_time = time.time()
 
 # Compute FMM using distributed memory parallelism
 local_tree, local_src_weights, local_target = \
@@ -125,6 +127,10 @@ if rank == 0:
 else:
     global_wrangler = None
 
+print(trav_global.target_boxes.shape[0])
+print(trav_global.source_boxes.shape[0])
+print(local_tree.nboxes)
+
 pot_dfmm = drive_dfmm(
     local_wrangler, trav_local, trav_global, local_src_weights, global_wrangler,
     local_target["mask"], local_target["scan"], local_target["size"]
@@ -136,3 +142,4 @@ last_time = now
 
 if rank == 0:
     print(la.norm(pot_fmm - pot_dfmm * 2 * np.pi, ord=np.inf))
+    print("Total time " + str(time.time() - start_time))
