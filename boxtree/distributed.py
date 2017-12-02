@@ -85,6 +85,12 @@ class LocalTree(Tree):
             else:
                 d_tree.__setattr__(
                     field, cl.array.to_device(queue, current_obj))
+
+        if self.sources_have_extent:
+            d_tree.source_radii = cl.array.to_device(queue, d_tree.source_radii)
+        if self.targets_have_extent:
+            d_tree.target_radii = cl.array.to_device(queue, d_tree.target_radii)
+
         return d_tree
 
 
@@ -206,13 +212,13 @@ def gen_local_particles(queue, particles, nparticles, tree,
             % for dim in range(ndims):
                 , __global const ${coord_t} *particles_${dim}
             % endfor
+            % for dim in range(ndims):
+                , __global ${coord_t} *local_particles_${dim}
+            % endfor
             % if particles_have_extent:
                 , __global const ${coord_t} *particle_radii
                 , __global ${coord_t} *local_particle_radii
             % endif
-            % for dim in range(ndims):
-                , __global ${coord_t} *local_particles_${dim}
-            % endfor
         """, strict_undefined=True).render(
             mask_t=dtype_to_ctype(tree.particle_id_dtype),
             coord_t=dtype_to_ctype(tree.coord_dtype),
@@ -236,8 +242,16 @@ def gen_local_particles(queue, particles, nparticles, tree,
         )
     )
 
-    fetch_local_particles_knl(d_particle_mask, d_particle_scan,
-                              *d_paticles_list, *d_local_particles_list)
+    if particle_radii is None:
+        fetch_local_particles_knl(d_particle_mask, d_particle_scan,
+                                  *d_paticles_list, *d_local_particles_list)
+    else:
+        d_particle_radii = cl.array.to_device(queue, particle_radii)
+        d_local_particle_radii = cl.array.empty(queue, (local_nparticles,),
+                                                dtype=tree.coord_dtype)
+        fetch_local_particles_knl(d_particle_mask, d_particle_scan,
+                                  *d_paticles_list, *d_local_particles_list,
+                                  d_particle_radii, d_local_particle_radii)
 
     # Generate "box_particle_starts" of the local tree
     local_box_particle_starts = cl.array.empty(queue, (tree.nboxes,),
@@ -336,6 +350,9 @@ def gen_local_particles(queue, particles, nparticles, tree,
            local_box_particle_starts,
            local_box_particle_counts_nonchild,
            local_box_particle_counts_cumul)
+
+    if particle_radii is not None:
+        rtv = rtv + (d_local_particle_radii.get(),)
 
     if particle_weights is not None:
         rtv = rtv + (local_particle_weights.get(),)
@@ -457,6 +474,16 @@ def generate_local_tree(traversal, src_weights, comm=MPI.COMM_WORLD):
         tree_req = np.empty((total_rank,), dtype=object)
         weight_req = np.empty((total_rank,), dtype=object)
 
+        if tree.sources_have_extent:
+            source_radii = tree.source_radii
+        else:
+            source_radii = None
+
+        if tree.targets_have_extent:
+            target_radii = tree.target_radii
+        else:
+            target_radii = None
+
         for rank in range(total_rank):
             local_tree[rank] = LocalTree.copy_from_global_tree(
                 tree, responsible_boxes_list[rank].get(),
@@ -472,12 +499,13 @@ def generate_local_tree(traversal, src_weights, comm=MPI.COMM_WORLD):
                                     tree.box_source_starts,
                                     tree.box_source_counts_nonchild,
                                     tree.box_source_counts_cumul,
-                                    None, src_weights)
+                                    source_radii, src_weights)
 
             (local_tree[rank].targets,
              local_tree[rank].box_target_starts,
              local_tree[rank].box_target_counts_nonchild,
              local_tree[rank].box_target_counts_cumul,
+             local_tree[rank].target_radii,
              local_target_mask[rank],
              local_target_scan[rank],
              local_ntargets[rank]) = \
@@ -486,9 +514,8 @@ def generate_local_tree(traversal, src_weights, comm=MPI.COMM_WORLD):
                                     tree.box_target_starts,
                                     tree.box_target_counts_nonchild,
                                     tree.box_target_counts_cumul,
-                                    None, None, return_mask_scan=True)
-            local_tree[rank].source_radii = None
-            local_tree[rank].target_radii = None
+                                    target_radii, None, return_mask_scan=True)
+
             local_tree[rank].user_source_ids = None
             local_tree[rank].sorted_target_ids = None
 

@@ -4,14 +4,12 @@ from mpi4py import MPI
 from boxtree.distributed import generate_local_tree, generate_local_travs, drive_dfmm
 import numpy.linalg as la
 from boxtree.pyfmmlib_integration import FMMLibExpansionWrangler
-
 import time
-print("program start")
 
 # Parameters
 dims = 2
-nsources = 1000000
-ntargets = 500000
+nsources = 50000
+ntargets = 50000
 dtype = np.float64
 
 # Get the current rank
@@ -22,6 +20,7 @@ rank = comm.Get_rank()
 trav = None
 sources_weights = None
 wrangler = None
+
 
 # Generate particles and run shared-memory parallelism on rank 0
 if rank == 0:
@@ -47,6 +46,10 @@ if rank == 0:
     rng = PhiloxGenerator(queue.context, seed=20)
     sources_weights = rng.uniform(queue, nsources, dtype=np.float64).get()
 
+    from pyopencl.clrandom import PhiloxGenerator
+    rng = PhiloxGenerator(queue.context, seed=22)
+    target_radii = rng.uniform(queue, ntargets, a=0, b=0.25, dtype=np.float64).get()
+
     # Display sources and targets
     if "--display" in sys.argv:
         import matplotlib.pyplot as plt
@@ -67,8 +70,8 @@ if rank == 0:
     # Build the tree and interaction lists
     from boxtree import TreeBuilder
     tb = TreeBuilder(ctx)
-    tree, _ = tb(queue, sources, targets=targets, max_particles_in_box=30,
-                 debug=True)
+    tree, _ = tb(queue, sources, targets=targets, target_radii=target_radii,
+                 stick_out_factor=0.25, max_particles_in_box=30, debug=True)
 
     now = time.time()
     print("Generate tree " + str(now - last_time))
@@ -127,10 +130,6 @@ if rank == 0:
 else:
     global_wrangler = None
 
-print(trav_global.target_boxes.shape[0])
-print(trav_global.source_boxes.shape[0])
-print(local_tree.nboxes)
-
 pot_dfmm = drive_dfmm(
     local_wrangler, trav_local, trav_global, local_src_weights, global_wrangler,
     local_target["mask"], local_target["scan"], local_target["size"]
@@ -141,5 +140,5 @@ print("Distributed FMM " + str(now - last_time))
 last_time = now
 
 if rank == 0:
-    print(la.norm(pot_fmm - pot_dfmm * 2 * np.pi, ord=np.inf))
     print("Total time " + str(time.time() - start_time))
+    print(la.norm(pot_fmm - pot_dfmm * 2 * np.pi, ord=np.inf))
