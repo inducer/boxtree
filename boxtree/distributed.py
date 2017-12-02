@@ -122,46 +122,12 @@ def partition_work(tree, total_rank, queue):
     return responsible_boxes_mask, responsible_boxes_list
 
 
-gen_local_tree_tpl = Template(r"""
-typedef ${dtype_to_ctype(tree.box_id_dtype)} box_id_t;
-typedef ${dtype_to_ctype(tree.particle_id_dtype)} particle_id_t;
-typedef ${dtype_to_ctype(mask_dtype)} mask_t;
-typedef ${dtype_to_ctype(tree.coord_dtype)} coord_t;
-
-__kernel void generate_local_particles(
-    const int total_num_particles,
-    % for dim in range(ndims):
-        __global const coord_t *particles_${dim},
-    % endfor
-    __global const mask_t *particle_mask,
-    __global const mask_t *particle_scan
-    % for dim in range(ndims):
-        , __global coord_t *local_particles_${dim}
-    % endfor
-)
-{
-    /*
-     * generate_local_particles generates an array of particles for which a process
-     * is responsible for.
-     */
-    int particle_idx = get_global_id(0);
-
-    if(particle_idx < total_num_particles && particle_mask[particle_idx])
-    {
-        particle_id_t des = particle_scan[particle_idx];
-        % for dim in range(ndims):
-            local_particles_${dim}[des] = particles_${dim}[particle_idx];
-        % endfor
-    }
-}
-""", strict_undefined=True)
-
-
 def gen_local_particles(queue, particles, nparticles, tree,
                         responsible_boxes,
                         box_particle_starts,
                         box_particle_counts_nonchild,
                         box_particle_counts_cumul,
+                        particle_radii=None,
                         particle_weights=None,
                         return_mask_scan=False):
     """
@@ -227,29 +193,51 @@ def gen_local_particles(queue, particles, nparticles, tree,
 
     d_paticles_list = d_particles.tolist()
     for i in range(tree.dimensions):
-        d_paticles_list[i] = d_paticles_list[i].data
+        d_paticles_list[i] = d_paticles_list[i]
     d_local_particles_list = d_local_particles.tolist()
     for i in range(tree.dimensions):
-        d_local_particles_list[i] = d_local_particles_list[i].data
+        d_local_particles_list[i] = d_local_particles_list[i]
 
-    gen_local_tree_prg = cl.Program(
-        queue.context,
-        gen_local_tree_tpl.render(
-            tree=tree,
-            dtype_to_ctype=dtype_to_ctype,
-            mask_dtype=tree.particle_id_dtype,
-            ndims=tree.dimensions
+    fetch_local_particles_knl = cl.elementwise.ElementwiseKernel(
+        ctx,
+        Template("""
+            __global const ${mask_t} *particle_mask,
+            __global const ${mask_t} *particle_scan
+            % for dim in range(ndims):
+                , __global const ${coord_t} *particles_${dim}
+            % endfor
+            % if particles_have_extent:
+                , __global const ${coord_t} *particle_radii
+                , __global ${coord_t} *local_particle_radii
+            % endif
+            % for dim in range(ndims):
+                , __global ${coord_t} *local_particles_${dim}
+            % endfor
+        """, strict_undefined=True).render(
+            mask_t=dtype_to_ctype(tree.particle_id_dtype),
+            coord_t=dtype_to_ctype(tree.coord_dtype),
+            ndims=tree.dimensions,
+            particles_have_extent=(particle_radii is not None)
+        ),
+        Template("""
+            if(particle_mask[i]) {
+                ${particle_id_t} des = particle_scan[i];
+                % for dim in range(ndims):
+                    local_particles_${dim}[des] = particles_${dim}[i];
+                % endfor
+                % if particles_have_extent:
+                    local_particle_radii[des] = particle_radii[i];
+                % endif
+            }
+        """, strict_undefined=True).render(
+            particle_id_t=dtype_to_ctype(tree.particle_id_dtype),
+            ndims=tree.dimensions,
+            particles_have_extent=(particle_radii is not None)
         )
-    ).build()
+    )
 
-    gen_local_tree_prg.generate_local_particles(
-        queue, ((nparticles + 127) // 128,), (128,),
-        np.int32(nparticles),
-        *d_paticles_list,
-        d_particle_mask.data,
-        d_particle_scan.data,
-        *d_local_particles_list,
-        g_times_l=True)
+    fetch_local_particles_knl(d_particle_mask, d_particle_scan,
+                              *d_paticles_list, *d_local_particles_list)
 
     # Generate "box_particle_starts" of the local tree
     local_box_particle_starts = cl.array.empty(queue, (tree.nboxes,),
@@ -484,7 +472,7 @@ def generate_local_tree(traversal, src_weights, comm=MPI.COMM_WORLD):
                                     tree.box_source_starts,
                                     tree.box_source_counts_nonchild,
                                     tree.box_source_counts_cumul,
-                                    src_weights)
+                                    None, src_weights)
 
             (local_tree[rank].targets,
              local_tree[rank].box_target_starts,
@@ -498,7 +486,7 @@ def generate_local_tree(traversal, src_weights, comm=MPI.COMM_WORLD):
                                     tree.box_target_starts,
                                     tree.box_target_counts_nonchild,
                                     tree.box_target_counts_cumul,
-                                    None, return_mask_scan=True)
+                                    None, None, return_mask_scan=True)
             local_tree[rank].source_radii = None
             local_tree[rank].target_radii = None
             local_tree[rank].user_source_ids = None
@@ -605,9 +593,6 @@ def drive_dfmm(wrangler, trav_local, trav_global, local_src_weights, global_wran
     current_rank = comm.Get_rank()
     total_rank = comm.Get_size()
 
-    import time
-    last_time = time.time()
-
     # {{{ "Step 2.1:" Construct local multipoles
 
     logger.debug("construct local multipoles")
@@ -631,10 +616,6 @@ def drive_dfmm(wrangler, trav_local, trav_global, local_src_weights, global_wran
 
     # }}}
 
-    now = time.time()
-    print("Step 1 and Step 2 " + str(now - last_time))
-    last_time = now
-
     # {{{ Communicate mpole
 
     mpole_exps_all = np.zeros_like(mpole_exps)
@@ -643,10 +624,6 @@ def drive_dfmm(wrangler, trav_local, trav_global, local_src_weights, global_wran
     mpole_exps = mpole_exps_all
 
     # }}}
-
-    now = time.time()
-    print("Communication " + str(now - last_time))
-    last_time = now
 
     # {{{ "Stage 3:" Direct evaluation from neighbor source boxes ("list 1")
 
@@ -724,10 +701,6 @@ def drive_dfmm(wrangler, trav_local, trav_global, local_src_weights, global_wran
 
     # }}}
 
-    now = time.time()
-    print("Step 3-8 " + str(now - last_time))
-    last_time = now
-
     potentials_mpi_type = MPI._typedict[potentials.dtype.char]
     if current_rank == 0:
         potentials_all_ranks = np.empty((total_rank,), dtype=object)
@@ -776,9 +749,5 @@ def drive_dfmm(wrangler, trav_local, trav_global, local_src_weights, global_wran
         result = global_wrangler.finalize_potentials(result)
 
         logger.info("fmm complete")
-
-        now = time.time()
-        print("Assemble result " + str(now - last_time))
-        last_time = now
 
         return result
