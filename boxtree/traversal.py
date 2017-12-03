@@ -1294,7 +1294,7 @@ class FMMTraversalInfo(DeviceDataRecord):
 
     .. attribute:: from_sep_close_smaller_starts
 
-        ``box_id_t [ntargets+1]`` (or *None*)
+        ``box_id_t [ntarget_boxes+1]`` (or *None*)
 
     .. attribute:: from_sep_close_smaller_lists
 
