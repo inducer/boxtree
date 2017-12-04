@@ -153,6 +153,7 @@ def gen_local_particles(queue, particles, nparticles, tree,
     # Generate the particle mask array
     d_particle_mask = cl.array.zeros(queue, (nparticles,),
                                      dtype=tree.particle_id_dtype)
+
     particle_mask_knl = cl.elementwise.ElementwiseKernel(
         queue.context,
         arguments=Template("""
@@ -160,7 +161,9 @@ def gen_local_particles(queue, particles, nparticles, tree,
             __global ${particle_id_t} *box_particle_starts,
             __global ${particle_id_t} *box_particle_counts_nonchild,
             __global ${particle_id_t} *particle_mask
-        """).render(particle_id_t=dtype_to_ctype(tree.particle_id_dtype)),
+        """, strict_undefined=True).render(
+            particle_id_t=dtype_to_ctype(tree.particle_id_dtype)
+        ),
         operation=Template("""
             if(responsible_boxes[i]) {
                 for(${particle_id_t} pid = box_particle_starts[i];
@@ -180,7 +183,9 @@ def gen_local_particles(queue, particles, nparticles, tree,
         arguments=Template("""
             __global ${mask_t} *ary,
             __global ${mask_t} *scan
-            """).render(mask_t=dtype_to_ctype(tree.particle_id_dtype)),
+            """, strict_undefined=True).render(
+            mask_t=dtype_to_ctype(tree.particle_id_dtype)
+        ),
         input_expr="ary[i]",
         scan_expr="a+b", neutral="0",
         output_statement="scan[i + 1] = item;"
@@ -263,7 +268,9 @@ def gen_local_particles(queue, particles, nparticles, tree,
             __global ${particle_id_t} *old_starts,
             __global ${particle_id_t} *particle_scan,
             __global ${particle_id_t} *new_starts
-        """).render(particle_id_t=dtype_to_ctype(tree.particle_id_dtype)),
+        """, strict_undefined=True).render(
+            particle_id_t=dtype_to_ctype(tree.particle_id_dtype)
+        ),
         "new_starts[i] = particle_scan[old_starts[i]]",
         name="generate_box_particle_starts"
     )
@@ -281,7 +288,9 @@ def gen_local_particles(queue, particles, nparticles, tree,
             __global char *res_boxes,
             __global ${particle_id_t} *old_counts_nonchild,
             __global ${particle_id_t} *new_counts_nonchild
-        """).render(particle_id_t=dtype_to_ctype(tree.particle_id_dtype)),
+        """, strict_undefined=True).render(
+            particle_id_t=dtype_to_ctype(tree.particle_id_dtype)
+        ),
         "if(res_boxes[i]) new_counts_nonchild[i] = old_counts_nonchild[i];"
     )
 
@@ -300,7 +309,9 @@ def gen_local_particles(queue, particles, nparticles, tree,
             __global ${particle_id_t} *old_starts,
             __global ${particle_id_t} *new_counts_cumul,
             __global ${particle_id_t} *particle_scan
-        """).render(particle_id_t=dtype_to_ctype(tree.particle_id_dtype)),
+        """, strict_undefined=True).render(
+            particle_id_t=dtype_to_ctype(tree.particle_id_dtype)
+        ),
         """
         new_counts_cumul[i] =
             particle_scan[old_starts[i] + old_counts_cumul[i]] -
@@ -331,7 +342,7 @@ def gen_local_particles(queue, particles, nparticles, tree,
                 __global ${particle_id_t} *particle_mask,
                 __global ${particle_id_t} *particle_scan,
                 __global ${weight_t} *local_weights
-            """).render(
+            """, strict_undefined=True).render(
                 weight_t=dtype_to_ctype(particle_weights.dtype),
                 particle_id_t=dtype_to_ctype(tree.particle_id_dtype)
             ),
@@ -423,7 +434,9 @@ def generate_local_tree(traversal, src_weights, comm=MPI.COMM_WORLD):
                 __global ${box_id_t} *interaction_boxes_starts,
                 __global ${box_id_t} *interaction_boxes_lists,
                 __global char *src_boxes_mask
-            """).render(box_id_t=dtype_to_ctype(tree.box_id_dtype)),
+            """, strict_undefined=True).render(
+                box_id_t=dtype_to_ctype(tree.box_id_dtype)
+            ),
             Template(r"""
                 typedef ${box_id_t} box_id_t;
                 box_id_t current_box = box_list[i];
@@ -433,7 +446,9 @@ def generate_local_tree(traversal, src_weights, comm=MPI.COMM_WORLD):
                         ++box_idx)
                         src_boxes_mask[interaction_boxes_lists[box_idx]] = 1;
                 }
-            """).render(box_id_t=dtype_to_ctype(tree.box_id_dtype)),
+            """, strict_undefined=True).render(
+                box_id_t=dtype_to_ctype(tree.box_id_dtype)
+            ),
         )
 
         for rank in range(total_rank):
@@ -462,6 +477,33 @@ def generate_local_tree(traversal, src_weights, comm=MPI.COMM_WORLD):
                 d_from_sep_bigger_starts, d_from_sep_bigger_lists,
                 src_boxes_mask[rank],
                 range=range(0, traversal.target_or_target_parent_boxes.shape[0]))
+
+            if tree.targets_have_extent:
+                d_from_sep_close_bigger_starts = cl.array.to_device(
+                    queue, traversal.from_sep_close_bigger_starts)
+                d_from_sep_close_bigger_lists = cl.array.to_device(
+                    queue, traversal.from_sep_close_bigger_lists)
+                add_interaction_list_boxes(
+                    d_target_or_target_parent_boxes,
+                    responsible_boxes_mask[rank] | ancestor_boxes[rank],
+                    d_from_sep_close_bigger_starts,
+                    d_from_sep_close_bigger_lists,
+                    src_boxes_mask[rank]
+                )
+
+            # Add list 3 direct
+            d_from_sep_close_smaller_starts = cl.array.to_device(
+                queue, traversal.from_sep_close_smaller_starts)
+            d_from_sep_close_smaller_lists = cl.array.to_device(
+                queue, traversal.from_sep_close_smaller_lists)
+
+            add_interaction_list_boxes(
+                d_target_boxes,
+                responsible_boxes_mask[rank],
+                d_from_sep_close_smaller_starts,
+                d_from_sep_close_smaller_lists,
+                src_boxes_mask[rank]
+            )
 
         # }}}
 
@@ -568,7 +610,7 @@ def generate_local_travs(local_tree, local_src_weights, comm=MPI.COMM_WORLD):
         """).render(HAS_OWN_TARGETS=("(" + box_flag_t + ") " +
                                      str(box_flags_enum.HAS_OWN_TARGETS)),
                     HAS_CHILD_TARGETS=("(" + box_flag_t + ") " +
-                                     str(box_flags_enum.HAS_CHILD_TARGETS)))
+                                       str(box_flags_enum.HAS_CHILD_TARGETS)))
     )
     modify_target_flags_knl(d_tree.box_target_counts_nonchild,
                             d_tree.box_target_counts_cumul,
@@ -692,6 +734,17 @@ def drive_dfmm(wrangler, trav_local, trav_global, local_src_weights, global_wran
             trav_global.from_sep_smaller_by_level,
             mpole_exps)
 
+    # these potentials are called beta in [1]
+
+    if trav_global.from_sep_close_smaller_starts is not None:
+        logger.debug("evaluate separated close smaller interactions directly "
+                     "('list 3 close')")
+        potentials = potentials + wrangler.eval_direct(
+                trav_global.target_boxes,
+                trav_global.from_sep_close_smaller_starts,
+                trav_global.from_sep_close_smaller_lists,
+                local_src_weights)
+
     # }}}
 
     # {{{ "Stage 6:" form locals for separated bigger source boxes ("list 4")
@@ -704,6 +757,16 @@ def drive_dfmm(wrangler, trav_local, trav_global, local_src_weights, global_wran
             trav_global.from_sep_bigger_starts,
             trav_global.from_sep_bigger_lists,
             local_src_weights)
+
+    if trav_global.from_sep_close_bigger_starts is not None:
+        logger.debug("evaluate separated close bigger interactions directly "
+                     "('list 4 close')")
+
+        potentials = potentials + wrangler.eval_direct(
+                trav_global.target_or_target_parent_boxes,
+                trav_global.from_sep_close_bigger_starts,
+                trav_global.from_sep_close_bigger_lists,
+                local_src_weights)
 
     # }}}
 
