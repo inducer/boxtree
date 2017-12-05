@@ -1253,8 +1253,9 @@ class FMMTraversalInfo(DeviceDataRecord):
     .. ------------------------------------------------------------------------
 
     List of source boxes immediately adjacent to each target box. Indexed like
-    :attr:`target_boxes`. See :ref:`csr`. (Note: This list contains global box
-    numbers, not indices into :attr:`source_boxes`.)
+    :attr:`target_boxes`. Includes the target box itself. See :ref:`csr`.
+    (Note: This list contains global box numbers, not indices into
+    :attr:`source_boxes`.)
 
     .. attribute:: neighbor_source_boxes_starts
 
