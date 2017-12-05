@@ -810,9 +810,21 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
                     // box, but our stick-out regions might still have a
                     // non-empty intersection.
 
-                    if (meets_sep_crit
-                            && box_source_counts_cumul[walk_box_id]
-                                >= from_sep_smaller_min_nsources_cumul)
+                    // If the number of particles in this box is below the
+                    // source count threshold, it can be moved to a "close" list.
+                    // This is a performance optimization.
+
+                    bool close_lists_exist = ${"true" \
+                        if sources_have_extent or targets_have_extent \
+                        else "false"};
+
+                    bool force_close_list_for_low_interaction_count =
+                        close_lists_exist &&
+                        (box_source_counts_cumul[walk_box_id]
+                            < from_sep_smaller_min_nsources_cumul);
+
+                    if (meets_sep_crit &&
+                        !force_close_list_for_low_interaction_count)
                     {
                         if (from_sep_smaller_source_level == walk_level)
                             APPEND_from_sep_smaller(walk_box_id);
