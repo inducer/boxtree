@@ -334,7 +334,7 @@ def gen_local_particles(queue, particles, nparticles, tree,
     # {{{ Generate source weights
     if particle_weights is not None:
         local_particle_weights = cl.array.empty(queue, (local_nparticles,),
-            dtype=particle_weights.dtype)
+                                                dtype=particle_weights.dtype)
         gen_local_source_weights_knl = cl.elementwise.ElementwiseKernel(
             queue.context,
             arguments=Template("""
@@ -584,10 +584,35 @@ def generate_local_tree(traversal, src_weights, comm=MPI.COMM_WORLD):
     else:
         local_src_weights = comm.recv(source=0, tag=MPITags.DIST_WEIGHT)
 
-    return local_tree, local_src_weights, local_target
+    rtv = (local_tree, local_src_weights, local_target)
+
+    # Recieve box extent
+    if local_tree.targets_have_extent:
+        if current_rank == 0:
+            box_target_bounding_box_min = traversal.box_target_bounding_box_min
+            box_target_bounding_box_max = traversal.box_target_bounding_box_max
+        else:
+            box_target_bounding_box_min = np.empty(
+                (local_tree.dimensions, local_tree.aligned_nboxes),
+                dtype=local_tree.coord_dtype
+            )
+            box_target_bounding_box_max = np.empty(
+                (local_tree.dimensions, local_tree.aligned_nboxes),
+                dtype=local_tree.coord_dtype
+            )
+        comm.Bcast(box_target_bounding_box_min, root=0)
+        comm.Bcast(box_target_bounding_box_max, root=0)
+        box_bounding_box = {
+            "min": box_target_bounding_box_min,
+            "max": box_target_bounding_box_max
+        }
+        rtv += (box_bounding_box,)
+
+    return rtv
 
 
-def generate_local_travs(local_tree, local_src_weights, comm=MPI.COMM_WORLD):
+def generate_local_travs(local_tree, local_src_weights, box_bounding_box=None,
+                         comm=MPI.COMM_WORLD):
     d_tree = local_tree.to_device(queue)
 
     # Modify box flags for targets
@@ -618,7 +643,8 @@ def generate_local_travs(local_tree, local_src_weights, comm=MPI.COMM_WORLD):
 
     from boxtree.traversal import FMMTraversalBuilder
     tg = FMMTraversalBuilder(queue.context)
-    d_trav_global, _ = tg(queue, d_tree, debug=True)
+    d_trav_global, _ = tg(queue, d_tree, debug=True,
+                          box_bounding_box=box_bounding_box)
     trav_global = d_trav_global.get(queue=queue)
 
     # Source flags
@@ -633,7 +659,7 @@ def generate_local_travs(local_tree, local_src_weights, comm=MPI.COMM_WORLD):
         Template(r"""
             box_flags[responsible_box_list[i]] |= ${HAS_OWN_SOURCES};
         """).render(HAS_OWN_SOURCES=("(" + box_flag_t + ") " +
-                                      str(box_flags_enum.HAS_OWN_SOURCES)))
+                                     str(box_flags_enum.HAS_OWN_SOURCES)))
         )
     modify_child_sources_knl = cl.elementwise.ElementwiseKernel(
         queue.context,
@@ -649,7 +675,8 @@ def generate_local_travs(local_tree, local_src_weights, comm=MPI.COMM_WORLD):
     modify_own_sources_knl(d_tree.responsible_boxes_list, d_tree.box_flags)
     modify_child_sources_knl(d_tree.ancestor_mask, d_tree.box_flags)
 
-    d_trav_local, _ = tg(queue, d_tree, debug=True)
+    d_trav_local, _ = tg(queue, d_tree, debug=True,
+                         box_bounding_box=box_bounding_box)
     trav_local = d_trav_local.get(queue=queue)
 
     return trav_local, trav_global
@@ -664,6 +691,7 @@ def drive_dfmm(wrangler, trav_local, trav_global, local_src_weights, global_wran
 
     # {{{ "Step 2.1:" Construct local multipoles
 
+    import time
     logger.debug("construct local multipoles")
 
     mpole_exps = wrangler.form_multipoles(
@@ -686,15 +714,18 @@ def drive_dfmm(wrangler, trav_local, trav_global, local_src_weights, global_wran
     # }}}
 
     # {{{ Communicate mpole
+    last_time = time.time()
 
     mpole_exps_all = np.zeros_like(mpole_exps)
     comm.Allreduce(mpole_exps, mpole_exps_all)
 
     mpole_exps = mpole_exps_all
+    print("Communication: " + str(time.time()-last_time))
 
     # }}}
 
     # {{{ "Stage 3:" Direct evaluation from neighbor source boxes ("list 1")
+    last_time = time.time()
 
     logger.debug("direct evaluation from neighbor source boxes ('list 1')")
     potentials = wrangler.eval_direct(
@@ -704,10 +735,12 @@ def drive_dfmm(wrangler, trav_local, trav_global, local_src_weights, global_wran
             local_src_weights)
 
     # these potentials are called alpha in [1]
+    print("Step 3: " + str(time.time()-last_time))
 
     # }}}
 
     # {{{ "Stage 4:" translate separated siblings' ("list 2") mpoles to local
+    last_time = time.time()
 
     logger.debug("translate separated siblings' ('list 2') mpoles to local")
     local_exps = wrangler.multipole_to_local(
@@ -718,6 +751,7 @@ def drive_dfmm(wrangler, trav_local, trav_global, local_src_weights, global_wran
             mpole_exps)
 
     # local_exps represents both Gamma and Delta in [1]
+    print("Step 4: " + str(time.time()-last_time))
 
     # }}}
 

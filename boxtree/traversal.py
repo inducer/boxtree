@@ -759,6 +759,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
 
                     %elif from_sep_smaller_crit == "precise_linf":
                         {
+
                             coord_t source_rad = LEVEL_TO_RAD(walk_level);
 
                             // l^infty distance between source box and target box.
@@ -774,6 +775,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
 
                             meets_sep_crit = l_inf_dist >=
                                 (2 - 8 * COORD_T_MACH_EPS) * source_rad;
+
                         }
 
                     %elif from_sep_smaller_crit == "static_l2":
@@ -1742,7 +1744,8 @@ class FMMTraversalBuilder:
     # {{{ driver
 
     def __call__(self, queue, tree, wait_for=None, debug=False,
-            _from_sep_smaller_min_nsources_cumul=None):
+                 _from_sep_smaller_min_nsources_cumul=None,
+                 box_bounding_box=None):
         """
         :arg queue: A :class:`pyopencl.CommandQueue` instance.
         :arg tree: A :class:`boxtree.Tree` instance.
@@ -1857,84 +1860,91 @@ class FMMTraversalBuilder:
         # {{{ box extents
 
         fin_debug("finding box extents")
-
-        box_source_bounding_box_min = cl.array.empty(
-                queue, (tree.dimensions, tree.aligned_nboxes),
-                dtype=tree.coord_dtype)
-        box_source_bounding_box_max = cl.array.empty(
-                queue, (tree.dimensions, tree.aligned_nboxes),
-                dtype=tree.coord_dtype)
-
-        if tree.sources_are_targets:
-            box_target_bounding_box_min = box_source_bounding_box_min
-            box_target_bounding_box_max = box_source_bounding_box_max
+        if box_bounding_box is not None:
+            box_target_bounding_box_min = cl.array.to_device(
+                queue, box_bounding_box["min"])
+            box_target_bounding_box_max = cl.array.to_device(
+                queue, box_bounding_box["max"])
+            box_source_bounding_box_min = None
+            box_source_bounding_box_max = None
         else:
-            box_target_bounding_box_min = cl.array.empty(
+            box_source_bounding_box_min = cl.array.empty(
                     queue, (tree.dimensions, tree.aligned_nboxes),
                     dtype=tree.coord_dtype)
-            box_target_bounding_box_max = cl.array.empty(
+            box_source_bounding_box_max = cl.array.empty(
                     queue, (tree.dimensions, tree.aligned_nboxes),
                     dtype=tree.coord_dtype)
 
-        bogus_radii_array = cl.array.empty(queue, 1, dtype=tree.coord_dtype)
+            if tree.sources_are_targets:
+                box_target_bounding_box_min = box_source_bounding_box_min
+                box_target_bounding_box_max = box_source_bounding_box_max
+            else:
+                box_target_bounding_box_min = cl.array.empty(
+                        queue, (tree.dimensions, tree.aligned_nboxes),
+                        dtype=tree.coord_dtype)
+                box_target_bounding_box_max = cl.array.empty(
+                        queue, (tree.dimensions, tree.aligned_nboxes),
+                        dtype=tree.coord_dtype)
 
-        # nlevels-1 is the highest valid level index
-        for level in range(tree.nlevels-1, -1, -1):
-            start, stop = tree.level_start_box_nrs[level:level+2]
+            bogus_radii_array = cl.array.empty(queue, 1, dtype=tree.coord_dtype)
 
-            for (skip, enable_radii, bbox_min, bbox_max,
-                    pstarts, pcounts, radii_tree_attr, particles) in [
-                    (
-                        # never skip
-                        False,
+            # nlevels-1 is the highest valid level index
+            for level in range(tree.nlevels-1, -1, -1):
+                start, stop = tree.level_start_box_nrs[level:level+2]
 
-                        tree.sources_have_extent,
-                        box_source_bounding_box_min,
-                        box_source_bounding_box_max,
-                        tree.box_source_starts,
-                        tree.box_source_counts_nonchild,
-                        "source_radii",
-                        tree.sources),
-                    (
-                        # skip the 'target' round if sources and targets
-                        # are the same.
-                        tree.sources_are_targets,
-
-                        tree.targets_have_extent,
-                        box_target_bounding_box_min,
-                        box_target_bounding_box_max,
-                        tree.box_target_starts,
-                        tree.box_target_counts_nonchild,
-                        "target_radii",
-                        tree.targets),
-                    ]:
-
-                if skip:
-                    continue
-
-                args = (
+                for (skip, enable_radii, bbox_min, bbox_max,
+                        pstarts, pcounts, radii_tree_attr, particles) in [
                         (
-                            tree.aligned_nboxes,
-                            tree.box_child_ids,
-                            tree.box_centers,
-                            pstarts, pcounts,)
-                        + tuple(particles)
-                        + (
-                            getattr(tree, radii_tree_attr, bogus_radii_array),
-                            enable_radii,
+                            # never skip
+                            False,
 
-                            bbox_min,
-                            bbox_max))
+                            tree.sources_have_extent,
+                            box_source_bounding_box_min,
+                            box_source_bounding_box_max,
+                            tree.box_source_starts,
+                            tree.box_source_counts_nonchild,
+                            "source_radii",
+                            tree.sources),
+                        (
+                            # skip the 'target' round if sources and targets
+                            # are the same.
+                            tree.sources_are_targets,
 
-                evt = knl_info.box_extents_finder(
-                        *args,
+                            tree.targets_have_extent,
+                            box_target_bounding_box_min,
+                            box_target_bounding_box_max,
+                            tree.box_target_starts,
+                            tree.box_target_counts_nonchild,
+                            "target_radii",
+                            tree.targets),
+                        ]:
 
-                        range=slice(start, stop),
-                        queue=queue, wait_for=wait_for)
+                    if skip:
+                        continue
 
-            wait_for = [evt]
+                    args = (
+                            (
+                                tree.aligned_nboxes,
+                                tree.box_child_ids,
+                                tree.box_centers,
+                                pstarts, pcounts,)
+                            + tuple(particles)
+                            + (
+                                getattr(tree, radii_tree_attr, bogus_radii_array),
+                                enable_radii,
 
-        del bogus_radii_array
+                                bbox_min,
+                                bbox_max))
+
+                    evt = knl_info.box_extents_finder(
+                            *args,
+
+                            range=slice(start, stop),
+                            queue=queue, wait_for=wait_for)
+
+                wait_for = [evt]
+
+            del bogus_radii_array
 
         # }}}
 
