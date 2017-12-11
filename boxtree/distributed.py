@@ -111,7 +111,7 @@ class AllReduceCommPattern(object):
         """Advance to the next stage in the communication pattern.
         """
         if self.done():
-            raise ValueError("finished communicating")
+            raise RuntimeError("finished communicating")
 
         if self.rank < self.midpoint:
             self.right = self.midpoint
