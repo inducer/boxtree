@@ -97,9 +97,7 @@ def run_build_test(builder, queue, dims, dtype, nparticles, do_plot,
             and dims == 2
             and queue.device.platform.name == "Portable Computing Language"):
         # arg list lenghts disagree
-        # pytest.xfail("2D float doesn't work on POCL")
-        # pass
-        pass
+        pytest.xfail("2D float doesn't work on POCL")
 
     logger.info(75*"-")
     if max_particles_in_box is not None:
@@ -1003,8 +1001,7 @@ def test_space_invader_query(ctx_getter, dims, dtype, do_plot=False):
             and dims == 2
             and queue.device.platform.name == "Portable Computing Language"):
         # arg list lenghts disagree
-        # pytest.xfail("2D float doesn't work on POCL")
-        pass
+        pytest.xfail("2D float doesn't work on POCL")
 
     dtype = np.dtype(dtype)
     nparticles = 10**5
