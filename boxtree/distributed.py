@@ -41,6 +41,7 @@ print("Process %d of %d on %s with ctx %s.\n" % (
     MPI.Get_processor_name(),
     queue.context.devices))
 
+
 # {{{ all-reduce
 
 class AllReduceCommPattern(object):
