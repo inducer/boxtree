@@ -41,6 +41,7 @@ print("Process %d of %d on %s with ctx %s.\n" % (
     MPI.Get_processor_name(),
     queue.context.devices))
 
+# {{{ all-reduce
 
 class AllReduceCommPattern(object):
     """Describes a butterfly communication pattern for allreduce. Supports efficient
@@ -60,7 +61,7 @@ class AllReduceCommPattern(object):
 
     def sources(self):
         """Return the set of source nodes at this communication stage. The current
-        process receives messages from these nodes.
+        process receives messages from these processes.
         """
         if self.rank < self.midpoint:
             partner = self.midpoint + (self.rank - self.left)
@@ -83,7 +84,7 @@ class AllReduceCommPattern(object):
 
     def sinks(self):
         """Return the set of sink nodes at this communication stage. The current process
-        sends a message to these nodes.
+        sends a message to these processes.
         """
         if self.rank < self.midpoint:
             partner = self.midpoint + (self.rank - self.left)
@@ -97,16 +98,20 @@ class AllReduceCommPattern(object):
         return set([partner])
 
     def messages(self):
-        """Return the set of relevant messages to send to the sinks.
+        """Return the range of relevant messages to send to the sinks.  This is returned
+        as a [start, end) pair. By design, it is a consecutive range.
         """
         if self.rank < self.midpoint:
-            return set(range(self.midpoint, self.right))
+            return (self.midpoint, self.right)
         else:
-            return set(range(self.left, self.midpoint))
+            return (self.left, self.midpoint)
 
     def advance(self):
         """Advance to the next stage in the communication pattern.
         """
+        if self.done():
+            raise ValueError("finished communicating")
+
         if self.rank < self.midpoint:
             self.right = self.midpoint
             self.midpoint = (self.midpoint + self.left) // 2
@@ -115,9 +120,11 @@ class AllReduceCommPattern(object):
             self.midpoint = (self.midpoint + self.right) // 2
 
     def done(self):
-        """Return whether this node is finished communicating.
+        """Return whether this process is finished communicating.
         """
         return self.left + 1 == self.right
+
+# }}}
 
 
 class LocalTree(Tree):
