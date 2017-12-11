@@ -185,30 +185,71 @@ class MPITags():
     GATHER_POTENTIALS = 2
 
 
-def partition_work(tree, total_rank, queue):
+def partition_work(traversal, total_rank, queue):
     """ This function returns a pyopencl array of size total_rank*nboxes, where
     the (i,j) entry is 1 iff rank i is responsible for box j.
     """
+    tree = traversal.tree
     responsible_boxes_mask = cl.array.zeros(queue, (total_rank, tree.nboxes),
                                             dtype=np.int8)
     responsible_boxes_list = np.empty((total_rank,), dtype=object)
-    nboxes_per_rank = tree.nboxes // total_rank
-    extra_boxes = tree.nboxes - nboxes_per_rank * total_rank
-    start_idx = 0
 
-    for current_rank in range(extra_boxes):
-        end_idx = start_idx + nboxes_per_rank + 1
-        responsible_boxes_mask[current_rank, start_idx:end_idx] = 1
-        responsible_boxes_list[current_rank] = cl.array.arange(
-            queue, start_idx, end_idx, dtype=tree.box_id_dtype)
-        start_idx = end_idx
+    workload = np.zeros((tree.nboxes,), dtype=np.float64)
+    for i in range(traversal.target_boxes.shape[0]):
+        box_idx = traversal.target_boxes[i]
+        box_ntargets = tree.box_target_counts_nonchild[box_idx]
 
-    for current_rank in range(extra_boxes, total_rank):
-        end_idx = start_idx + nboxes_per_rank
-        responsible_boxes_mask[current_rank, start_idx:end_idx] = 1
-        responsible_boxes_list[current_rank] = cl.array.arange(
-            queue, start_idx, end_idx, dtype=tree.box_id_dtype)
-        start_idx = end_idx
+        # workload for list 1
+        start = traversal.neighbor_source_boxes_starts[i]
+        end = traversal.neighbor_source_boxes_starts[i + 1]
+        list1 = traversal.neighbor_source_boxes_lists[start:end]
+        particle_count = 0
+        for j in range(list1.shape[0]):
+            particle_count += tree.box_source_counts_nonchild[list1[j]]
+        workload[box_idx] += box_ntargets * particle_count
+
+        # workload for list 3 near
+        start = traversal.from_sep_close_smaller_starts[i]
+        end = traversal.from_sep_close_smaller_starts[i + 1]
+        list3_near = traversal.from_sep_close_smaller_lists[start:end]
+        particle_count = 0
+        for j in range(list3_near.shape[0]):
+            particle_count += tree.box_source_counts_nonchild[list3_near[j]]
+        workload[box_idx] += box_ntargets * particle_count
+
+    for i in range(tree.nboxes):
+        # workload for multipole calculation
+        workload[i] += tree.box_source_counts_nonchild[i] * 5
+
+    total_workload = 0
+    for i in range(tree.nboxes):
+        total_workload += workload[i]
+
+    dfs_order = np.empty((tree.nboxes,), dtype=tree.box_id_dtype)
+    idx = 0
+    stack = [0]
+    while len(stack) > 0:
+        box_id = stack.pop()
+        dfs_order[idx] = box_id
+        idx += 1
+        for i in range(2**tree.dimensions):
+            child_box_id = tree.box_child_ids[i][box_id]
+            if child_box_id > 0:
+                stack.append(child_box_id)
+
+    rank = 0
+    start = 0
+    workload_count = 0
+    for i in range(tree.nboxes):
+        box_idx = dfs_order[i]
+        responsible_boxes_mask[rank][box_idx] = 1
+        workload_count += workload[box_idx]
+        if (workload_count > (rank + 1)*total_workload/total_rank or
+                i == tree.nboxes - 1):
+            responsible_boxes_list[rank] = cl.array.to_device(
+                queue, dfs_order[start:i+1])
+            start = i + 1
+            rank += 1
 
     return responsible_boxes_mask, responsible_boxes_list
 
@@ -419,7 +460,7 @@ def gen_local_particles(queue, particles, nparticles, tree,
     # {{{ Generate source weights
     if particle_weights is not None:
         local_particle_weights = cl.array.empty(queue, (local_nparticles,),
-            dtype=particle_weights.dtype)
+                                                dtype=particle_weights.dtype)
         gen_local_source_weights_knl = cl.elementwise.ElementwiseKernel(
             queue.context,
             arguments=Template("""
@@ -483,7 +524,7 @@ def generate_local_tree(traversal, src_weights, comm=MPI.COMM_WORLD):
         # Each rank is responsible for calculating the multiple expansion as well as
         # evaluating target potentials in *responsible_boxes*
         responsible_boxes_mask, responsible_boxes_list = \
-            partition_work(tree, total_rank, queue)
+            partition_work(traversal, total_rank, queue)
 
         # Calculate ancestors of responsible boxes
         ancestor_boxes = cl.array.zeros(queue, (total_rank, tree.nboxes),
@@ -669,10 +710,35 @@ def generate_local_tree(traversal, src_weights, comm=MPI.COMM_WORLD):
     else:
         local_src_weights = comm.recv(source=0, tag=MPITags.DIST_WEIGHT)
 
-    return local_tree, local_src_weights, local_target
+    rtv = (local_tree, local_src_weights, local_target)
+
+    # Recieve box extent
+    if local_tree.targets_have_extent:
+        if current_rank == 0:
+            box_target_bounding_box_min = traversal.box_target_bounding_box_min
+            box_target_bounding_box_max = traversal.box_target_bounding_box_max
+        else:
+            box_target_bounding_box_min = np.empty(
+                (local_tree.dimensions, local_tree.aligned_nboxes),
+                dtype=local_tree.coord_dtype
+            )
+            box_target_bounding_box_max = np.empty(
+                (local_tree.dimensions, local_tree.aligned_nboxes),
+                dtype=local_tree.coord_dtype
+            )
+        comm.Bcast(box_target_bounding_box_min, root=0)
+        comm.Bcast(box_target_bounding_box_max, root=0)
+        box_bounding_box = {
+            "min": box_target_bounding_box_min,
+            "max": box_target_bounding_box_max
+        }
+        rtv += (box_bounding_box,)
+
+    return rtv
 
 
-def generate_local_travs(local_tree, local_src_weights, comm=MPI.COMM_WORLD):
+def generate_local_travs(local_tree, local_src_weights, box_bounding_box=None,
+                         comm=MPI.COMM_WORLD):
     d_tree = local_tree.to_device(queue)
 
     # Modify box flags for targets
@@ -703,7 +769,8 @@ def generate_local_travs(local_tree, local_src_weights, comm=MPI.COMM_WORLD):
 
     from boxtree.traversal import FMMTraversalBuilder
     tg = FMMTraversalBuilder(queue.context)
-    d_trav_global, _ = tg(queue, d_tree, debug=True)
+    d_trav_global, _ = tg(queue, d_tree, debug=True,
+                          box_bounding_box=box_bounding_box)
     trav_global = d_trav_global.get(queue=queue)
 
     # Source flags
@@ -718,7 +785,7 @@ def generate_local_travs(local_tree, local_src_weights, comm=MPI.COMM_WORLD):
         Template(r"""
             box_flags[responsible_box_list[i]] |= ${HAS_OWN_SOURCES};
         """).render(HAS_OWN_SOURCES=("(" + box_flag_t + ") " +
-                                      str(box_flags_enum.HAS_OWN_SOURCES)))
+                                     str(box_flags_enum.HAS_OWN_SOURCES)))
         )
     modify_child_sources_knl = cl.elementwise.ElementwiseKernel(
         queue.context,
@@ -734,7 +801,8 @@ def generate_local_travs(local_tree, local_src_weights, comm=MPI.COMM_WORLD):
     modify_own_sources_knl(d_tree.responsible_boxes_list, d_tree.box_flags)
     modify_child_sources_knl(d_tree.ancestor_mask, d_tree.box_flags)
 
-    d_trav_local, _ = tg(queue, d_tree, debug=True)
+    d_trav_local, _ = tg(queue, d_tree, debug=True,
+                         box_bounding_box=box_bounding_box)
     trav_local = d_trav_local.get(queue=queue)
 
     return trav_local, trav_global
@@ -749,6 +817,7 @@ def drive_dfmm(wrangler, trav_local, trav_global, local_src_weights, global_wran
 
     # {{{ "Step 2.1:" Construct local multipoles
 
+    import time
     logger.debug("construct local multipoles")
 
     mpole_exps = wrangler.form_multipoles(
@@ -771,15 +840,18 @@ def drive_dfmm(wrangler, trav_local, trav_global, local_src_weights, global_wran
     # }}}
 
     # {{{ Communicate mpole
+    last_time = time.time()
 
     mpole_exps_all = np.zeros_like(mpole_exps)
     comm.Allreduce(mpole_exps, mpole_exps_all)
 
     mpole_exps = mpole_exps_all
+    print("Communication: " + str(time.time()-last_time))
 
     # }}}
 
     # {{{ "Stage 3:" Direct evaluation from neighbor source boxes ("list 1")
+    last_time = time.time()
 
     logger.debug("direct evaluation from neighbor source boxes ('list 1')")
     potentials = wrangler.eval_direct(
@@ -789,6 +861,7 @@ def drive_dfmm(wrangler, trav_local, trav_global, local_src_weights, global_wran
             local_src_weights)
 
     # these potentials are called alpha in [1]
+    print("List 1: " + str(time.time()-last_time))
 
     # }}}
 
@@ -807,6 +880,7 @@ def drive_dfmm(wrangler, trav_local, trav_global, local_src_weights, global_wran
     # }}}
 
     # {{{ "Stage 5:" evaluate sep. smaller mpoles ("list 3") at particles
+    last_time = time.time()
 
     logger.debug("evaluate sep. smaller mpoles at particles ('list 3 far')")
 
@@ -829,6 +903,8 @@ def drive_dfmm(wrangler, trav_local, trav_global, local_src_weights, global_wran
                 trav_global.from_sep_close_smaller_starts,
                 trav_global.from_sep_close_smaller_lists,
                 local_src_weights)
+
+    print("List 3: " + str(time.time()-last_time))
 
     # }}}
 

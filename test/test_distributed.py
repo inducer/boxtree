@@ -104,14 +104,15 @@ comm.barrier()
 start_time = last_time = time.time()
 
 # Compute FMM using distributed memory parallelism
-local_tree, local_src_weights, local_target = \
+local_tree, local_src_weights, local_target, box_bounding_box = \
     generate_local_tree(trav, sources_weights)
 
 now = time.time()
 print("Generate local tree " + str(now - last_time))
 last_time = now
 
-trav_local, trav_global = generate_local_travs(local_tree, local_src_weights)
+trav_local, trav_global = generate_local_travs(local_tree, local_src_weights,
+                                               box_bounding_box)
 
 now = time.time()
 print("Generate local trav " + str(now - last_time))
