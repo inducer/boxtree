@@ -26,6 +26,14 @@ import logging
 import pytest
 import sys
 
+import numpy as np
+
+import pyopencl as cl
+import pyopencl.array  # noqa
+from pyopencl.tools import (  # noqa
+        pytest_generate_tests_for_pyopencl as pytest_generate_tests)
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -70,6 +78,31 @@ def test_allreduce_comm_pattern(p):
     for item in data:
         assert len(item) == p
         assert set(item) == set(range(p))
+
+
+def test_matrix_compressor(ctx_getter):
+    cl_context = ctx_getter()
+
+    from boxtree.tools import MatrixCompressorKernel
+    matcompr = MatrixCompressorKernel(cl_context)
+
+    n = 40
+    m = 10
+
+    np.random.seed(15)
+
+    arr = (np.random.rand(n, m) > 0.5).astype(np.int8)
+
+    with cl.CommandQueue(cl_context) as q:
+        d_arr = cl.array.to_device(q, arr)
+        arr_starts, arr_lists, evt = matcompr(q, d_arr)
+        cl.wait_for_events([evt])
+        arr_starts = arr_starts.get(q)
+        arr_lists = arr_lists.get(q)
+
+    for i in range(n):
+        items = arr_lists[arr_starts[i]:arr_starts[i+1]]
+        assert set(items) == set(arr[i].nonzero()[0])
 
 
 # You can test individual routines by typing

@@ -542,4 +542,64 @@ class InlineBinarySearch(object):
 
 # }}}
 
+
+# {{{ compress a matrix representation of a csr list
+
+MATRIX_COMPRESSOR_BODY = r"""
+void generate(LIST_ARG_DECL USER_ARG_DECL index_type i)
+{
+    for (int j = 0; j < ncols; ++j)
+    {
+        if (matrix[ncols * i + j])
+        {
+            APPEND_output(j);
+        }
+    }
+}
+"""
+
+
+class MatrixCompressorKernel(object):
+
+    def __init__(self, context):
+        self.context = context
+
+    @memoize_method
+    def get_kernel(self, matrix_dtype, list_dtype):
+        from pyopencl.algorithm import ListOfListsBuilder
+        from pyopencl.tools import VectorArg, ScalarArg
+
+        return ListOfListsBuilder(
+                self.context,
+                [("output", list_dtype)],
+                MATRIX_COMPRESSOR_BODY,
+                [
+                    ScalarArg(np.int32, "ncols"),
+                    VectorArg(matrix_dtype, "matrix"),
+                ],
+                name_prefix="compress_matrix_to_csr")
+
+    def __call__(self, queue, mat, list_dtype=None):
+        """Convert a dense matrix into a :ref:`csr` list.
+
+        :arg mat: A matrix representation of a list of lists, so that mat[i,j]
+            is true if and only if j is in list i.
+
+        :arg list_dtype: The dtype for the lists. Defaults to the matrix dtype.
+
+        :returns: A tuple *(starts, lists, event)*.
+        """
+        if len(mat.shape) != 2:
+            raise ValueError("not a matrix")
+
+        if list_dtype is None:
+            list_dtype = mat.dtype
+
+        knl = self.get_kernel(mat.dtype, list_dtype)
+
+        result, evt = knl(queue, mat.shape[0], mat.shape[1], mat.data)
+        return (result["output"].starts, result["output"].lists, evt)
+
+# }}}
+
 # vim: foldmethod=marker:filetype=pyopencl
