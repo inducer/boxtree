@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 
 @pytest.mark.parametrize("p", [1, 2, 3, 4, 5, 6, 7, 8, 16, 17])
 def test_allreduce_comm_pattern(p):
-    from boxtree.distributed import AllReduceCommPattern
+    from boxtree.tools import AllReduceCommPattern
 
     # This models the parallel allreduce communication pattern.
 
