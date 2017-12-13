@@ -1,11 +1,14 @@
 from __future__ import division
 from mpi4py import MPI
 import numpy as np
+import loopy as lp
 import pyopencl as cl
 from mako.template import Template
 from pyopencl.tools import dtype_to_ctype
 from pyopencl.scan import GenericScanKernel
+from pytools import memoize_method, memoize_in
 from boxtree import Tree
+
 
 __copyright__ = "Copyright (C) 2012 Andreas Kloeckner \
                  Copyright (C) 2017 Hao Gao"
@@ -129,6 +132,19 @@ class AllReduceCommPattern(object):
 
 
 class LocalTree(Tree):
+    """
+    .. attribute:: box_to_users_starts
+
+        ``box_id_t [nboxes + 1]``
+
+    .. attribute:: box_to_users_lists
+
+        ``int32 [*]``
+
+        A :ref:`csr` array. For each box, the list of processes which own
+        targets that *use* the multipole expansion at this box, via either List
+        3 or via the downward (L2L) pass.
+    """
 
     @property
     def nboxes(self):
@@ -144,10 +160,13 @@ class LocalTree(Tree):
 
     @classmethod
     def copy_from_global_tree(cls, global_tree, responsible_boxes_list,
-                              ancestor_mask):
+                              ancestor_mask, box_to_users_starts,
+                              box_to_users_lists):
         local_tree = global_tree.copy(
             responsible_boxes_list=responsible_boxes_list,
-            ancestor_mask=ancestor_mask)
+            ancestor_mask=ancestor_mask,
+            box_to_users_starts=box_to_users_starts,
+            box_to_users_lists=box_to_users_lists)
         local_tree.__class__ = cls
         return local_tree
 
@@ -158,7 +177,8 @@ class LocalTree(Tree):
             "box_source_counts_nonchild", "box_source_starts",
             "box_target_counts_cumul", "box_target_counts_nonchild",
             "box_target_starts", "level_start_box_nrs_dev", "sources", "targets",
-            "responsible_boxes_list", "ancestor_mask"
+            "responsible_boxes_list", "ancestor_mask",
+            "box_to_users_starts", "box_to_users_lists"
         ]
         d_tree = self.copy()
         for field in field_to_device:
@@ -502,6 +522,42 @@ def gen_local_particles(queue, particles, nparticles, tree,
 
 
 def generate_local_tree(traversal, src_weights, comm=MPI.COMM_WORLD):
+    # {{{ list 3 marker kernel
+
+    @memoize_in(generate_local_tree, "loopy_cache")
+    def get_list_3_marker_kernel():
+        knl = lp.make_kernel(
+            [
+                "{[irank] : 0 <= irank < total_rank}",
+                "{[itgt_box] : 0 <= itgt_box < ntgt_boxes}",
+                "{[isrc_box] : isrc_box_start <= isrc_box < isrc_box_end}",
+            ],
+            """
+            for irank, itgt_box
+                <> tgt_ibox = target_boxes[itgt_box]
+                <> is_responsible = responsible_boxes[irank, tgt_ibox]
+                if is_responsible
+                    <> isrc_box_start = source_box_starts[itgt_box]
+                    <> isrc_box_end = source_box_starts[itgt_box + 1]
+                    for isrc_box
+                        <> src_ibox = source_boxes[isrc_box]
+                        box_mpole_is_used[irank, src_ibox] = 1
+                    end
+                end
+            end
+            """,
+            [
+                lp.ValueArg("nboxes", np.int32),
+                lp.GlobalArg("responsible_boxes, box_mpole_is_used",
+                             shape=("total_rank", "nboxes")),
+                lp.GlobalArg("source_boxes", shape=None),
+                "..."
+            ],
+            default_offset=lp.auto)
+        return knl
+
+    # }}}
+
     # Get MPI information
     current_rank = comm.Get_rank()
     total_rank = comm.Get_size()
@@ -632,6 +688,47 @@ def generate_local_tree(traversal, src_weights, comm=MPI.COMM_WORLD):
                 src_boxes_mask[rank]
             )
 
+        # {{{ compute box_to_users
+
+        logger.debug("computing box_to_users: start")
+
+        # Compute the set of processes that use the multipole of a box.
+        box_mpole_is_used = cl.array.zeros(
+            queue, (total_rank, tree.nboxes), dtype=np.int8)
+
+        # An mpole is used by process p if it is an ancestor of a box owned by p.
+        box_mpole_is_used = box_mpole_is_used | ancestor_boxes
+
+        # An mpole is used by process p if it is in the List 3 of a box owned by p.
+
+        list_3_marker_kernel = get_list_3_marker_kernel()
+
+        for level in range(tree.nlevels):
+            source_box_starts = traversal.from_sep_smaller_by_level[level].starts
+            source_boxes = traversal.from_sep_smaller_by_level[level].lists
+            list_3_marker_kernel(queue,
+                total_rank=total_rank,
+                nboxes=tree.nboxes,
+                target_boxes=traversal.target_boxes,
+                responsible_boxes=responsible_boxes_mask,
+                source_box_starts=source_box_starts,
+                source_boxes=source_boxes,
+                box_mpole_is_used=box_mpole_is_used)
+
+        from boxtree.tools import MatrixCompressorKernel
+        matcompr = MatrixCompressorKernel(ctx)
+        (
+            box_to_users_starts,
+            box_to_users_lists,
+            evt) = matcompr(queue, box_mpole_is_used, list_dtype=np.int32)
+
+        cl.wait_for_events([evt])
+        del box_mpole_is_used
+
+        logger.debug("computing box_to_users: done")
+
+        # }}}
+
         # }}}
 
         # Convert src_weights to tree order
@@ -656,7 +753,9 @@ def generate_local_tree(traversal, src_weights, comm=MPI.COMM_WORLD):
         for rank in range(total_rank):
             local_tree[rank] = LocalTree.copy_from_global_tree(
                 tree, responsible_boxes_list[rank].get(),
-                ancestor_boxes[rank].get())
+                ancestor_boxes[rank].get(),
+                box_to_users_starts.get(),
+                box_to_users_lists.get())
 
             (local_tree[rank].sources,
              local_tree[rank].box_source_starts,
