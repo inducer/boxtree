@@ -6,7 +6,7 @@ import pyopencl as cl
 from mako.template import Template
 from pyopencl.tools import dtype_to_ctype
 from pyopencl.scan import GenericScanKernel
-from pytools import memoize_method, memoize_in
+from pytools import memoize_in
 from boxtree import Tree
 
 
