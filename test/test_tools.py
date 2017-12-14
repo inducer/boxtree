@@ -80,11 +80,11 @@ def test_allreduce_comm_pattern(p):
         assert set(item) == set(range(p))
 
 
-def test_matrix_compressor(ctx_getter):
+def test_masked_matrix_compression(ctx_getter):
     cl_context = ctx_getter()
 
-    from boxtree.tools import MatrixCompressorKernel
-    matcompr = MatrixCompressorKernel(cl_context)
+    from boxtree.tools import MaskCompressorKernel
+    matcompr = MaskCompressorKernel(cl_context)
 
     n = 40
     m = 10
@@ -103,6 +103,27 @@ def test_matrix_compressor(ctx_getter):
     for i in range(n):
         items = arr_lists[arr_starts[i]:arr_starts[i+1]]
         assert set(items) == set(arr[i].nonzero()[0])
+
+
+def test_masked_list_compression(ctx_getter):
+    cl_context = ctx_getter()
+
+    from boxtree.tools import MaskCompressorKernel
+    listcompr = MaskCompressorKernel(cl_context)
+
+    n = 20
+
+    np.random.seed(15)
+
+    arr = (np.random.rand(n) > 0.5).astype(np.int8)
+
+    with cl.CommandQueue(cl_context) as q:
+        d_arr = cl.array.to_device(q, arr)
+        arr_list, evt = listcompr(q, d_arr)
+        cl.wait_for_events([evt])
+        arr_list = arr_list.get(q)
+
+    assert set(arr_list) == set(arr.nonzero()[0])
 
 
 # You can test individual routines by typing

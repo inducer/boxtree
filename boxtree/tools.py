@@ -543,14 +543,26 @@ class InlineBinarySearch(object):
 # }}}
 
 
-# {{{ compress a matrix representation of a csr list
+# {{{ compress a masked array into a list / list of lists
 
-MATRIX_COMPRESSOR_BODY = r"""
+
+MASK_LIST_COMPRESSOR_BODY = r"""
+void generate(LIST_ARG_DECL USER_ARG_DECL index_type i)
+{
+    if (mask[i])
+    {
+        APPEND_output(i);
+    }
+}
+"""
+
+
+MASK_MATRIX_COMPRESSOR_BODY = r"""
 void generate(LIST_ARG_DECL USER_ARG_DECL index_type i)
 {
     for (int j = 0; j < ncols; ++j)
     {
-        if (matrix[ncols * i + j])
+        if (mask[ncols * i + j])
         {
             APPEND_output(j);
         }
@@ -559,46 +571,70 @@ void generate(LIST_ARG_DECL USER_ARG_DECL index_type i)
 """
 
 
-class MatrixCompressorKernel(object):
+class MaskCompressorKernel(object):
 
     def __init__(self, context):
         self.context = context
 
     @memoize_method
-    def get_kernel(self, matrix_dtype, list_dtype):
+    def get_list_compressor_kernel(self, mask_dtype, list_dtype):
+        from pyopencl.algorithm import ListOfListsBuilder
+        from pyopencl.tools import VectorArg
+
+        return ListOfListsBuilder(
+                self.context,
+                [("output", list_dtype)],
+                MASK_LIST_COMPRESSOR_BODY,
+                [
+                    VectorArg(mask_dtype, "mask"),
+                ],
+                name_prefix="compress_list")
+
+    @memoize_method
+    def get_matrix_compressor_kernel(self, mask_dtype, list_dtype):
         from pyopencl.algorithm import ListOfListsBuilder
         from pyopencl.tools import VectorArg, ScalarArg
 
         return ListOfListsBuilder(
                 self.context,
                 [("output", list_dtype)],
-                MATRIX_COMPRESSOR_BODY,
+                MASK_MATRIX_COMPRESSOR_BODY,
                 [
                     ScalarArg(np.int32, "ncols"),
-                    VectorArg(matrix_dtype, "matrix"),
+                    VectorArg(mask_dtype, "mask"),
                 ],
-                name_prefix="compress_matrix_to_csr")
+                name_prefix="compress_matrix")
 
-    def __call__(self, queue, mat, list_dtype=None):
-        """Convert a dense matrix into a :ref:`csr` list.
+    def __call__(self, queue, mask, list_dtype=None):
+        """Convert a mask to a list in :ref:`csr` format.
 
-        :arg mat: A matrix representation of a list of lists, so that mat[i,j]
-            is true if and only if j is in list i.
+        :arg mask: Either a 1D or 2D array.
+            * If *mask* is 1D, it should represent a masked list, where
+              *mask[i]* is true if and only if *i* is in the list.
+            * If *mask* is 2D, it should represent a list of masked lists,
+              so that *mask[i,j]* is true if and only if *j* is in list *i*.
 
-        :arg list_dtype: The dtype for the lists. Defaults to the matrix dtype.
+        :arg list_dtype: The dtype for the output list(s). Defaults to the mask
+            dtype.
 
-        :returns: A tuple *(starts, lists, event)*.
+        :returns: The return value depends on the type of the input.
+            * If mask* is 1D, returns a tuple *(list, evt)*.
+            * If *mask* is 2D, returns a tuple *(starts, lists, event)*, as a
+              :ref:`csr` list.
         """
-        if len(mat.shape) != 2:
-            raise ValueError("not a matrix")
-
         if list_dtype is None:
-            list_dtype = mat.dtype
+            list_dtype = mask.dtype
 
-        knl = self.get_kernel(mat.dtype, list_dtype)
-
-        result, evt = knl(queue, mat.shape[0], mat.shape[1], mat.data)
-        return (result["output"].starts, result["output"].lists, evt)
+        if len(mask.shape) == 1:
+            knl = self.get_list_compressor_kernel(mask.dtype, list_dtype)
+            result, evt = knl(queue, mask.shape[0], mask.data)
+            return (result["output"].lists, evt)
+        elif len(mask.shape) == 2:
+            knl = self.get_matrix_compressor_kernel(mask.dtype, list_dtype)
+            result, evt = knl(queue, mask.shape[0], mask.shape[1], mask.data)
+            return (result["output"].starts, result["output"].lists, evt)
+        else:
+            raise ValueError("unsupported dimensionality")
 
 # }}}
 
@@ -610,16 +646,16 @@ class AllReduceCommPattern(object):
     allreduce between an arbitrary number of processes.
     """
 
-    def __init__(self, rank, nprocs):
+    def __init__(self, rank, size):
         """
         :arg rank: My rank
-        :arg nprocs: Total number of processors
+        :arg size: Total number of processors
         """
-        assert nprocs > 0
+        assert 0 <= rank < size
         self.rank = rank
         self.left = 0
-        self.right = nprocs
-        self.midpoint = nprocs // 2
+        self.right = size
+        self.midpoint = size // 2
 
     def sources(self):
         """Return the set of source nodes at this communication stage. The current
