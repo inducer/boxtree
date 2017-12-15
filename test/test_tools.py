@@ -80,7 +80,8 @@ def test_allreduce_comm_pattern(p):
         assert set(item) == set(range(p))
 
 
-def test_masked_matrix_compression(ctx_getter):
+@pytest.mark.parametrize("order", "CF")
+def test_masked_matrix_compression(ctx_getter, order):
     cl_context = ctx_getter()
 
     from boxtree.tools import MaskCompressorKernel
@@ -91,10 +92,11 @@ def test_masked_matrix_compression(ctx_getter):
 
     np.random.seed(15)
 
-    arr = (np.random.rand(n, m) > 0.5).astype(np.int8)
+    arr = (np.random.rand(n, m) > 0.5).astype(np.int8).copy(order=order)
 
     with cl.CommandQueue(cl_context) as q:
-        d_arr = cl.array.to_device(q, arr)
+        d_arr = cl.array.Array(q, (n, m), arr.dtype, order=order)
+        d_arr[:] = arr
         arr_starts, arr_lists, evt = matcompr(q, d_arr)
         cl.wait_for_events([evt])
         arr_starts = arr_starts.get(q)

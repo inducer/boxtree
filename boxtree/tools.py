@@ -562,7 +562,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL index_type i)
 {
     for (int j = 0; j < ncols; ++j)
     {
-        if (mask[ncols * i + j])
+        if (mask[outer_stride * i + j * inner_stride])
         {
             APPEND_output(j);
         }
@@ -601,6 +601,8 @@ class MaskCompressorKernel(object):
                 MASK_MATRIX_COMPRESSOR_BODY,
                 [
                     ScalarArg(np.int32, "ncols"),
+                    ScalarArg(np.int32, "outer_stride"),
+                    ScalarArg(np.int32, "inner_stride"),
                     VectorArg(mask_dtype, "mask"),
                 ],
                 name_prefix="compress_matrix")
@@ -631,7 +633,12 @@ class MaskCompressorKernel(object):
             return (result["output"].lists, evt)
         elif len(mask.shape) == 2:
             knl = self.get_matrix_compressor_kernel(mask.dtype, list_dtype)
-            result, evt = knl(queue, mask.shape[0], mask.shape[1], mask.data)
+            size = mask.dtype.itemsize
+            print("ROWS COLS", mask.shape)
+            print("STRIDES", mask.strides[0] // size, mask.strides[1] // size)
+            result, evt = knl(queue, mask.shape[0], mask.shape[1],
+                              mask.strides[0] // size, mask.strides[1] // size,
+                              mask.data)
             return (result["output"].starts, result["output"].lists, evt)
         else:
             raise ValueError("unsupported dimensionality")
