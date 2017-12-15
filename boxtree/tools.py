@@ -634,8 +634,6 @@ class MaskCompressorKernel(object):
         elif len(mask.shape) == 2:
             knl = self.get_matrix_compressor_kernel(mask.dtype, list_dtype)
             size = mask.dtype.itemsize
-            print("ROWS COLS", mask.shape)
-            print("STRIDES", mask.strides[0] // size, mask.strides[1] // size)
             result, evt = knl(queue, mask.shape[0], mask.shape[1],
                               mask.strides[0] // size, mask.strides[1] // size,
                               mask.data)
