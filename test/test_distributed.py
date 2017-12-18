@@ -6,10 +6,13 @@ import numpy.linalg as la
 from boxtree.pyfmmlib_integration import FMMLibExpansionWrangler
 import time
 
+import logging
+logging.basicConfig(level=logging.INFO)
+
 # Parameters
 dims = 2
-nsources = 50000
-ntargets = 50000
+nsources = 10000
+ntargets = 10000
 dtype = np.float64
 
 # Get the current rank
@@ -20,6 +23,10 @@ rank = comm.Get_rank()
 trav = None
 sources_weights = None
 wrangler = None
+
+
+ORDER = 3
+HELMHOLTZ_K = 0
 
 
 # Generate particles and run shared-memory parallelism on rank 0
@@ -88,9 +95,10 @@ if rank == 0:
 
     # Get pyfmmlib expansion wrangler
     def fmm_level_to_nterms(tree, level):
-        return 3
+        return ORDER
+
     wrangler = FMMLibExpansionWrangler(
-        trav.tree, 0, fmm_level_to_nterms=fmm_level_to_nterms)
+        trav.tree, HELMHOLTZ_K, fmm_level_to_nterms=fmm_level_to_nterms)
 
     # Compute FMM using shared memory parallelism
     from boxtree.fmm import drive_fmm
@@ -120,14 +128,18 @@ last_time = now
 
 
 def fmm_level_to_nterms(tree, level):
-    return 3
+    return ORDER
 
 
-local_wrangler = FMMLibExpansionWrangler(
-    local_tree, 0, fmm_level_to_nterms=fmm_level_to_nterms)
+from boxtree.distributed import ParallelFMMLibExpansionWranglerCodeContainer, queue
+
+local_wrangler = (
+    ParallelFMMLibExpansionWranglerCodeContainer()
+    .get_wrangler(queue, local_tree, HELMHOLTZ_K, ORDER))
+
 if rank == 0:
     global_wrangler = FMMLibExpansionWrangler(
-        trav.tree, 0, fmm_level_to_nterms=fmm_level_to_nterms)
+        trav.tree, HELMHOLTZ_K, fmm_level_to_nterms=fmm_level_to_nterms)
 else:
     global_wrangler = None
 
