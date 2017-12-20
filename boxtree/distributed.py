@@ -60,7 +60,7 @@ class LocalTree(Tree):
 
         A :ref:`csr` array. For each box, the list of processes which own
         targets that *use* the multipole expansion at this box, via either List
-        3 or via the downward (L2L) pass.
+        3 or (possibly downward propagated from an ancestor) List 2.
     """
 
     @property
@@ -702,8 +702,6 @@ def generate_local_tree(traversal, src_weights, comm=MPI.COMM_WORLD):
 
         box_mpole_is_used = cl.array.zeros(queue, (total_rank, tree.nboxes),
                                            dtype=np.int8)
-
-        # An mpole is used by process p if it is an ancestor of a box owned by p.
         knl = get_box_mpole_is_used_marker_kernel()
 
         # A mpole is used by process p if it is in the List 2 of either a box
