@@ -119,7 +119,7 @@ class LocalTree(Tree):
 
 # {{{ parallel fmm wrangler
 
-class ParallelFMMLibExpansionWranglerCodeContainer(object):
+class DistributedFMMLibExpansionWranglerCodeContainer(object):
 
     @memoize_method
     def find_boxes_used_by_subrange_kernel(self):
@@ -150,14 +150,14 @@ class ParallelFMMLibExpansionWranglerCodeContainer(object):
         return knl
 
     def get_wrangler(self, queue, tree, helmholtz_k, fmm_order):
-        return ParallelFMMLibExpansionWrangler(self, queue, tree, helmholtz_k,
+        return DistributedFMMLibExpansionWrangler(self, queue, tree, helmholtz_k,
                                                fmm_order)
 
 
 from boxtree.pyfmmlib_integration import FMMLibExpansionWrangler
 
 
-class ParallelFMMLibExpansionWrangler(FMMLibExpansionWrangler):
+class DistributedFMMLibExpansionWrangler(FMMLibExpansionWrangler):
 
     def __init__(self, code_container, queue, tree, helmholtz_k, fmm_order):
         """

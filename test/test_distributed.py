@@ -131,10 +131,11 @@ def fmm_level_to_nterms(tree, level):
     return ORDER
 
 
-from boxtree.distributed import ParallelFMMLibExpansionWranglerCodeContainer, queue
+from boxtree.distributed import (
+    DistributedFMMLibExpansionWranglerCodeContainer, queue)
 
 local_wrangler = (
-    ParallelFMMLibExpansionWranglerCodeContainer()
+    DistributedFMMLibExpansionWranglerCodeContainer()
     .get_wrangler(queue, local_tree, HELMHOLTZ_K, ORDER))
 
 if rank == 0:
