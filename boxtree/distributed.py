@@ -45,9 +45,6 @@ print("Process %d of %d on %s with ctx %s.\n" % (
     queue.context.devices))
 
 
-COMMUNICATE_MPOLES_VIA_ALLREDUCE = False
-
-
 class LocalTree(Tree):
     """
     .. attribute:: box_to_user_starts
@@ -1044,7 +1041,7 @@ def communicate_mpoles(wrangler, comm, trav, mpole_exps, return_stats=False):
 
 def drive_dfmm(wrangler, trav_local, trav_global, local_src_weights, global_wrangler,
                local_target_mask, local_target_scan, local_ntargets,
-               comm=MPI.COMM_WORLD):
+               comm=MPI.COMM_WORLD, _communicate_mpoles_via_allreduce=False):
     # Get MPI information
     current_rank = comm.Get_rank()
     total_rank = comm.Get_size()
@@ -1077,7 +1074,7 @@ def drive_dfmm(wrangler, trav_local, trav_global, local_src_weights, global_wran
 
     last_time = time.time()
 
-    if COMMUNICATE_MPOLES_VIA_ALLREDUCE:
+    if _communicate_mpoles_via_allreduce:
         mpole_exps_all = np.zeros_like(mpole_exps)
         comm.Allreduce(mpole_exps, mpole_exps_all)
         mpole_exps = mpole_exps_all
