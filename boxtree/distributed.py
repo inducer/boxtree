@@ -321,7 +321,7 @@ def get_gen_local_tree_helper(queue, tree):
         output_statement="scan[i + 1] = item;"
     )
 
-    FECTCH_LOCAL_PARTICLES_ARGUMENTS = Template("""
+    fetch_local_paticles_arguments = Template("""
         __global const ${mask_t} *particle_mask,
         __global const ${mask_t} *particle_scan
         % for dim in range(ndims):
@@ -336,7 +336,7 @@ def get_gen_local_tree_helper(queue, tree):
         % endif
     """, strict_undefined=True)
 
-    FETCH_LOCAL_PARTICLES_PRG = Template("""
+    fetch_local_particles_prg = Template("""
         if(particle_mask[i]) {
             ${particle_id_t} des = particle_scan[i];
             % for dim in range(ndims):
@@ -350,13 +350,13 @@ def get_gen_local_tree_helper(queue, tree):
 
     fetch_local_src_knl = cl.elementwise.ElementwiseKernel(
         queue.context,
-        FECTCH_LOCAL_PARTICLES_ARGUMENTS.render(
+        fetch_local_paticles_arguments.render(
             mask_t=dtype_to_ctype(tree.particle_id_dtype),
             coord_t=dtype_to_ctype(tree.coord_dtype),
             ndims=tree.dimensions,
             particles_have_extent=tree.sources_have_extent
         ),
-        FETCH_LOCAL_PARTICLES_PRG.render(
+        fetch_local_particles_prg.render(
             particle_id_t=dtype_to_ctype(tree.particle_id_dtype),
             ndims=tree.dimensions,
             particles_have_extent=tree.sources_have_extent
@@ -365,13 +365,13 @@ def get_gen_local_tree_helper(queue, tree):
 
     fetch_local_tgt_knl = cl.elementwise.ElementwiseKernel(
         queue.context,
-        FECTCH_LOCAL_PARTICLES_ARGUMENTS.render(
+        fetch_local_paticles_arguments.render(
             mask_t=dtype_to_ctype(tree.particle_id_dtype),
             coord_t=dtype_to_ctype(tree.coord_dtype),
             ndims=tree.dimensions,
             particles_have_extent=tree.targets_have_extent
         ),
-        FETCH_LOCAL_PARTICLES_PRG.render(
+        fetch_local_particles_prg.render(
             particle_id_t=dtype_to_ctype(tree.particle_id_dtype),
             ndims=tree.dimensions,
             particles_have_extent=tree.targets_have_extent
