@@ -155,6 +155,4 @@ last_time = now
 
 if rank == 0:
     print("Total time " + str(time.time() - start_time))
-    print("rel error", la.norm((pot_fmm - pot_dfmm * 2 * np.pi) / pot_fmm,
-                               ord=np.inf))
-    print("abs error", la.norm(pot_fmm - pot_dfmm * 2 * np.pi, ord=np.inf))
+    print(la.norm(pot_fmm - pot_dfmm * 2 * np.pi, ord=np.inf))
