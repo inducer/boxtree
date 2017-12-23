@@ -136,8 +136,8 @@ TRAVERSAL_PREAMBLE_MAKO_DEFS = r"""//CL:mako//
                 );
         %endfor
 
-        ${name}_ext_center = 0.5*(${name}_min + ${name}_max);
-        ${name}_radii_vec = 0.5*(${name}_max - ${name}_min);
+        ${name}_ext_center = ((coord_vec_t) 0.5) * (${name}_min + ${name}_max);
+        ${name}_radii_vec = ((coord_vec_t) 0.5) * (${name}_max - ${name}_min);
     }
 </%def>
 
