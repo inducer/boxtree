@@ -421,7 +421,7 @@ def get_gen_local_tree_helper(queue, tree):
         """
     )
 
-    def gen_local_tree_helper(src_box_mask, tgt_box_mask, local_tree):
+    def gen_local_tree_helper(src_box_mask, tgt_box_mask, local_tree, local_data):
         """ This helper function generates a copy of the tree but with subset of
             particles, and fetch the generated fields to *local_tree*.
         """
@@ -545,8 +545,14 @@ def get_gen_local_tree_helper(queue, tree):
             local_box_target_counts_nonchild.get(queue=queue)
         local_tree.box_target_counts_cumul = \
             local_box_target_counts_cumul.get(queue=queue)
-        return (src_particle_mask, src_particle_scan, tgt_particle_mask,
-                tgt_particle_scan)
+
+        # Fetch fields to local_data
+        local_data["src_mask"] = src_particle_mask
+        local_data["src_scan"] = src_particle_scan
+        local_data["nsources"] = local_nsources
+        local_data["tgt_mask"] = tgt_particle_mask
+        local_data["tgt_scan"] = tgt_particle_scan
+        local_data["ntargets"] = local_ntargets
 
     return gen_local_tree_helper
 
@@ -625,20 +631,22 @@ def generate_local_tree(traversal, src_weights, comm=MPI.COMM_WORLD):
     total_rank = comm.Get_size()
 
     # {{{ Construct local tree for each rank on root
-    local_target = {"mask": None, "scan": None, "size": None}
+    if current_rank == 0:
+        local_data = np.empty((total_rank,), dtype=object)
+        for i in range(total_rank):
+            local_data[i] = {
+                "src_mask": None, "src_scan": None, "nsources": None,
+                "tgt_mask": None, "tgt_scan": None, "ntargets": None
+            }
+    else:
+        local_data = None
+
     if current_rank == 0:
         tree = traversal.tree
         local_tree = np.empty((total_rank,), dtype=object)
-        local_target_mask = np.empty((total_rank,), dtype=object)
-        local_target_scan = np.empty((total_rank,), dtype=object)
-        local_ntargets = np.empty((total_rank,), dtype=tree.particle_id_dtype)
-        local_target["mask"] = local_target_mask
-        local_target["scan"] = local_target_scan
-        local_target["size"] = local_ntargets
-
-        d_box_parent_ids = cl.array.to_device(queue, tree.box_parent_ids)
 
         # {{{ Partition the work
+        d_box_parent_ids = cl.array.to_device(queue, tree.box_parent_ids)
 
         # Each rank is responsible for calculating the multiple expansion as well as
         # evaluating target potentials in *responsible_boxes*
@@ -823,17 +831,16 @@ def generate_local_tree(traversal, src_weights, comm=MPI.COMM_WORLD):
             local_tree[rank].user_source_ids = None
             local_tree[rank].sorted_target_ids = None
 
-            (src_mask, src_scan, tgt_mask, tgt_scan) = \
-                gen_local_tree_helper(src_boxes_mask[rank],
-                                      responsible_boxes_mask[rank],
-                                      local_tree[rank])
+            gen_local_tree_helper(src_boxes_mask[rank],
+                                  responsible_boxes_mask[rank],
+                                  local_tree[rank],
+                                  local_data[rank])
 
             local_src_weights[rank] = gen_local_weights_helper(
-                src_weights, src_mask, src_scan)
-
-            local_target_mask[rank] = tgt_mask
-            local_target_scan[rank] = tgt_scan
-            local_ntargets[rank] = tgt_scan[-1].get(queue)
+                src_weights,
+                local_data[rank]["src_mask"],
+                local_data[rank]["src_scan"]
+            )
 
             tree_req[rank] = comm.isend(local_tree[rank], dest=rank,
                                         tag=MPITags.DIST_TREE)
@@ -858,7 +865,7 @@ def generate_local_tree(traversal, src_weights, comm=MPI.COMM_WORLD):
     else:
         local_src_weights = comm.recv(source=0, tag=MPITags.DIST_WEIGHT)
 
-    rtv = (local_tree, local_src_weights, local_target)
+    rtv = (local_tree, local_src_weights, local_data)
 
     # Recieve box extent
     if current_rank == 0:
@@ -1074,8 +1081,8 @@ def communicate_mpoles(wrangler, comm, trav, mpole_exps, return_stats=False):
 
 
 def drive_dfmm(wrangler, trav_local, trav_global, local_src_weights, global_wrangler,
-               local_target_mask, local_target_scan, local_ntargets,
-               comm=MPI.COMM_WORLD, _communicate_mpoles_via_allreduce=False):
+               local_data, comm=MPI.COMM_WORLD,
+               _communicate_mpoles_via_allreduce=False):
     # Get MPI information
     current_rank = comm.Get_rank()
     total_rank = comm.Get_size()
@@ -1227,7 +1234,7 @@ def drive_dfmm(wrangler, trav_local, trav_global, local_src_weights, global_wran
         potentials_all_ranks[0] = potentials
         for i in range(1, total_rank):
             potentials_all_ranks[i] = np.empty(
-                (local_ntargets[i],), dtype=potentials.dtype)
+                (local_data[i]["ntargets"],), dtype=potentials.dtype)
             comm.Recv([potentials_all_ranks[i], potentials_mpi_type],
                       source=i, tag=MPITags.GATHER_POTENTIALS)
     else:
@@ -1257,7 +1264,7 @@ def drive_dfmm(wrangler, trav_local, trav_global, local_src_weights, global_wran
         for i in range(total_rank):
             local_potentials = cl.array.to_device(queue, potentials_all_ranks[i])
             fill_potentials_knl(
-                local_target_mask[i], local_target_scan[i],
+                local_data[i]["tgt_mask"], local_data[i]["tgt_scan"],
                 local_potentials, d_potentials)
 
         potentials = d_potentials.get()
