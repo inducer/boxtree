@@ -119,8 +119,7 @@ now = time.time()
 print("Generate local tree " + str(now - last_time))
 last_time = now
 
-trav_local, trav_global = generate_local_travs(local_tree, local_src_weights,
-                                               box_bounding_box)
+trav_local, trav_global = generate_local_travs(local_tree, box_bounding_box)
 
 now = time.time()
 print("Generate local trav " + str(now - last_time))

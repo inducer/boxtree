@@ -891,8 +891,7 @@ def generate_local_tree(traversal, src_weights, comm=MPI.COMM_WORLD):
     return rtv
 
 
-def generate_local_travs(local_tree, local_src_weights, box_bounding_box=None,
-                         comm=MPI.COMM_WORLD):
+def generate_local_travs(local_tree, box_bounding_box=None, comm=MPI.COMM_WORLD):
     d_tree = local_tree.to_device(queue)
 
     # Modify box flags for targets
