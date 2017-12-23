@@ -956,7 +956,7 @@ def generate_local_travs(local_tree, local_src_weights, box_bounding_box=None,
 
 # {{{ communicate mpoles
 
-def communicate_mpoles(wrangler, comm, trav, mpole_exps, return_stats=False):
+def communicate_mpoles(wrangler, comm, trav, mpole_exps, _stats=None):
     """Based on Algorithm 3: Reduce and Scatter in [1].
 
     The main idea is to mimic a hypercube allreduce, but to reduce bandwidth by
@@ -1002,13 +1002,14 @@ def communicate_mpoles(wrangler, comm, trav, mpole_exps, return_stats=False):
     # Temporary buffer for holding the mask
     box_in_subrange = wrangler.empty_box_in_subrange_mask()
 
-    stats["bytes_sent_by_stage"] = []
-    stats["bytes_recvd_by_stage"] = []
+    stats["mpoles_sent_per_round"] = []
+    stats["mpoles_recvd_per_round"] = []
 
     while not comm_pattern.done():
         send_requests = []
 
         # Send data to other processors.
+        nmpoles_sent = 0
         if comm_pattern.sinks():
             # Compute the subset of boxes to be sent.
             message_subrange = comm_pattern.messages()
@@ -1043,7 +1044,12 @@ def communicate_mpoles(wrangler, comm, trav, mpole_exps, return_stats=False):
                                  tag=MPITags.REDUCE_INDICES)
                 send_requests.append(req)
 
+                nmpoles_sent += len(relevant_boxes_list)
+
+        stats["mpoles_sent_per_round"].append(nmpoles_sent)
+
         # Receive data from other processors.
+        nmpoles_recvd = 0
         for source in comm_pattern.sources():
             comm.Recv(mpole_exps_buf, source=source, tag=MPITags.REDUCE_POTENTIALS)
 
@@ -1052,32 +1058,37 @@ def communicate_mpoles(wrangler, comm, trav, mpole_exps, return_stats=False):
                       status=status)
             nboxes = status.Get_count() // boxes_list_buf.dtype.itemsize
 
+            nmpoles_recvd += nboxes
+
             # Update data structures.
             wrangler.update_mpoles(mpole_exps, mpole_exps_buf,
                                    boxes_list_buf[:nboxes])
 
             contributing_boxes[boxes_list_buf[:nboxes]] = 1
 
+        stats["mpoles_recvd_per_round"].append(nmpoles_recvd)
+
         for req in send_requests:
             req.wait()
 
         comm_pattern.advance()
 
-    stats["total_time"] = time() - t_start
-    logger.debug("communicate multipoles: done in %.2f s" % stats["total_time"])
+    logger.debug("communicate multipoles: done in %.2f s" % (time() - t_start))
 
-    if return_stats:
-        return stats
+    if _stats is not None:
+        _stats.update(stats)
 
 # }}}
 
 
 def drive_dfmm(wrangler, trav_local, trav_global, local_src_weights, global_wrangler,
                local_target_mask, local_target_scan, local_ntargets,
-               comm=MPI.COMM_WORLD, _communicate_mpoles_via_allreduce=False):
+               comm=MPI.COMM_WORLD, _communicate_mpoles_via_allreduce=False,
+               _stats=None):
     # Get MPI information
     current_rank = comm.Get_rank()
     total_rank = comm.Get_size()
+    stats = {}
 
     # {{{ "Step 2.1:" Construct local multipoles
 
@@ -1112,7 +1123,7 @@ def drive_dfmm(wrangler, trav_local, trav_global, local_src_weights, global_wran
         comm.Allreduce(mpole_exps, mpole_exps_all)
         mpole_exps = mpole_exps_all
     else:
-        communicate_mpoles(wrangler, comm, trav_local, mpole_exps)
+        communicate_mpoles(wrangler, comm, trav_local, mpole_exps, stats)
 
     print("Communication: " + str(time.time()-last_time))
 
@@ -1219,6 +1230,9 @@ def drive_dfmm(wrangler, trav_local, trav_global, local_src_weights, global_wran
             local_exps)
 
     # }}}
+
+    if _stats is not None:
+        _stats.update(stats)
 
     potentials_mpi_type = MPI._typedict[potentials.dtype.char]
     if current_rank == 0:
