@@ -909,8 +909,9 @@ def generate_local_travs(local_tree, box_bounding_box=None, comm=MPI.COMM_WORLD)
 def communicate_mpoles(wrangler, comm, trav, mpole_exps, return_stats=False):
     """Based on Algorithm 3: Reduce and Scatter in [1].
 
-    The main idea is to mimic a hypercube allreduce, but to reduce bandwidth by
-    sending only necessary information.
+    The main idea is to mimic a allreduce as done on a hypercube network, but to
+    decrease the bandwidth cost by sending only information that is relevant to
+    the processes receiving the message.
 
     .. [1] Lashuk, Ilya, Aparna Chandramowlishwaran, Harper Langston,
        Tuan-Anh Nguyen, Rahul Sampath, Aashay Shringarpure, Richard Vuduc, Lexing
