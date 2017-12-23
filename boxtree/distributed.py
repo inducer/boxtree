@@ -219,9 +219,6 @@ def partition_work(traversal, total_rank, queue):
     the (i,j) entry is 1 iff rank i is responsible for box j.
     """
     tree = traversal.tree
-    responsible_boxes_mask = cl.array.zeros(queue, (total_rank, tree.nboxes),
-                                            dtype=np.int8)
-    responsible_boxes_list = np.empty((total_rank,), dtype=object)
 
     workload = np.zeros((tree.nboxes,), dtype=np.float64)
     for i in range(traversal.target_boxes.shape[0]):
@@ -267,6 +264,9 @@ def partition_work(traversal, total_rank, queue):
             if child_box_id > 0:
                 stack.append(child_box_id)
 
+    responsible_boxes_mask = np.zeros((total_rank, tree.nboxes), dtype=np.int8)
+    responsible_boxes_list = np.empty((total_rank,), dtype=object)
+
     rank = 0
     start = 0
     workload_count = 0
@@ -281,6 +281,7 @@ def partition_work(traversal, total_rank, queue):
             start = i + 1
             rank += 1
 
+    responsible_boxes_mask = cl.array.to_device(queue, responsible_boxes_mask)
     return responsible_boxes_mask, responsible_boxes_list
 
 
