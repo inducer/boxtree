@@ -112,8 +112,7 @@ comm.barrier()
 start_time = last_time = time.time()
 
 # Compute FMM using distributed memory parallelism
-local_tree, local_src_weights, local_data, box_bounding_box = \
-    generate_local_tree(trav, sources_weights)
+local_tree, local_data, box_bounding_box = generate_local_tree(trav)
 
 now = time.time()
 print("Generate local tree " + str(now - last_time))
@@ -144,7 +143,7 @@ else:
     global_wrangler = None
 
 pot_dfmm = drive_dfmm(
-    local_wrangler, trav_local, trav_global, local_src_weights, global_wrangler,
+    local_wrangler, trav_local, global_wrangler, trav_global, sources_weights,
     local_data
 )
 
