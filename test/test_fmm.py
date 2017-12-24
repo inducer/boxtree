@@ -721,6 +721,10 @@ def test_fmm_float32(ctx_getter, enable_extents):
     ctx = ctx_getter()
     queue = cl.CommandQueue(ctx)
 
+    from pyopencl.characterize import has_struct_arg_count_bug
+    if has_struct_arg_count_bug(queue.device):
+        pytest.xfail("won't work on devices with the struct arg count issue")
+
     logging.basicConfig(level=logging.INFO)
 
     dims = 2
