@@ -11,8 +11,8 @@ logging.basicConfig(level=logging.INFO)
 
 # Parameters
 dims = 2
-nsources = 10000
-ntargets = 10000
+nsources = 100000
+ntargets = 100000
 dtype = np.float64
 
 # Get the current rank
@@ -55,7 +55,7 @@ if rank == 0:
 
     from pyopencl.clrandom import PhiloxGenerator
     rng = PhiloxGenerator(queue.context, seed=22)
-    target_radii = rng.uniform(queue, ntargets, a=0, b=0.25, dtype=np.float64).get()
+    target_radii = rng.uniform(queue, ntargets, a=0, b=0.05, dtype=np.float64).get()
 
     # Display sources and targets
     if "--display" in sys.argv:
@@ -112,15 +112,13 @@ comm.barrier()
 start_time = last_time = time.time()
 
 # Compute FMM using distributed memory parallelism
-local_tree, local_src_weights, local_target, box_bounding_box = \
-    generate_local_tree(trav, sources_weights)
+local_tree, local_data, box_bounding_box = generate_local_tree(trav)
 
 now = time.time()
 print("Generate local tree " + str(now - last_time))
 last_time = now
 
-trav_local, trav_global = generate_local_travs(local_tree, local_src_weights,
-                                               box_bounding_box)
+trav_local, trav_global = generate_local_travs(local_tree, box_bounding_box)
 
 now = time.time()
 print("Generate local trav " + str(now - last_time))
@@ -145,8 +143,8 @@ else:
     global_wrangler = None
 
 pot_dfmm = drive_dfmm(
-    local_wrangler, trav_local, trav_global, local_src_weights, global_wrangler,
-    local_target["mask"], local_target["scan"], local_target["size"]
+    local_wrangler, trav_local, global_wrangler, trav_global, sources_weights,
+    local_data
 )
 
 now = time.time()

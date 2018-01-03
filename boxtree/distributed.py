@@ -421,7 +421,7 @@ def get_gen_local_tree_helper(queue, tree):
         """
     )
 
-    def gen_local_tree_helper(src_box_mask, tgt_box_mask, local_tree):
+    def gen_local_tree_helper(src_box_mask, tgt_box_mask, local_tree, local_data):
         """ This helper function generates a copy of the tree but with subset of
             particles, and fetch the generated fields to *local_tree*.
         """
@@ -545,43 +545,19 @@ def get_gen_local_tree_helper(queue, tree):
             local_box_target_counts_nonchild.get(queue=queue)
         local_tree.box_target_counts_cumul = \
             local_box_target_counts_cumul.get(queue=queue)
-        return (src_particle_mask, src_particle_scan, tgt_particle_mask,
-                tgt_particle_scan)
+
+        # Fetch fields to local_data
+        local_data["src_mask"] = src_particle_mask
+        local_data["src_scan"] = src_particle_scan
+        local_data["nsources"] = local_nsources
+        local_data["tgt_mask"] = tgt_particle_mask
+        local_data["tgt_scan"] = tgt_particle_scan
+        local_data["ntargets"] = local_ntargets
 
     return gen_local_tree_helper
 
 
-def get_gen_local_weights_helper(queue, particle_dtype, weight_dtype):
-    gen_local_source_weights_knl = cl.elementwise.ElementwiseKernel(
-        queue.context,
-        arguments=Template("""
-            __global ${weight_t} *src_weights,
-            __global ${particle_id_t} *particle_mask,
-            __global ${particle_id_t} *particle_scan,
-            __global ${weight_t} *local_weights
-        """, strict_undefined=True).render(
-            weight_t=dtype_to_ctype(weight_dtype),
-            particle_id_t=dtype_to_ctype(particle_dtype)
-        ),
-        operation="""
-            if(particle_mask[i]) {
-                local_weights[particle_scan[i]] = src_weights[i];
-            }
-        """
-    )
-
-    def gen_local_weights(global_weights, source_mask, source_scan):
-        local_nsources = source_scan[-1].get(queue)
-        local_weights = cl.array.empty(queue, (local_nsources,),
-                                       dtype=weight_dtype)
-        gen_local_source_weights_knl(global_weights, source_mask, source_scan,
-                                     local_weights)
-        return local_weights.get(queue)
-
-    return gen_local_weights
-
-
-def generate_local_tree(traversal, src_weights, comm=MPI.COMM_WORLD):
+def generate_local_tree(traversal, comm=MPI.COMM_WORLD):
     # {{{ kernel to mark if a box mpole is used by a process via an interaction list
 
     @memoize_in(generate_local_tree, "loopy_cache")
@@ -625,20 +601,22 @@ def generate_local_tree(traversal, src_weights, comm=MPI.COMM_WORLD):
     total_rank = comm.Get_size()
 
     # {{{ Construct local tree for each rank on root
-    local_target = {"mask": None, "scan": None, "size": None}
+    if current_rank == 0:
+        local_data = np.empty((total_rank,), dtype=object)
+        for i in range(total_rank):
+            local_data[i] = {
+                "src_mask": None, "src_scan": None, "nsources": None,
+                "tgt_mask": None, "tgt_scan": None, "ntargets": None
+            }
+    else:
+        local_data = None
+
     if current_rank == 0:
         tree = traversal.tree
         local_tree = np.empty((total_rank,), dtype=object)
-        local_target_mask = np.empty((total_rank,), dtype=object)
-        local_target_scan = np.empty((total_rank,), dtype=object)
-        local_ntargets = np.empty((total_rank,), dtype=tree.particle_id_dtype)
-        local_target["mask"] = local_target_mask
-        local_target["scan"] = local_target_scan
-        local_target["size"] = local_ntargets
-
-        d_box_parent_ids = cl.array.to_device(queue, tree.box_parent_ids)
 
         # {{{ Partition the work
+        d_box_parent_ids = cl.array.to_device(queue, tree.box_parent_ids)
 
         # Each rank is responsible for calculating the multiple expansion as well as
         # evaluating target potentials in *responsible_boxes*
@@ -801,18 +779,10 @@ def generate_local_tree(traversal, src_weights, comm=MPI.COMM_WORLD):
 
         # }}}
 
-        # Convert src_weights to tree order
-        src_weights = src_weights[tree.user_source_ids]
-        src_weights = cl.array.to_device(queue, src_weights)
-        local_src_weights = np.empty((total_rank,), dtype=object)
-
         # request objects for non-blocking communication
         tree_req = np.empty((total_rank,), dtype=object)
-        weight_req = np.empty((total_rank,), dtype=object)
 
         gen_local_tree_helper = get_gen_local_tree_helper(queue, tree)
-        gen_local_weights_helper = get_gen_local_weights_helper(queue,
-            tree.particle_id_dtype, src_weights.dtype)
         for rank in range(total_rank):
             local_tree[rank] = LocalTree.copy_from_global_tree(
                 tree, responsible_boxes_list[rank].get(),
@@ -823,22 +793,13 @@ def generate_local_tree(traversal, src_weights, comm=MPI.COMM_WORLD):
             local_tree[rank].user_source_ids = None
             local_tree[rank].sorted_target_ids = None
 
-            (src_mask, src_scan, tgt_mask, tgt_scan) = \
-                gen_local_tree_helper(src_boxes_mask[rank],
-                                      responsible_boxes_mask[rank],
-                                      local_tree[rank])
-
-            local_src_weights[rank] = gen_local_weights_helper(
-                src_weights, src_mask, src_scan)
-
-            local_target_mask[rank] = tgt_mask
-            local_target_scan[rank] = tgt_scan
-            local_ntargets[rank] = tgt_scan[-1].get(queue)
+            gen_local_tree_helper(src_boxes_mask[rank],
+                                  responsible_boxes_mask[rank],
+                                  local_tree[rank],
+                                  local_data[rank])
 
             tree_req[rank] = comm.isend(local_tree[rank], dest=rank,
                                         tag=MPITags.DIST_TREE)
-            weight_req[rank] = comm.isend(local_src_weights[rank], dest=rank,
-                                          tag=MPITags.DIST_WEIGHT)
 
     # }}}
 
@@ -849,16 +810,6 @@ def generate_local_tree(traversal, src_weights, comm=MPI.COMM_WORLD):
         local_tree = local_tree[0]
     else:
         local_tree = comm.recv(source=0, tag=MPITags.DIST_TREE)
-
-    # Recieve source weights from root
-    if current_rank == 0:
-        for rank in range(1, total_rank):
-            weight_req[rank].wait()
-        local_src_weights = local_src_weights[0]
-    else:
-        local_src_weights = comm.recv(source=0, tag=MPITags.DIST_WEIGHT)
-
-    rtv = (local_tree, local_src_weights, local_target)
 
     # Recieve box extent
     if current_rank == 0:
@@ -879,13 +830,11 @@ def generate_local_tree(traversal, src_weights, comm=MPI.COMM_WORLD):
         "min": box_target_bounding_box_min,
         "max": box_target_bounding_box_max
     }
-    rtv += (box_bounding_box,)
 
-    return rtv
+    return local_tree, local_data, box_bounding_box
 
 
-def generate_local_travs(local_tree, local_src_weights, box_bounding_box=None,
-                         comm=MPI.COMM_WORLD):
+def generate_local_travs(local_tree, box_bounding_box=None, comm=MPI.COMM_WORLD):
     d_tree = local_tree.to_device(queue)
 
     # Modify box flags for targets
@@ -960,8 +909,9 @@ def generate_local_travs(local_tree, local_src_weights, box_bounding_box=None,
 def communicate_mpoles(wrangler, comm, trav, mpole_exps, return_stats=False):
     """Based on Algorithm 3: Reduce and Scatter in [1].
 
-    The main idea is to mimic a hypercube allreduce, but to reduce bandwidth by
-    sending only necessary information.
+    The main idea is to mimic a allreduce as done on a hypercube network, but to
+    decrease the bandwidth cost by sending only information that is relevant to
+    the processes receiving the message.
 
     .. [1] Lashuk, Ilya, Aparna Chandramowlishwaran, Harper Langston,
        Tuan-Anh Nguyen, Rahul Sampath, Aashay Shringarpure, Richard Vuduc, Lexing
@@ -1073,12 +1023,74 @@ def communicate_mpoles(wrangler, comm, trav, mpole_exps, return_stats=False):
 # }}}
 
 
-def drive_dfmm(wrangler, trav_local, trav_global, local_src_weights, global_wrangler,
-               local_target_mask, local_target_scan, local_ntargets,
-               comm=MPI.COMM_WORLD, _communicate_mpoles_via_allreduce=False):
+def get_gen_local_weights_helper(queue, particle_dtype, weight_dtype):
+    gen_local_source_weights_knl = cl.elementwise.ElementwiseKernel(
+        queue.context,
+        arguments=Template("""
+            __global ${weight_t} *src_weights,
+            __global ${particle_id_t} *particle_mask,
+            __global ${particle_id_t} *particle_scan,
+            __global ${weight_t} *local_weights
+        """, strict_undefined=True).render(
+            weight_t=dtype_to_ctype(weight_dtype),
+            particle_id_t=dtype_to_ctype(particle_dtype)
+        ),
+        operation="""
+            if(particle_mask[i]) {
+                local_weights[particle_scan[i]] = src_weights[i];
+            }
+        """
+    )
+
+    def gen_local_weights(global_weights, source_mask, source_scan):
+        local_nsources = source_scan[-1].get(queue)
+        local_weights = cl.array.empty(queue, (local_nsources,),
+                                       dtype=weight_dtype)
+        gen_local_source_weights_knl(global_weights, source_mask, source_scan,
+                                     local_weights)
+        return local_weights.get(queue)
+
+    return gen_local_weights
+
+
+def drive_dfmm(wrangler, trav_local, global_wrangler, trav_global, source_weights,
+               local_data, comm=MPI.COMM_WORLD,
+               _communicate_mpoles_via_allreduce=False):
     # Get MPI information
     current_rank = comm.Get_rank()
     total_rank = comm.Get_size()
+
+    # {{{ Distribute source weights
+
+    if current_rank == 0:
+        weight_req = np.empty((total_rank,), dtype=object)
+
+        # Convert src_weights to tree order
+        src_weights = source_weights[global_wrangler.tree.user_source_ids]
+        src_weights = cl.array.to_device(queue, src_weights)
+        local_src_weights = np.empty((total_rank,), dtype=object)
+
+        # Generate local_weights
+        gen_local_weights_helper = get_gen_local_weights_helper(
+            queue, global_wrangler.tree.particle_id_dtype, src_weights.dtype)
+        for rank in range(total_rank):
+            local_src_weights[rank] = gen_local_weights_helper(
+                    src_weights,
+                    local_data[rank]["src_mask"],
+                    local_data[rank]["src_scan"]
+            )
+            weight_req[rank] = comm.isend(local_src_weights[rank], dest=rank,
+                                          tag=MPITags.DIST_WEIGHT)
+
+    # Recieve source weights from root
+    if current_rank == 0:
+        for rank in range(1, total_rank):
+            weight_req[rank].wait()
+        local_src_weights = local_src_weights[0]
+    else:
+        local_src_weights = comm.recv(source=0, tag=MPITags.DIST_WEIGHT)
+
+    # }}}
 
     # {{{ "Step 2.1:" Construct local multipoles
 
@@ -1227,7 +1239,7 @@ def drive_dfmm(wrangler, trav_local, trav_global, local_src_weights, global_wran
         potentials_all_ranks[0] = potentials
         for i in range(1, total_rank):
             potentials_all_ranks[i] = np.empty(
-                (local_ntargets[i],), dtype=potentials.dtype)
+                (local_data[i]["ntargets"],), dtype=potentials.dtype)
             comm.Recv([potentials_all_ranks[i], potentials_mpi_type],
                       source=i, tag=MPITags.GATHER_POTENTIALS)
     else:
@@ -1257,7 +1269,7 @@ def drive_dfmm(wrangler, trav_local, trav_global, local_src_weights, global_wran
         for i in range(total_rank):
             local_potentials = cl.array.to_device(queue, potentials_all_ranks[i])
             fill_potentials_knl(
-                local_target_mask[i], local_target_scan[i],
+                local_data[i]["tgt_mask"], local_data[i]["tgt_scan"],
                 local_potentials, d_potentials)
 
         potentials = d_potentials.get()
