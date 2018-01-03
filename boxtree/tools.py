@@ -647,7 +647,7 @@ class MaskCompressorKernel(object):
 # {{{ all-reduce
 
 class AllReduceCommPattern(object):
-    """Describes a butterfly communication pattern for allreduce. Supports efficient
+    """Describes a tree-like communication pattern for allreduce. Supports efficient
     allreduce between an arbitrary number of processes.
     """
 
