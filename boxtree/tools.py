@@ -632,6 +632,8 @@ class MaskCompressorKernel(object):
             result, evt = knl(queue, mask.shape[0], mask.data)
             return (result["output"].lists, evt)
         elif len(mask.shape) == 2:
+            # FIXME: This is efficient for small column sizes but may not be
+            # for larger ones since the work is partitioned by row.
             knl = self.get_matrix_compressor_kernel(mask.dtype, list_dtype)
             size = mask.dtype.itemsize
             result, evt = knl(queue, mask.shape[0], mask.shape[1],
