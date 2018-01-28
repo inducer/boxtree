@@ -1536,7 +1536,8 @@ class _KernelInfo(Record):
 
 
 class FMMTraversalBuilder:
-    def __init__(self, context, well_sep_is_n_away=1, from_sep_smaller_crit=None):
+    def __init__(self, context, well_sep_is_n_away=1, from_sep_smaller_crit=None,
+                 compress_list_3=False):
         """
         :arg well_sep_is_n_away: Either An integer 1 or greater. (Only 2 is tested)
             The spacing between boxes that is considered "well-separated" for
@@ -1548,10 +1549,13 @@ class FMMTraversalBuilder:
             (use the precise extent of targets in the box, including their radii),
             or ``"static_l2"`` (use the circumcircle of the box,
             possibly enlarged by :attr:`Tree.stick_out_factor`).
+        :arg compress_list_3: If set to True, only the target boxes with separated
+            smaller boxes will remain in list 3.
         """
         self.context = context
         self.well_sep_is_n_away = well_sep_is_n_away
         self.from_sep_smaller_crit = from_sep_smaller_crit
+        self.compress_list_3 = compress_list_3
 
     # {{{ kernel builder
 
@@ -1692,13 +1696,13 @@ class FMMTraversalBuilder:
                 VectorArg(box_flags_enum.dtype, "box_flags"),
                 ]
 
-        for list_name, template, extra_args, extra_lists in [
+        for list_name, template, extra_args, extra_lists, eliminate_empty_list in [
                 ("same_level_non_well_sep_boxes",
-                    SAME_LEVEL_NON_WELL_SEP_BOXES_TEMPLATE, [], []),
+                    SAME_LEVEL_NON_WELL_SEP_BOXES_TEMPLATE, [], [], False),
                 ("neighbor_source_boxes", NEIGBHOR_SOURCE_BOXES_TEMPLATE,
                         [
                             VectorArg(box_id_dtype, "target_boxes"),
-                            ], []),
+                            ], [], False),
                 ("from_sep_siblings", FROM_SEP_SIBLINGS_TEMPLATE,
                         [
                             VectorArg(box_id_dtype, "target_or_target_parent_boxes"),
@@ -1707,7 +1711,7 @@ class FMMTraversalBuilder:
                                 "same_level_non_well_sep_boxes_starts"),
                             VectorArg(box_id_dtype,
                                 "same_level_non_well_sep_boxes_lists"),
-                            ], []),
+                            ], [], False),
                 ("from_sep_smaller", FROM_SEP_SMALLER_TEMPLATE,
                         [
                             ScalarArg(coord_dtype, "stick_out_factor"),
@@ -1725,7 +1729,7 @@ class FMMTraversalBuilder:
                             ],
                             ["from_sep_close_smaller"]
                             if sources_have_extent or targets_have_extent
-                            else []),
+                            else [], self.compress_list_3),
                 ("from_sep_bigger", FROM_SEP_BIGGER_TEMPLATE,
                         [
                             ScalarArg(coord_dtype, "stick_out_factor"),
@@ -1738,7 +1742,7 @@ class FMMTraversalBuilder:
                             ],
                             ["from_sep_close_bigger"]
                             if sources_have_extent or targets_have_extent
-                            else []),
+                            else [], False),
                 ]:
             src = Template(
                     TRAVERSAL_PREAMBLE_TEMPLATE
@@ -1753,7 +1757,8 @@ class FMMTraversalBuilder:
                     str(src),
                     arg_decls=base_args + extra_args,
                     debug=debug, name_prefix=list_name,
-                    complex_kernel=True)
+                    complex_kernel=True,
+                    eliminate_empty_output_lists=eliminate_empty_list)
 
         # }}}
 
