@@ -270,10 +270,11 @@ class DeviceDataRecord(Record):
             elif isinstance(val, list):
                 return [transform_val(i) for i in val]
             elif isinstance(val, BuiltList):
-                return BuiltList(
-                        count=val.count,
-                        starts=f(val.starts),
-                        lists=f(val.lists))
+                transformed_list = {
+                    field: f(getattr(val, field))
+                    for field in val.__dict__ if field != 'count'
+                }
+                return BuiltList(count=val.count, **transformed_list)
             else:
                 return f(val)
 
