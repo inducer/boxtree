@@ -1536,8 +1536,7 @@ class _KernelInfo(Record):
 
 
 class FMMTraversalBuilder:
-    def __init__(self, context, well_sep_is_n_away=1, from_sep_smaller_crit=None,
-                 compress_list_3=False):
+    def __init__(self, context, well_sep_is_n_away=1, from_sep_smaller_crit=None):
         """
         :arg well_sep_is_n_away: Either An integer 1 or greater. (Only 2 is tested)
             The spacing between boxes that is considered "well-separated" for
@@ -1555,7 +1554,6 @@ class FMMTraversalBuilder:
         self.context = context
         self.well_sep_is_n_away = well_sep_is_n_away
         self.from_sep_smaller_crit = from_sep_smaller_crit
-        self.compress_list_3 = compress_list_3
 
     # {{{ kernel builder
 
@@ -1729,7 +1727,7 @@ class FMMTraversalBuilder:
                             ],
                             ["from_sep_close_smaller"]
                             if sources_have_extent or targets_have_extent
-                            else [], self.compress_list_3),
+                            else [], True),
                 ("from_sep_bigger", FROM_SEP_BIGGER_TEMPLATE,
                         [
                             ScalarArg(coord_dtype, "stick_out_factor"),
