@@ -6,6 +6,7 @@ from six.moves import range
 from pyopencl.tools import (  # noqa
         pytest_generate_tests_for_pyopencl as pytest_generate_tests)
 
+
 def test_list3_compression(ctx_factory):
     ctx = ctx_factory()
     queue = cl.CommandQueue(ctx)
