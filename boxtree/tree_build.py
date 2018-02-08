@@ -461,8 +461,8 @@ class TreeBuilder(object):
 
         # Initialize box_centers[0] to contain the root box's center
         for d, (ax, evt) in enumerate(zip(axis_names, evts)):
-            center_ax = bbox["min_"
-                             + ax] + (bbox["max_" + ax] - bbox["min_" + ax]) / 2
+            center_ax = bbox["min_" + ax] + (
+                bbox["max_" + ax] - bbox["min_" + ax]) / 2
             box_centers[d][0].fill(center_ax, wait_for=[evt])
 
         # box -> level map
