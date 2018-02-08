@@ -92,7 +92,6 @@ class TreeBuilder(object):
                  max_leaf_refine_weight=None,
                  wait_for=None,
                  extent_norm=None,
-                 bbox=None,
                  **kwargs):
         """
         :arg queue: a :class:`pyopencl.CommandQueue` instance
@@ -132,8 +131,6 @@ class TreeBuilder(object):
             execution.
         :arg extent_norm: ``"l2"`` or ``"linf"``. Indicates the norm with respect
             to which particle stick-out is measured. See :attr:`Tree.extent_norm`.
-        :arg bbox: When specified, the bounding box is used for tree
-            building. Otherwise, the bounding box is determined from particles.
         :arg kwargs: Used internally for debugging.
 
         :returns: a tuple ``(tree, event)``, where *tree* is an instance of
@@ -356,35 +353,22 @@ class TreeBuilder(object):
 
         # {{{ find and process bounding box
 
-        if bbox is None:
-            bbox, _ = self.bbox_finder(
-                srcntgts, srcntgt_radii, wait_for=wait_for)
-            bbox = bbox.get()
+        bbox, _ = self.bbox_finder(srcntgts, srcntgt_radii, wait_for=wait_for)
+        bbox = bbox.get()
 
-            root_extent = max(
-                bbox["max_" + ax] - bbox["min_" + ax] for ax in axis_names) * (
-                    1 + TreeBuilder.ROOT_EXTENT_STRETCH_FACTOR)
+        root_extent = max(
+            bbox["max_" + ax] - bbox["min_" + ax]
+            for ax in axis_names) * (1 + TreeBuilder.ROOT_EXTENT_STRETCH_FACTOR)
 
-            # make bbox square and slightly larger at the top, to ensure scaled
-            # coordinates are always < 1
-            bbox_min = np.empty(dimensions, coord_dtype)
-            for i, ax in enumerate(axis_names):
-                bbox_min[i] = bbox["min_" + ax]
+        # make bbox square and slightly larger at the top, to ensure scaled
+        # coordinates are always < 1
+        bbox_min = np.empty(dimensions, coord_dtype)
+        for i, ax in enumerate(axis_names):
+            bbox_min[i] = bbox["min_" + ax]
 
-            bbox_max = bbox_min + root_extent
-            for i, ax in enumerate(axis_names):
-                bbox["max_" + ax] = bbox_max[i]
-        else:
-            # all coordinates must be at the interior (boundary excluded)
-            # of the bbox
-            # Currently only cubic domain has ensured mesh reconstruction.
-            bbox_min = np.empty(dimensions, coord_dtype)
-            bbox_max = np.empty(dimensions, coord_dtype)
-            for i, ax in enumerate(axis_names):
-                bbox_min[i] = bbox["min_" + ax]
-                bbox_max[i] = bbox["max_" + ax]
-                assert (bbox_min[i] < bbox_max[i])
-            root_extent = max(bbox_max - bbox_min)
+        bbox_max = bbox_min + root_extent
+        for i, ax in enumerate(axis_names):
+            bbox["max_" + ax] = bbox_max[i]
 
         # }}}
 
