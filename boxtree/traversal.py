@@ -1696,11 +1696,11 @@ class FMMTraversalBuilder:
 
         for list_name, template, extra_args, extra_lists, eliminate_empty_list in [
                 ("same_level_non_well_sep_boxes",
-                    SAME_LEVEL_NON_WELL_SEP_BOXES_TEMPLATE, [], [], False),
+                    SAME_LEVEL_NON_WELL_SEP_BOXES_TEMPLATE, [], [], []),
                 ("neighbor_source_boxes", NEIGBHOR_SOURCE_BOXES_TEMPLATE,
                         [
                             VectorArg(box_id_dtype, "target_boxes"),
-                            ], [], False),
+                            ], [], []),
                 ("from_sep_siblings", FROM_SEP_SIBLINGS_TEMPLATE,
                         [
                             VectorArg(box_id_dtype, "target_or_target_parent_boxes"),
@@ -1709,7 +1709,7 @@ class FMMTraversalBuilder:
                                 "same_level_non_well_sep_boxes_starts"),
                             VectorArg(box_id_dtype,
                                 "same_level_non_well_sep_boxes_lists"),
-                            ], [], False),
+                            ], [], []),
                 ("from_sep_smaller", FROM_SEP_SMALLER_TEMPLATE,
                         [
                             ScalarArg(coord_dtype, "stick_out_factor"),
@@ -1727,7 +1727,7 @@ class FMMTraversalBuilder:
                             ],
                             ["from_sep_close_smaller"]
                             if sources_have_extent or targets_have_extent
-                            else [], True),
+                            else [], ["from_sep_smaller"]),
                 ("from_sep_bigger", FROM_SEP_BIGGER_TEMPLATE,
                         [
                             ScalarArg(coord_dtype, "stick_out_factor"),
@@ -1740,7 +1740,7 @@ class FMMTraversalBuilder:
                             ],
                             ["from_sep_close_bigger"]
                             if sources_have_extent or targets_have_extent
-                            else [], False),
+                            else [], []),
                 ]:
             src = Template(
                     TRAVERSAL_PREAMBLE_TEMPLATE
