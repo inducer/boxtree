@@ -2035,6 +2035,7 @@ class FMMTraversalBuilder:
 
         from_sep_smaller_wait_for = []
         from_sep_smaller_by_level = []
+        target_boxes_sep_smaller_by_level = []
 
         for ilevel in range(tree.nlevels):
             fin_debug("finding separated smaller ('list 3 level %d')" % ilevel)
@@ -2044,7 +2045,11 @@ class FMMTraversalBuilder:
                     omit_lists=("from_sep_close_smaller",) if with_extent else (),
                     wait_for=wait_for)
 
+            target_boxes_sep_smaller = target_boxes[
+                result["from_sep_smaller"].nonempty_indices]
+
             from_sep_smaller_by_level.append(result["from_sep_smaller"])
+            target_boxes_sep_smaller_by_level.append(target_boxes_sep_smaller)
             from_sep_smaller_wait_for.append(evt)
 
         if with_extent:
@@ -2140,6 +2145,7 @@ class FMMTraversalBuilder:
                 from_sep_siblings_lists=from_sep_siblings.lists,
 
                 from_sep_smaller_by_level=from_sep_smaller_by_level,
+                target_boxes_sep_smaller_by_level=target_boxes_sep_smaller_by_level,
 
                 from_sep_close_smaller_starts=from_sep_close_smaller_starts,
                 from_sep_close_smaller_lists=from_sep_close_smaller_lists,

@@ -113,15 +113,9 @@ def drive_fmm(traversal, expansion_wrangler, src_weights):
     # (the point of aiming this stage at particles is specifically to keep its
     # contribution *out* of the downward-propagating local expansions)
 
-    target_boxes_by_level = np.empty((traversal.tree.nlevels,), dtype=object)
-    for i, from_sep_smaller_current_level in \
-            enumerate(traversal.from_sep_smaller_by_level):
-        target_boxes_by_level[i] = traversal.target_boxes[
-            from_sep_smaller_current_level.nonempty_indices]
-
     potentials = potentials + wrangler.eval_multipoles(
             traversal.level_start_target_box_nrs,
-            target_boxes_by_level,
+            traversal.target_boxes_sep_smaller_by_level,
             traversal.from_sep_smaller_by_level,
             mpole_exps)
 
