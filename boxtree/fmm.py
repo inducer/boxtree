@@ -1,5 +1,4 @@
 from __future__ import division
-import numpy as np
 
 __copyright__ = "Copyright (C) 2012 Andreas Kloeckner"
 
