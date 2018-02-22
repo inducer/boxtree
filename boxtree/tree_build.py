@@ -36,6 +36,10 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+class MaxLevelsExceeded(RuntimeError):
+    pass
+
+
 class TreeBuilder(object):
     def __init__(self, context):
         """
@@ -540,9 +544,9 @@ class TreeBuilder(object):
                 assert level == len(level_used_box_counts)
                 assert level == len(level_leaf_counts)
 
-            assert np.iinfo(self.box_level_dtype).max >= np.finfo(coord_dtype).mnant
+            assert np.iinfo(self.box_level_dtype).max >= np.finfo(coord_dtype).nmant
             if level > np.finfo(coord_dtype).nmant:
-                raise RuntimeError("Level count exceeded number of significant "
+                raise MaxLevelsExceeded("Level count exceeded number of significant "
                         "bits in coordinate dtype. That means that a large number "
                         "of particles was indistinguishable up to floating point "
                         "precision (because they ended up in the same box).")
