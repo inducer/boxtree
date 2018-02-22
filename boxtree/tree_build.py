@@ -540,8 +540,12 @@ class TreeBuilder(object):
                 assert level == len(level_used_box_counts)
                 assert level == len(level_leaf_counts)
 
-            if level > np.iinfo(self.box_level_dtype).max:
-                raise RuntimeError("level count exceeded maximum")
+            assert np.iinfo(self.box_level_dtype).max >= np.finfo(coord_dtype).mnant
+            if level > np.finfo(coord_dtype).nmant:
+                raise RuntimeError("Level count exceeded number of significant "
+                        "bits in coordinate dtype. That means that a large number "
+                        "of particles was indistinguishable up to floating point "
+                        "precision (because they ended up in the same box).")
 
             common_args = ((morton_bin_counts, morton_nrs,
                     box_start_flags,
