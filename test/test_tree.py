@@ -1122,6 +1122,25 @@ def test_same_tree_with_zero_weight_particles(ctx_factory, dims):
 # }}}
 
 
+# {{{ test_max_levels_error
+
+def test_max_levels_error(ctx_factory):
+    ctx = ctx_factory()
+    queue = cl.CommandQueue(ctx)
+
+    from boxtree import TreeBuilder
+    tb = TreeBuilder(ctx)
+
+    logging.basicConfig(level=logging.INFO)
+
+    sources = [cl.array.zeros(queue, 11, float) for i in range(2)]
+    from boxtree.tree_build import MaxLevelsExceeded
+    with pytest.raises(MaxLevelsExceeded):
+        tree, _ = tb(queue, sources, max_particles_in_box=10, debug=True)
+
+# }}}
+
+
 # You can test individual routines by typing
 # $ python test_tree.py 'test_routine(cl.create_some_context)'
 
