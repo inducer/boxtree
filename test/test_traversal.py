@@ -143,7 +143,7 @@ def test_tree_connectivity(ctx_getter, dims, sources_are_targets):
 
         for level, ssn in enumerate(trav.from_sep_smaller_by_level):
             for itarget_box, ibox in \
-                    enumerate(trav.target_boxes_sep_smaller_by_level[level]):
+                    enumerate(trav.target_boxes_sep_smaller_by_source_level[level]):
                 start, end = ssn.starts[itarget_box:itarget_box+2]
 
                 for jbox in ssn.lists[start:end]:
@@ -156,18 +156,18 @@ def test_tree_connectivity(ctx_getter, dims, sources_are_targets):
 
         # {{{ list 4 <= list 3
 
-        box_to_target_boxes_sep_smaller_by_level = []
+        box_to_target_boxes_sep_smaller_by_source_level = []
         for level in range(trav.tree.nlevels):
             box_to_target_boxes_sep_smaller = np.empty(
                 tree.nboxes, tree.box_id_dtype)
             box_to_target_boxes_sep_smaller.fill(-1)
             box_to_target_boxes_sep_smaller[
-                trav.target_boxes_sep_smaller_by_level[level]
+                trav.target_boxes_sep_smaller_by_source_level[level]
             ] = np.arange(
-                len(trav.target_boxes_sep_smaller_by_level[level]),
+                len(trav.target_boxes_sep_smaller_by_source_level[level]),
                 dtype=tree.box_id_dtype
             )
-            box_to_target_boxes_sep_smaller_by_level.append(
+            box_to_target_boxes_sep_smaller_by_source_level.append(
                 box_to_target_boxes_sep_smaller)
 
         assert (trav.source_boxes == trav.target_boxes).all()
@@ -186,7 +186,8 @@ def test_tree_connectivity(ctx_getter, dims, sources_are_targets):
                 good = False
 
                 for level, ssn in enumerate(trav.from_sep_smaller_by_level):
-                    jtgt_box = box_to_target_boxes_sep_smaller_by_level[level][jbox]
+                    jtgt_box = \
+                        box_to_target_boxes_sep_smaller_by_source_level[level][jbox]
                     if jtgt_box == -1:
                         continue
                     rstart, rend = ssn.starts[jtgt_box:jtgt_box + 2]
@@ -221,7 +222,7 @@ def test_tree_connectivity(ctx_getter, dims, sources_are_targets):
     #    for ssn in trav.from_sep_smaller_by_level:
     for level, ssn in enumerate(trav.from_sep_smaller_by_level):
         for itarget_box, ibox in enumerate(
-                trav.target_boxes_sep_smaller_by_level[level]):
+                trav.target_boxes_sep_smaller_by_source_level[level]):
             start, end = ssn.starts[itarget_box:itarget_box+2]
 
             for jbox in ssn.lists[start:end]:

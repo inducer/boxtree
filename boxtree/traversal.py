@@ -1305,7 +1305,7 @@ class FMMTraversalInfo(DeviceDataRecord):
 
     Indexed like :attr:`target_or_target_parent_boxes`.  See :ref:`csr`.
 
-    .. attribute:: target_boxes_sep_smaller_by_level
+    .. attribute:: target_boxes_sep_smaller_by_source_level
 
         A list of :attr:`boxtree.Tree.nlevels` objects, each of which records target
         boxes (in global box numbers) with "List 3" source boxes on that level.
@@ -1321,9 +1321,10 @@ class FMMTraversalInfo(DeviceDataRecord):
         type ``box_id_t``.  (Note: This list contains global box numbers, not
         indices into :attr:`source_boxes`.)
 
-        Note *starts* are indexed by `target_boxes_sep_smaller_by_level`. For
+        Note *starts* are indexed by `target_boxes_sep_smaller_by_source_level`. For
         example, for level *i*, *lists[starts[j]:starts[j+1]]* represents "List 3"
-        source boxes of *target_boxes_sep_smaller_by_level[i][j]* on level *i*.
+        source boxes of *target_boxes_sep_smaller_by_source_level[i][j]* on level
+        *i*.
 
     .. attribute:: from_sep_close_smaller_starts
 
@@ -2044,7 +2045,7 @@ class FMMTraversalBuilder:
 
         from_sep_smaller_wait_for = []
         from_sep_smaller_by_level = []
-        target_boxes_sep_smaller_by_level = []
+        target_boxes_sep_smaller_by_source_level = []
 
         for ilevel in range(tree.nlevels):
             fin_debug("finding separated smaller ('list 3 level %d')" % ilevel)
@@ -2058,7 +2059,7 @@ class FMMTraversalBuilder:
                 result["from_sep_smaller"].nonempty_indices]
 
             from_sep_smaller_by_level.append(result["from_sep_smaller"])
-            target_boxes_sep_smaller_by_level.append(target_boxes_sep_smaller)
+            target_boxes_sep_smaller_by_source_level.append(target_boxes_sep_smaller)
             from_sep_smaller_wait_for.append(evt)
 
         if with_extent:
@@ -2154,7 +2155,8 @@ class FMMTraversalBuilder:
                 from_sep_siblings_lists=from_sep_siblings.lists,
 
                 from_sep_smaller_by_level=from_sep_smaller_by_level,
-                target_boxes_sep_smaller_by_level=target_boxes_sep_smaller_by_level,
+                target_boxes_sep_smaller_by_source_level=(
+                    target_boxes_sep_smaller_by_source_level),
 
                 from_sep_close_smaller_starts=from_sep_close_smaller_starts,
                 from_sep_close_smaller_lists=from_sep_close_smaller_lists,
