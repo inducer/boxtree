@@ -1305,16 +1305,25 @@ class FMMTraversalInfo(DeviceDataRecord):
 
     Indexed like :attr:`target_or_target_parent_boxes`.  See :ref:`csr`.
 
+    .. attribute:: target_boxes_sep_smaller_by_level
+
+        A list of :attr:`boxtree.Tree.nlevels` objects, each of which records target
+        boxes (in global box numbers) with "List 3" source boxes on that level.
+
     .. attribute:: from_sep_smaller_by_level
 
         A list of :attr:`boxtree.Tree.nlevels` (corresponding to the levels on
         which each listed source box resides) objects, each of which has
-        attributes *count*, *starts* and *lists*, which form a CSR list of List
-        3 source boxes.
+        attributes *count*, *starts*, *lists*, *num_nonempty_lists*, and
+        *nonempty_indices*, which form a CSR list of List 3 source boxes.
 
-        *starts* has shape/type ``box_id_t [ntarget_boxes+1]``. *lists* is of type
-        ``box_id_t``.  (Note: This list contains global box numbers, not
+        *starts* has shape/type ``box_id_t [num_nonempty_lists+1]``. *lists* is of
+        type ``box_id_t``.  (Note: This list contains global box numbers, not
         indices into :attr:`source_boxes`.)
+
+        Note *starts* are indexed by `target_boxes_sep_smaller_by_level`. For
+        example, for level *i*, *lists[starts[j]:starts[j+1]]* represents "List 3"
+        source boxes of *target_boxes_sep_smaller_by_level[i][j]* on level *i*.
 
     .. attribute:: from_sep_close_smaller_starts
 

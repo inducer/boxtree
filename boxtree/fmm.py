@@ -273,12 +273,13 @@ class ExpansionWranglerInterface:
             :meth:`local_expansion_zeros`.
         """
 
-    def eval_multipoles(self, level_start_target_box_nrs, target_boxes,
-            starts, lists, mpole_exps):
-        """For each box in *target_boxes*, evaluate the multipole expansion in
-        *mpole_exps* in the nearby boxes given in *starts* and *lists*, and
-        return a new potential array.  *starts* and *lists* use :ref:`csr` and
-        *starts* is indexed like *target_boxes*.
+    def eval_multipoles(self, level_start_target_box_nrs,
+            target_boxes_by_level, starts, lists, mpole_exps):
+        """For a level *i*, each box in *target_boxes_by_level[i]*, evaluate
+        the multipole expansion in *mpole_exps* in the nearby boxes given in
+        *starts* and *lists*, and return a new potential array.  *starts* and
+        *lists* use :ref:`csr` and *starts* is indexed like
+        *target_boxes_by_level[i]*.
 
         :returns: a new potential array, see :meth:`output_zeros`.
         """
