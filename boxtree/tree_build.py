@@ -458,7 +458,9 @@ class TreeBuilder(object):
                 queue, box_parent_ids.data, np.zeros((), dtype=box_parent_ids.dtype))
         prep_events.append(evt)
 
-        nlevels_max = np.finfo(coord_dtype).nmant + 1  # num bits in the significand
+        # 2*(num bits in the significand)
+        # https://gitlab.tiker.net/inducer/boxtree/issues/23
+        nlevels_max = 2*(np.finfo(coord_dtype).nmant + 1)
         assert nlevels_max <= np.iinfo(self.box_level_dtype).max
 
         # level -> starting box on level
