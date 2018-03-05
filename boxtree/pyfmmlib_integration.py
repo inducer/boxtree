@@ -631,9 +631,9 @@ class FMMLibExpansionWrangler(object):
 
         return local_exps
 
-    def eval_multipoles(self, level_start_target_box_nrs,
-                        target_boxes_by_source_level,
-                        sep_smaller_nonsiblings_by_level, mpole_exps):
+    def eval_multipoles(self,
+            target_boxes_by_source_level, sep_smaller_nonsiblings_by_level,
+            mpole_exps):
         output = self.output_zeros()
 
         mpeval = self.get_expn_eval_routine("mp")
