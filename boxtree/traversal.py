@@ -1307,8 +1307,11 @@ class FMMTraversalInfo(DeviceDataRecord):
 
     .. attribute:: target_boxes_sep_smaller_by_source_level
 
-        A list of :attr:`boxtree.Tree.nlevels` objects, each of which records target
-        boxes (in global box numbers) with "List 3" source boxes on that level.
+        A list of arrays, one per level, indicating which target boxes are used with
+        the interaction list entries of :attr:`from_sep_smaller_by_level`.
+        ``target_boxes_sep_smaller_by_source_level[i]`` has length
+        ``from_sep_smaller_by_level[i].num_nonempty_lists`.
+
 
     .. attribute:: from_sep_smaller_by_level
 
@@ -1558,8 +1561,6 @@ class FMMTraversalBuilder:
             (use the precise extent of targets in the box, including their radii),
             or ``"static_l2"`` (use the circumcircle of the box,
             possibly enlarged by :attr:`Tree.stick_out_factor`).
-        :arg compress_list_3: If set to True, only the target boxes with separated
-            smaller boxes will remain in list 3.
         """
         self.context = context
         self.well_sep_is_n_away = well_sep_is_n_away

@@ -272,7 +272,7 @@ class DeviceDataRecord(Record):
             elif isinstance(val, BuiltList):
                 transformed_list = {}
                 for field in val.__dict__:
-                    if field != 'count':
+                    if field != 'count' and not field.startswith('_'):
                         transformed_list[field] = f(getattr(val, field))
                 return BuiltList(count=val.count, **transformed_list)
             else:
