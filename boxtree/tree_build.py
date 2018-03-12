@@ -36,6 +36,10 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+class MaxLevelsExceeded(RuntimeError):
+    pass
+
+
 class TreeBuilder(object):
     def __init__(self, context):
         """
@@ -454,7 +458,10 @@ class TreeBuilder(object):
                 queue, box_parent_ids.data, np.zeros((), dtype=box_parent_ids.dtype))
         prep_events.append(evt)
 
-        nlevels_max = np.iinfo(self.box_level_dtype).max
+        # 2*(num bits in the significand)
+        # https://gitlab.tiker.net/inducer/boxtree/issues/23
+        nlevels_max = 2*(np.finfo(coord_dtype).nmant + 1)
+        assert nlevels_max <= np.iinfo(self.box_level_dtype).max
 
         # level -> starting box on level
         level_start_box_nrs_dev, evt = zeros(nlevels_max, dtype=box_id_dtype)
@@ -540,8 +547,11 @@ class TreeBuilder(object):
                 assert level == len(level_used_box_counts)
                 assert level == len(level_leaf_counts)
 
-            if level > np.iinfo(self.box_level_dtype).max:
-                raise RuntimeError("level count exceeded maximum")
+            if level + 1 >= nlevels_max:  # level is zero-based
+                raise MaxLevelsExceeded("Level count exceeded number of significant "
+                        "bits in coordinate dtype. That means that a large number "
+                        "of particles was indistinguishable up to floating point "
+                        "precision (because they ended up in the same box).")
 
             common_args = ((morton_bin_counts, morton_nrs,
                     box_start_flags,

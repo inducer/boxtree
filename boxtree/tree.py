@@ -190,10 +190,10 @@ class Tree(DeviceDataRecord):
 
     .. attribute:: target_radii
 
-        ``coord_t [nsources]``
+        ``coord_t [ntargets]``
 
         :math:`l^\infty` radii of the :attr:`targets`.
-        Available if :attr:`sources_have_extent` is *True*.
+        Available if :attr:`targets_have_extent` is *True*.
 
     .. ------------------------------------------------------------------------
     .. rubric:: Tree/user order indices

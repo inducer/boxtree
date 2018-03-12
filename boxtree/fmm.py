@@ -113,8 +113,7 @@ def drive_fmm(traversal, expansion_wrangler, src_weights):
     # contribution *out* of the downward-propagating local expansions)
 
     potentials = potentials + wrangler.eval_multipoles(
-            traversal.level_start_target_box_nrs,
-            traversal.target_boxes,
+            traversal.target_boxes_sep_smaller_by_source_level,
             traversal.from_sep_smaller_by_level,
             mpole_exps)
 
@@ -273,12 +272,13 @@ class ExpansionWranglerInterface:
             :meth:`local_expansion_zeros`.
         """
 
-    def eval_multipoles(self, level_start_target_box_nrs, target_boxes,
-            starts, lists, mpole_exps):
-        """For each box in *target_boxes*, evaluate the multipole expansion in
-        *mpole_exps* in the nearby boxes given in *starts* and *lists*, and
-        return a new potential array.  *starts* and *lists* use :ref:`csr` and
-        *starts* is indexed like *target_boxes*.
+    def eval_multipoles(self,
+            target_boxes_by_source_level, from_sep_smaller_by_level, mpole_exps):
+        """For a level *i*, each box in *target_boxes_by_source_level[i]*, evaluate
+        the multipole expansion in *mpole_exps* in the nearby boxes given in
+        *from_sep_smaller_by_level*, and return a new potential array.
+        *starts* and *lists* in *from_sep_smaller_by_level[i]* use :ref:`csr`
+        and *starts* is indexed like *target_boxes_by_source_level[i]*.
 
         :returns: a new potential array, see :meth:`output_zeros`.
         """

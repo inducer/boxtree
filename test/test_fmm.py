@@ -141,12 +141,14 @@ class ConstantOneExpansionWrangler(object):
 
         return local_exps
 
-    def eval_multipoles(self, level_start_target_box_nrs, target_boxes,
-            from_sep_smaller_nonsiblings_by_level, mpole_exps):
+    def eval_multipoles(self,
+            target_boxes_by_source_level, from_sep_smaller_nonsiblings_by_level,
+            mpole_exps):
         pot = self.potential_zeros()
 
-        for ssn in from_sep_smaller_nonsiblings_by_level:
-            for itgt_box, tgt_ibox in enumerate(target_boxes):
+        for level, ssn in enumerate(from_sep_smaller_nonsiblings_by_level):
+            for itgt_box, tgt_ibox in \
+                    enumerate(target_boxes_by_source_level[level]):
                 tgt_pslice = self._get_target_slice(tgt_ibox)
 
                 contrib = 0
@@ -656,6 +658,121 @@ def test_pyfmmlib_fmm(ctx_getter, dims, use_dipoles, helmholtz_k):
 # }}}
 
 
+# {{{ test particle count thresholding in traversal generation
+
+@pytest.mark.parametrize("enable_extents", [True, False])
+def test_interaction_list_particle_count_thresholding(ctx_getter, enable_extents):
+    ctx = ctx_getter()
+    queue = cl.CommandQueue(ctx)
+
+    logging.basicConfig(level=logging.INFO)
+
+    dims = 2
+    nsources = 1000
+    ntargets = 1000
+    dtype = np.float
+
+    max_particles_in_box = 30
+    # Ensure that we have underfilled boxes.
+    from_sep_smaller_min_nsources_cumul = 1 + max_particles_in_box
+
+    from boxtree.fmm import drive_fmm
+    sources = p_normal(queue, nsources, dims, dtype, seed=15)
+    targets = p_normal(queue, ntargets, dims, dtype, seed=15)
+
+    from pyopencl.clrandom import PhiloxGenerator
+    rng = PhiloxGenerator(queue.context, seed=12)
+
+    if enable_extents:
+        target_radii = 2**rng.uniform(queue, ntargets, dtype=dtype, a=-10, b=0)
+    else:
+        target_radii = None
+
+    from boxtree import TreeBuilder
+    tb = TreeBuilder(ctx)
+
+    tree, _ = tb(queue, sources, targets=targets,
+            max_particles_in_box=max_particles_in_box,
+            target_radii=target_radii,
+            debug=True, stick_out_factor=0.25)
+
+    from boxtree.traversal import FMMTraversalBuilder
+    tbuild = FMMTraversalBuilder(ctx)
+    trav, _ = tbuild(queue, tree, debug=True,
+            _from_sep_smaller_min_nsources_cumul=from_sep_smaller_min_nsources_cumul)
+
+    weights = np.ones(nsources)
+    weights_sum = np.sum(weights)
+
+    host_trav = trav.get(queue=queue)
+    host_tree = host_trav.tree
+
+    wrangler = ConstantOneExpansionWrangler(host_tree)
+
+    pot = drive_fmm(host_trav, wrangler, weights)
+
+    assert (pot == weights_sum).all()
+
+# }}}
+
+
+# {{{ test fmm with float32 dtype
+
+@pytest.mark.parametrize("enable_extents", [True, False])
+def test_fmm_float32(ctx_getter, enable_extents):
+    ctx = ctx_getter()
+    queue = cl.CommandQueue(ctx)
+
+    from pyopencl.characterize import has_struct_arg_count_bug
+    if has_struct_arg_count_bug(queue.device):
+        pytest.xfail("won't work on devices with the struct arg count issue")
+
+    logging.basicConfig(level=logging.INFO)
+
+    dims = 2
+    nsources = 1000
+    ntargets = 1000
+    dtype = np.float32
+
+    from boxtree.fmm import drive_fmm
+    sources = p_normal(queue, nsources, dims, dtype, seed=15)
+    targets = p_normal(queue, ntargets, dims, dtype, seed=15)
+
+    from pyopencl.clrandom import PhiloxGenerator
+    rng = PhiloxGenerator(queue.context, seed=12)
+
+    if enable_extents:
+        target_radii = 2**rng.uniform(queue, ntargets, dtype=dtype, a=-10, b=0)
+    else:
+        target_radii = None
+
+    from boxtree import TreeBuilder
+    tb = TreeBuilder(ctx)
+
+    tree, _ = tb(queue, sources, targets=targets,
+            max_particles_in_box=30,
+            target_radii=target_radii,
+            debug=True, stick_out_factor=0.25)
+
+    from boxtree.traversal import FMMTraversalBuilder
+    tbuild = FMMTraversalBuilder(ctx)
+    trav, _ = tbuild(queue, tree, debug=True)
+
+    weights = np.ones(nsources)
+    weights_sum = np.sum(weights)
+
+    host_trav = trav.get(queue=queue)
+    host_tree = host_trav.tree
+
+    wrangler = ConstantOneExpansionWrangler(host_tree)
+
+    pot = drive_fmm(host_trav, wrangler, weights)
+
+    assert (pot == weights_sum).all()
+
+# }}}
+
+
 # You can test individual routines by typing
 # $ python test_fmm.py 'test_routine(cl.create_some_context)'
 
@@ -664,7 +781,7 @@ if __name__ == "__main__":
     if len(sys.argv) > 1:
         exec(sys.argv[1])
     else:
-        from py.test.cmdline import main
+        from pytest import main
         main([__file__])
 
 # vim: fdm=marker
