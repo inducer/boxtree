@@ -591,7 +591,7 @@ def generate_local_tree(traversal, comm=MPI.COMM_WORLD):
             ],
             default_offset=lp.auto)
 
-        knl = lp.split_iname(knl, "itgt_box", 16, outer_tag="g.0", inner_tag="l.0")
+        # knl = lp.split_iname(knl, "itgt_box", 16, outer_tag="g.0", inner_tag="l.0")
         return knl
 
     # }}}
@@ -756,7 +756,8 @@ def generate_local_tree(traversal, comm=MPI.COMM_WORLD):
             knl(queue,
                 total_rank=total_rank,
                 nboxes=tree.nboxes,
-                target_boxes=traversal.target_boxes,
+                target_boxes=(
+                    traversal.target_boxes_sep_smaller_by_source_level[level]),
                 relevant_boxes_mask=responsible_boxes_mask,
                 source_box_starts=source_box_starts,
                 source_box_lists=source_box_lists,
@@ -1169,8 +1170,7 @@ def drive_dfmm(wrangler, trav_local, global_wrangler, trav_global, source_weight
     # contribution *out* of the downward-propagating local expansions)
 
     potentials = potentials + wrangler.eval_multipoles(
-            trav_global.level_start_target_box_nrs,
-            trav_global.target_boxes,
+            trav_global.target_boxes_sep_smaller_by_source_level,
             trav_global.from_sep_smaller_by_level,
             mpole_exps)
 
