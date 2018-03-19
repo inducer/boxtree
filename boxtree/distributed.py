@@ -206,12 +206,13 @@ class DistributedFMMLibExpansionWrangler(FMMLibExpansionWrangler):
 # }}}
 
 
-class MPITags():
-    DIST_TREE = 0
-    DIST_WEIGHT = 1
-    GATHER_POTENTIALS = 2
-    REDUCE_POTENTIALS = 3
-    REDUCE_INDICES = 4
+MPITags = dict(
+    DIST_TREE=0,
+    DIST_WEIGHT=1,
+    GATHER_POTENTIALS=2,
+    REDUCE_POTENTIALS=3,
+    REDUCE_INDICES=4
+)
 
 
 def partition_work(traversal, total_rank, queue):
@@ -800,7 +801,7 @@ def generate_local_tree(traversal, comm=MPI.COMM_WORLD):
                                   local_data[rank])
 
             tree_req[rank] = comm.isend(local_tree[rank], dest=rank,
-                                        tag=MPITags.DIST_TREE)
+                                        tag=MPITags["DIST_TREE"])
 
     # }}}
 
@@ -810,7 +811,7 @@ def generate_local_tree(traversal, comm=MPI.COMM_WORLD):
             tree_req[rank].wait()
         local_tree = local_tree[0]
     else:
-        local_tree = comm.recv(source=0, tag=MPITags.DIST_TREE)
+        local_tree = comm.recv(source=0, tag=MPITags["DIST_TREE"])
 
     # Recieve box extent
     if current_rank == 0:
@@ -988,19 +989,20 @@ def communicate_mpoles(wrangler, comm, trav, mpole_exps, return_stats=False):
             # Send the box subset to the other processors.
             for sink in comm_pattern.sinks():
                 req = comm.Isend(relevant_mpole_exps, dest=sink,
-                                 tag=MPITags.REDUCE_POTENTIALS)
+                                 tag=MPITags["REDUCE_POTENTIALS"])
                 send_requests.append(req)
 
                 req = comm.Isend(relevant_boxes_list, dest=sink,
-                                 tag=MPITags.REDUCE_INDICES)
+                                 tag=MPITags["REDUCE_INDICES"])
                 send_requests.append(req)
 
         # Receive data from other processors.
         for source in comm_pattern.sources():
-            comm.Recv(mpole_exps_buf, source=source, tag=MPITags.REDUCE_POTENTIALS)
+            comm.Recv(mpole_exps_buf, source=source,
+                      tag=MPITags["REDUCE_POTENTIALS"])
 
             status = MPI.Status()
-            comm.Recv(boxes_list_buf, source=source, tag=MPITags.REDUCE_INDICES,
+            comm.Recv(boxes_list_buf, source=source, tag=MPITags["REDUCE_INDICES"],
                       status=status)
             nboxes = status.Get_count() // boxes_list_buf.dtype.itemsize
 
@@ -1081,7 +1083,7 @@ def drive_dfmm(wrangler, trav_local, global_wrangler, trav_global, source_weight
                     local_data[rank]["src_scan"]
             )
             weight_req[rank] = comm.isend(local_src_weights[rank], dest=rank,
-                                          tag=MPITags.DIST_WEIGHT)
+                                          tag=MPITags["DIST_WEIGHT"])
 
     # Recieve source weights from root
     if current_rank == 0:
@@ -1089,7 +1091,7 @@ def drive_dfmm(wrangler, trav_local, global_wrangler, trav_global, source_weight
             weight_req[rank].wait()
         local_src_weights = local_src_weights[0]
     else:
-        local_src_weights = comm.recv(source=0, tag=MPITags.DIST_WEIGHT)
+        local_src_weights = comm.recv(source=0, tag=MPITags["DIST_WEIGHT"])
 
     # }}}
 
@@ -1241,10 +1243,10 @@ def drive_dfmm(wrangler, trav_local, global_wrangler, trav_global, source_weight
             potentials_all_ranks[i] = np.empty(
                 (local_data[i]["ntargets"],), dtype=potentials.dtype)
             comm.Recv([potentials_all_ranks[i], potentials_mpi_type],
-                      source=i, tag=MPITags.GATHER_POTENTIALS)
+                      source=i, tag=MPITags["GATHER_POTENTIALS"])
     else:
         comm.Send([potentials, potentials_mpi_type],
-                  dest=0, tag=MPITags.GATHER_POTENTIALS)
+                  dest=0, tag=MPITags["GATHER_POTENTIALS"])
 
     if current_rank == 0:
         d_potentials = cl.array.empty(queue, (global_wrangler.tree.ntargets,),
