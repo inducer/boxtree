@@ -8,6 +8,7 @@ from pyopencl.tools import dtype_to_ctype
 from pyopencl.scan import GenericScanKernel
 from pytools import memoize_in, memoize_method
 from boxtree import Tree
+from collections import namedtuple
 
 
 __copyright__ = "Copyright (C) 2012 Andreas Kloeckner \
@@ -214,8 +215,10 @@ MPITags = dict(
     REDUCE_INDICES=4
 )
 
+WorkloadWeight = namedtuple('Workload', ['direct', 'm2l', 'm2p', 'p2l', 'multipole'])
 
-def partition_work(traversal, total_rank, queue):
+
+def partition_work(traversal, total_rank, workload_weight):
     """ This function returns a pyopencl array of size total_rank*nboxes, where
     the (i,j) entry is 1 iff rank i is responsible for box j.
     """
@@ -233,7 +236,7 @@ def partition_work(traversal, total_rank, queue):
         particle_count = 0
         for j in range(list1.shape[0]):
             particle_count += tree.box_source_counts_nonchild[list1[j]]
-        workload[box_idx] += box_ntargets * particle_count
+        workload[box_idx] += box_ntargets * particle_count * workload_weight.direct
 
         # workload for list 3 near
         if tree.targets_have_extent:
@@ -243,11 +246,12 @@ def partition_work(traversal, total_rank, queue):
             particle_count = 0
             for j in range(list3_near.shape[0]):
                 particle_count += tree.box_source_counts_nonchild[list3_near[j]]
-            workload[box_idx] += box_ntargets * particle_count
+            workload[box_idx] += (
+                box_ntargets * particle_count * workload_weight.direct)
 
     for i in range(tree.nboxes):
         # workload for multipole calculation
-        workload[i] += tree.box_source_counts_nonchild[i] * 5
+        workload[i] += tree.box_source_counts_nonchild[i] * workload_weight.multipole
 
     total_workload = 0
     for i in range(tree.nboxes):
@@ -558,7 +562,7 @@ def get_gen_local_tree_helper(queue, tree):
     return gen_local_tree_helper
 
 
-def generate_local_tree(traversal, comm=MPI.COMM_WORLD):
+def generate_local_tree(traversal, comm=MPI.COMM_WORLD, workload_weight=None):
     # {{{ kernel to mark if a box mpole is used by a process via an interaction list
 
     @memoize_in(generate_local_tree, "loopy_cache")
@@ -621,8 +625,16 @@ def generate_local_tree(traversal, comm=MPI.COMM_WORLD):
 
         # Each rank is responsible for calculating the multiple expansion as well as
         # evaluating target potentials in *responsible_boxes*
-        responsible_boxes_mask, responsible_boxes_list = \
-            partition_work(traversal, total_rank, queue)
+        if workload_weight is None:
+            workload_weight = WorkloadWeight(
+                direct=1,
+                m2l=1,
+                m2p=1,
+                p2l=1,
+                multipole=5
+            )
+        responsible_boxes_mask, responsible_boxes_list = partition_work(
+            traversal, total_rank, workload_weight)
 
         # Calculate ancestors of responsible boxes
         ancestor_boxes = cl.array.zeros(queue, (total_rank, tree.nboxes),
