@@ -1,18 +1,20 @@
 import numpy as np
 import sys
 from mpi4py import MPI
-from boxtree.distributed import generate_local_tree, generate_local_travs, drive_dfmm
+from boxtree.distributed import (generate_local_tree, generate_local_travs,
+                                 drive_dfmm, WorkloadWeight,
+                                 DistributedFMMLibExpansionWranglerCodeContainer)
 import numpy.linalg as la
 from boxtree.pyfmmlib_integration import FMMLibExpansionWrangler
 import time
 
-import logging
-logging.basicConfig(level=logging.INFO)
+# import logging
+# logging.basicConfig(level=logging.INFO)
 
 # Parameters
 dims = 2
-nsources = 100000
-ntargets = 100000
+nsources = 10000
+ntargets = 10000
 dtype = np.float64
 
 # Get the current rank
@@ -112,26 +114,26 @@ comm.barrier()
 start_time = last_time = time.time()
 
 # Compute FMM using distributed memory parallelism
+workload_weight = WorkloadWeight(
+    direct=15,
+    m2l=ORDER*ORDER,
+    m2p=ORDER*ORDER,
+    p2l=ORDER*ORDER,
+    multipole=ORDER*ORDER*5
+)
+
 local_tree, local_data, box_bounding_box = generate_local_tree(trav)
-
-now = time.time()
-print("Generate local tree " + str(now - last_time))
-last_time = now
-
 trav_local, trav_global = generate_local_travs(local_tree, box_bounding_box)
 
-now = time.time()
-print("Generate local trav " + str(now - last_time))
-last_time = now
+comm.barrier()
+last_time = time.time()
 
 
 def fmm_level_to_nterms(tree, level):
     return ORDER
 
 
-from boxtree.distributed import (
-    DistributedFMMLibExpansionWranglerCodeContainer, queue)
-
+from boxtree.distributed import queue
 local_wrangler = (
     DistributedFMMLibExpansionWranglerCodeContainer()
     .get_wrangler(queue, local_tree, HELMHOLTZ_K, ORDER))
@@ -147,9 +149,7 @@ pot_dfmm = drive_dfmm(
     local_data
 )
 
-now = time.time()
-print("Distributed FMM " + str(now - last_time))
-last_time = now
+print("Distributed FMM " + str(time.time() - last_time))
 
 if rank == 0:
     print("Total time " + str(time.time() - start_time))

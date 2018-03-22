@@ -2,6 +2,7 @@ from __future__ import division
 from mpi4py import MPI
 import numpy as np
 import loopy as lp
+from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_1
 import pyopencl as cl
 from mako.template import Template
 from pyopencl.tools import dtype_to_ctype
@@ -223,31 +224,69 @@ def partition_work(traversal, total_rank, workload_weight):
     the (i,j) entry is 1 iff rank i is responsible for box j.
     """
     tree = traversal.tree
-
     workload = np.zeros((tree.nboxes,), dtype=np.float64)
-    for i in range(traversal.target_boxes.shape[0]):
-        box_idx = traversal.target_boxes[i]
-        box_ntargets = tree.box_target_counts_nonchild[box_idx]
 
-        # workload for list 1
-        start = traversal.neighbor_source_boxes_starts[i]
-        end = traversal.neighbor_source_boxes_starts[i + 1]
+    # workload for list 1
+    for itarget_box, box_idx in enumerate(traversal.target_boxes):
+        box_ntargets = tree.box_target_counts_nonchild[box_idx]
+        start = traversal.neighbor_source_boxes_starts[itarget_box]
+        end = traversal.neighbor_source_boxes_starts[itarget_box + 1]
         list1 = traversal.neighbor_source_boxes_lists[start:end]
         particle_count = 0
-        for j in range(list1.shape[0]):
-            particle_count += tree.box_source_counts_nonchild[list1[j]]
+        for ibox in list1:
+            particle_count += tree.box_source_counts_nonchild[ibox]
         workload[box_idx] += box_ntargets * particle_count * workload_weight.direct
+
+    # workload for list 2
+    for itarget_or_target_parent_boxes, box_idx in enumerate(
+            traversal.target_or_target_parent_boxes):
+        start = traversal.from_sep_siblings_starts[itarget_or_target_parent_boxes]
+        end = traversal.from_sep_siblings_starts[itarget_or_target_parent_boxes + 1]
+        workload[box_idx] += (end - start) * workload_weight.m2l
+
+    for ilevel in range(tree.nlevels):
+        # workload for list 3 far
+        for itarget_box, box_idx in enumerate(
+                traversal.target_boxes_sep_smaller_by_source_level[ilevel]):
+            box_ntargets = tree.box_target_counts_nonchild[box_idx]
+            start = traversal.from_sep_smaller_by_level[ilevel].starts[itarget_box]
+            end = traversal.from_sep_smaller_by_level[ilevel].starts[
+                                                                itarget_box + 1]
+            workload[box_idx] += (end - start) * box_ntargets
 
         # workload for list 3 near
         if tree.targets_have_extent:
-            start = traversal.from_sep_close_smaller_starts[i]
-            end = traversal.from_sep_close_smaller_starts[i + 1]
-            list3_near = traversal.from_sep_close_smaller_lists[start:end]
+            for itarget_box, box_idx in enumerate(traversal.target_boxes):
+                box_ntargets = tree.box_target_counts_nonchild[box_idx]
+                start = traversal.from_sep_close_smaller_starts[itarget_box]
+                end = traversal.from_sep_close_smaller_starts[itarget_box + 1]
+                particle_count = 0
+                for near_box_id in traversal.from_sep_close_smaller_lists[start:end]:
+                    particle_count += tree.box_source_counts_nonchild[near_box_id]
+                workload[box_idx] += (
+                    box_ntargets * particle_count * workload_weight.direct)
+
+    # workload for list 4
+    for itarget_or_target_parent_boxes, box_idx in enumerate(
+            traversal.target_or_target_parent_boxes):
+        start = traversal.from_sep_bigger_starts[itarget_or_target_parent_boxes]
+        end = traversal.from_sep_bigger_starts[itarget_or_target_parent_boxes + 1]
+        particle_count = 0
+        for far_box_id in traversal.from_sep_bigger_lists[start:end]:
+            particle_count += tree.box_source_counts_nonchild[far_box_id]
+        workload[box_idx] += particle_count * workload_weight.p2l
+
+        if tree.targets_have_extent:
+            box_ntargets = tree.box_target_counts_nonchild[box_idx]
+            start = traversal.from_sep_close_bigger_starts[
+                        itarget_or_target_parent_boxes]
+            end = traversal.from_sep_close_bigger_starts[
+                        itarget_or_target_parent_boxes + 1]
             particle_count = 0
-            for j in range(list3_near.shape[0]):
-                particle_count += tree.box_source_counts_nonchild[list3_near[j]]
+            for direct_box_id in traversal.from_sep_close_bigger_lists[start:end]:
+                particle_count += tree.box_source_counts_nonchild[direct_box_id]
             workload[box_idx] += (
-                box_ntargets * particle_count * workload_weight.direct)
+                    box_ntargets * particle_count * workload_weight.direct)
 
     for i in range(tree.nboxes):
         # workload for multipole calculation
@@ -1147,7 +1186,6 @@ def drive_dfmm(wrangler, trav_local, global_wrangler, trav_global, source_weight
     # }}}
 
     # {{{ "Stage 3:" Direct evaluation from neighbor source boxes ("list 1")
-    last_time = time.time()
 
     logger.debug("direct evaluation from neighbor source boxes ('list 1')")
     potentials = wrangler.eval_direct(
@@ -1157,7 +1195,6 @@ def drive_dfmm(wrangler, trav_local, global_wrangler, trav_global, source_weight
             local_src_weights)
 
     # these potentials are called alpha in [1]
-    print("List 1: " + str(time.time()-last_time))
 
     # }}}
 
@@ -1176,7 +1213,6 @@ def drive_dfmm(wrangler, trav_local, global_wrangler, trav_global, source_weight
     # }}}
 
     # {{{ "Stage 5:" evaluate sep. smaller mpoles ("list 3") at particles
-    last_time = time.time()
 
     logger.debug("evaluate sep. smaller mpoles at particles ('list 3 far')")
 
@@ -1198,8 +1234,6 @@ def drive_dfmm(wrangler, trav_local, global_wrangler, trav_global, source_weight
                 trav_global.from_sep_close_smaller_starts,
                 trav_global.from_sep_close_smaller_lists,
                 local_src_weights)
-
-    print("List 3: " + str(time.time()-last_time))
 
     # }}}
 
