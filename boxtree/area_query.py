@@ -34,6 +34,8 @@ from mako.template import Template
 from boxtree.tools import AXIS_NAMES, DeviceDataRecord
 from pytools import memoize_method
 
+from time import time
+
 import logging
 logger = logging.getLogger(__name__)
 
@@ -635,7 +637,7 @@ class AreaQueryBuilder(object):
         from pyopencl.tools import dtype_to_ctype
         from boxtree import box_flags_enum
 
-        logger.info("start building area query kernel")
+        logger.debug("start building area query kernel")
 
         from boxtree.traversal import TRAVERSAL_PREAMBLE_TEMPLATE
         from boxtree.tree_build import TreeBuilder
@@ -689,7 +691,7 @@ class AreaQueryBuilder(object):
             count_sharing={},
             complex_kernel=True)
 
-        logger.info("done building area query kernel")
+        logger.debug("done building area query kernel")
         return area_query_kernel
 
     # }}}
@@ -741,7 +743,8 @@ class AreaQueryBuilder(object):
             tree.coord_dtype, tree.box_id_dtype, ball_id_dtype,
             peer_lists.peer_list_starts.dtype, max_levels)
 
-        logger.info("area query: run area query")
+        logger.debug("area query: run area query")
+        aq_start_time = time()
 
         result, evt = area_query_kernel(
                 queue, len(ball_radii),
@@ -754,7 +757,13 @@ class AreaQueryBuilder(object):
                   tuple(bc.data for bc in ball_centers)),
                 wait_for=wait_for)
 
-        logger.info("area query: done")
+        aq_elapsed = time() - aq_start_time
+        if aq_elapsed > 0.1:
+            done_logger = logger.info
+        else:
+            done_logger = logger.debug
+
+        done_logger("area query: done after %g seconds", aq_elapsed)
 
         return AreaQueryResult(
                 tree=tree,
@@ -823,13 +832,14 @@ class LeavesToBallsLookupBuilder(object):
         if ball_radii.dtype != tree.coord_dtype:
             raise TypeError("ball_radii dtype must match tree.coord_dtype")
 
-        logger.info("leaves-to-balls lookup: run area query")
+        logger.debug("leaves-to-balls lookup: run area query")
+        ltb_start_time = time()
 
         area_query, evt = self.area_query_builder(
                 queue, tree, ball_centers, ball_radii, peer_lists, wait_for)
         wait_for = [evt]
 
-        logger.info("leaves-to-balls lookup: expand starts")
+        logger.debug("leaves-to-balls lookup: expand starts")
 
         nkeys = tree.nboxes
         nballs_p_1 = len(area_query.leaves_near_ball_starts)
@@ -851,7 +861,7 @@ class LeavesToBallsLookupBuilder(object):
                 nballs_p_1)
         wait_for = [evt]
 
-        logger.info("leaves-to-balls lookup: key-value sort")
+        logger.debug("leaves-to-balls lookup: key-value sort")
 
         balls_near_box_starts, balls_near_box_lists, evt \
                 = self.key_value_sorter(
@@ -863,7 +873,13 @@ class LeavesToBallsLookupBuilder(object):
                         nkeys, starts_dtype=tree.box_id_dtype,
                         wait_for=wait_for)
 
-        logger.info("leaves-to-balls lookup: built")
+        ltb_elapsed = time() - ltb_start_time
+        if ltb_elapsed > 0.1:
+            done_logger = logger.info
+        else:
+            done_logger = logger.debug
+        done_logger("leaves-to-balls lookup: built after %g seconds",
+                ltb_elapsed)
 
         return LeavesToBallsLookup(
                 tree=tree,
@@ -968,7 +984,8 @@ class SpaceInvaderQueryBuilder(object):
             tree.dimensions, tree.coord_dtype, tree.box_id_dtype,
             peer_lists.peer_list_starts.dtype, max_levels)
 
-        logger.info("space invader query: run space invader query")
+        logger.debug("space invader query: run space invader query")
+        si_start_time = time()
 
         outer_space_invader_dists = cl.array.zeros(queue, tree.nboxes, np.float32)
         if not wait_for:
@@ -994,7 +1011,12 @@ class SpaceInvaderQueryBuilder(object):
                     tree.coord_dtype)
             evt, = outer_space_invader_dists.events
 
-        logger.info("space invader query: done")
+        si_elapsed = time() - si_start_time
+        if si_elapsed > 0.1:
+            done_logger = logger.info
+        else:
+            done_logger = logger.debug
+        done_logger("space invader query: done after %g seconds", si_elapsed)
 
         return outer_space_invader_dists, evt
 
@@ -1037,7 +1059,7 @@ class PeerListFinder(object):
         from pyopencl.tools import dtype_to_ctype
         from boxtree import box_flags_enum
 
-        logger.info("start building peer list finder kernel")
+        logger.debug("start building peer list finder kernel")
 
         from boxtree.traversal import (
             TRAVERSAL_PREAMBLE_TEMPLATE, HELPER_FUNCTION_TEMPLATE)
@@ -1084,7 +1106,7 @@ class PeerListFinder(object):
             count_sharing={},
             complex_kernel=True)
 
-        logger.info("done building peer list finder kernel")
+        logger.debug("done building peer list finder kernel")
         return peer_list_finder_kernel
 
     # }}}
@@ -1109,7 +1131,8 @@ class PeerListFinder(object):
         peer_list_finder_kernel = self.get_peer_list_finder_kernel(
             tree.dimensions, tree.coord_dtype, tree.box_id_dtype, max_levels)
 
-        logger.info("peer list finder: find peer lists")
+        logger.debug("peer list finder: find peer lists")
+        pl_start_time = time()
 
         result, evt = peer_list_finder_kernel(
                 queue, tree.nboxes,
@@ -1118,7 +1141,12 @@ class PeerListFinder(object):
                 tree.box_child_ids.data, tree.box_flags.data,
                 wait_for=wait_for)
 
-        logger.info("peer list finder: done")
+        pl_elapsed = time() - pl_start_time
+        if pl_elapsed > 0.1:
+            done_logger = logger.info
+        else:
+            done_logger = logger.debug
+        done_logger("peer list finder: done after %g seconds", pl_elapsed)
 
         return PeerListLookup(
                 tree=tree,
