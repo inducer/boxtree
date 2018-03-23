@@ -2127,7 +2127,8 @@ class FMMTraversalBuilder:
 
         evt, = wait_for
 
-        logger.info("traversal built after %g seconds", time()-traversal_build_start_time)
+        logger.info("traversal built after %g seconds",
+                time()-traversal_build_start_time)
 
         return FMMTraversalInfo(
                 tree=tree,
