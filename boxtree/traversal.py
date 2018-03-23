@@ -30,6 +30,7 @@ import pyopencl.cltypes  # noqa
 from pyopencl.elementwise import ElementwiseTemplate
 from mako.template import Template
 from boxtree.tools import AXIS_NAMES, DeviceDataRecord
+from time import time
 
 import logging
 logger = logging.getLogger(__name__)
@@ -1551,7 +1552,8 @@ class _KernelInfo(Record):
 class FMMTraversalBuilder:
     def __init__(self, context, well_sep_is_n_away=1, from_sep_smaller_crit=None):
         """
-        :arg well_sep_is_n_away: Either An integer 1 or greater. (Only 2 is tested)
+        :arg well_sep_is_n_away: Either An integer 1 or greater.
+            (Only 1 and 2 are tested.)
             The spacing between boxes that is considered "well-separated" for
             :attr:`from_sep_siblings` (List 2).
         :arg from_sep_smaller_crit: The criterion used to determine separation
@@ -1614,7 +1616,8 @@ class FMMTraversalBuilder:
 
         # }}}
 
-        logger.info("traversal build kernels: start build")
+        logger.debug("traversal build kernels: start build")
+        kernel_build_start = time()
 
         debug = False
 
@@ -1771,7 +1774,13 @@ class FMMTraversalBuilder:
 
         # }}}
 
-        logger.info("traversal build kernels: done")
+        kernel_build_elapsed = time() - kernel_build_start
+        if kernel_build_start > 0.1:
+            build_logger = logger.info
+        else:
+            build_logger = logger.debug
+        build_logger("traversal build kernels: done after %g seconds",
+                kernel_build_elapsed)
 
         return _KernelInfo(**result)
 
@@ -1823,7 +1832,8 @@ class FMMTraversalBuilder:
 
             logger.debug(s)
 
-        logger.info("start building traversal")
+        traversal_build_start_time = time()
+        logger.debug("start building traversal")
 
         # {{{ source boxes, their parents, and target boxes
 
@@ -2117,7 +2127,8 @@ class FMMTraversalBuilder:
 
         evt, = wait_for
 
-        logger.info("traversal built")
+        logger.info("traversal built after %g seconds",
+                time()-traversal_build_start_time)
 
         return FMMTraversalInfo(
                 tree=tree,
