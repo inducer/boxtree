@@ -226,7 +226,13 @@ class TreeBuilder(object):
             # Targets weren't specified. Sources are also targets. Let's
             # call them "srcntgts".
 
-            srcntgts = particles
+            from pytools.obj_array import is_obj_array, make_obj_array
+            if is_obj_array(particles):
+                srcntgts = particles
+            else:
+                srcntgts = make_obj_array([
+                    p.with_queue(queue).copy() for p in particles
+                    ])
 
             assert source_radii is None
             assert target_radii is None
