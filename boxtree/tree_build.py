@@ -1571,9 +1571,9 @@ class TreeBuilder(object):
             extra_tree_attrs.update(target_radii=target_radii)
 
         tree_build_elapsed = time() - tree_build_start_time
-        logger.info("tree build complete: %d levels, %d boxes, "
+        logger.info("tree build complete: %d levels, %d boxes, %d particles, "
                 "elapsed time: %g s",
-                nlevels, len(box_parent_ids), tree_build_elapsed)
+                nlevels, len(box_parent_ids), nsrcntgts, tree_build_elapsed)
 
         return Tree(
                 # If you change this, also change the documentation
