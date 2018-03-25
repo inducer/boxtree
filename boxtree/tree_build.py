@@ -216,7 +216,7 @@ class TreeBuilder(object):
                 sources_are_targets, srcntgts_extent_norm,
                 kind=kind)
 
-        logger.info("tree build: start")
+        logger.debug("tree build: start")
 
         # {{{ combine sources and targets into one array, if necessary
 
@@ -515,7 +515,7 @@ class TreeBuilder(object):
         level_leaf_counts = np.array([1])
 
         from time import time
-        start_time = time()
+        tree_build_start_time = time()
         if total_refine_weight > max_leaf_refine_weight:
             level = 1
         else:
@@ -853,7 +853,7 @@ class TreeBuilder(object):
 
             # }}}
 
-            logger.info("LEVEL %d -> %d boxes" % (level, nboxes_new))
+            logger.debug("LEVEL %d -> %d boxes" % (level, nboxes_new))
 
             assert (
                 level_start_box_nrs[-1] != nboxes_new or
@@ -1114,14 +1114,15 @@ class TreeBuilder(object):
 
             # }}}
 
-        end_time = time()
-        elapsed = end_time-start_time
-        npasses = level+1
-        logger.info("elapsed time: %g s (%g s/particle/pass)" % (
-                elapsed, elapsed/(npasses*nsrcntgts)))
-        del npasses
-
         nboxes = level_start_box_nrs[-1]
+
+        level_loop_elapsed = time()-tree_build_start_time
+        npasses = level+1
+        logger.debug("tree build level loop complete: %d levels, %d boxes, "
+                "elapsed time: %g s (%g s/particle/pass)",
+                level, nboxes, level_loop_elapsed,
+                level_loop_elapsed/(npasses*nsrcntgts))
+        del npasses
 
         # }}}
 
@@ -1189,7 +1190,7 @@ class TreeBuilder(object):
                     size=nboxes, wait_for=wait_for)
             wait_for = [evt]
             nboxes_post_prune = int(nboxes_post_prune_dev.get())
-            logger.info("{} boxes after pruning "
+            logger.debug("{} boxes after pruning "
                         "({} empty leaves and/or unused boxes removed)"
                     .format(nboxes_post_prune, nboxes - nboxes_post_prune))
             should_prune = True
@@ -1569,7 +1570,10 @@ class TreeBuilder(object):
         if targets_have_extent:
             extra_tree_attrs.update(target_radii=target_radii)
 
-        logger.info("tree build complete")
+        tree_build_elapsed = time() - tree_build_start_time
+        logger.info("tree build complete: %d levels, %d boxes, %d particles, "
+                "elapsed time: %g s",
+                nlevels, len(box_parent_ids), nsrcntgts, tree_build_elapsed)
 
         return Tree(
                 # If you change this, also change the documentation
