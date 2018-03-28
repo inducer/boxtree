@@ -10,7 +10,7 @@ from pyopencl.scan import GenericScanKernel
 from pytools import memoize_in, memoize_method
 from boxtree import Tree
 from collections import namedtuple
-
+from boxtree.pyfmmlib_integration import FMMLibExpansionWrangler
 
 __copyright__ = "Copyright (C) 2012 Andreas Kloeckner \
                  Copyright (C) 2017 Hao Gao"
@@ -116,7 +116,7 @@ class LocalTree(Tree):
 
     def to_device(self, queue):
         additional_fields_to_device = ["responsible_boxes_list", "ancestor_mask",
-            "box_to_user_starts", "box_to_user_lists"]
+                                       "box_to_user_starts", "box_to_user_lists"]
 
         return tree_to_device(queue, self, additional_fields_to_device)
 
@@ -153,42 +153,66 @@ class DistributedFMMLibExpansionWranglerCodeContainer(object):
         knl = lp.split_iname(knl, "ibox", 16, outer_tag="g.0", inner_tag="l.0")
         return knl
 
-    def get_wrangler(self, queue, tree, helmholtz_k, fmm_order):
+    def get_wrangler(self, queue, tree, helmholtz_k, fmm_level_to_nterms):
         return DistributedFMMLibExpansionWrangler(self, queue, tree, helmholtz_k,
-                                               fmm_order)
-
-
-from boxtree.pyfmmlib_integration import FMMLibExpansionWrangler
+                                                  fmm_level_to_nterms)
 
 
 class DistributedFMMLibExpansionWrangler(FMMLibExpansionWrangler):
 
-    def __init__(self, code_container, queue, tree, helmholtz_k, fmm_order):
-        """
-        :arg fmm_order: Only supports single order for now
-        """
-        def fmm_level_to_nterms(tree, level):
-            return fmm_order
-
+    def __init__(self, code_container, queue, tree, helmholtz_k,
+                 fmm_level_to_nterms=None):
         FMMLibExpansionWrangler.__init__(self, tree, helmholtz_k,
                                          fmm_level_to_nterms)
         self.queue = queue
-        self.fmm_order = fmm_order
         self.code_container = code_container
 
     def slice_mpoles(self, mpoles, slice_indices):
-        mpoles = mpoles.reshape((-1,) + self.expansion_shape(self.fmm_order))
-        return mpoles[slice_indices, :].reshape((-1,))
+        if len(slice_indices) == 0:
+            return np.empty((0,), dtype=mpoles.dtype)
+
+        level_start_slice_indices = np.searchsorted(
+            slice_indices, self.tree.level_start_box_nrs)
+        mpoles_list = []
+
+        for ilevel in range(self.tree.nlevels):
+            start, stop = level_start_slice_indices[ilevel:ilevel+2]
+            if stop > start:
+                level_start_box_idx, mpoles_current_level = \
+                    self.multipole_expansions_view(mpoles, ilevel)
+                mpoles_list.append(
+                    mpoles_current_level[
+                        slice_indices[start:stop] - level_start_box_idx
+                    ].reshape(-1)
+                )
+
+        return np.concatenate(mpoles_list)
 
     def update_mpoles(self, mpoles, mpole_updates, slice_indices):
-        """
-        :arg mpole_updates: The first *len(slice_indices)* entries should contain
-            the values to add to *mpoles*
-        """
-        mpoles = mpoles.reshape((-1,) + self.expansion_shape(self.fmm_order))
-        mpole_updates = mpole_updates.reshape(
-            (-1,) + self.expansion_shape(self.fmm_order))
-        mpoles[slice_indices, :] += mpole_updates[:len(slice_indices), :]
+        if len(slice_indices) == 0:
+            return
+
+        level_start_slice_indices = np.searchsorted(
+            slice_indices, self.tree.level_start_box_nrs)
+        mpole_updates_start = 0
+
+        for ilevel in range(self.tree.nlevels):
+            start, stop = level_start_slice_indices[ilevel:ilevel+2]
+            if stop > start:
+                level_start_box_idx, mpoles_current_level = \
+                    self.multipole_expansions_view(mpoles, ilevel)
+                mpoles_shape = (stop - start,) + mpoles_current_level.shape[1:]
+
+                from pytools import product
+                mpole_updates_end = mpole_updates_start + product(mpoles_shape)
+
+                mpoles_current_level[
+                    slice_indices[start:stop] - level_start_box_idx
+                ] += mpole_updates[
+                    mpole_updates_start:mpole_updates_end
+                ].reshape(mpoles_shape)
+
+                mpole_updates_start = mpole_updates_end
 
     def empty_box_in_subrange_mask(self):
         return cl.array.empty(self.queue, self.tree.nboxes, dtype=np.int8)
