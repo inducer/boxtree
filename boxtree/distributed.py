@@ -121,51 +121,15 @@ class LocalTree(Tree):
         return tree_to_device(queue, self, additional_fields_to_device)
 
 
-# {{{ parallel fmm wrangler
-
-class DistributedFMMLibExpansionWranglerCodeContainer(object):
-
-    @memoize_method
-    def find_boxes_used_by_subrange_kernel(self):
-        knl = lp.make_kernel(
-            [
-                "{[ibox]: 0 <= ibox < nboxes}",
-                "{[iuser]: iuser_start <= iuser < iuser_end}",
-            ],
-            """
-            for ibox
-                <> iuser_start = box_to_user_starts[ibox]
-                <> iuser_end = box_to_user_starts[ibox + 1]
-                for iuser
-                    <> useri = box_to_user_lists[iuser]
-                    <> in_subrange = subrange_start <= useri and useri < subrange_end
-                    if in_subrange
-                        box_in_subrange[ibox] = 1
-                    end
-                end
-            end
-            """,
-            [
-                lp.ValueArg("subrange_start, subrange_end", np.int32),
-                lp.GlobalArg("box_to_user_lists", shape=None),
-                "..."
-            ])
-        knl = lp.split_iname(knl, "ibox", 16, outer_tag="g.0", inner_tag="l.0")
-        return knl
-
-    def get_wrangler(self, queue, tree, helmholtz_k, fmm_level_to_nterms):
-        return DistributedFMMLibExpansionWrangler(self, queue, tree, helmholtz_k,
-                                                  fmm_level_to_nterms)
-
+# {{{ distributed fmm wrangler
 
 class DistributedFMMLibExpansionWrangler(FMMLibExpansionWrangler):
 
-    def __init__(self, code_container, queue, tree, helmholtz_k,
-                 fmm_level_to_nterms=None):
-        FMMLibExpansionWrangler.__init__(self, tree, helmholtz_k,
-                                         fmm_level_to_nterms)
+    def __init__(self, queue, tree, helmholtz_k, fmm_level_to_nterms=None):
+        super(DistributedFMMLibExpansionWrangler, self).__init__(
+            tree, helmholtz_k, fmm_level_to_nterms
+        )
         self.queue = queue
-        self.code_container = code_container
 
     def slice_mpoles(self, mpoles, slice_indices):
         if len(slice_indices) == 0:
@@ -217,9 +181,37 @@ class DistributedFMMLibExpansionWrangler(FMMLibExpansionWrangler):
     def empty_box_in_subrange_mask(self):
         return cl.array.empty(self.queue, self.tree.nboxes, dtype=np.int8)
 
+    @memoize_method
+    def find_boxes_used_by_subrange_kernel(self):
+        knl = lp.make_kernel(
+            [
+                "{[ibox]: 0 <= ibox < nboxes}",
+                "{[iuser]: iuser_start <= iuser < iuser_end}",
+            ],
+            """
+            for ibox
+                <> iuser_start = box_to_user_starts[ibox]
+                <> iuser_end = box_to_user_starts[ibox + 1]
+                for iuser
+                    <> useri = box_to_user_lists[iuser]
+                    <> in_subrange = subrange_start <= useri and useri < subrange_end
+                    if in_subrange
+                        box_in_subrange[ibox] = 1
+                    end
+                end
+            end
+            """,
+            [
+                lp.ValueArg("subrange_start, subrange_end", np.int32),
+                lp.GlobalArg("box_to_user_lists", shape=None),
+                "..."
+            ])
+        knl = lp.split_iname(knl, "ibox", 16, outer_tag="g.0", inner_tag="l.0")
+        return knl
+
     def find_boxes_used_by_subrange(self, box_in_subrange, subrange,
                                     box_to_user_starts, box_to_user_lists):
-        knl = self.code_container.find_boxes_used_by_subrange_kernel()
+        knl = self.find_boxes_used_by_subrange_kernel()
         knl(self.queue,
             subrange_start=subrange[0],
             subrange_end=subrange[1],
@@ -1131,9 +1123,9 @@ def get_gen_local_weights_helper(queue, particle_dtype, weight_dtype):
     return gen_local_weights
 
 
-def drive_dfmm(wrangler, trav_local, global_wrangler, trav_global, source_weights,
-               local_data, comm=MPI.COMM_WORLD,
-               _communicate_mpoles_via_allreduce=False):
+def calculate_pot(wrangler, trav_local, global_wrangler, trav_global, source_weights,
+                  local_data, comm=MPI.COMM_WORLD,
+                  _communicate_mpoles_via_allreduce=False):
     # Get MPI information
     current_rank = comm.Get_rank()
     total_rank = comm.Get_size()
@@ -1355,3 +1347,44 @@ def drive_dfmm(wrangler, trav_local, global_wrangler, trav_global, source_weight
         logger.info("fmm complete")
 
         return result
+
+
+class DistributedFMMInfo(object):
+
+    def __init__(self, global_trav, distributed_expansion_wrangler_factory,
+                 comm=MPI.COMM_WORLD):
+        self.global_trav = global_trav
+        self.distributed_expansion_wrangler_factory = \
+            distributed_expansion_wrangler_factory
+        self.comm = comm
+
+    @memoize_method
+    def get_local_tree(self):
+        return generate_local_tree(self.global_trav)
+
+    @memoize_method
+    def get_local_trav(self):
+        local_tree, _, box_bounding_box = self.get_local_tree()
+        return generate_local_travs(local_tree, box_bounding_box)
+
+    @memoize_method
+    def get_local_expansion_wrangler(self):
+        local_tree, _, _ = self.get_local_tree()
+        return self.distributed_expansion_wrangler_factory(local_tree)
+
+    @memoize_method
+    def get_global_expansion_wrangler(self):
+        rank = self.comm.Get_rank()
+        if rank == 0:
+            return self.distributed_expansion_wrangler_factory(self.global_trav.tree)
+        else:
+            return None
+
+    def drive_dfmm(self, source_weights):
+        _, local_data, _ = self.get_local_tree()
+        trav_local, trav_global = self.get_local_trav()
+        local_wrangler = self.get_local_expansion_wrangler()
+        global_wrangler = self.get_global_expansion_wrangler()
+        pot = calculate_pot(local_wrangler, trav_local, global_wrangler, trav_global,
+                            source_weights, local_data)
+        return pot

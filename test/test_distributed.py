@@ -1,10 +1,8 @@
 import numpy as np
 import sys
 from mpi4py import MPI
-from boxtree.distributed import (
-    generate_local_tree, generate_local_travs, drive_dfmm, WorkloadWeight,
-    DistributedFMMLibExpansionWranglerCodeContainer
-)
+from boxtree.distributed import (DistributedFMMInfo,
+    DistributedFMMLibExpansionWrangler)
 import numpy.linalg as la
 from boxtree.pyfmmlib_integration import FMMLibExpansionWrangler
 
@@ -90,32 +88,17 @@ if rank == 0:
     # print(la.norm(pot_fmm - pot_naive, ord=2))
 
 # Compute FMM using distributed memory parallelism
-workload_weight = WorkloadWeight(
-    direct=15,
-    m2l=25,
-    m2p=25,
-    p2l=25,
-    multipole=25*5
-)
-
-local_tree, local_data, box_bounding_box = generate_local_tree(trav)
-trav_local, trav_global = generate_local_travs(local_tree, box_bounding_box)
-
 from boxtree.distributed import queue
-local_wrangler = (
-    DistributedFMMLibExpansionWranglerCodeContainer()
-    .get_wrangler(queue, local_tree, HELMHOLTZ_K, fmm_level_to_nterms))
 
-if rank == 0:
-    global_wrangler = FMMLibExpansionWrangler(
-        trav.tree, HELMHOLTZ_K, fmm_level_to_nterms=fmm_level_to_nterms)
-else:
-    global_wrangler = None
 
-pot_dfmm = drive_dfmm(
-    local_wrangler, trav_local, global_wrangler, trav_global, sources_weights,
-    local_data
-)
+def distributed_expansion_wrangler_factory(tree):
+    return DistributedFMMLibExpansionWrangler(
+        queue, tree, HELMHOLTZ_K, fmm_level_to_nterms=fmm_level_to_nterms)
+
+
+distribued_fmm_info = DistributedFMMInfo(
+    trav, distributed_expansion_wrangler_factory, comm=comm)
+pot_dfmm = distribued_fmm_info.drive_dfmm(sources_weights)
 
 if rank == 0:
     print((la.norm(pot_fmm - pot_dfmm * 2 * np.pi, ord=np.inf) /
