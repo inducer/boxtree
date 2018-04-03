@@ -1,8 +1,7 @@
 import numpy as np
-import sys
 from mpi4py import MPI
-from boxtree.distributed import (DistributedFMMInfo,
-    DistributedFMMLibExpansionWrangler)
+from boxtree.distributed import (
+    DistributedFMMInfo, DistributedFMMLibExpansionWrangler)
 import numpy.linalg as la
 from boxtree.pyfmmlib_integration import FMMLibExpansionWrangler
 
@@ -19,7 +18,6 @@ rank = comm.Get_rank()
 # Initialization
 trav = None
 sources_weights = None
-wrangler = None
 HELMHOLTZ_K = 0
 
 
@@ -38,8 +36,7 @@ if rank == 0:
     # Generate random particles and source weights
     from boxtree.tools import make_normal_particle_array as p_normal
     sources = p_normal(queue, nsources, dims, dtype, seed=15)
-    targets = (p_normal(queue, ntargets, dims, dtype, seed=18) +
-               np.array([2, 0, 0])[:dims])
+    targets = p_normal(queue, ntargets, dims, dtype, seed=18)
 
     from boxtree.tools import particle_array_to_host
     sources_host = particle_array_to_host(sources)
@@ -52,19 +49,6 @@ if rank == 0:
     from pyopencl.clrandom import PhiloxGenerator
     rng = PhiloxGenerator(queue.context, seed=22)
     target_radii = rng.uniform(queue, ntargets, a=0, b=0.05, dtype=np.float64).get()
-
-    # Display sources and targets
-    if "--display" in sys.argv:
-        import matplotlib.pyplot as plt
-        plt.plot(sources_host[:, 0], sources_host[:, 1], "bo")
-        plt.plot(targets_host[:, 0], targets_host[:, 1], "ro")
-        plt.show()
-
-    # Calculate potentials using direct evaluation
-    # distances = la.norm(sources_host.reshape(1, nsources, 2) - \
-    #                    targets_host.reshape(ntargets, 1, 2),
-    #                    ord=2, axis=2)
-    # pot_naive = np.sum(-np.log(distances)*sources_weights, axis=1)
 
     # Build the tree and interaction lists
     from boxtree import TreeBuilder
@@ -84,8 +68,6 @@ if rank == 0:
     # Compute FMM using shared memory parallelism
     from boxtree.fmm import drive_fmm
     pot_fmm = drive_fmm(trav, wrangler, sources_weights) * 2 * np.pi
-
-    # print(la.norm(pot_fmm - pot_naive, ord=2))
 
 # Compute FMM using distributed memory parallelism
 from boxtree.distributed import queue
