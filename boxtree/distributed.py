@@ -1358,33 +1358,19 @@ class DistributedFMMInfo(object):
             distributed_expansion_wrangler_factory
         self.comm = comm
 
-    @memoize_method
-    def get_local_tree(self):
-        return generate_local_tree(self.global_trav)
-
-    @memoize_method
-    def get_local_trav(self):
-        local_tree, _, box_bounding_box = self.get_local_tree()
-        return generate_local_travs(local_tree, box_bounding_box)
-
-    @memoize_method
-    def get_local_expansion_wrangler(self):
-        local_tree, _, _ = self.get_local_tree()
-        return self.distributed_expansion_wrangler_factory(local_tree)
-
-    @memoize_method
-    def get_global_expansion_wrangler(self):
-        rank = self.comm.Get_rank()
-        if rank == 0:
-            return self.distributed_expansion_wrangler_factory(self.global_trav.tree)
+        self.local_tree, self.local_data, self.box_bounding_box = \
+            generate_local_tree(self.global_trav)
+        self.trav_local, self.trav_global = generate_local_travs(
+            self.local_tree, self.box_bounding_box)
+        self.local_wrangler = self.distributed_expansion_wrangler_factory(
+            self.local_tree)
+        if self.comm.Get_rank() == 0:
+            self.global_wrangler = self.distributed_expansion_wrangler_factory(
+                self.global_trav.tree)
         else:
-            return None
+            self.global_wrangler = None
 
     def drive_dfmm(self, source_weights):
-        _, local_data, _ = self.get_local_tree()
-        trav_local, trav_global = self.get_local_trav()
-        local_wrangler = self.get_local_expansion_wrangler()
-        global_wrangler = self.get_global_expansion_wrangler()
-        pot = calculate_pot(local_wrangler, trav_local, global_wrangler, trav_global,
-                            source_weights, local_data)
-        return pot
+        return calculate_pot(
+            self.local_wrangler, self.trav_local, self.global_wrangler,
+            self.trav_global, source_weights, self.local_data)
