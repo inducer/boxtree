@@ -903,7 +903,9 @@ def generate_local_tree(traversal, comm=MPI.COMM_WORLD, workload_weight=None):
     return local_tree, local_data, box_bounding_box
 
 
-def generate_local_travs(local_tree, box_bounding_box=None, comm=MPI.COMM_WORLD):
+def generate_local_travs(
+        local_tree, box_bounding_box=None, comm=MPI.COMM_WORLD,
+        well_sep_is_n_away=1):
     d_tree = local_tree.to_device(queue)
 
     # Modify box flags for targets
@@ -933,7 +935,7 @@ def generate_local_travs(local_tree, box_bounding_box=None, comm=MPI.COMM_WORLD)
                             d_tree.box_flags)
 
     from boxtree.traversal import FMMTraversalBuilder
-    tg = FMMTraversalBuilder(queue.context)
+    tg = FMMTraversalBuilder(queue.context, well_sep_is_n_away=well_sep_is_n_away)
     d_trav_global, _ = tg(queue, d_tree, debug=True,
                           box_bounding_box=box_bounding_box)
     trav_global = d_trav_global.get(queue=queue)
@@ -1352,7 +1354,7 @@ def calculate_pot(wrangler, trav_local, global_wrangler, trav_global, source_wei
 class DistributedFMMInfo(object):
 
     def __init__(self, global_trav, distributed_expansion_wrangler_factory,
-                 comm=MPI.COMM_WORLD):
+                 comm=MPI.COMM_WORLD, well_sep_is_n_away=1):
         self.global_trav = global_trav
         self.distributed_expansion_wrangler_factory = \
             distributed_expansion_wrangler_factory
@@ -1361,7 +1363,8 @@ class DistributedFMMInfo(object):
         self.local_tree, self.local_data, self.box_bounding_box = \
             generate_local_tree(self.global_trav)
         self.trav_local, self.trav_global = generate_local_travs(
-            self.local_tree, self.box_bounding_box)
+            self.local_tree, self.box_bounding_box, comm=comm,
+            well_sep_is_n_away=well_sep_is_n_away)
         self.local_wrangler = self.distributed_expansion_wrangler_factory(
             self.local_tree)
         if self.comm.Get_rank() == 0:

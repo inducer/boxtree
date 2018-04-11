@@ -57,7 +57,7 @@ if rank == 0:
                  stick_out_factor=0.25, max_particles_in_box=30, debug=True)
 
     from boxtree.traversal import FMMTraversalBuilder
-    tg = FMMTraversalBuilder(ctx)
+    tg = FMMTraversalBuilder(ctx, well_sep_is_n_away=2)
     d_trav, _ = tg(queue, tree, debug=True)
     trav = d_trav.get(queue=queue)
 
@@ -79,7 +79,7 @@ def distributed_expansion_wrangler_factory(tree):
 
 
 distribued_fmm_info = DistributedFMMInfo(
-    trav, distributed_expansion_wrangler_factory, comm=comm)
+    trav, distributed_expansion_wrangler_factory, comm=comm, well_sep_is_n_away=2)
 pot_dfmm = distribued_fmm_info.drive_dfmm(sources_weights)
 
 if rank == 0:
