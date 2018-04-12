@@ -2,7 +2,7 @@ from __future__ import division
 from mpi4py import MPI
 import numpy as np
 import loopy as lp
-from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_1
+from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_1  # noqa: F401
 import pyopencl as cl
 from mako.template import Template
 from pyopencl.tools import dtype_to_ctype
