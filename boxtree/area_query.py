@@ -823,7 +823,7 @@ class LeavesToBallsLookupBuilder(object):
         if ball_radii.dtype != tree.coord_dtype:
             raise TypeError("ball_radii dtype must match tree.coord_dtype")
 
-        ltb_plog = ProcessLogger("leaves-to-balls lookup: run area query")
+        ltb_plog = ProcessLogger(logger, "leaves-to-balls lookup: run area query")
 
         area_query, evt = self.area_query_builder(
                 queue, tree, ball_centers, ball_radii, peer_lists, wait_for)
@@ -1109,7 +1109,7 @@ class PeerListFinder(object):
         peer_list_finder_kernel = self.get_peer_list_finder_kernel(
             tree.dimensions, tree.coord_dtype, tree.box_id_dtype, max_levels)
 
-        pl_plog = ProcessLogger("find peer lists")
+        pl_plog = ProcessLogger(logger, "find peer lists")
 
         result, evt = peer_list_finder_kernel(
                 queue, tree.nboxes,
