@@ -26,7 +26,7 @@ THE SOFTWARE.
 
 
 import numpy as np
-from pytools import memoize_method
+from pytools import memoize_method, log_process
 
 import logging
 logger = logging.getLogger(__name__)
@@ -393,9 +393,11 @@ class FMMLibExpansionWrangler(object):
 
     # }}}
 
+    @log_process(logger)
     def reorder_sources(self, source_array):
         return source_array[..., self.tree.user_source_ids]
 
+    @log_process(logger)
     def reorder_potentials(self, potentials):
         return potentials[self.tree.sorted_target_ids]
 
@@ -417,6 +419,7 @@ class FMMLibExpansionWrangler(object):
                         "dipvec": self.dipole_vec[:, pslice],
                         }
 
+    @log_process(logger)
     def form_multipoles(self, level_start_source_box_nrs, source_boxes, src_weights):
         formmp = self.get_routine("%ddformmp" + self.dp_suffix)
 
@@ -455,6 +458,7 @@ class FMMLibExpansionWrangler(object):
 
         return mpoles
 
+    @log_process(logger)
     def coarsen_multipoles(self, level_start_source_parent_box_nrs,
             source_parent_boxes, mpoles):
         tree = self.tree
@@ -507,6 +511,7 @@ class FMMLibExpansionWrangler(object):
                         target_mpoles_view[
                                 ibox - target_level_start_ibox] += new_mp[..., 0].T
 
+    @log_process(logger)
     def eval_direct(self, target_boxes, neighbor_sources_starts,
             neighbor_sources_lists, src_weights):
         output = self.output_zeros()
@@ -547,6 +552,7 @@ class FMMLibExpansionWrangler(object):
 
         return output
 
+    @log_process(logger)
     def multipole_to_local(self,
             level_start_target_or_target_parent_box_nrs,
             target_or_target_parent_boxes,
@@ -631,6 +637,7 @@ class FMMLibExpansionWrangler(object):
 
         return local_exps
 
+    @log_process(logger)
     def eval_multipoles(self,
             target_boxes_by_source_level, sep_smaller_nonsiblings_by_level,
             mpole_exps):
@@ -672,6 +679,7 @@ class FMMLibExpansionWrangler(object):
 
         return output
 
+    @log_process(logger)
     def form_locals(self,
             level_start_target_or_target_parent_box_nrs,
             target_or_target_parent_boxes, starts, lists, src_weights):
@@ -722,6 +730,7 @@ class FMMLibExpansionWrangler(object):
 
         return local_exps
 
+    @log_process(logger)
     def refine_locals(self, level_start_target_or_target_parent_box_nrs,
             target_or_target_parent_boxes, local_exps):
 
@@ -767,6 +776,7 @@ class FMMLibExpansionWrangler(object):
 
         return local_exps
 
+    @log_process(logger)
     def eval_locals(self, level_start_target_box_nrs, target_boxes, local_exps):
         output = self.output_zeros()
         taeval = self.get_expn_eval_routine("ta")
@@ -801,6 +811,7 @@ class FMMLibExpansionWrangler(object):
 
         return output
 
+    @log_process(logger)
     def finalize_potentials(self, potential):
         if self.eqn_letter == "l" and self.dim == 2:
             scale_factor = -1/(2*np.pi)

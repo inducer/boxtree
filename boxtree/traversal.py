@@ -30,11 +30,11 @@ import pyopencl.cltypes  # noqa
 from pyopencl.elementwise import ElementwiseTemplate
 from mako.template import Template
 from boxtree.tools import AXIS_NAMES, DeviceDataRecord
-from time import time
 
 import logging
 logger = logging.getLogger(__name__)
 
+from pytools import ProcessLogger, log_process
 
 # {{{ preamble
 
@@ -1571,6 +1571,7 @@ class FMMTraversalBuilder:
     # {{{ kernel builder
 
     @memoize_method
+    @log_process(logger)
     def get_kernel_info(self, dimensions, particle_id_dtype, box_id_dtype,
             coord_dtype, box_level_dtype, max_levels,
             sources_are_targets, sources_have_extent, targets_have_extent,
@@ -1615,9 +1616,6 @@ class FMMTraversalBuilder:
                     % from_sep_smaller_crit)
 
         # }}}
-
-        logger.debug("traversal build kernels: start build")
-        kernel_build_start = time()
 
         debug = False
 
@@ -1774,14 +1772,6 @@ class FMMTraversalBuilder:
 
         # }}}
 
-        kernel_build_elapsed = time() - kernel_build_start
-        if kernel_build_start > 0.1:
-            build_logger = logger.info
-        else:
-            build_logger = logger.debug
-        build_logger("traversal build kernels: done after %g seconds",
-                kernel_build_elapsed)
-
         return _KernelInfo(**result)
 
     # }}}
@@ -1832,8 +1822,7 @@ class FMMTraversalBuilder:
 
             logger.debug(s)
 
-        traversal_build_start_time = time()
-        logger.debug("start building traversal")
+        traversal_plog = ProcessLogger(logger, "build traversal")
 
         # {{{ source boxes, their parents, and target boxes
 
@@ -2127,8 +2116,7 @@ class FMMTraversalBuilder:
 
         evt, = wait_for
 
-        logger.info("traversal built after %g seconds",
-                time()-traversal_build_start_time)
+        traversal_plog.done()
 
         return FMMTraversalInfo(
                 tree=tree,

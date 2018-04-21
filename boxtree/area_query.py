@@ -32,9 +32,7 @@ import pyopencl.cltypes  # noqa
 import pyopencl.array  # noqa
 from mako.template import Template
 from boxtree.tools import AXIS_NAMES, DeviceDataRecord
-from pytools import memoize_method
-
-from time import time
+from pytools import memoize_method, ProcessLogger
 
 import logging
 logger = logging.getLogger(__name__)
@@ -743,8 +741,7 @@ class AreaQueryBuilder(object):
             tree.coord_dtype, tree.box_id_dtype, ball_id_dtype,
             peer_lists.peer_list_starts.dtype, max_levels)
 
-        logger.debug("area query: run area query")
-        aq_start_time = time()
+        aq_plog = ProcessLogger(logger, "area query")
 
         result, evt = area_query_kernel(
                 queue, len(ball_radii),
@@ -757,13 +754,7 @@ class AreaQueryBuilder(object):
                   tuple(bc.data for bc in ball_centers)),
                 wait_for=wait_for)
 
-        aq_elapsed = time() - aq_start_time
-        if aq_elapsed > 0.1:
-            done_logger = logger.info
-        else:
-            done_logger = logger.debug
-
-        done_logger("area query: done after %g seconds", aq_elapsed)
+        aq_plog.done()
 
         return AreaQueryResult(
                 tree=tree,
@@ -832,8 +823,7 @@ class LeavesToBallsLookupBuilder(object):
         if ball_radii.dtype != tree.coord_dtype:
             raise TypeError("ball_radii dtype must match tree.coord_dtype")
 
-        logger.debug("leaves-to-balls lookup: run area query")
-        ltb_start_time = time()
+        ltb_plog = ProcessLogger(logger, "leaves-to-balls lookup: run area query")
 
         area_query, evt = self.area_query_builder(
                 queue, tree, ball_centers, ball_radii, peer_lists, wait_for)
@@ -873,13 +863,7 @@ class LeavesToBallsLookupBuilder(object):
                         nkeys, starts_dtype=tree.box_id_dtype,
                         wait_for=wait_for)
 
-        ltb_elapsed = time() - ltb_start_time
-        if ltb_elapsed > 0.1:
-            done_logger = logger.info
-        else:
-            done_logger = logger.debug
-        done_logger("leaves-to-balls lookup: built after %g seconds",
-                ltb_elapsed)
+        ltb_plog.done()
 
         return LeavesToBallsLookup(
                 tree=tree,
@@ -984,8 +968,7 @@ class SpaceInvaderQueryBuilder(object):
             tree.dimensions, tree.coord_dtype, tree.box_id_dtype,
             peer_lists.peer_list_starts.dtype, max_levels)
 
-        logger.debug("space invader query: run space invader query")
-        si_start_time = time()
+        si_plog = ProcessLogger(logger, "space invader query")
 
         outer_space_invader_dists = cl.array.zeros(queue, tree.nboxes, np.float32)
         if not wait_for:
@@ -1011,12 +994,7 @@ class SpaceInvaderQueryBuilder(object):
                     tree.coord_dtype)
             evt, = outer_space_invader_dists.events
 
-        si_elapsed = time() - si_start_time
-        if si_elapsed > 0.1:
-            done_logger = logger.info
-        else:
-            done_logger = logger.debug
-        done_logger("space invader query: done after %g seconds", si_elapsed)
+        si_plog.done()
 
         return outer_space_invader_dists, evt
 
@@ -1131,8 +1109,7 @@ class PeerListFinder(object):
         peer_list_finder_kernel = self.get_peer_list_finder_kernel(
             tree.dimensions, tree.coord_dtype, tree.box_id_dtype, max_levels)
 
-        logger.debug("peer list finder: find peer lists")
-        pl_start_time = time()
+        pl_plog = ProcessLogger(logger, "find peer lists")
 
         result, evt = peer_list_finder_kernel(
                 queue, tree.nboxes,
@@ -1141,12 +1118,7 @@ class PeerListFinder(object):
                 tree.box_child_ids.data, tree.box_flags.data,
                 wait_for=wait_for)
 
-        pl_elapsed = time() - pl_start_time
-        if pl_elapsed > 0.1:
-            done_logger = logger.info
-        else:
-            done_logger = logger.debug
-        done_logger("peer list finder: done after %g seconds", pl_elapsed)
+        pl_plog.done()
 
         return PeerListLookup(
                 tree=tree,
