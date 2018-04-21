@@ -32,7 +32,6 @@ from pyopencl.scan import ScanTemplate
 from mako.template import Template
 from pytools import Record, memoize, log_process
 from boxtree.tools import get_type_moniker
-from time import time
 
 import logging
 logger = logging.getLogger(__name__)
