@@ -1117,7 +1117,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
 # {{{ traversal info (output)
 
 class FMMTraversalInfo(DeviceDataRecord):
-    """Interaction lists needed for a fast-multipole-like linear-time gather of
+    r"""Interaction lists needed for a fast-multipole-like linear-time gather of
     particle interactions.
 
     Terminology (largely) follows this article:

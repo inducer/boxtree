@@ -616,7 +616,7 @@ SPACE_INVADER_QUERY_TEMPLATE = AreaQueryElementwiseTemplate(
 # {{{ area query build
 
 class AreaQueryBuilder(object):
-    """Given a set of :math:`l^\infty` "balls", this class helps build a
+    r"""Given a set of :math:`l^\infty` "balls", this class helps build a
     look-up table from ball to leaf boxes that intersect with the ball.
 
     .. versionadded:: 2016.1
@@ -767,7 +767,7 @@ class AreaQueryBuilder(object):
 # {{{ area query transpose (leaves-to-balls) lookup build
 
 class LeavesToBallsLookupBuilder(object):
-    """Given a set of :math:`l^\infty` "balls", this class helps build a
+    r"""Given a set of :math:`l^\infty` "balls", this class helps build a
     look-up table from leaf boxes to balls that overlap with each leaf box.
 
     .. automethod:: __call__
