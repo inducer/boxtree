@@ -271,7 +271,8 @@ def partition_work(traversal, total_rank, workload_weight):
             workload[box_idx] += (end - start) * box_ntargets
 
         # workload for list 3 near
-        if tree.targets_have_extent:
+        if tree.targets_have_extent and \
+                traversal.from_sep_close_smaller_starts is not None:
             for itarget_box, box_idx in enumerate(traversal.target_boxes):
                 box_ntargets = tree.box_target_counts_nonchild[box_idx]
                 start = traversal.from_sep_close_smaller_starts[itarget_box]
@@ -292,7 +293,8 @@ def partition_work(traversal, total_rank, workload_weight):
             particle_count += tree.box_source_counts_nonchild[far_box_id]
         workload[box_idx] += particle_count * workload_weight.p2l
 
-        if tree.targets_have_extent:
+        if tree.targets_have_extent and \
+                traversal.from_sep_close_bigger_starts is not None:
             box_ntargets = tree.box_target_counts_nonchild[box_idx]
             start = traversal.from_sep_close_bigger_starts[
                         itarget_or_target_parent_boxes]
@@ -770,31 +772,33 @@ def generate_local_tree(traversal, comm=MPI.COMM_WORLD, workload_weight=None):
                 range=range(0, traversal.target_or_target_parent_boxes.shape[0]))
 
             if tree.targets_have_extent:
-                d_from_sep_close_bigger_starts = cl.array.to_device(
-                    queue, traversal.from_sep_close_bigger_starts)
-                d_from_sep_close_bigger_lists = cl.array.to_device(
-                    queue, traversal.from_sep_close_bigger_lists)
-                add_interaction_list_boxes(
-                    d_target_or_target_parent_boxes,
-                    responsible_boxes_mask[rank] | ancestor_boxes[rank],
-                    d_from_sep_close_bigger_starts,
-                    d_from_sep_close_bigger_lists,
-                    src_boxes_mask[rank]
-                )
+                if traversal.from_sep_close_bigger_starts is not None:
+                    d_from_sep_close_bigger_starts = cl.array.to_device(
+                        queue, traversal.from_sep_close_bigger_starts)
+                    d_from_sep_close_bigger_lists = cl.array.to_device(
+                        queue, traversal.from_sep_close_bigger_lists)
+                    add_interaction_list_boxes(
+                        d_target_or_target_parent_boxes,
+                        responsible_boxes_mask[rank] | ancestor_boxes[rank],
+                        d_from_sep_close_bigger_starts,
+                        d_from_sep_close_bigger_lists,
+                        src_boxes_mask[rank]
+                    )
 
                 # Add list 3 direct
-                d_from_sep_close_smaller_starts = cl.array.to_device(
-                    queue, traversal.from_sep_close_smaller_starts)
-                d_from_sep_close_smaller_lists = cl.array.to_device(
-                    queue, traversal.from_sep_close_smaller_lists)
+                if traversal.from_sep_close_smaller_starts is not None:
+                    d_from_sep_close_smaller_starts = cl.array.to_device(
+                        queue, traversal.from_sep_close_smaller_starts)
+                    d_from_sep_close_smaller_lists = cl.array.to_device(
+                        queue, traversal.from_sep_close_smaller_lists)
 
-                add_interaction_list_boxes(
-                    d_target_boxes,
-                    responsible_boxes_mask[rank],
-                    d_from_sep_close_smaller_starts,
-                    d_from_sep_close_smaller_lists,
-                    src_boxes_mask[rank]
-                )
+                    add_interaction_list_boxes(
+                        d_target_boxes,
+                        responsible_boxes_mask[rank],
+                        d_from_sep_close_smaller_starts,
+                        d_from_sep_close_smaller_lists,
+                        src_boxes_mask[rank]
+                    )
 
         # {{{ compute box_to_user
 
