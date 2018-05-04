@@ -1131,23 +1131,25 @@ def get_gen_local_weights_helper(queue, particle_dtype, weight_dtype):
 
 def distribute_source_weights(source_weights, global_tree, local_data,
         comm=MPI.COMM_WORLD):
+    """
+    source_weights: source weights in tree order
+    global_tree: complete tree structure on root, None otherwise.
+    local_data: returned from *generate_local_tree*
+    """
     current_rank = comm.Get_rank()
     total_rank = comm.Get_size()
 
     if current_rank == 0:
         weight_req = np.empty((total_rank,), dtype=object)
-
-        # Convert src_weights to tree order
-        src_weights = source_weights[global_tree.user_source_ids]
-        src_weights = cl.array.to_device(queue, src_weights)
         local_src_weights = np.empty((total_rank,), dtype=object)
 
         # Generate local_weights
+        source_weights = cl.array.to_device(queue, source_weights)
         gen_local_weights_helper = get_gen_local_weights_helper(
-            queue, global_tree.particle_id_dtype, src_weights.dtype)
+            queue, global_tree.particle_id_dtype, source_weights.dtype)
         for rank in range(total_rank):
             local_src_weights[rank] = gen_local_weights_helper(
-                    src_weights,
+                    source_weights,
                     local_data[rank]["src_mask"],
                     local_data[rank]["src_scan"]
             )
@@ -1174,6 +1176,8 @@ def calculate_pot(wrangler, trav_local, global_wrangler, trav_global, source_wei
 
     if current_rank == 0:
         global_tree = global_wrangler.tree
+        # Convert src_weights to tree order
+        source_weights = source_weights[global_tree.user_source_ids]
     else:
         global_tree = None
 
