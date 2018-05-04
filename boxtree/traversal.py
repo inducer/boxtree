@@ -1304,12 +1304,11 @@ class FMMTraversalInfo(DeviceDataRecord):
     through "List 3", but must be evaluated specially/directly
     because of :ref:`extent`.
 
-    Indexed like :attr:`target_or_target_parent_boxes`.  See :ref:`csr`.
-
     .. attribute:: target_boxes_sep_smaller_by_source_level
 
-        A list of arrays, one per level, indicating which target boxes are used with
-        the interaction list entries of :attr:`from_sep_smaller_by_level`.
+        A list of arrays of global box numbers, one array per level, indicating
+        which boxes are used with the interaction list entries of
+        :attr:`from_sep_smaller_by_level`.
         ``target_boxes_sep_smaller_by_source_level[i]`` has length
         ``from_sep_smaller_by_level[i].num_nonempty_lists`.
 
@@ -1331,6 +1330,8 @@ class FMMTraversalInfo(DeviceDataRecord):
         *i*.
 
     .. attribute:: from_sep_close_smaller_starts
+
+        Indexed like :attr:`target_boxes`.  See :ref:`csr`.
 
         ``box_id_t [ntarget_boxes+1]`` (or *None*)
 
