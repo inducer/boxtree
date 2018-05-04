@@ -1129,6 +1129,40 @@ def get_gen_local_weights_helper(queue, particle_dtype, weight_dtype):
     return gen_local_weights
 
 
+def distribute_source_weights(source_weights, global_tree, local_data,
+        comm=MPI.COMM_WORLD):
+    current_rank = comm.Get_rank()
+    total_rank = comm.Get_size()
+
+    if current_rank == 0:
+        weight_req = np.empty((total_rank,), dtype=object)
+
+        # Convert src_weights to tree order
+        src_weights = source_weights[global_tree.user_source_ids]
+        src_weights = cl.array.to_device(queue, src_weights)
+        local_src_weights = np.empty((total_rank,), dtype=object)
+
+        # Generate local_weights
+        gen_local_weights_helper = get_gen_local_weights_helper(
+            queue, global_tree.particle_id_dtype, src_weights.dtype)
+        for rank in range(total_rank):
+            local_src_weights[rank] = gen_local_weights_helper(
+                    src_weights,
+                    local_data[rank]["src_mask"],
+                    local_data[rank]["src_scan"]
+            )
+            weight_req[rank] = comm.isend(local_src_weights[rank], dest=rank,
+                                          tag=MPITags["DIST_WEIGHT"])
+
+        for rank in range(1, total_rank):
+            weight_req[rank].wait()
+        local_src_weights = local_src_weights[0]
+    else:
+        local_src_weights = comm.recv(source=0, tag=MPITags["DIST_WEIGHT"])
+
+    return local_src_weights
+
+
 def calculate_pot(wrangler, trav_local, global_wrangler, trav_global, source_weights,
                   local_data, comm=MPI.COMM_WORLD,
                   _communicate_mpoles_via_allreduce=False):
@@ -1139,32 +1173,12 @@ def calculate_pot(wrangler, trav_local, global_wrangler, trav_global, source_wei
     # {{{ Distribute source weights
 
     if current_rank == 0:
-        weight_req = np.empty((total_rank,), dtype=object)
-
-        # Convert src_weights to tree order
-        src_weights = source_weights[global_wrangler.tree.user_source_ids]
-        src_weights = cl.array.to_device(queue, src_weights)
-        local_src_weights = np.empty((total_rank,), dtype=object)
-
-        # Generate local_weights
-        gen_local_weights_helper = get_gen_local_weights_helper(
-            queue, global_wrangler.tree.particle_id_dtype, src_weights.dtype)
-        for rank in range(total_rank):
-            local_src_weights[rank] = gen_local_weights_helper(
-                    src_weights,
-                    local_data[rank]["src_mask"],
-                    local_data[rank]["src_scan"]
-            )
-            weight_req[rank] = comm.isend(local_src_weights[rank], dest=rank,
-                                          tag=MPITags["DIST_WEIGHT"])
-
-    # Recieve source weights from root
-    if current_rank == 0:
-        for rank in range(1, total_rank):
-            weight_req[rank].wait()
-        local_src_weights = local_src_weights[0]
+        global_tree = global_wrangler.tree
     else:
-        local_src_weights = comm.recv(source=0, tag=MPITags["DIST_WEIGHT"])
+        global_tree = None
+
+    local_src_weights = distribute_source_weights(
+        source_weights, global_tree, local_data, comm=comm)
 
     # }}}
 
