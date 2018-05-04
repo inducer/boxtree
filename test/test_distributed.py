@@ -79,7 +79,7 @@ def distributed_expansion_wrangler_factory(tree):
 
 
 distribued_fmm_info = DistributedFMMInfo(
-    trav, distributed_expansion_wrangler_factory, comm=comm, well_sep_is_n_away=2)
+    trav, distributed_expansion_wrangler_factory, comm=comm)
 pot_dfmm = distribued_fmm_info.drive_dfmm(sources_weights)
 
 if rank == 0:

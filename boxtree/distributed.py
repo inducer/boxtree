@@ -1358,11 +1358,19 @@ def calculate_pot(wrangler, trav_local, global_wrangler, trav_global, source_wei
 class DistributedFMMInfo(object):
 
     def __init__(self, global_trav, distributed_expansion_wrangler_factory,
-                 comm=MPI.COMM_WORLD, well_sep_is_n_away=1):
+                 comm=MPI.COMM_WORLD):
         self.global_trav = global_trav
         self.distributed_expansion_wrangler_factory = \
             distributed_expansion_wrangler_factory
+
         self.comm = comm
+        current_rank = comm.Get_rank()
+
+        if current_rank == 0:
+            well_sep_is_n_away = global_trav.well_sep_is_n_away
+        else:
+            well_sep_is_n_away = None
+        well_sep_is_n_away = comm.bcast(well_sep_is_n_away, root=0)
 
         self.local_tree, self.local_data, self.box_bounding_box = \
             generate_local_tree(self.global_trav)
@@ -1371,7 +1379,7 @@ class DistributedFMMInfo(object):
             well_sep_is_n_away=well_sep_is_n_away)
         self.local_wrangler = self.distributed_expansion_wrangler_factory(
             self.local_tree)
-        if self.comm.Get_rank() == 0:
+        if current_rank == 0:
             self.global_wrangler = self.distributed_expansion_wrangler_factory(
                 self.global_trav.tree)
         else:
