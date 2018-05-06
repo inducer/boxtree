@@ -75,7 +75,7 @@ from boxtree.distributed import queue
 
 def distributed_expansion_wrangler_factory(tree):
     return DistributedFMMLibExpansionWrangler(
-        queue, tree, HELMHOLTZ_K, fmm_level_to_nterms=fmm_level_to_nterms)
+        tree, HELMHOLTZ_K, fmm_level_to_nterms=fmm_level_to_nterms)
 
 
 distribued_fmm_info = DistributedFMMInfo(

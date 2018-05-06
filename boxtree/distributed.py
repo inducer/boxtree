@@ -125,11 +125,10 @@ class LocalTree(Tree):
 
 class DistributedFMMLibExpansionWrangler(FMMLibExpansionWrangler):
 
-    def __init__(self, queue, tree, helmholtz_k, fmm_level_to_nterms=None):
+    def __init__(self, tree, helmholtz_k, fmm_level_to_nterms=None):
         super(DistributedFMMLibExpansionWrangler, self).__init__(
             tree, helmholtz_k, fmm_level_to_nterms
         )
-        self.queue = queue
 
     def slice_mpoles(self, mpoles, slice_indices):
         if len(slice_indices) == 0:
@@ -179,7 +178,7 @@ class DistributedFMMLibExpansionWrangler(FMMLibExpansionWrangler):
                 mpole_updates_start = mpole_updates_end
 
     def empty_box_in_subrange_mask(self):
-        return cl.array.empty(self.queue, self.tree.nboxes, dtype=np.int8)
+        return cl.array.empty(queue, self.tree.nboxes, dtype=np.int8)
 
     @memoize_method
     def find_boxes_used_by_subrange_kernel(self):
@@ -212,7 +211,7 @@ class DistributedFMMLibExpansionWrangler(FMMLibExpansionWrangler):
     def find_boxes_used_by_subrange(self, box_in_subrange, subrange,
                                     box_to_user_starts, box_to_user_lists):
         knl = self.find_boxes_used_by_subrange_kernel()
-        knl(self.queue,
+        knl(queue,
             subrange_start=subrange[0],
             subrange_end=subrange[1],
             box_to_user_starts=box_to_user_starts,
