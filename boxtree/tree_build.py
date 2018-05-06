@@ -31,9 +31,14 @@ import pyopencl as cl
 import pyopencl.array  # noqa
 from functools import partial
 from boxtree.tree import Tree
+from pytools import ProcessLogger, DebugProcessLogger
 
 import logging
 logger = logging.getLogger(__name__)
+
+
+class MaxLevelsExceeded(RuntimeError):
+    pass
 
 
 class TreeBuilder(object):
@@ -216,7 +221,7 @@ class TreeBuilder(object):
                 sources_are_targets, srcntgts_extent_norm,
                 kind=kind)
 
-        logger.info("tree build: start")
+        logger.debug("tree build: start")
 
         # {{{ combine sources and targets into one array, if necessary
 
@@ -226,7 +231,13 @@ class TreeBuilder(object):
             # Targets weren't specified. Sources are also targets. Let's
             # call them "srcntgts".
 
-            srcntgts = particles
+            from pytools.obj_array import is_obj_array, make_obj_array
+            if is_obj_array(particles):
+                srcntgts = particles
+            else:
+                srcntgts = make_obj_array([
+                    p.with_queue(queue).copy() for p in particles
+                    ])
 
             assert source_radii is None
             assert target_radii is None
@@ -481,7 +492,10 @@ class TreeBuilder(object):
                 queue, box_parent_ids.data, np.zeros((), dtype=box_parent_ids.dtype))
         prep_events.append(evt)
 
-        nlevels_max = np.iinfo(self.box_level_dtype).max
+        # 2*(num bits in the significand)
+        # https://gitlab.tiker.net/inducer/boxtree/issues/23
+        nlevels_max = 2*(np.finfo(coord_dtype).nmant + 1)
+        assert nlevels_max <= np.iinfo(self.box_level_dtype).max
 
         # level -> starting box on level
         level_start_box_nrs_dev, evt = zeros(nlevels_max, dtype=box_id_dtype)
@@ -534,8 +548,8 @@ class TreeBuilder(object):
         # leaf.
         level_leaf_counts = np.array([1])
 
-        from time import time
-        start_time = time()
+        tree_build_proc = ProcessLogger(logger, "tree build")
+
         if total_refine_weight > max_leaf_refine_weight:
             level = 1
         else:
@@ -553,7 +567,7 @@ class TreeBuilder(object):
         # single box, by how 'level' is set above. Read this as 'while True' with
         # an edge case.
 
-        logger.debug("entering level loop with %s srcntgts" % nsrcntgts)
+        level_loop_proc = DebugProcessLogger(logger, "tree build level loop")
 
         # When doing level restriction, the level loop may need to be entered
         # one more time after creating all the levels (see fixme note below
@@ -567,8 +581,11 @@ class TreeBuilder(object):
                 assert level == len(level_used_box_counts)
                 assert level == len(level_leaf_counts)
 
-            if level > np.iinfo(self.box_level_dtype).max:
-                raise RuntimeError("level count exceeded maximum")
+            if level + 1 >= nlevels_max:  # level is zero-based
+                raise MaxLevelsExceeded("Level count exceeded number of significant "
+                        "bits in coordinate dtype. That means that a large number "
+                        "of particles was indistinguishable up to floating point "
+                        "precision (because they ended up in the same box).")
 
             common_args = ((morton_bin_counts, morton_nrs,
                     box_start_flags,
@@ -870,7 +887,7 @@ class TreeBuilder(object):
 
             # }}}
 
-            logger.info("LEVEL %d -> %d boxes" % (level, nboxes_new))
+            logger.debug("LEVEL %d -> %d boxes" % (level, nboxes_new))
 
             assert (
                 level_start_box_nrs[-1] != nboxes_new or
@@ -1131,14 +1148,11 @@ class TreeBuilder(object):
 
             # }}}
 
-        end_time = time()
-        elapsed = end_time-start_time
-        npasses = level+1
-        logger.info("elapsed time: %g s (%g s/particle/pass)" % (
-                elapsed, elapsed/(npasses*nsrcntgts)))
-        del npasses
-
         nboxes = level_start_box_nrs[-1]
+
+        npasses = level+1
+        level_loop_proc.done("%d levels, %d boxes", level, nboxes)
+        del npasses
 
         # }}}
 
@@ -1206,7 +1220,7 @@ class TreeBuilder(object):
                     size=nboxes, wait_for=wait_for)
             wait_for = [evt]
             nboxes_post_prune = int(nboxes_post_prune_dev.get())
-            logger.info("{} boxes after pruning "
+            logger.debug("{} boxes after pruning "
                         "({} empty leaves and/or unused boxes removed)"
                     .format(nboxes_post_prune, nboxes - nboxes_post_prune))
             should_prune = True
@@ -1586,7 +1600,8 @@ class TreeBuilder(object):
         if targets_have_extent:
             extra_tree_attrs.update(target_radii=target_radii)
 
-        logger.info("tree build complete")
+        tree_build_proc.done("%d levels, %d boxes, %d particles",
+                nlevels, len(box_parent_ids), nsrcntgts)
 
         return Tree(
                 # If you change this, also change the documentation

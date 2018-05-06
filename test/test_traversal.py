@@ -140,9 +140,10 @@ def test_tree_connectivity(ctx_getter, dims, sources_are_targets):
         assert (trav.target_or_target_parent_boxes == np.arange(tree.nboxes)).all()
 
         # {{{ list 4 <= list 3
-        for itarget_box, ibox in enumerate(trav.target_boxes):
 
-            for ssn in trav.from_sep_smaller_by_level:
+        for level, ssn in enumerate(trav.from_sep_smaller_by_level):
+            for itarget_box, ibox in \
+                    enumerate(trav.target_boxes_sep_smaller_by_source_level[level]):
                 start, end = ssn.starts[itarget_box:itarget_box+2]
 
                 for jbox in ssn.lists[start:end]:
@@ -155,10 +156,19 @@ def test_tree_connectivity(ctx_getter, dims, sources_are_targets):
 
         # {{{ list 4 <= list 3
 
-        box_to_target_box_index = np.empty(tree.nboxes, tree.box_id_dtype)
-        box_to_target_box_index.fill(-1)
-        box_to_target_box_index[trav.target_boxes] = np.arange(
-                len(trav.target_boxes), dtype=tree.box_id_dtype)
+        box_to_target_boxes_sep_smaller_by_source_level = []
+        for level in range(trav.tree.nlevels):
+            box_to_target_boxes_sep_smaller = np.empty(
+                tree.nboxes, tree.box_id_dtype)
+            box_to_target_boxes_sep_smaller.fill(-1)
+            box_to_target_boxes_sep_smaller[
+                trav.target_boxes_sep_smaller_by_source_level[level]
+            ] = np.arange(
+                len(trav.target_boxes_sep_smaller_by_source_level[level]),
+                dtype=tree.box_id_dtype
+            )
+            box_to_target_boxes_sep_smaller_by_source_level.append(
+                box_to_target_boxes_sep_smaller)
 
         assert (trav.source_boxes == trav.target_boxes).all()
         assert (trav.target_or_target_parent_boxes == np.arange(
@@ -173,13 +183,14 @@ def test_tree_connectivity(ctx_getter, dims, sources_are_targets):
                 # are the same thing (i.e. leaves--see assertion above), so we
                 # may treat them as targets anyhow.
 
-                jtgt_box = box_to_target_box_index[jbox]
-                assert jtgt_box != -1
-
                 good = False
 
-                for ssn in trav.from_sep_smaller_by_level:
-                    rstart, rend = ssn.starts[jtgt_box:jtgt_box+2]
+                for level, ssn in enumerate(trav.from_sep_smaller_by_level):
+                    jtgt_box = \
+                        box_to_target_boxes_sep_smaller_by_source_level[level][jbox]
+                    if jtgt_box == -1:
+                        continue
+                    rstart, rend = ssn.starts[jtgt_box:jtgt_box + 2]
                     good = good or ibox in ssn.lists[rstart:rend]
 
                 if not good:
@@ -207,8 +218,11 @@ def test_tree_connectivity(ctx_getter, dims, sources_are_targets):
 
     # {{{ from_sep_smaller satisfies relative level assumption
 
-    for itarget_box, ibox in enumerate(trav.target_boxes):
-        for ssn in trav.from_sep_smaller_by_level:
+    # for itarget_box, ibox in enumerate(trav.target_boxes):
+    #    for ssn in trav.from_sep_smaller_by_level:
+    for level, ssn in enumerate(trav.from_sep_smaller_by_level):
+        for itarget_box, ibox in enumerate(
+                trav.target_boxes_sep_smaller_by_source_level[level]):
             start, end = ssn.starts[itarget_box:itarget_box+2]
 
             for jbox in ssn.lists[start:end]:
@@ -340,7 +354,7 @@ if __name__ == "__main__":
     if len(sys.argv) > 1:
         exec(sys.argv[1])
     else:
-        from py.test.cmdline import main
+        from pytest import main
         main([__file__])
 
 # vim: fdm=marker

@@ -34,6 +34,7 @@ from boxtree.tools import AXIS_NAMES, DeviceDataRecord
 import logging
 logger = logging.getLogger(__name__)
 
+from pytools import ProcessLogger, log_process
 
 # {{{ preamble
 
@@ -1116,7 +1117,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
 # {{{ traversal info (output)
 
 class FMMTraversalInfo(DeviceDataRecord):
-    """Interaction lists needed for a fast-multipole-like linear-time gather of
+    r"""Interaction lists needed for a fast-multipole-like linear-time gather of
     particle interactions.
 
     Terminology (largely) follows this article:
@@ -1303,20 +1304,34 @@ class FMMTraversalInfo(DeviceDataRecord):
     through "List 3", but must be evaluated specially/directly
     because of :ref:`extent`.
 
-    Indexed like :attr:`target_or_target_parent_boxes`.  See :ref:`csr`.
+    .. attribute:: target_boxes_sep_smaller_by_source_level
+
+        A list of arrays of global box numbers, one array per level, indicating
+        which boxes are used with the interaction list entries of
+        :attr:`from_sep_smaller_by_level`.
+        ``target_boxes_sep_smaller_by_source_level[i]`` has length
+        ``from_sep_smaller_by_level[i].num_nonempty_lists`.
+
 
     .. attribute:: from_sep_smaller_by_level
 
         A list of :attr:`boxtree.Tree.nlevels` (corresponding to the levels on
         which each listed source box resides) objects, each of which has
-        attributes *count*, *starts* and *lists*, which form a CSR list of List
-        3 source boxes.
+        attributes *count*, *starts*, *lists*, *num_nonempty_lists*, and
+        *nonempty_indices*, which form a CSR list of List 3 source boxes.
 
-        *starts* has shape/type ``box_id_t [ntarget_boxes+1]``. *lists* is of type
-        ``box_id_t``.  (Note: This list contains global box numbers, not
+        *starts* has shape/type ``box_id_t [num_nonempty_lists+1]``. *lists* is of
+        type ``box_id_t``.  (Note: This list contains global box numbers, not
         indices into :attr:`source_boxes`.)
 
+        Note *starts* are indexed by `target_boxes_sep_smaller_by_source_level`. For
+        example, for level *i*, *lists[starts[j]:starts[j+1]]* represents "List 3"
+        source boxes of *target_boxes_sep_smaller_by_source_level[i][j]* on level
+        *i*.
+
     .. attribute:: from_sep_close_smaller_starts
+
+        Indexed like :attr:`target_boxes`.  See :ref:`csr`.
 
         ``box_id_t [ntarget_boxes+1]`` (or *None*)
 
@@ -1538,7 +1553,8 @@ class _KernelInfo(Record):
 class FMMTraversalBuilder:
     def __init__(self, context, well_sep_is_n_away=1, from_sep_smaller_crit=None):
         """
-        :arg well_sep_is_n_away: Either An integer 1 or greater. (Only 2 is tested)
+        :arg well_sep_is_n_away: Either An integer 1 or greater.
+            (Only 1 and 2 are tested.)
             The spacing between boxes that is considered "well-separated" for
             :attr:`from_sep_siblings` (List 2).
         :arg from_sep_smaller_crit: The criterion used to determine separation
@@ -1556,6 +1572,7 @@ class FMMTraversalBuilder:
     # {{{ kernel builder
 
     @memoize_method
+    @log_process(logger)
     def get_kernel_info(self, dimensions, particle_id_dtype, box_id_dtype,
             coord_dtype, box_level_dtype, max_levels,
             sources_are_targets, sources_have_extent, targets_have_extent,
@@ -1600,8 +1617,6 @@ class FMMTraversalBuilder:
                     % from_sep_smaller_crit)
 
         # }}}
-
-        logger.info("traversal build kernels: start build")
 
         debug = False
 
@@ -1692,13 +1707,13 @@ class FMMTraversalBuilder:
                 VectorArg(box_flags_enum.dtype, "box_flags"),
                 ]
 
-        for list_name, template, extra_args, extra_lists in [
+        for list_name, template, extra_args, extra_lists, eliminate_empty_list in [
                 ("same_level_non_well_sep_boxes",
-                    SAME_LEVEL_NON_WELL_SEP_BOXES_TEMPLATE, [], []),
+                    SAME_LEVEL_NON_WELL_SEP_BOXES_TEMPLATE, [], [], []),
                 ("neighbor_source_boxes", NEIGBHOR_SOURCE_BOXES_TEMPLATE,
                         [
                             VectorArg(box_id_dtype, "target_boxes"),
-                            ], []),
+                            ], [], []),
                 ("from_sep_siblings", FROM_SEP_SIBLINGS_TEMPLATE,
                         [
                             VectorArg(box_id_dtype, "target_or_target_parent_boxes"),
@@ -1707,7 +1722,7 @@ class FMMTraversalBuilder:
                                 "same_level_non_well_sep_boxes_starts"),
                             VectorArg(box_id_dtype,
                                 "same_level_non_well_sep_boxes_lists"),
-                            ], []),
+                            ], [], []),
                 ("from_sep_smaller", FROM_SEP_SMALLER_TEMPLATE,
                         [
                             ScalarArg(coord_dtype, "stick_out_factor"),
@@ -1725,7 +1740,7 @@ class FMMTraversalBuilder:
                             ],
                             ["from_sep_close_smaller"]
                             if sources_have_extent or targets_have_extent
-                            else []),
+                            else [], ["from_sep_smaller"]),
                 ("from_sep_bigger", FROM_SEP_BIGGER_TEMPLATE,
                         [
                             ScalarArg(coord_dtype, "stick_out_factor"),
@@ -1738,7 +1753,7 @@ class FMMTraversalBuilder:
                             ],
                             ["from_sep_close_bigger"]
                             if sources_have_extent or targets_have_extent
-                            else []),
+                            else [], []),
                 ]:
             src = Template(
                     TRAVERSAL_PREAMBLE_TEMPLATE
@@ -1753,11 +1768,10 @@ class FMMTraversalBuilder:
                     str(src),
                     arg_decls=base_args + extra_args,
                     debug=debug, name_prefix=list_name,
-                    complex_kernel=True)
+                    complex_kernel=True,
+                    eliminate_empty_output_lists=eliminate_empty_list)
 
         # }}}
-
-        logger.info("traversal build kernels: done")
 
         return _KernelInfo(**result)
 
@@ -1809,7 +1823,7 @@ class FMMTraversalBuilder:
 
             logger.debug(s)
 
-        logger.info("start building traversal")
+        traversal_plog = ProcessLogger(logger, "build traversal")
 
         # {{{ source boxes, their parents, and target boxes
 
@@ -2032,6 +2046,7 @@ class FMMTraversalBuilder:
 
         from_sep_smaller_wait_for = []
         from_sep_smaller_by_level = []
+        target_boxes_sep_smaller_by_source_level = []
 
         for ilevel in range(tree.nlevels):
             fin_debug("finding separated smaller ('list 3 level %d')" % ilevel)
@@ -2041,7 +2056,11 @@ class FMMTraversalBuilder:
                     omit_lists=("from_sep_close_smaller",) if with_extent else (),
                     wait_for=wait_for)
 
+            target_boxes_sep_smaller = target_boxes[
+                result["from_sep_smaller"].nonempty_indices]
+
             from_sep_smaller_by_level.append(result["from_sep_smaller"])
+            target_boxes_sep_smaller_by_source_level.append(target_boxes_sep_smaller)
             from_sep_smaller_wait_for.append(evt)
 
         if with_extent:
@@ -2098,7 +2117,7 @@ class FMMTraversalBuilder:
 
         evt, = wait_for
 
-        logger.info("traversal built")
+        traversal_plog.done()
 
         return FMMTraversalInfo(
                 tree=tree,
@@ -2137,6 +2156,8 @@ class FMMTraversalBuilder:
                 from_sep_siblings_lists=from_sep_siblings.lists,
 
                 from_sep_smaller_by_level=from_sep_smaller_by_level,
+                target_boxes_sep_smaller_by_source_level=(
+                    target_boxes_sep_smaller_by_source_level),
 
                 from_sep_close_smaller_starts=from_sep_close_smaller_starts,
                 from_sep_close_smaller_lists=from_sep_close_smaller_lists,
