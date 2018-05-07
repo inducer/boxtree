@@ -2117,7 +2117,9 @@ class FMMTraversalBuilder:
 
         evt, = wait_for
 
-        traversal_plog.done()
+        traversal_plog.done(
+                "from_sep_smaller_crit: %s",
+                self.from_sep_smaller_crit)
 
         return FMMTraversalInfo(
                 tree=tree,
