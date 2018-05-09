@@ -228,8 +228,7 @@ MPITags = dict(
     DIST_WEIGHT=1,
     GATHER_POTENTIALS=2,
     REDUCE_POTENTIALS=3,
-    REDUCE_INDICES=4,
-    USER_TARGET_TO_CENTER=5
+    REDUCE_INDICES=4
 )
 
 WorkloadWeight = namedtuple('Workload', ['direct', 'm2l', 'm2p', 'p2l', 'multipole'])
@@ -502,7 +501,7 @@ def gen_local_tree_helper(tree, src_box_mask, tgt_box_mask, local_tree,
 
     # source particle mask
     src_particle_mask = cl.array.zeros(queue, (nsources,),
-                                        dtype=tree.particle_id_dtype)
+                                       dtype=tree.particle_id_dtype)
     knls["particle_mask_knl"](src_box_mask,
                               d_tree.box_source_starts,
                               d_tree.box_source_counts_nonchild,
@@ -627,6 +626,7 @@ def gen_local_tree_helper(tree, src_box_mask, tgt_box_mask, local_tree,
     local_data["tgt_mask"] = tgt_particle_mask
     local_data["tgt_scan"] = tgt_particle_scan
     local_data["ntargets"] = local_ntargets
+    local_data["tgt_box_mask"] = tgt_box_mask
 
 
 def generate_local_tree(traversal, comm=MPI.COMM_WORLD, workload_weight=None):
