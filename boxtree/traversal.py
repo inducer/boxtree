@@ -951,6 +951,24 @@ inline bool meets_sep_bigger_criterion(
     coord_vec_t source_center, int source_level,
     coord_t stick_out_factor)
 {
+    <%
+        assert not sources_have_extent
+    %>
+
+    // What we are interested in ensuring is that
+
+    // (*)
+    // d_2(src_box, tgt_center)
+    //     >= 3 * (radius of tgt box potentially
+    //                   including stick-out)
+
+    // (because convergence factors are in l^2,
+    // irrespective of how we measure)
+
+    // Since d_2(a, b) >= d_inf(a, b), ensuring that
+    // (*) holds with d_inf implies that it also holds
+    // with d_2.
+
     coord_t target_rad = LEVEL_TO_RAD(target_level);
     coord_t source_rad = LEVEL_TO_RAD(source_level);
     coord_t max_allowed_center_l_inf_dist = (
