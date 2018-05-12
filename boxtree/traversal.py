@@ -827,8 +827,9 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
                                     * tgt_stickout_l_inf_rad
                                 - source_l_inf_rad;
 
-                            meets_sep_crit = l_2_box_dist >=
-                                (2 - 8 * COORD_T_MACH_EPS) * rhs;
+                            meets_sep_crit = (
+                                (2 - 8 * COORD_T_MACH_EPS) * source_l_inf_rad
+                                <= rhs);
                         }
 
                     %else:
