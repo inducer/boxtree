@@ -789,16 +789,46 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
                                 %endfor
                                 ;
 
-                            // l^2 distance between source box and target box.
-                            // Negative indicates overlap.
-                            coord_t l_2_box_dist =
+                            <% assert not sources_have_extent %>
+
+                            // We're considering convergence of a multipole
+                            // in the (square) source box at all locations
+                            // in the (round) target box. We need
+
+                            // src_box_l2_radius
+                            //    / d_2(src_box_center, tgt_box) <= sqrt(d)/3
+
+                            // <=>
+
+                            // src_box_linf_radius * sqrt(d)
+                            //    / d_2(src_box_center, tgt_box) <= sqrt(d)/3
+
+                            // <=>
+
+                            // 3 * src_box_linf_radius
+                            //    <= d_2(src_box_center, tgt_box)
+
+                            // <=>
+
+                            // 3 * src_box_linf_radius
+                            //    <= d_2(src_box_center, tgt_box_center)
+                            //    - sqrt(d) * tgt_stickout_l_inf_rad
+
+                            // <=> (because why not)
+
+                            // 2 * src_box_linf_radius
+                            //    <= d_2(src_box_center, tgt_box_center)
+                            //    - sqrt(d) * tgt_stickout_l_inf_rad
+                            //    - src_box_linf_radius
+
+                            coord_t rhs =
                                 sqrt(l_2_squared_center_dist)
                                 - sqrt((coord_t) (${dimensions}))
                                     * tgt_stickout_l_inf_rad
                                 - source_l_inf_rad;
 
                             meets_sep_crit = l_2_box_dist >=
-                                (2 - 8 * COORD_T_MACH_EPS) * source_l_inf_rad;
+                                (2 - 8 * COORD_T_MACH_EPS) * rhs;
                         }
 
                     %else:
