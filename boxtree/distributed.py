@@ -925,7 +925,9 @@ def generate_local_tree(traversal, comm=MPI.COMM_WORLD, workload_weight=None):
 
 def generate_local_travs(
         local_tree, box_bounding_box=None, comm=MPI.COMM_WORLD,
-        well_sep_is_n_away=1):
+        well_sep_is_n_away=1, from_sep_smaller_crit=None,
+        _from_sep_smaller_min_nsources_cumul=None,
+        merge_close_lists=False):
     d_tree = local_tree.to_device(queue)
 
     # Modify box flags for targets
@@ -955,9 +957,20 @@ def generate_local_travs(
                             d_tree.box_flags)
 
     from boxtree.traversal import FMMTraversalBuilder
-    tg = FMMTraversalBuilder(queue.context, well_sep_is_n_away=well_sep_is_n_away)
-    d_trav_global, _ = tg(queue, d_tree, debug=True,
-                          box_bounding_box=box_bounding_box)
+    tg = FMMTraversalBuilder(
+        queue.context,
+        well_sep_is_n_away=well_sep_is_n_away,
+        from_sep_smaller_crit=from_sep_smaller_crit
+    )
+    d_trav_global, _ = tg(
+        queue, d_tree, debug=True,
+        box_bounding_box=box_bounding_box,
+        _from_sep_smaller_min_nsources_cumul=_from_sep_smaller_min_nsources_cumul
+    )
+
+    if merge_close_lists and d_tree.targets_have_extent:
+        d_trav_global = d_trav_global.merge_close_lists(queue)
+
     trav_global = d_trav_global.get(queue=queue)
 
     # Source flags
@@ -988,8 +1001,15 @@ def generate_local_travs(
     modify_own_sources_knl(d_tree.responsible_boxes_list, d_tree.box_flags)
     modify_child_sources_knl(d_tree.ancestor_mask, d_tree.box_flags)
 
-    d_trav_local, _ = tg(queue, d_tree, debug=True,
-                         box_bounding_box=box_bounding_box)
+    d_trav_local, _ = tg(
+        queue, d_tree, debug=True,
+        box_bounding_box=box_bounding_box,
+        _from_sep_smaller_min_nsources_cumul=_from_sep_smaller_min_nsources_cumul
+    )
+
+    if merge_close_lists and d_tree.targets_have_extent:
+        d_trav_local = d_trav_local.merge_close_lists(queue)
+
     trav_local = d_trav_local.get(queue=queue)
 
     return trav_local, trav_global
