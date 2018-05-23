@@ -926,7 +926,6 @@ def generate_local_tree(traversal, comm=MPI.COMM_WORLD, workload_weight=None):
 def generate_local_travs(
         local_tree, box_bounding_box=None, comm=MPI.COMM_WORLD,
         well_sep_is_n_away=1, from_sep_smaller_crit=None,
-        _from_sep_smaller_min_nsources_cumul=None,
         merge_close_lists=False):
     d_tree = local_tree.to_device(queue)
 
@@ -964,8 +963,7 @@ def generate_local_travs(
     )
     d_trav_global, _ = tg(
         queue, d_tree, debug=True,
-        box_bounding_box=box_bounding_box,
-        _from_sep_smaller_min_nsources_cumul=_from_sep_smaller_min_nsources_cumul
+        box_bounding_box=box_bounding_box
     )
 
     if merge_close_lists and d_tree.targets_have_extent:
@@ -1003,8 +1001,7 @@ def generate_local_travs(
 
     d_trav_local, _ = tg(
         queue, d_tree, debug=True,
-        box_bounding_box=box_bounding_box,
-        _from_sep_smaller_min_nsources_cumul=_from_sep_smaller_min_nsources_cumul
+        box_bounding_box=box_bounding_box
     )
 
     if merge_close_lists and d_tree.targets_have_extent:
