@@ -4,6 +4,12 @@ from boxtree.distributed import (
     DistributedFMMInfo, DistributedFMMLibExpansionWrangler)
 import numpy.linalg as la
 from boxtree.pyfmmlib_integration import FMMLibExpansionWrangler
+import logging
+import os
+
+# Configure logging
+logging.basicConfig(level=os.environ.get("LOGLEVEL", "WARNING"))
+logging.getLogger("boxtree.distributed").setLevel(logging.INFO)
 
 # Parameters
 dims = 3

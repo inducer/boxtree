@@ -11,6 +11,7 @@ from pytools import memoize_in, memoize_method
 from boxtree import Tree
 from collections import namedtuple
 from boxtree.pyfmmlib_integration import FMMLibExpansionWrangler
+import time
 
 __copyright__ = "Copyright (C) 2012 Andreas Kloeckner \
                  Copyright (C) 2017 Hao Gao"
@@ -40,11 +41,6 @@ logger = logging.getLogger(__name__)
 
 ctx = cl.create_some_context()
 queue = cl.CommandQueue(ctx)
-print("Process %d of %d on %s with ctx %s.\n" % (
-    MPI.COMM_WORLD.Get_rank(),
-    MPI.COMM_WORLD.Get_size(),
-    MPI.Get_processor_name(),
-    queue.context.devices))
 
 
 def tree_to_device(queue, tree, additional_fields_to_device=[]):
@@ -630,6 +626,22 @@ def gen_local_tree_helper(tree, src_box_mask, tgt_box_mask, local_tree,
 
 
 def generate_local_tree(traversal, comm=MPI.COMM_WORLD, workload_weight=None):
+
+    # Get MPI information
+    current_rank = comm.Get_rank()
+    total_rank = comm.Get_size()
+
+    # Log OpenCL context information
+    logger.info("Process %d of %d on %s with ctx %s." % (
+        comm.Get_rank(),
+        comm.Get_size(),
+        MPI.Get_processor_name(),
+        queue.context.devices)
+    )
+
+    if current_rank == 0:
+        start_time = time.time()
+
     # {{{ kernel to mark if a box mpole is used by a process via an interaction list
 
     @memoize_in(generate_local_tree, "loopy_cache")
@@ -667,10 +679,6 @@ def generate_local_tree(traversal, comm=MPI.COMM_WORLD, workload_weight=None):
         return knl
 
     # }}}
-
-    # Get MPI information
-    current_rank = comm.Get_rank()
-    total_rank = comm.Get_size()
 
     # {{{ Construct local tree for each rank on root
     if current_rank == 0:
@@ -920,6 +928,11 @@ def generate_local_tree(traversal, comm=MPI.COMM_WORLD, workload_weight=None):
         "max": box_target_bounding_box_max
     }
 
+    if current_rank == 0:
+        logger.info("Distribute local tree in {} sec.".format(
+            str(time.time() - start_time))
+        )
+
     return local_tree, local_data, box_bounding_box, knls
 
 
@@ -927,6 +940,9 @@ def generate_local_travs(
         local_tree, box_bounding_box=None, comm=MPI.COMM_WORLD,
         well_sep_is_n_away=1, from_sep_smaller_crit=None,
         merge_close_lists=False):
+
+    start_time = time.time()
+
     d_tree = local_tree.to_device(queue)
 
     # Modify box flags for targets
@@ -1008,6 +1024,10 @@ def generate_local_travs(
         d_trav_local = d_trav_local.merge_close_lists(queue)
 
     trav_local = d_trav_local.get(queue=queue)
+
+    logger.info("Generate local traversal in {} sec.".format(
+        str(time.time() - start_time))
+    )
 
     return trav_local, trav_global
 
@@ -1124,7 +1144,7 @@ def communicate_mpoles(wrangler, comm, trav, mpole_exps, return_stats=False):
         comm_pattern.advance()
 
     stats["total_time"] = time() - t_start
-    logger.debug("communicate multipoles: done in %.2f s" % stats["total_time"])
+    logger.info("communicate multipoles: done in %.2f s" % stats["total_time"])
 
     if return_stats:
         return stats
@@ -1201,9 +1221,13 @@ def distribute_source_weights(source_weights, global_tree, local_data,
 def calculate_pot(wrangler, trav_local, global_wrangler, trav_global, source_weights,
                   local_data, comm=MPI.COMM_WORLD,
                   _communicate_mpoles_via_allreduce=False):
+
     # Get MPI information
     current_rank = comm.Get_rank()
     total_rank = comm.Get_size()
+
+    if current_rank == 0:
+        start_time = time.time()
 
     # {{{ Distribute source weights
 
@@ -1221,9 +1245,7 @@ def calculate_pot(wrangler, trav_local, global_wrangler, trav_global, source_wei
 
     # {{{ "Step 2.1:" Construct local multipoles
 
-    import time
     logger.debug("construct local multipoles")
-
     mpole_exps = wrangler.form_multipoles(
             trav_local.level_start_source_box_nrs,
             trav_local.source_boxes,
@@ -1245,16 +1267,12 @@ def calculate_pot(wrangler, trav_local, global_wrangler, trav_global, source_wei
 
     # {{{ Communicate mpoles
 
-    last_time = time.time()
-
     if _communicate_mpoles_via_allreduce:
         mpole_exps_all = np.zeros_like(mpole_exps)
         comm.Allreduce(mpole_exps, mpole_exps_all)
         mpole_exps = mpole_exps_all
     else:
         communicate_mpoles(wrangler, comm, trav_local, mpole_exps)
-
-    print("Communication: " + str(time.time()-last_time))
 
     # }}}
 
@@ -1401,7 +1419,9 @@ def calculate_pot(wrangler, trav_local, global_wrangler, trav_global, source_wei
         logger.debug("finalize potentials")
         result = global_wrangler.finalize_potentials(result)
 
-        logger.info("fmm complete")
+        logger.info("Distributed FMM evaluation completes in {} sec.".format(
+            str(time.time() - start_time)
+        ))
 
         return result
 
