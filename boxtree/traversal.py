@@ -1792,17 +1792,22 @@ class FMMTraversalBuilder:
 
     def __call__(self, queue, tree, wait_for=None, debug=False,
                  _from_sep_smaller_min_nsources_cumul=None,
-                 box_bounding_box=None):
+                 box_bounding_box=None, local_box_flags=None):
         """
         :arg queue: A :class:`pyopencl.CommandQueue` instance.
         :arg tree: A :class:`boxtree.Tree` instance.
         :arg wait_for: may either be *None* or a list of :class:`pyopencl.Event`
             instances for whose completion this command waits before starting
             exeuction.
+        :arg local_box_flags: Used by distributed FMM for building source boxes
+            for local trees.
         :return: A tuple *(trav, event)*, where *trav* is a new instance of
             :class:`FMMTraversalInfo` and *event* is a :class:`pyopencl.Event`
             for dependency management.
         """
+
+        if local_box_flags is None:
+            local_box_flags = tree.box_flags
 
         if _from_sep_smaller_min_nsources_cumul is None:
             # default to old no-threshold behavior
@@ -1843,7 +1848,7 @@ class FMMTraversalBuilder:
         fin_debug("building list of source boxes, their parents, and target boxes")
 
         result, evt = knl_info.sources_parents_and_targets_builder(
-                queue, tree.nboxes, tree.box_flags.data, wait_for=wait_for)
+                queue, tree.nboxes, local_box_flags.data, wait_for=wait_for)
         wait_for = [evt]
 
         source_parent_boxes = result["source_parent_boxes"].lists

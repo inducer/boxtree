@@ -967,28 +967,13 @@ def generate_local_travs(
                     HAS_CHILD_TARGETS=("(" + box_flag_t + ") " +
                                        str(box_flags_enum.HAS_CHILD_TARGETS)))
     )
+
     modify_target_flags_knl(d_tree.box_target_counts_nonchild,
                             d_tree.box_target_counts_cumul,
                             d_tree.box_flags)
 
-    from boxtree.traversal import FMMTraversalBuilder
-    tg = FMMTraversalBuilder(
-        queue.context,
-        well_sep_is_n_away=well_sep_is_n_away,
-        from_sep_smaller_crit=from_sep_smaller_crit
-    )
-    d_trav_global, _ = tg(
-        queue, d_tree, debug=True,
-        box_bounding_box=box_bounding_box
-    )
-
-    if merge_close_lists and d_tree.targets_have_extent:
-        d_trav_global = d_trav_global.merge_close_lists(queue)
-
-    trav_global = d_trav_global.get(queue=queue)
-
-    # Source flags
-    d_tree.box_flags = d_tree.box_flags & 250
+    # Generate local source flags
+    local_box_flags = d_tree.box_flags & 250
     modify_own_sources_knl = cl.elementwise.ElementwiseKernel(
         queue.context,
         Template("""
@@ -1001,6 +986,7 @@ def generate_local_travs(
         """).render(HAS_OWN_SOURCES=("(" + box_flag_t + ") " +
                                      str(box_flags_enum.HAS_OWN_SOURCES)))
         )
+
     modify_child_sources_knl = cl.elementwise.ElementwiseKernel(
         queue.context,
         Template("""
@@ -1012,24 +998,33 @@ def generate_local_travs(
         """).render(HAS_CHILD_SOURCES=("(" + box_flag_t + ") " +
                                        str(box_flags_enum.HAS_CHILD_SOURCES)))
     )
-    modify_own_sources_knl(d_tree.responsible_boxes_list, d_tree.box_flags)
-    modify_child_sources_knl(d_tree.ancestor_mask, d_tree.box_flags)
 
-    d_trav_local, _ = tg(
+    modify_own_sources_knl(d_tree.responsible_boxes_list, local_box_flags)
+    modify_child_sources_knl(d_tree.ancestor_mask, local_box_flags)
+
+    from boxtree.traversal import FMMTraversalBuilder
+    tg = FMMTraversalBuilder(
+        queue.context,
+        well_sep_is_n_away=well_sep_is_n_away,
+        from_sep_smaller_crit=from_sep_smaller_crit
+    )
+
+    d_local_trav, _ = tg(
         queue, d_tree, debug=True,
-        box_bounding_box=box_bounding_box
+        box_bounding_box=box_bounding_box,
+        local_box_flags=local_box_flags
     )
 
     if merge_close_lists and d_tree.targets_have_extent:
-        d_trav_local = d_trav_local.merge_close_lists(queue)
+        d_local_trav = d_local_trav.merge_close_lists(queue)
 
-    trav_local = d_trav_local.get(queue=queue)
+    local_trav = d_local_trav.get(queue=queue)
 
     logger.info("Generate local traversal in {} sec.".format(
         str(time.time() - start_time))
     )
 
-    return trav_local, trav_global
+    return local_trav
 
 
 # {{{ communicate mpoles
@@ -1218,7 +1213,7 @@ def distribute_source_weights(source_weights, global_tree, local_data,
     return local_src_weights
 
 
-def calculate_pot(wrangler, trav_local, global_wrangler, trav_global, source_weights,
+def calculate_pot(wrangler, global_wrangler, local_trav, source_weights,
                   local_data, comm=MPI.COMM_WORLD,
                   _communicate_mpoles_via_allreduce=False):
 
@@ -1247,8 +1242,8 @@ def calculate_pot(wrangler, trav_local, global_wrangler, trav_global, source_wei
 
     logger.debug("construct local multipoles")
     mpole_exps = wrangler.form_multipoles(
-            trav_local.level_start_source_box_nrs,
-            trav_local.source_boxes,
+            local_trav.level_start_source_box_nrs,
+            local_trav.source_boxes,
             local_src_weights)
 
     # }}}
@@ -1257,8 +1252,8 @@ def calculate_pot(wrangler, trav_local, global_wrangler, trav_global, source_wei
 
     logger.debug("propagate multipoles upward")
     wrangler.coarsen_multipoles(
-            trav_local.level_start_source_parent_box_nrs,
-            trav_local.source_parent_boxes,
+            local_trav.level_start_source_parent_box_nrs,
+            local_trav.source_parent_boxes,
             mpole_exps)
 
     # mpole_exps is called Phi in [1]
@@ -1272,7 +1267,7 @@ def calculate_pot(wrangler, trav_local, global_wrangler, trav_global, source_wei
         comm.Allreduce(mpole_exps, mpole_exps_all)
         mpole_exps = mpole_exps_all
     else:
-        communicate_mpoles(wrangler, comm, trav_local, mpole_exps)
+        communicate_mpoles(wrangler, comm, local_trav, mpole_exps)
 
     # }}}
 
@@ -1280,9 +1275,9 @@ def calculate_pot(wrangler, trav_local, global_wrangler, trav_global, source_wei
 
     logger.debug("direct evaluation from neighbor source boxes ('list 1')")
     potentials = wrangler.eval_direct(
-            trav_global.target_boxes,
-            trav_global.neighbor_source_boxes_starts,
-            trav_global.neighbor_source_boxes_lists,
+            local_trav.target_boxes,
+            local_trav.neighbor_source_boxes_starts,
+            local_trav.neighbor_source_boxes_lists,
             local_src_weights)
 
     # these potentials are called alpha in [1]
@@ -1293,10 +1288,10 @@ def calculate_pot(wrangler, trav_local, global_wrangler, trav_global, source_wei
 
     logger.debug("translate separated siblings' ('list 2') mpoles to local")
     local_exps = wrangler.multipole_to_local(
-            trav_global.level_start_target_or_target_parent_box_nrs,
-            trav_global.target_or_target_parent_boxes,
-            trav_global.from_sep_siblings_starts,
-            trav_global.from_sep_siblings_lists,
+            local_trav.level_start_target_or_target_parent_box_nrs,
+            local_trav.target_or_target_parent_boxes,
+            local_trav.from_sep_siblings_starts,
+            local_trav.from_sep_siblings_lists,
             mpole_exps)
 
     # local_exps represents both Gamma and Delta in [1]
@@ -1311,19 +1306,19 @@ def calculate_pot(wrangler, trav_local, global_wrangler, trav_global, source_wei
     # contribution *out* of the downward-propagating local expansions)
 
     potentials = potentials + wrangler.eval_multipoles(
-            trav_global.target_boxes_sep_smaller_by_source_level,
-            trav_global.from_sep_smaller_by_level,
+            local_trav.target_boxes_sep_smaller_by_source_level,
+            local_trav.from_sep_smaller_by_level,
             mpole_exps)
 
     # these potentials are called beta in [1]
 
-    if trav_global.from_sep_close_smaller_starts is not None:
+    if local_trav.from_sep_close_smaller_starts is not None:
         logger.debug("evaluate separated close smaller interactions directly "
                      "('list 3 close')")
         potentials = potentials + wrangler.eval_direct(
-                trav_global.target_boxes,
-                trav_global.from_sep_close_smaller_starts,
-                trav_global.from_sep_close_smaller_lists,
+                local_trav.target_boxes,
+                local_trav.from_sep_close_smaller_starts,
+                local_trav.from_sep_close_smaller_lists,
                 local_src_weights)
 
     # }}}
@@ -1333,20 +1328,20 @@ def calculate_pot(wrangler, trav_local, global_wrangler, trav_global, source_wei
     logger.debug("form locals for separated bigger source boxes ('list 4 far')")
 
     local_exps = local_exps + wrangler.form_locals(
-            trav_global.level_start_target_or_target_parent_box_nrs,
-            trav_global.target_or_target_parent_boxes,
-            trav_global.from_sep_bigger_starts,
-            trav_global.from_sep_bigger_lists,
+            local_trav.level_start_target_or_target_parent_box_nrs,
+            local_trav.target_or_target_parent_boxes,
+            local_trav.from_sep_bigger_starts,
+            local_trav.from_sep_bigger_lists,
             local_src_weights)
 
-    if trav_global.from_sep_close_bigger_starts is not None:
+    if local_trav.from_sep_close_bigger_starts is not None:
         logger.debug("evaluate separated close bigger interactions directly "
                      "('list 4 close')")
 
         potentials = potentials + wrangler.eval_direct(
-                trav_global.target_or_target_parent_boxes,
-                trav_global.from_sep_close_bigger_starts,
-                trav_global.from_sep_close_bigger_lists,
+                local_trav.target_or_target_parent_boxes,
+                local_trav.from_sep_close_bigger_starts,
+                local_trav.from_sep_close_bigger_lists,
                 local_src_weights)
 
     # }}}
@@ -1356,8 +1351,8 @@ def calculate_pot(wrangler, trav_local, global_wrangler, trav_global, source_wei
     logger.debug("propagate local_exps downward")
 
     wrangler.refine_locals(
-            trav_global.level_start_target_or_target_parent_box_nrs,
-            trav_global.target_or_target_parent_boxes,
+            local_trav.level_start_target_or_target_parent_box_nrs,
+            local_trav.target_or_target_parent_boxes,
             local_exps)
 
     # }}}
@@ -1366,8 +1361,8 @@ def calculate_pot(wrangler, trav_local, global_wrangler, trav_global, source_wei
 
     logger.debug("evaluate locals")
     potentials = potentials + wrangler.eval_locals(
-            trav_global.level_start_target_box_nrs,
-            trav_global.target_boxes,
+            local_trav.level_start_target_box_nrs,
+            local_trav.target_boxes,
             local_exps)
 
     # }}}
@@ -1445,7 +1440,7 @@ class DistributedFMMInfo(object):
 
         self.local_tree, self.local_data, self.box_bounding_box, _ = \
             generate_local_tree(self.global_trav)
-        self.trav_local, self.trav_global = generate_local_travs(
+        self.local_trav = generate_local_travs(
             self.local_tree, self.box_bounding_box, comm=comm,
             well_sep_is_n_away=well_sep_is_n_away)
         self.local_wrangler = self.distributed_expansion_wrangler_factory(
@@ -1458,5 +1453,5 @@ class DistributedFMMInfo(object):
 
     def drive_dfmm(self, source_weights):
         return calculate_pot(
-            self.local_wrangler, self.trav_local, self.global_wrangler,
-            self.trav_global, source_weights, self.local_data)
+            self.local_wrangler, self.global_wrangler, self.local_trav,
+            source_weights, self.local_data)
