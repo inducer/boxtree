@@ -1600,8 +1600,11 @@ class TreeBuilder(object):
         if targets_have_extent:
             extra_tree_attrs.update(target_radii=target_radii)
 
-        tree_build_proc.done("%d levels, %d boxes, %d particles",
-                nlevels, len(box_parent_ids), nsrcntgts)
+        tree_build_proc.done(
+                "%d levels, %d boxes, %d particles, box extent norm: %s, "
+                "max_leaf_refine_weight: %d",
+                nlevels, len(box_parent_ids), nsrcntgts, srcntgts_extent_norm,
+                max_leaf_refine_weight)
 
         return Tree(
                 # If you change this, also change the documentation
