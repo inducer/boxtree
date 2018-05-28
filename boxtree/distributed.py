@@ -904,11 +904,11 @@ def generate_local_tree(traversal, comm=MPI.COMM_WORLD, workload_weight=None):
         knls = get_gen_local_tree_kernels(tree)
 
         # request objects for non-blocking communication
-        tree_req = np.empty((total_rank,), dtype=object)
-        sources_req = np.empty((total_rank,), dtype=object)
-        targets_req = np.empty((total_rank,), dtype=object)
+        tree_req = []
+        sources_req = []
+        targets_req = []
         if tree.targets_have_extent:
-            target_radii_req = np.empty((total_rank,), dtype=object)
+            target_radii_req = []
 
         for rank in range(total_rank):
             local_tree[rank] = LocalTree.copy_from_global_tree(
@@ -953,39 +953,34 @@ def generate_local_tree(traversal, comm=MPI.COMM_WORLD, workload_weight=None):
             # }}}
 
             # Send the local tree skeleton without sources and targets
-            tree_req[rank] = comm.isend(local_tree[rank], dest=rank,
-                                        tag=MPITags["DIST_TREE"])
+            tree_req.append(comm.isend(
+                local_tree[rank], dest=rank, tag=MPITags["DIST_TREE"]))
 
             # Send the sources and targets
-            sources_req[rank] = comm.Isend(
-                local_sources[rank], dest=rank, tag=MPITags["DIST_SOURCES"]
-            )
+            sources_req.append(comm.Isend(
+                local_sources[rank], dest=rank, tag=MPITags["DIST_SOURCES"]))
 
-            targets_req[rank] = comm.Isend(
-                local_targets[rank], dest=rank, tag=MPITags["DIST_TARGETS"]
-            )
+            targets_req.append(comm.Isend(
+                local_targets[rank], dest=rank, tag=MPITags["DIST_TARGETS"]))
 
             if tree.targets_have_extent:
-                target_radii_req[rank] = comm.Isend(
-                    local_target_radii[rank], dest=rank, tag=MPITags["DIST_RADII"]
-                )
+                target_radii_req.append(comm.Isend(
+                    local_target_radii[rank], dest=rank, tag=MPITags["DIST_RADII"]))
 
     # }}}
 
     # Receive the local tree from root
     if current_rank == 0:
-        for rank in range(1, total_rank):
-            tree_req[rank].wait()
+        MPI.Request.Waitall(tree_req)
         local_tree = local_tree[0]
     else:
         local_tree = comm.recv(source=0, tag=MPITags["DIST_TREE"])
 
     # Receive sources and targets
     if current_rank == 0:
-        for rank in range(1, total_rank):
-            sources_req[rank].wait()
-            targets_req[rank].wait()
-            target_radii_req[rank].wait()
+        MPI.Request.Waitall(sources_req)
+        MPI.Request.Waitall(targets_req)
+        MPI.Request.Waitall(target_radii_req)
     else:
         local_tree.sources = np.empty(
             (local_tree._dimensions, local_tree._nsources),
