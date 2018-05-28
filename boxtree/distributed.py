@@ -106,7 +106,13 @@ class LocalTree(Tree):
             responsible_boxes_list=responsible_boxes_list,
             ancestor_mask=ancestor_mask,
             box_to_user_starts=box_to_user_starts,
-            box_to_user_lists=box_to_user_lists)
+            box_to_user_lists=box_to_user_lists,
+            _dimensions=None,
+            _ntargets=None,
+            _nsources=None,
+            _particle_dtype=None,
+            _radii_dtype=None
+        )
         local_tree.__class__ = cls
         return local_tree
 
@@ -221,13 +227,30 @@ class DistributedFMMLibExpansionWrangler(FMMLibExpansionWrangler):
 
 MPITags = dict(
     DIST_TREE=0,
-    DIST_WEIGHT=1,
-    GATHER_POTENTIALS=2,
-    REDUCE_POTENTIALS=3,
-    REDUCE_INDICES=4
+    DIST_SOURCES=1,
+    DIST_TARGETS=2,
+    DIST_RADII=3,
+    DIST_WEIGHT=4,
+    GATHER_POTENTIALS=5,
+    REDUCE_POTENTIALS=6,
+    REDUCE_INDICES=7
 )
 
 WorkloadWeight = namedtuple('Workload', ['direct', 'm2l', 'm2p', 'p2l', 'multipole'])
+
+
+def dtype_to_mpi(dtype):
+    """ This function translates a numpy.dtype object into the corresponding type
+    used in mpi4py.
+    """
+    if hasattr(MPI, '_typedict'):
+        mpi_type = MPI._typedict[np.dtype(dtype).char]
+    elif hasattr(MPI, '__TypeDict__'):
+        mpi_type = MPI.__TypeDict__[np.dtype(dtype).char]
+    else:
+        raise RuntimeError("There is no dictionary to translate from Numpy dtype to "
+                           "MPI type")
+    return mpi_type
 
 
 def partition_work(traversal, total_rank, workload_weight):
@@ -681,6 +704,7 @@ def generate_local_tree(traversal, comm=MPI.COMM_WORLD, workload_weight=None):
     # }}}
 
     # {{{ Construct local tree for each rank on root
+
     if current_rank == 0:
         local_data = np.empty((total_rank,), dtype=object)
         for i in range(total_rank):
@@ -695,7 +719,11 @@ def generate_local_tree(traversal, comm=MPI.COMM_WORLD, workload_weight=None):
 
     if current_rank == 0:
         tree = traversal.tree
+
         local_tree = np.empty((total_rank,), dtype=object)
+        local_targets = np.empty((total_rank,), dtype=object)
+        local_sources = np.empty((total_rank,), dtype=object)
+        local_target_radii = np.empty((total_rank,), dtype=object)
 
         # {{{ Partition the work
         d_box_parent_ids = cl.array.to_device(queue, tree.box_parent_ids)
@@ -877,6 +905,10 @@ def generate_local_tree(traversal, comm=MPI.COMM_WORLD, workload_weight=None):
 
         # request objects for non-blocking communication
         tree_req = np.empty((total_rank,), dtype=object)
+        sources_req = np.empty((total_rank,), dtype=object)
+        targets_req = np.empty((total_rank,), dtype=object)
+        if tree.targets_have_extent:
+            target_radii_req = np.empty((total_rank,), dtype=object)
 
         for rank in range(total_rank):
             local_tree[rank] = LocalTree.copy_from_global_tree(
@@ -895,12 +927,52 @@ def generate_local_tree(traversal, comm=MPI.COMM_WORLD, workload_weight=None):
                                   local_data[rank],
                                   knls)
 
+            if rank == 0:
+                # master process does not need to communicate with itself
+                continue
+
+            # {{{ Peel sources and targets off tree
+
+            local_tree[rank]._dimensions = local_tree[rank].dimensions
+
+            local_targets[rank] = np.stack(local_tree[rank].targets, axis=0)
+            local_tree[rank]._ntargets = local_tree[rank].ntargets
+            local_tree[rank].targets = None
+
+            local_sources[rank] = np.stack(local_tree[rank].sources, axis=0)
+            local_tree[rank]._nsources = local_tree[rank].nsources
+            local_tree[rank].sources = None
+
+            local_target_radii[rank] = np.stack(
+                local_tree[rank].target_radii, axis=0)
+            local_tree[rank].target_radii = None
+
+            local_tree[rank]._particle_dtype = tree.sources[0].dtype
+            local_tree[rank]._radii_dtype = tree.target_radii.dtype
+
+            # }}}
+
+            # Send the local tree skeleton without sources and targets
             tree_req[rank] = comm.isend(local_tree[rank], dest=rank,
                                         tag=MPITags["DIST_TREE"])
 
+            # Send the sources and targets
+            sources_req[rank] = comm.Isend(
+                local_sources[rank], dest=rank, tag=MPITags["DIST_SOURCES"]
+            )
+
+            targets_req[rank] = comm.Isend(
+                local_targets[rank], dest=rank, tag=MPITags["DIST_TARGETS"]
+            )
+
+            if tree.targets_have_extent:
+                target_radii_req[rank] = comm.Isend(
+                    local_target_radii[rank], dest=rank, tag=MPITags["DIST_RADII"]
+                )
+
     # }}}
 
-    # Recieve the local trav from root
+    # Receive the local tree from root
     if current_rank == 0:
         for rank in range(1, total_rank):
             tree_req[rank].wait()
@@ -908,7 +980,33 @@ def generate_local_tree(traversal, comm=MPI.COMM_WORLD, workload_weight=None):
     else:
         local_tree = comm.recv(source=0, tag=MPITags["DIST_TREE"])
 
-    # Recieve box extent
+    # Receive sources and targets
+    if current_rank == 0:
+        for rank in range(1, total_rank):
+            sources_req[rank].wait()
+            targets_req[rank].wait()
+            target_radii_req[rank].wait()
+    else:
+        local_tree.sources = np.empty(
+            (local_tree._dimensions, local_tree._nsources),
+            dtype=local_tree._particle_dtype
+        )
+        comm.Recv(local_tree.sources, source=0, tag=MPITags["DIST_SOURCES"])
+
+        local_tree.targets = np.empty(
+            (local_tree._dimensions, local_tree._ntargets),
+            dtype=local_tree._particle_dtype
+        )
+        comm.Recv(local_tree.targets, source=0, tag=MPITags["DIST_TARGETS"])
+
+        if local_tree.targets_have_extent:
+            local_tree.target_radii = np.empty(
+                (local_tree._ntargets,),
+                dtype=local_tree._radii_dtype
+            )
+            comm.Recv(local_tree.target_radii, source=0, tag=MPITags["DIST_RADII"])
+
+    # Receive box extent
     if current_rank == 0:
         box_target_bounding_box_min = traversal.box_target_bounding_box_min
         box_target_bounding_box_max = traversal.box_target_bounding_box_max
@@ -1367,7 +1465,7 @@ def calculate_pot(wrangler, global_wrangler, local_trav, source_weights,
 
     # }}}
 
-    potentials_mpi_type = MPI._typedict[potentials.dtype.char]
+    potentials_mpi_type = dtype_to_mpi(potentials.dtype)
     if current_rank == 0:
         potentials_all_ranks = np.empty((total_rank,), dtype=object)
         potentials_all_ranks[0] = potentials
