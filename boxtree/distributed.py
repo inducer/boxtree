@@ -534,14 +534,15 @@ def gen_local_tree_helper(tree, src_box_mask, tgt_box_mask, local_tree,
 
     # local sources
     local_nsources = src_particle_scan[-1].get(queue)
-    local_sources = np.empty((tree.dimensions,), dtype=object)
-    for i in range(tree.dimensions):
-        local_sources[i] = cl.array.empty(queue, (local_nsources,),
-                                            dtype=tree.coord_dtype)
+    local_sources = cl.array.empty(
+        queue, (tree.dimensions, local_nsources), dtype=tree.coord_dtype)
+    local_sources_list = [local_sources[idim, :] for idim in range(tree.dimensions)]
+
     assert(tree.sources_have_extent is False)
+
     knls["fetch_local_src_knl"](src_particle_mask, src_particle_scan,
                                 *d_tree.sources.tolist(),
-                                *local_sources.tolist())
+                                *local_sources_list)
 
     # box_source_starts
     local_box_source_starts = cl.array.empty(queue, (tree.nboxes,),
@@ -581,21 +582,22 @@ def gen_local_tree_helper(tree, src_box_mask, tgt_box_mask, local_tree,
 
     # local targets
     local_ntargets = tgt_particle_scan[-1].get(queue)
-    local_targets = np.empty((tree.dimensions,), dtype=object)
-    for i in range(tree.dimensions):
-        local_targets[i] = cl.array.empty(queue, (local_ntargets,),
-                                            dtype=tree.coord_dtype)
+
+    local_targets = cl.array.empty(
+        queue, (tree.dimensions, local_ntargets), dtype=tree.coord_dtype)
+    local_targets_list = [local_targets[idim, :] for idim in range(tree.dimensions)]
+
     if tree.targets_have_extent:
         local_target_radii = cl.array.empty(queue, (local_ntargets,),
                                             dtype=tree.coord_dtype)
         knls["fetch_local_tgt_knl"](tgt_particle_mask, tgt_particle_scan,
                                     *d_tree.targets.tolist(),
-                                    *local_targets.tolist(),
+                                    *local_targets_list,
                                     d_tree.target_radii, local_target_radii)
     else:
         knls["fetch_local_tgt_knl"](tgt_particle_mask, tgt_particle_scan,
                                     *d_tree.targets.tolist(),
-                                    *local_targets.tolist())
+                                    *local_targets_list)
 
     # box_target_starts
     local_box_target_starts = cl.array.empty(queue, (tree.nboxes,),
@@ -619,12 +621,12 @@ def gen_local_tree_helper(tree, src_box_mask, tgt_box_mask, local_tree,
                                                tgt_particle_scan)
 
     # Fetch fields to local_tree
-    for i in range(tree.dimensions):
-        local_sources[i] = local_sources[i].get(queue=queue)
+    local_sources = local_sources.get(queue=queue)
     local_tree.sources = local_sources
-    for i in range(tree.dimensions):
-        local_targets[i] = local_targets[i].get(queue=queue)
+
+    local_targets = local_targets.get(queue=queue)
     local_tree.targets = local_targets
+
     if tree.targets_have_extent:
         local_tree.target_radii = local_target_radii.get(queue=queue)
     local_tree.box_source_starts = local_box_source_starts.get(queue=queue)
@@ -932,16 +934,15 @@ def generate_local_tree(traversal, comm=MPI.COMM_WORLD, workload_weight=None):
 
             local_tree[rank]._dimensions = local_tree[rank].dimensions
 
-            local_targets[rank] = np.stack(local_tree[rank].targets, axis=0)
             local_tree[rank]._ntargets = local_tree[rank].ntargets
+            local_targets[rank] = local_tree[rank].targets
             local_tree[rank].targets = None
 
-            local_sources[rank] = np.stack(local_tree[rank].sources, axis=0)
             local_tree[rank]._nsources = local_tree[rank].nsources
+            local_sources[rank] = local_tree[rank].sources
             local_tree[rank].sources = None
 
-            local_target_radii[rank] = np.stack(
-                local_tree[rank].target_radii, axis=0)
+            local_target_radii[rank] = local_tree[rank].target_radii
             local_tree[rank].target_radii = None
 
             local_tree[rank]._particle_dtype = tree.sources[0].dtype
