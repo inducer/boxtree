@@ -905,10 +905,7 @@ def generate_local_tree(traversal, comm=MPI.COMM_WORLD, workload_weight=None):
 
         # request objects for non-blocking communication
         tree_req = []
-        sources_req = []
-        targets_req = []
-        if tree.targets_have_extent:
-            target_radii_req = []
+        particles_req = []
 
         for rank in range(total_rank):
             local_tree[rank] = LocalTree.copy_from_global_tree(
@@ -957,14 +954,14 @@ def generate_local_tree(traversal, comm=MPI.COMM_WORLD, workload_weight=None):
                 local_tree[rank], dest=rank, tag=MPITags["DIST_TREE"]))
 
             # Send the sources and targets
-            sources_req.append(comm.Isend(
+            particles_req.append(comm.Isend(
                 local_sources[rank], dest=rank, tag=MPITags["DIST_SOURCES"]))
 
-            targets_req.append(comm.Isend(
+            particles_req.append(comm.Isend(
                 local_targets[rank], dest=rank, tag=MPITags["DIST_TARGETS"]))
 
             if tree.targets_have_extent:
-                target_radii_req.append(comm.Isend(
+                particles_req.append(comm.Isend(
                     local_target_radii[rank], dest=rank, tag=MPITags["DIST_RADII"]))
 
     # }}}
@@ -978,9 +975,7 @@ def generate_local_tree(traversal, comm=MPI.COMM_WORLD, workload_weight=None):
 
     # Receive sources and targets
     if current_rank == 0:
-        MPI.Request.Waitall(sources_req)
-        MPI.Request.Waitall(targets_req)
-        MPI.Request.Waitall(target_radii_req)
+        MPI.Request.Waitall(particles_req)
     else:
         reqs = []
 
