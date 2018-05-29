@@ -982,24 +982,31 @@ def generate_local_tree(traversal, comm=MPI.COMM_WORLD, workload_weight=None):
         MPI.Request.Waitall(targets_req)
         MPI.Request.Waitall(target_radii_req)
     else:
+        reqs = []
+
         local_tree.sources = np.empty(
             (local_tree._dimensions, local_tree._nsources),
             dtype=local_tree._particle_dtype
         )
-        comm.Recv(local_tree.sources, source=0, tag=MPITags["DIST_SOURCES"])
+        reqs.append(comm.Irecv(
+            local_tree.sources, source=0, tag=MPITags["DIST_SOURCES"]))
 
         local_tree.targets = np.empty(
             (local_tree._dimensions, local_tree._ntargets),
             dtype=local_tree._particle_dtype
         )
-        comm.Recv(local_tree.targets, source=0, tag=MPITags["DIST_TARGETS"])
+        reqs.append(comm.Irecv(
+            local_tree.targets, source=0, tag=MPITags["DIST_TARGETS"]))
 
         if local_tree.targets_have_extent:
             local_tree.target_radii = np.empty(
                 (local_tree._ntargets,),
                 dtype=local_tree._radii_dtype
             )
-            comm.Recv(local_tree.target_radii, source=0, tag=MPITags["DIST_RADII"])
+            reqs.append(comm.Irecv(
+                local_tree.target_radii, source=0, tag=MPITags["DIST_RADII"]))
+
+        MPI.Request.Waitall(reqs)
 
     # Receive box extent
     if current_rank == 0:
