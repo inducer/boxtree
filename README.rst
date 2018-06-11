@@ -1,6 +1,8 @@
-boxtree
-=======
+boxtree: Quad/Octrees, FMM Traversals, Geometric Queries
+========================================================
 
+.. image:: https://gitlab.tiker.net/inducer/boxtree/badges/master/pipeline.svg
+   :target: https://gitlab.tiker.net/inducer/boxtree/commits/master
 .. image:: https://badge.fury.io/py/boxtree.png
     :target: http://pypi.python.org/pypi/boxtree
 

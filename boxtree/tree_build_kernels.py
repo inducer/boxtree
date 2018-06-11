@@ -30,7 +30,7 @@ import pyopencl as cl
 from pyopencl.elementwise import ElementwiseTemplate
 from pyopencl.scan import ScanTemplate
 from mako.template import Template
-from pytools import Record, memoize
+from pytools import Record, memoize, log_process
 from boxtree.tools import get_type_moniker
 
 import logging
@@ -1281,6 +1281,7 @@ BOX_INFO_KERNEL_TPL = ElementwiseTemplate(
 # {{{ kernel creation top-level
 
 
+@log_process(logger)
 def get_tree_build_kernel_info(context, dimensions, coord_dtype,
         particle_id_dtype, box_id_dtype,
         sources_are_targets, srcntgts_extent_norm,
@@ -1291,8 +1292,6 @@ def get_tree_build_kernel_info(context, dimensions, coord_dtype,
 
     level_restrict = (kind == "adaptive-level-restricted")
     adaptive = not (kind == "non-adaptive")
-
-    logger.info("start building tree build kernels")
 
     # {{{ preparation
 
@@ -1710,8 +1709,6 @@ def get_tree_build_kernel_info(context, dimensions, coord_dtype,
             )
 
     # }}}
-
-    logger.info("tree build kernels built")
 
     return _KernelInfo(
             particle_id_dtype=particle_id_dtype,
