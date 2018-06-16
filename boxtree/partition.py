@@ -1,4 +1,6 @@
 import numpy as np
+import pyopencl as cl
+from pyopencl.tools import dtype_to_ctype
 
 __copyright__ = "Copyright (C) 2012 Andreas Kloeckner \
                  Copyright (C) 2018 Hao Gao"
@@ -139,3 +141,48 @@ def partition_work(traversal, total_rank, workload_weight):
             rank += 1
 
     return responsible_boxes_list
+
+
+class ResponsibleBoxesQuery(object):
+    """ Query various lists related to the responsible boxes in a given tree.
+    """
+    def __init__(self, queue, tree):
+        """
+        :param queue: A pyopencl.CommandQueue object.
+        :param tree: The global tree on root with all particles.
+        """
+        self.queue = queue
+        self.tree = tree
+
+        self.mark_parent_knl = cl.elementwise.ElementwiseKernel(
+            queue.context,
+            "__global char *current, __global char *parent, "
+            "__global %s *box_parent_ids" % dtype_to_ctype(tree.box_id_dtype),
+            "if(i != 0 && current[i]) parent[box_parent_ids[i]] = 1"
+        )
+
+        self.box_parent_ids_dev = cl.array.to_device(queue, tree.box_parent_ids)
+
+    def ancestor_boxes_mask(self, responsible_boxes_mask):
+        """ Query the ancestors of responsible boxes.
+
+        :param responsible_boxes_mask: A pyopencl.array.Array object of shape
+            (tree.nboxes,) whose ith entry is 1 iff i is a responsible box.
+        :return: A pyopencl.array.Array object of shape (tree.nboxes,) whose ith
+            entry is 1 iff i is either a responsible box or an ancestor of the
+            responsible boxes specified by responsible_boxes_mask.
+        """
+        ancestor_boxes = cl.array.zeros(
+            self.queue, (self.tree.nboxes,), dtype=np.int8)
+        ancestor_boxes_last = responsible_boxes_mask.copy()
+
+        while ancestor_boxes_last.any():
+            ancestor_boxes_new = cl.array.zeros(self.queue, (self.tree.nboxes,),
+                                                dtype=np.int8)
+            self.mark_parent_knl(ancestor_boxes_last, ancestor_boxes_new,
+                                 self.box_parent_ids_dev)
+            ancestor_boxes_new = ancestor_boxes_new & (~ancestor_boxes)
+            ancestor_boxes = ancestor_boxes | ancestor_boxes_new
+            ancestor_boxes_last = ancestor_boxes_new
+
+        return ancestor_boxes

@@ -616,7 +616,6 @@ def generate_local_tree(traversal, comm=MPI.COMM_WORLD, workload_weight=None):
         local_target_radii = np.empty((total_rank,), dtype=object)
 
         # {{{ Partition the work
-        d_box_parent_ids = cl.array.to_device(queue, tree.box_parent_ids)
 
         # Each rank is responsible for calculating the multiple expansion as well as
         # evaluating target potentials in *responsible_boxes*
@@ -642,26 +641,15 @@ def generate_local_tree(traversal, comm=MPI.COMM_WORLD, workload_weight=None):
             responsible_boxes_list[irank] = cl.array.to_device(
                 queue, responsible_boxes_list[irank])
 
+        from boxtree.partition import ResponsibleBoxesQuery
+        responsible_box_query = ResponsibleBoxesQuery(queue, tree)
+
         # Calculate ancestors of responsible boxes
         ancestor_boxes = cl.array.zeros(queue, (total_rank, tree.nboxes),
                                         dtype=np.int8)
-        for rank in range(total_rank):
-            ancestor_boxes_last = responsible_boxes_mask[rank, :].copy()
-            mark_parent_knl = cl.elementwise.ElementwiseKernel(
-                ctx,
-                "__global char *current, __global char *parent, "
-                "__global %s *box_parent_ids" % dtype_to_ctype(tree.box_id_dtype),
-                "if(i != 0 && current[i]) parent[box_parent_ids[i]] = 1"
-            )
-            while ancestor_boxes_last.any():
-                ancestor_boxes_new = cl.array.zeros(queue, (tree.nboxes,),
-                                                    dtype=np.int8)
-                mark_parent_knl(ancestor_boxes_last, ancestor_boxes_new,
-                                d_box_parent_ids)
-                ancestor_boxes_new = ancestor_boxes_new & (~ancestor_boxes[rank, :])
-                ancestor_boxes[rank, :] = \
-                    ancestor_boxes[rank, :] | ancestor_boxes_new
-                ancestor_boxes_last = ancestor_boxes_new
+        for irank in range(total_rank):
+            ancestor_boxes[irank, :] = responsible_box_query.ancestor_boxes_mask(
+                responsible_boxes_mask[irank, :])
 
         # In order to evaluate, each rank needs sources in boxes in
         # *src_boxes_mask*
