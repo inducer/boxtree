@@ -240,6 +240,18 @@ class ResponsibleBoxesQuery(object):
         return ancestor_boxes
 
     def src_boxes_mask(self, responsible_boxes_mask, ancestor_boxes_mask):
+        """ Query the boxes whose sources are needed in order to evaluate potentials
+        of boxes represented by responsible_boxes_mask.
+
+        :param responsible_boxes_mask: A pyopencl.array.Array object of shape
+            (tree.nboxes,) whose ith entry is 1 iff i is a responsible box.
+        :param ancestor_boxes_mask: A pyopencl.array.Array object of shape
+            (tree.nboxes,) whose ith entry is 1 iff i is either a responsible box
+            or an ancestor of the responsible boxes.
+        :return: A pyopencl.array.Array object of shape (tree.nboxes,) whose ith
+            entry is 1 iff souces of box i are needed for evaluating the potentials
+            of targets in boxes represented by responsible_boxes_mask.
+        """
         src_boxes_mask = responsible_boxes_mask.copy()
 
         # Add list 1 of responsible boxes
