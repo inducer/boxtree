@@ -642,7 +642,7 @@ def generate_local_tree(traversal, comm=MPI.COMM_WORLD, workload_weight=None):
                 queue, responsible_boxes_list[irank])
 
         from boxtree.partition import ResponsibleBoxesQuery
-        responsible_box_query = ResponsibleBoxesQuery(queue, tree)
+        responsible_box_query = ResponsibleBoxesQuery(queue, traversal)
 
         # Calculate ancestors of responsible boxes
         ancestor_boxes = cl.array.zeros(queue, (total_rank, tree.nboxes),
@@ -653,89 +653,13 @@ def generate_local_tree(traversal, comm=MPI.COMM_WORLD, workload_weight=None):
 
         # In order to evaluate, each rank needs sources in boxes in
         # *src_boxes_mask*
-        src_boxes_mask = responsible_boxes_mask.copy()
+        src_boxes_mask = cl.array.zeros(queue, (total_rank, tree.nboxes),
+                                        dtype=np.int8)
 
-        # Add list 1 and list 4 to src_boxes_mask
-        add_interaction_list_boxes = cl.elementwise.ElementwiseKernel(
-            ctx,
-            Template("""
-                __global ${box_id_t} *box_list,
-                __global char *responsible_boxes_mask,
-                __global ${box_id_t} *interaction_boxes_starts,
-                __global ${box_id_t} *interaction_boxes_lists,
-                __global char *src_boxes_mask
-            """, strict_undefined=True).render(
-                box_id_t=dtype_to_ctype(tree.box_id_dtype)
-            ),
-            Template(r"""
-                typedef ${box_id_t} box_id_t;
-                box_id_t current_box = box_list[i];
-                if(responsible_boxes_mask[current_box]) {
-                    for(box_id_t box_idx = interaction_boxes_starts[i];
-                        box_idx < interaction_boxes_starts[i + 1];
-                        ++box_idx)
-                        src_boxes_mask[interaction_boxes_lists[box_idx]] = 1;
-                }
-            """, strict_undefined=True).render(
-                box_id_t=dtype_to_ctype(tree.box_id_dtype)
-            ),
-        )
-
-        for rank in range(total_rank):
-            # Add list 1 of responsible boxes
-            d_target_boxes = cl.array.to_device(queue, traversal.target_boxes)
-            d_neighbor_source_boxes_starts = cl.array.to_device(
-                queue, traversal.neighbor_source_boxes_starts)
-            d_neighbor_source_boxes_lists = cl.array.to_device(
-                queue, traversal.neighbor_source_boxes_lists)
-            add_interaction_list_boxes(
-                d_target_boxes, responsible_boxes_mask[rank],
-                d_neighbor_source_boxes_starts,
-                d_neighbor_source_boxes_lists, src_boxes_mask[rank],
-                range=range(0, traversal.target_boxes.shape[0]))
-
-            # Add list 4 of responsible boxes or ancestor boxes
-            d_target_or_target_parent_boxes = cl.array.to_device(
-                queue, traversal.target_or_target_parent_boxes)
-            d_from_sep_bigger_starts = cl.array.to_device(
-                queue, traversal.from_sep_bigger_starts)
-            d_from_sep_bigger_lists = cl.array.to_device(
-                queue, traversal.from_sep_bigger_lists)
-            add_interaction_list_boxes(
-                d_target_or_target_parent_boxes,
-                responsible_boxes_mask[rank] | ancestor_boxes[rank],
-                d_from_sep_bigger_starts, d_from_sep_bigger_lists,
-                src_boxes_mask[rank],
-                range=range(0, traversal.target_or_target_parent_boxes.shape[0]))
-
-            if tree.targets_have_extent:
-                if traversal.from_sep_close_bigger_starts is not None:
-                    d_from_sep_close_bigger_starts = cl.array.to_device(
-                        queue, traversal.from_sep_close_bigger_starts)
-                    d_from_sep_close_bigger_lists = cl.array.to_device(
-                        queue, traversal.from_sep_close_bigger_lists)
-                    add_interaction_list_boxes(
-                        d_target_or_target_parent_boxes,
-                        responsible_boxes_mask[rank] | ancestor_boxes[rank],
-                        d_from_sep_close_bigger_starts,
-                        d_from_sep_close_bigger_lists,
-                        src_boxes_mask[rank]
-                    )
-
-                # Add list 3 direct
-                if traversal.from_sep_close_smaller_starts is not None:
-                    d_from_sep_close_smaller_starts = cl.array.to_device(
-                        queue, traversal.from_sep_close_smaller_starts)
-                    d_from_sep_close_smaller_lists = cl.array.to_device(
-                        queue, traversal.from_sep_close_smaller_lists)
-
-                    add_interaction_list_boxes(
-                        d_target_boxes,
-                        responsible_boxes_mask[rank],
-                        d_from_sep_close_smaller_starts,
-                        d_from_sep_close_smaller_lists,
-                        src_boxes_mask[rank]
-                    )
+        for irank in range(total_rank):
+            src_boxes_mask[irank, :] = responsible_box_query.src_boxes_mask(
+                responsible_boxes_mask[irank, :], ancestor_boxes[irank, :]
+            )
 
         # {{{ compute box_to_user
 

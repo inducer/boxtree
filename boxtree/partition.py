@@ -1,6 +1,7 @@
 import numpy as np
 import pyopencl as cl
 from pyopencl.tools import dtype_to_ctype
+from mako.template import Template
 
 __copyright__ = "Copyright (C) 2012 Andreas Kloeckner \
                  Copyright (C) 2018 Hao Gao"
@@ -144,24 +145,75 @@ def partition_work(traversal, total_rank, workload_weight):
 
 
 class ResponsibleBoxesQuery(object):
-    """ Query various lists related to the responsible boxes in a given tree.
+    """ Query related to the responsible boxes for a given traversal.
     """
-    def __init__(self, queue, tree):
+
+    def __init__(self, queue, traversal):
         """
         :param queue: A pyopencl.CommandQueue object.
-        :param tree: The global tree on root with all particles.
+        :param traversal: The global traversal built on root with all particles.
         """
         self.queue = queue
-        self.tree = tree
+        self.traversal = traversal
+        self.tree = traversal.tree
 
+        # fetch useful fields of tree to device memory
+        self.box_parent_ids_dev = cl.array.to_device(queue, self.tree.box_parent_ids)
+        self.target_boxes_dev = cl.array.to_device(queue, traversal.target_boxes)
+        self.neighbor_source_boxes_starts_dev = cl.array.to_device(
+            queue, traversal.neighbor_source_boxes_starts)
+        self.neighbor_source_boxes_lists_dev = cl.array.to_device(
+            queue, traversal.neighbor_source_boxes_lists)
+        self.target_or_target_parent_boxes_dev = cl.array.to_device(
+            queue, traversal.target_or_target_parent_boxes)
+        self.from_sep_bigger_starts_dev = cl.array.to_device(
+            queue, traversal.from_sep_bigger_starts)
+        self.from_sep_bigger_lists_dev = cl.array.to_device(
+            queue, traversal.from_sep_bigger_lists)
+
+        if self.tree.targets_have_extent:
+            self.from_sep_close_bigger_starts_dev = cl.array.to_device(
+                queue, traversal.from_sep_close_bigger_starts)
+            self.from_sep_close_bigger_lists_dev = cl.array.to_device(
+                queue, traversal.from_sep_close_bigger_lists)
+            self.from_sep_close_smaller_starts_dev = cl.array.to_device(
+                queue, traversal.from_sep_close_smaller_starts)
+            self.from_sep_close_smaller_lists_dev = cl.array.to_device(
+                queue, traversal.from_sep_close_smaller_lists)
+
+        # helper kernel for ancestor box query
         self.mark_parent_knl = cl.elementwise.ElementwiseKernel(
             queue.context,
             "__global char *current, __global char *parent, "
-            "__global %s *box_parent_ids" % dtype_to_ctype(tree.box_id_dtype),
+            "__global %s *box_parent_ids" % dtype_to_ctype(self.tree.box_id_dtype),
             "if(i != 0 && current[i]) parent[box_parent_ids[i]] = 1"
         )
 
-        self.box_parent_ids_dev = cl.array.to_device(queue, tree.box_parent_ids)
+        # helper kernel for adding boxes from interaction list 1 and 4
+        self.add_interaction_list_boxes = cl.elementwise.ElementwiseKernel(
+            queue.context,
+            Template("""
+                __global ${box_id_t} *box_list,
+                __global char *responsible_boxes_mask,
+                __global ${box_id_t} *interaction_boxes_starts,
+                __global ${box_id_t} *interaction_boxes_lists,
+                __global char *src_boxes_mask
+            """, strict_undefined=True).render(
+                box_id_t=dtype_to_ctype(self.tree.box_id_dtype)
+            ),
+            Template(r"""
+                typedef ${box_id_t} box_id_t;
+                box_id_t current_box = box_list[i];
+                if(responsible_boxes_mask[current_box]) {
+                    for(box_id_t box_idx = interaction_boxes_starts[i];
+                        box_idx < interaction_boxes_starts[i + 1];
+                        ++box_idx)
+                        src_boxes_mask[interaction_boxes_lists[box_idx]] = 1;
+                }
+            """, strict_undefined=True).render(
+                box_id_t=dtype_to_ctype(self.tree.box_id_dtype)
+            ),
+        )
 
     def ancestor_boxes_mask(self, responsible_boxes_mask):
         """ Query the ancestors of responsible boxes.
@@ -186,3 +238,46 @@ class ResponsibleBoxesQuery(object):
             ancestor_boxes_last = ancestor_boxes_new
 
         return ancestor_boxes
+
+    def src_boxes_mask(self, responsible_boxes_mask, ancestor_boxes_mask):
+        src_boxes_mask = responsible_boxes_mask.copy()
+
+        # Add list 1 of responsible boxes
+        self.add_interaction_list_boxes(
+            self.target_boxes_dev, responsible_boxes_mask,
+            self.neighbor_source_boxes_starts_dev,
+            self.neighbor_source_boxes_lists_dev, src_boxes_mask,
+            range=range(0, self.traversal.target_boxes.shape[0])
+        )
+
+        # Add list 4 of responsible boxes or ancestor boxes
+        self.add_interaction_list_boxes(
+            self.target_or_target_parent_boxes_dev,
+            responsible_boxes_mask | ancestor_boxes_mask,
+            self.from_sep_bigger_starts_dev, self.from_sep_bigger_lists_dev,
+            src_boxes_mask,
+            range=range(0, self.traversal.target_or_target_parent_boxes.shape[0]))
+
+        if self.tree.targets_have_extent:
+
+            # Add list 3 close
+            if self.traversal.from_sep_close_smaller_starts is not None:
+                self.add_interaction_list_boxes(
+                    self.target_boxes_dev,
+                    responsible_boxes_mask,
+                    self.from_sep_close_smaller_starts_dev,
+                    self.from_sep_close_smaller_lists_dev,
+                    src_boxes_mask
+                )
+
+            # Add list 4 close
+            if self.traversal.from_sep_close_bigger_starts is not None:
+                self.add_interaction_list_boxes(
+                    self.target_or_target_parent_boxes_dev,
+                    responsible_boxes_mask | ancestor_boxes_mask,
+                    self.from_sep_close_bigger_starts_dev,
+                    self.from_sep_close_bigger_lists_dev,
+                    src_boxes_mask
+                )
+
+        return src_boxes_mask
