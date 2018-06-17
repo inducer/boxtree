@@ -157,29 +157,69 @@ class ResponsibleBoxesQuery(object):
         self.traversal = traversal
         self.tree = traversal.tree
 
-        # fetch useful fields of tree to device memory
+        # {{{ fetch tree structure and interaction lists to device memory
+
         self.box_parent_ids_dev = cl.array.to_device(queue, self.tree.box_parent_ids)
         self.target_boxes_dev = cl.array.to_device(queue, traversal.target_boxes)
+        self.target_or_target_parent_boxes_dev = cl.array.to_device(
+            queue, traversal.target_or_target_parent_boxes)
+
+        # list 1
         self.neighbor_source_boxes_starts_dev = cl.array.to_device(
             queue, traversal.neighbor_source_boxes_starts)
         self.neighbor_source_boxes_lists_dev = cl.array.to_device(
             queue, traversal.neighbor_source_boxes_lists)
-        self.target_or_target_parent_boxes_dev = cl.array.to_device(
-            queue, traversal.target_or_target_parent_boxes)
+
+        # list 2
+        self.from_sep_siblings_starts_dev = cl.array.to_device(
+            queue, traversal.from_sep_siblings_starts)
+        self.from_sep_siblings_lists_dev = cl.array.to_device(
+            queue, traversal.from_sep_siblings_lists)
+
+        # list 3
+        self.target_boxes_sep_smaller_by_source_level_dev = np.empty(
+            (self.tree.nlevels,), dtype=object)
+        for ilevel in range(self.tree.nlevels):
+            self.target_boxes_sep_smaller_by_source_level_dev[ilevel] = \
+                cl.array.to_device(
+                    queue,
+                    traversal.target_boxes_sep_smaller_by_source_level[ilevel]
+                )
+
+        self.from_sep_smaller_by_level_starts_dev = np.empty(
+            (self.tree.nlevels,), dtype=object)
+        for ilevel in range(self.tree.nlevels):
+            self.from_sep_smaller_by_level_starts_dev[ilevel] = cl.array.to_device(
+                queue, traversal.from_sep_smaller_by_level[ilevel].starts
+            )
+
+        self.from_sep_smaller_by_level_lists_dev = np.empty(
+            (self.tree.nlevels,), dtype=object)
+        for ilevel in range(self.tree.nlevels):
+            self.from_sep_smaller_by_level_lists_dev[ilevel] = cl.array.to_device(
+                queue, traversal.from_sep_smaller_by_level[ilevel].lists
+            )
+
+        # list 4
         self.from_sep_bigger_starts_dev = cl.array.to_device(
             queue, traversal.from_sep_bigger_starts)
         self.from_sep_bigger_lists_dev = cl.array.to_device(
             queue, traversal.from_sep_bigger_lists)
 
+        # }}}
+
         if self.tree.targets_have_extent:
-            self.from_sep_close_bigger_starts_dev = cl.array.to_device(
-                queue, traversal.from_sep_close_bigger_starts)
-            self.from_sep_close_bigger_lists_dev = cl.array.to_device(
-                queue, traversal.from_sep_close_bigger_lists)
+            # list 3 close
             self.from_sep_close_smaller_starts_dev = cl.array.to_device(
                 queue, traversal.from_sep_close_smaller_starts)
             self.from_sep_close_smaller_lists_dev = cl.array.to_device(
                 queue, traversal.from_sep_close_smaller_lists)
+
+            # list 4 close
+            self.from_sep_close_bigger_starts_dev = cl.array.to_device(
+                queue, traversal.from_sep_close_bigger_starts)
+            self.from_sep_close_bigger_lists_dev = cl.array.to_device(
+                queue, traversal.from_sep_close_bigger_lists)
 
         # helper kernel for ancestor box query
         self.mark_parent_knl = cl.elementwise.ElementwiseKernel(
@@ -293,3 +333,45 @@ class ResponsibleBoxesQuery(object):
                 )
 
         return src_boxes_mask
+
+    def multipole_boxes_mask(self, responsible_boxes_mask, ancestor_boxes_mask):
+        """ Query the boxes whose multipoles are used in order to evaluate
+        potentials of targets in boxes represented by responsible_boxes_mask.
+
+        :param responsible_boxes_mask: A pyopencl.array.Array object of shape
+            (tree.nboxes,) whose ith entry is 1 iff i is a responsible box.
+        :param ancestor_boxes_mask: A pyopencl.array.Array object of shape
+            (tree.nboxes,) whose ith entry is 1 iff i is either a responsible box
+            or an ancestor of the responsible boxes.
+        :return: A pyopencl.array.Array object of shape (tree.nboxes,) whose ith
+            entry is 1 iff multipoles of box i are needed for evaluating the
+            potentials of targets in boxes represented by responsible_boxes_mask.
+        """
+
+        multipole_boxes_mask = cl.array.zeros(self.queue, (self.tree.nboxes,),
+                                              dtype=np.int8)
+
+        # A mpole is used by process p if it is in the List 2 of either a box
+        # owned by p or one of its ancestors.
+        self.add_interaction_list_boxes(
+            self.target_or_target_parent_boxes_dev,
+            responsible_boxes_mask | ancestor_boxes_mask,
+            self.from_sep_siblings_starts_dev,
+            self.from_sep_siblings_lists_dev,
+            multipole_boxes_mask
+        )
+        multipole_boxes_mask.finish()
+
+        # A mpole is used by process p if it is in the List 3 of a box owned by p.
+        for ilevel in range(self.tree.nlevels):
+            self.add_interaction_list_boxes(
+                self.target_boxes_sep_smaller_by_source_level_dev[ilevel],
+                responsible_boxes_mask,
+                self.from_sep_smaller_by_level_starts_dev[ilevel],
+                self.from_sep_smaller_by_level_lists_dev[ilevel],
+                multipole_boxes_mask
+            )
+
+            multipole_boxes_mask.finish()
+
+        return multipole_boxes_mask

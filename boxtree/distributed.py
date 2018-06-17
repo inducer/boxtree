@@ -555,44 +555,6 @@ def generate_local_tree(traversal, comm=MPI.COMM_WORLD, workload_weight=None):
     if current_rank == 0:
         start_time = time.time()
 
-    # {{{ kernel to mark if a box mpole is used by a process via an interaction list
-
-    @memoize_in(generate_local_tree, "loopy_cache")
-    def get_box_mpole_is_used_marker_kernel():
-        knl = lp.make_kernel(
-            [
-                "{[irank] : 0 <= irank < total_rank}",
-                "{[itgt_box] : 0 <= itgt_box < ntgt_boxes}",
-                "{[isrc_box] : isrc_box_start <= isrc_box < isrc_box_end}",
-            ],
-            """
-            for irank, itgt_box
-                <> tgt_ibox = target_boxes[itgt_box]
-                <> is_relevant = relevant_boxes_mask[irank, tgt_ibox]
-                if is_relevant
-                    <> isrc_box_start = source_box_starts[itgt_box]
-                    <> isrc_box_end = source_box_starts[itgt_box + 1]
-                    for isrc_box
-                        <> src_ibox = source_box_lists[isrc_box]
-                        box_mpole_is_used[irank, src_ibox] = 1
-                    end
-                end
-            end
-            """,
-            [
-                lp.ValueArg("nboxes", np.int32),
-                lp.GlobalArg("relevant_boxes_mask, box_mpole_is_used",
-                              shape=("total_rank", "nboxes")),
-                lp.GlobalArg("source_box_lists", shape=None),
-                "..."
-            ],
-            default_offset=lp.auto)
-
-        # knl = lp.split_iname(knl, "itgt_box", 16, outer_tag="g.0", inner_tag="l.0")
-        return knl
-
-    # }}}
-
     # {{{ Construct local tree for each rank on root
 
     if current_rank == 0:
@@ -667,36 +629,12 @@ def generate_local_tree(traversal, comm=MPI.COMM_WORLD, workload_weight=None):
 
         box_mpole_is_used = cl.array.zeros(queue, (total_rank, tree.nboxes),
                                            dtype=np.int8)
-        knl = get_box_mpole_is_used_marker_kernel()
 
-        # A mpole is used by process p if it is in the List 2 of either a box
-        # owned by p or one of its ancestors.
-        knl(queue,
-            total_rank=total_rank,
-            nboxes=tree.nboxes,
-            target_boxes=traversal.target_or_target_parent_boxes,
-            relevant_boxes_mask=responsible_boxes_mask | ancestor_boxes,
-            source_box_starts=traversal.from_sep_siblings_starts,
-            source_box_lists=traversal.from_sep_siblings_lists,
-            box_mpole_is_used=box_mpole_is_used)
-
-        box_mpole_is_used.finish()
-
-        # A mpole is used by process p if it is in the List 3 of a box owned by p.
-        for level in range(tree.nlevels):
-            source_box_starts = traversal.from_sep_smaller_by_level[level].starts
-            source_box_lists = traversal.from_sep_smaller_by_level[level].lists
-            knl(queue,
-                total_rank=total_rank,
-                nboxes=tree.nboxes,
-                target_boxes=(
-                    traversal.target_boxes_sep_smaller_by_source_level[level]),
-                relevant_boxes_mask=responsible_boxes_mask,
-                source_box_starts=source_box_starts,
-                source_box_lists=source_box_lists,
-                box_mpole_is_used=box_mpole_is_used)
-
-            box_mpole_is_used.finish()
+        for irank in range(total_rank):
+            box_mpole_is_used[irank, :] = \
+                responsible_box_query.multipole_boxes_mask(
+                    responsible_boxes_mask[irank, :], ancestor_boxes[irank, :]
+                )
 
         from boxtree.tools import MaskCompressorKernel
         matcompr = MaskCompressorKernel(ctx)
