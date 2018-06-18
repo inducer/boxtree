@@ -127,8 +127,27 @@ class BoxTree(DeviceDataRecord):
 
         ``box_id_t [n_active_boxes]``
     """
+    def get_copy_kwargs(self, **kwargs):
+        # cl arrays
+        for f in self.__class__.fields:
+            if f not in kwargs:
+                try:
+                    kwargs[f] = getattr(self, f)
+                except AttributeError:
+                    pass
 
-    def __init__(self, queue,
+        # others
+        kwargs.update({
+            "size_t":self.size_t,
+            "box_id_dtype":self.box_id_dtype,
+            "box_level_dtype":self.box_level_dtype,
+            "coord_dtype":self.coord_dtype,
+            "root_extent":self.root_extent,
+            })
+
+        return kwargs
+
+    def generate_uniform_boxtree(self, queue,
             root_vertex=np.zeros(2),
             root_extent=1,
             nlevels=1,
@@ -150,7 +169,9 @@ class BoxTree(DeviceDataRecord):
         self.nboxes_level = cl.array.to_device(queue,
                 np.array(
                     [1 << (dim * l) for l in range(nlevels)],
-                        dtype=self.size_t))
+                    dtype=self.size_t))
+        self.register_fields({"nboxes_level":self.nboxes_level})
+
         nboxes = self.size_t(cl.array.sum(self.nboxes_level).get())
 
         self.box_levels = cl.array.zeros(queue, nboxes, box_level_dtype)
@@ -159,6 +180,7 @@ class BoxTree(DeviceDataRecord):
             offset = self.size_t(self.nboxes_level[l].get())
             self.box_levels[level_start:level_start + offset] = l
             level_start += offset
+        self.register_fields({"box_levels":self.box_levels})
 
         self.box_centers = cl.array.zeros(queue, (dim, nboxes), coord_dtype)
         ibox = 0
@@ -169,12 +191,14 @@ class BoxTree(DeviceDataRecord):
                     self.box_centers[d, ibox] = cid[d] * dx + (
                             dx / 2 + root_vertex[d])
                 ibox += 1
+        self.register_fields({"box_centers":self.box_centers})
 
         n_active_boxes = self.size_t(self.nboxes_level[nlevels - 1].get())
         self.active_boxes = cl.array.to_device(queue,
                 np.array(
                     range(nboxes - n_active_boxes, nboxes),
                     dtype=self.box_id_dtype))
+        self.register_fields({"active_boxes":self.active_boxes})
 
         # FIXME: map bool in pyopencl
         #   pyopencl/compyte/dtypes.py", line 107, in dtype_to_ctype
@@ -182,6 +206,7 @@ class BoxTree(DeviceDataRecord):
         #     ValueError: unable to map dtype 'bool'
         self.box_is_active = cl.array.zeros(queue, nboxes, np.int32)
         self.box_is_active[nboxes - n_active_boxes:] = 1
+        self.register_fields({"box_is_active":self.box_is_active})
 
         self.level_boxes = make_obj_array([
             cl.array.zeros(queue, 1 << (dim * l), self.box_id_dtype)
@@ -191,6 +216,7 @@ class BoxTree(DeviceDataRecord):
             for b in range(len(self.level_boxes[l])):
                 self.level_boxes[l][b] = ibox
                 ibox += 1
+        self.register_fields({"level_boxes":self.level_boxes})
 
         self.box_parent_ids = cl.array.zeros(queue, nboxes, self.box_id_dtype)
         self.box_child_ids = cl.array.zeros(queue, (1 << dim, nboxes),
@@ -219,6 +245,9 @@ class BoxTree(DeviceDataRecord):
                     self.box_child_ids[child_id][self.box_id_dtype(
                         self.level_boxes[l-1][parent_level_id].get())
                             ] = ibox
+        self.register_fields({
+            "box_parent_ids":self.box_parent_ids,
+            "box_child_ids":self.box_child_ids})
 
     @property
     def dimensions(self):
@@ -236,8 +265,6 @@ class BoxTree(DeviceDataRecord):
     def n_active_boxes(self):
         return len(self.active_boxes)
 
-    fields = ["box_centers"]
-
     def plot(self, **kwargs):
         from boxtree.visualization import BoxTreePlotter
         plotter = BoxTreePlotter(self)
@@ -247,11 +274,18 @@ class BoxTree(DeviceDataRecord):
     def get_box_extent(self, ibox):
         if isinstance(ibox, cl.array.Array):
             ibox = self.box_id_dtype(ibox.get())
-        lev = self.box_level_dtype(self.box_levels[ibox].get())
+            lev = self.box_level_dtype(self.box_levels[ibox].get())
+        else:
+            lev = self.box_level_dtype(self.box_levels[ibox])
         box_size = self.root_extent / (1 << lev)
         extent_low = np.zeros(self.dimensions, self.coord_dtype)
         for d in range(self.dimensions):
-            extent_low[d] = self.box_centers[d, ibox].get() - 0.5 * box_size
+            if isinstance(self.box_centers[0], cl.array.Array):
+                extent_low[d] = self.box_centers[
+                        d, ibox].get() - 0.5 * box_size
+            else:
+                extent_low[d] = self.box_centers[d, ibox] - 0.5 * box_size
+
         extent_high = extent_low + box_size
         return extent_low, extent_high
 

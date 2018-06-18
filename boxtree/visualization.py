@@ -175,8 +175,8 @@ class TreePlotter:
 # {{{ box tree plotting
 
 class BoxTreePlotter(TreePlotter):
-    """Assumes that the tree has data living on the device.
-    Only plots the 2D trees.
+    """Assumes that the tree has data living on the host.
+    See :meth:`boxtree.BoxTree.get`.
     """
 
     def __init__(self, tree):
@@ -192,12 +192,12 @@ class BoxTreePlotter(TreePlotter):
         kwargs["edgecolor"] = edgecolor
 
         for iabox in range(self.tree.n_active_boxes):
-            ibox = self.tree.box_id_dtype(self.tree.active_boxes[iabox].get())
+            ibox = self.tree.box_id_dtype(self.tree.active_boxes[iabox])
             self.draw_box(ibox, **kwargs)
 
     def set_bounding_box(self):
         import matplotlib.pyplot as pt
-        root_center = np.array([self.tree.box_centers[d, 0].get() for d
+        root_center = np.array([self.tree.box_centers[d, 0] for d
                 in range(self.tree.dimensions)])
         root_extent = self.tree.root_extent
         pt.xlim(root_center[0] - root_extent / 2,
@@ -213,7 +213,7 @@ class BoxTreePlotter(TreePlotter):
         tree = self.tree
 
         for iabox in range(tree.n_active_boxes):
-            ibox = tree.box_id_dtype(tree.active_boxes[iabox].get())
+            ibox = tree.box_id_dtype(tree.active_boxes[iabox])
             x, y = tree.box_centers[:, ibox]
             lev = int(tree.box_levels[ibox])
             pt.text(x, y, str(ibox), fontsize=20*1.15**(-lev),
@@ -230,7 +230,7 @@ class BoxTreePlotter(TreePlotter):
         lines.append(r"\def\lastboxnr{%d}" % (self.tree.nboxes-1))
 
         for iabox in range(self.tree.n_active_boxes):
-            ibox = self.tree.box_id_dtype(self.tree.active_boxes[iabox].get())
+            ibox = self.tree.box_id_dtype(self.tree.active_boxes[iabox])
             el, eh = self.tree.get_box_extent(ibox)
 
             c = self.tree.box_centers[:, ibox]

@@ -6,9 +6,15 @@ import matplotlib.pyplot as pt
 ctx = cl.create_some_context()
 queue = cl.CommandQueue(ctx)
 
-tree = boxtree.tree_interactive_build.BoxTree(queue, nlevels=4)
+tree = boxtree.tree_interactive_build.BoxTree()
+tree.generate_uniform_boxtree(queue, nlevels=4)
 
-tree.plot()
+# call get() before plotting
+from boxtree.visualization import BoxTreePlotter
+plt = BoxTreePlotter(tree.get(queue))
+plt.draw_tree()
+plt.set_bounding_box()
+plt.draw_box_numbers()
 
 pt.tick_params(
     axis='x',          # changes apply to the x-axis
