@@ -24,6 +24,7 @@ THE SOFTWARE.
 import numpy as np
 from itertools import product
 
+import loopy as lp
 import pyopencl as cl
 import pyopencl.array  # noqa
 from pytools.obj_array import make_obj_array
@@ -204,7 +205,7 @@ class BoxTree(DeviceDataRecord):
         #   pyopencl/compyte/dtypes.py", line 107, in dtype_to_ctype
         #     raise ValueError("unable to map dtype '%s'" % dtype)
         #     ValueError: unable to map dtype 'bool'
-        self.box_is_active = cl.array.zeros(queue, nboxes, np.int32)
+        self.box_is_active = cl.array.zeros(queue, nboxes, np.int8)
         self.box_is_active[nboxes - n_active_boxes:] = 1
         self.register_fields({"box_is_active":self.box_is_active})
 
@@ -290,3 +291,139 @@ class BoxTree(DeviceDataRecord):
         return extent_low, extent_high
 
 # }}} End Data structure for a tree of boxes
+
+# {{{ Discretize a BoxTree using quadrature
+
+class QuadratureOnBoxTree(object):
+    """Tensor-product quadrature rules applied to each active box.
+
+    This class only holds data on template quadrature rules, while it
+    responds to queries for:
+        - quadrature nodes
+        - quadrature weights
+        - active box centers
+        - active box measures (areas/volumes)
+
+    The information is generated on the fly and is responsive to
+    changes made to the underlying BoxTree object.
+
+    .. attribute:: quadrature_formula
+
+        The 1D template quadrature formula defined on [-1, 1].
+
+    .. attribute:: boxtree
+
+        The underlying BoxTree object, assumed to reside on the device,
+        i.e., its get() method was not called.
+    """
+
+    def __init__(self, boxtree, quadrature_formula=None):
+        """If no quadrature_formula is supplied, the trivial one is used
+        sum[ f(centers) * measures ]
+        """
+        if not isinstance(boxtree, BoxTree):
+            raise RuntimeError("Invalid boxtree")
+
+        self.boxtree = boxtree
+
+        if quadrature_formula is None:
+            from modepy import GaussLegendreQuadrature
+            self.quadrature_formula = GaussLegendreQuadrature(0)
+        else:
+            self.quadrature_formula = quadrature_formula
+
+    def get_q_points(self):
+        """Return quadrature points.
+        """
+        pass
+
+    def get_q_weights(self):
+        """Return quadrature weights.
+        """
+        pass
+
+    def get_cell_centers(self, queue):
+        """Return centers of active boxes.
+        """
+        def get_knl():
+            knl = lp.make_kernel(
+                "{[iabox, iaxis]: 0<=iabox<n_active_boxes and "
+                                 "0<=iaxis<dims}",
+                """
+                <> box_id = active_boxes[iabox]
+                result[iaxis, iabox] = box_centers[iaxis, box_id]
+                """,
+                [
+                    lp.GlobalArg("result", self.boxtree.coord_dtype,
+                        shape=lp.auto),
+                    lp.GlobalArg("active_boxes", self.boxtree.box_id_dtype,
+                        shape=lp.auto),
+                    lp.GlobalArg("box_centers", self.boxtree.coord_dtype,
+                        shape="(dims, nboxes)"),
+                    lp.ValueArg("n_active_boxes", self.boxtree.size_t),
+                    lp.ValueArg("dims", self.boxtree.size_t),
+                    lp.ValueArg("nboxes", self.boxtree.size_t),
+                    ],
+                name="get_active_box_centers")
+
+            knl = lp.split_iname(knl,
+                    "iabox", 128, outer_tag="g.0", inner_tag="l.0")
+
+            return knl
+
+        evt, result = get_knl()(queue,
+                active_boxes=self.boxtree.active_boxes,
+                box_centers=self.boxtree.box_centers,
+                n_active_boxes=self.boxtree.n_active_boxes,
+                dims=self.boxtree.dimensions,
+                nboxes=self.boxtree.nboxes)
+
+        assert len(result) == 1
+        return result[0]
+
+    def get_cell_measures(self, queue):
+        """Return measures of active boxes.
+        This method does not call BoxTree.get_box_extent() for performance
+        reasons.
+        """
+        def get_knl():
+            knl = lp.make_kernel(
+                "{[iabox]: 0<=iabox<n_active_boxes}",
+                """
+                <> box_id = active_boxes[iabox]
+                <> box_level = box_levels[box_id]
+                result[iabox] = root_measure / (2 ** (box_level * dims))
+                """,
+                [
+                    lp.GlobalArg("result", self.boxtree.coord_dtype,
+                        shape=lp.auto),
+                    lp.GlobalArg("active_boxes", self.boxtree.box_id_dtype,
+                        shape=lp.auto),
+                    lp.GlobalArg("box_levels", self.boxtree.box_level_dtype,
+                        shape="nboxes"),
+                    lp.ValueArg("root_measure", self.boxtree.coord_dtype),
+                    lp.ValueArg("n_active_boxes", self.boxtree.size_t),
+                    lp.ValueArg("dims", self.boxtree.size_t),
+                    lp.ValueArg("nboxes", self.boxtree.size_t),
+                    ],
+                name="get_active_box_measures")
+
+            knl = lp.split_iname(knl,
+                    "iabox", 128, outer_tag="g.0", inner_tag="l.0")
+
+            return knl
+
+        evt, result = get_knl()(queue,
+                active_boxes=self.boxtree.active_boxes,
+                box_levels=self.boxtree.box_levels,
+                root_measure=(
+                    self.boxtree.root_extent ** self.boxtree.dimensions),
+                n_active_boxes=self.boxtree.n_active_boxes,
+                dims=self.boxtree.dimensions,
+                nboxes=self.boxtree.nboxes)
+
+        assert len(result) == 1
+        return result[0]
+
+
+# }}} End  Discretize a BoxTree using quadrature
