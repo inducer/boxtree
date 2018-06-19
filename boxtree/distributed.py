@@ -571,7 +571,7 @@ def gen_local_tree_helper(tree, src_box_mask, tgt_box_mask, local_tree,
     local_data["tgt_box_mask"] = tgt_box_mask
 
 
-def generate_local_tree(traversal, comm=MPI.COMM_WORLD, workload_weight=None):
+def generate_local_tree(traversal, responsible_boxes_list, comm=MPI.COMM_WORLD):
 
     # Get MPI information
     current_rank = comm.Get_rank()
@@ -601,14 +601,6 @@ def generate_local_tree(traversal, comm=MPI.COMM_WORLD, workload_weight=None):
         responsible_box_query = ResponsibleBoxesQuery(queue, traversal)
 
         local_tree_builder = LocalTreeBuilder(tree)
-
-        if workload_weight is None:
-            workload_weight = WorkloadWeight(
-                direct=1, m2l=1, m2p=1, p2l=1, multipole=5)
-
-        from boxtree.partition import partition_work
-        responsible_boxes_list = partition_work(traversal, total_rank,
-                                                workload_weight)
 
         box_mpole_is_used = cl.array.empty(
             queue, (total_rank, tree.nboxes,), dtype=np.int8
@@ -1280,8 +1272,19 @@ class DistributedFMMInfo(object):
             well_sep_is_n_away = None
         well_sep_is_n_away = comm.bcast(well_sep_is_n_away, root=0)
 
+        if current_rank == 0:
+            from boxtree.partition import partition_work
+            workload_weight = WorkloadWeight(
+                direct=1, m2l=1, m2p=1, p2l=1, multipole=5
+            )
+            responsible_boxes_list = partition_work(
+                global_trav, comm.Get_size(), workload_weight
+            )
+        else:
+            responsible_boxes_list = None
+
         self.local_tree, self.local_data, self.box_bounding_box, _ = \
-            generate_local_tree(self.global_trav)
+            generate_local_tree(self.global_trav, responsible_boxes_list)
         self.local_trav = generate_local_travs(
             self.local_tree, self.box_bounding_box, comm=comm,
             well_sep_is_n_away=well_sep_is_n_away)
