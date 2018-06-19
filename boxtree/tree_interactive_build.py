@@ -335,12 +335,114 @@ class QuadratureOnBoxTree(object):
     def get_q_points(self):
         """Return quadrature points.
         """
+        q_nodes = cl.array.to_device(queue, self.quadrature_formula.nodes)
+
+        def get_knl(dim):
+            quad_vars = ["iq%d" % i for i in range(dim)]
+            knl = lp.make_kernel(
+                "{[iabox, iaxis, QUAD_VARS]: 0<=iabox<n_active_boxes and "
+                " 0<=iaxis<DIM and ".replace("DIM", str(dim))
+                + " and ".join(
+                    ["0<=" + qvar + "<n_q_nodes" for qvar in quad_vars])
+                + "}",
+                """
+                <> box_id = active_boxes[iabox]
+                <> box_level = box_levels[box_id]
+                <> box_relative_extent = root_extent / 2 ** (box_level+1)
+                result[iaxis, QUAD_VARS, iabox] = box_centers[iaxis] + (
+                    if(iaxis==0, q_nodes[iq0],
+                        if(iaxis==1, q_nodes[iq1], q_nodes[iq2])
+                        ) * box_relative_extent)
+                """
+                .replace("QUAD_VARS", ", ".join(quad_vars)),
+                [
+                    lp.GlobalArg("result", self.boxtree.coord_dtype,
+                        shape=lp.auto),
+                    lp.GlobalArg("active_boxes", self.boxtree.box_id_dtype,
+                        shape=lp.auto),
+                    lp.GlobalArg("box_levels", self.boxtree.box_level_dtype,
+                        shape="nboxes"),
+                    lp.GlobalArg("q_nodes", self.boxtree.coord_dtype,
+                        shape=lp.auto),
+                    lp.ValueArg("n_active_boxes", self.boxtree.size_t),
+                    lp.ValueArg("n_q_nodes", self.boxtree.size_t),
+                    lp.ValueArg("nboxes", self.boxtree.size_t),
+                    ],
+                name="get_active_box_quad_points")
+
+            knl = lp.split_iname(knl,
+                    "iabox", 128, outer_tag="g.0", inner_tag="l.0")
+
+            return knl
+
+        evt, result = get_knl(self.boxtree.dimensions)(queue,
+                active_boxes=self.boxtree.active_boxes,
+                box_levels=self.boxtree.box_levels,
+                q_weights=q_weights,
+                n_active_boxes=self.boxtree.n_active_boxes,
+                n_q_nodes=len(q_weights),
+                nboxes=self.boxtree.nboxes)
+
+        assert len(result) == 1
+        # TODO: If the ordering is not the same as dealii, reverse the order of quad vars
+        return result[0].ravel()
+
         pass
 
     def get_q_weights(self):
         """Return quadrature weights.
         """
-        pass
+        q_weights = cl.array.to_device(queue, self.quadrature_formula.weights)
+
+        def get_knl(dim):
+            quad_vars = ["iq%d" % i for i in range(dim)]
+            knl = lp.make_kernel(
+                "{[iabox, QUAD_VARS]: 0<=iabox<n_active_boxes and "
+                + " and ".join(
+                    ["0<=" + qvar + "<n_q_nodes" for qvar in quad_vars])
+                + "}",
+                """
+                <> box_id = active_boxes[iabox]
+                <> box_level = box_levels[box_id]
+                <> box_relative_measure = root_measure / (
+                                             2 ** ((box_level+1) * DIM))
+                result[QUAD_VARS, iabox] = QUAD_WEIGHT * box_relative_measure
+                """.replace("DIM", str(dim))
+                .replace("QUAD_VARS", ", ".join(quad_vars))
+                .replace("QUAD_WEIGHT", " * ".join(
+                    ["q_weights[" + qvar + "]" for qvar in quad_vars]))
+                ,
+                [
+                    lp.GlobalArg("result", self.boxtree.coord_dtype,
+                        shape=lp.auto),
+                    lp.GlobalArg("active_boxes", self.boxtree.box_id_dtype,
+                        shape=lp.auto),
+                    lp.GlobalArg("box_levels", self.boxtree.box_level_dtype,
+                        shape="nboxes"),
+                    lp.GlobalArg("q_weights", self.boxtree.coord_dtype,
+                        shape=lp.auto),
+                    lp.ValueArg("n_active_boxes", self.boxtree.size_t),
+                    lp.ValueArg("n_q_nodes", self.boxtree.size_t),
+                    lp.ValueArg("nboxes", self.boxtree.size_t),
+                    ],
+                name="get_active_box_quad_weights")
+
+            knl = lp.split_iname(knl,
+                    "iabox", 128, outer_tag="g.0", inner_tag="l.0")
+
+            return knl
+
+        evt, result = get_knl(self.boxtree.dimensions)(queue,
+                active_boxes=self.boxtree.active_boxes,
+                box_levels=self.boxtree.box_levels,
+                q_weights=q_weights,
+                n_active_boxes=self.boxtree.n_active_boxes,
+                n_q_nodes=len(q_weights),
+                nboxes=self.boxtree.nboxes)
+
+        assert len(result) == 1
+        # TODO: If the ordering is not the same as dealii, reverse the order of quad vars
+        return result[0].ravel()
 
     def get_cell_centers(self, queue):
         """Return centers of active boxes.
