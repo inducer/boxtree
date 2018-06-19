@@ -213,16 +213,18 @@ class ResponsibleBoxesQuery(object):
 
         if self.tree.targets_have_extent:
             # list 3 close
-            self.from_sep_close_smaller_starts_dev = cl.array.to_device(
-                queue, traversal.from_sep_close_smaller_starts)
-            self.from_sep_close_smaller_lists_dev = cl.array.to_device(
-                queue, traversal.from_sep_close_smaller_lists)
+            if traversal.from_sep_close_smaller_starts is not None:
+                self.from_sep_close_smaller_starts_dev = cl.array.to_device(
+                    queue, traversal.from_sep_close_smaller_starts)
+                self.from_sep_close_smaller_lists_dev = cl.array.to_device(
+                    queue, traversal.from_sep_close_smaller_lists)
 
             # list 4 close
-            self.from_sep_close_bigger_starts_dev = cl.array.to_device(
-                queue, traversal.from_sep_close_bigger_starts)
-            self.from_sep_close_bigger_lists_dev = cl.array.to_device(
-                queue, traversal.from_sep_close_bigger_lists)
+            if traversal.from_sep_close_bigger_starts is not None:
+                self.from_sep_close_bigger_starts_dev = cl.array.to_device(
+                    queue, traversal.from_sep_close_bigger_starts)
+                self.from_sep_close_bigger_lists_dev = cl.array.to_device(
+                    queue, traversal.from_sep_close_bigger_lists)
 
         # helper kernel for ancestor box query
         self.mark_parent_knl = cl.elementwise.ElementwiseKernel(
