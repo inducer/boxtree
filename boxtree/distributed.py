@@ -7,7 +7,7 @@ import pyopencl as cl
 from mako.template import Template
 from pyopencl.tools import dtype_to_ctype
 from pyopencl.scan import GenericScanKernel
-from pytools import memoize_in, memoize_method
+from pytools import memoize_method
 from boxtree import Tree
 from collections import namedtuple
 from boxtree.pyfmmlib_integration import FMMLibExpansionWrangler
@@ -42,6 +42,14 @@ logger = logging.getLogger(__name__)
 ctx = cl.create_some_context()
 queue = cl.CommandQueue(ctx)
 
+# Log OpenCL context information
+logger.info("Process %d of %d on %s with ctx %s." % (
+    MPI.COMM_WORLD.Get_rank(),
+    MPI.COMM_WORLD.Get_size(),
+    MPI.Get_processor_name(),
+    queue.context.devices)
+)
+
 
 def tree_to_device(queue, tree, additional_fields_to_device=[]):
     field_to_device = [
@@ -71,6 +79,49 @@ def tree_to_device(queue, tree, additional_fields_to_device=[]):
     return d_tree
 
 
+class LocalTreeBuilder(object):
+
+    def __init__(self, global_tree):
+        self.global_tree = global_tree
+        self.knls = get_gen_local_tree_kernels(global_tree)
+
+    def from_global_tree(self, responsible_boxes_list, responsible_boxes_mask,
+                         src_boxes_mask, ancestor_mask):
+
+        local_tree = self.global_tree.copy(
+            responsible_boxes_list=responsible_boxes_list,
+            ancestor_mask=ancestor_mask.get(),
+            box_to_user_starts=None,
+            box_to_user_lists=None,
+            _dimensions=None,
+            _ntargets=None,
+            _nsources=None,
+            _particle_dtype=None,
+            _radii_dtype=None
+        )
+
+        local_tree.user_source_ids = None
+        local_tree.sorted_target_ids = None
+
+        local_data = {
+            "src_mask": None, "src_scan": None, "nsources": None,
+            "tgt_mask": None, "tgt_scan": None, "ntargets": None
+        }
+
+        gen_local_tree_helper(
+            self.global_tree,
+            src_boxes_mask,
+            responsible_boxes_mask,
+            local_tree,
+            local_data,
+            self.knls
+        )
+
+        local_tree.__class__ = LocalTree
+
+        return local_tree, local_data
+
+
 class LocalTree(Tree):
     """
     .. attribute:: box_to_user_starts
@@ -97,24 +148,6 @@ class LocalTree(Tree):
     @property
     def ntargets(self):
         return self.targets[0].shape[0]
-
-    @classmethod
-    def copy_from_global_tree(cls, global_tree, responsible_boxes_list,
-                              ancestor_mask, box_to_user_starts,
-                              box_to_user_lists):
-        local_tree = global_tree.copy(
-            responsible_boxes_list=responsible_boxes_list,
-            ancestor_mask=ancestor_mask,
-            box_to_user_starts=box_to_user_starts,
-            box_to_user_lists=box_to_user_lists,
-            _dimensions=None,
-            _ntargets=None,
-            _nsources=None,
-            _particle_dtype=None,
-            _radii_dtype=None
-        )
-        local_tree.__class__ = cls
-        return local_tree
 
     def to_device(self, queue):
         additional_fields_to_device = ["responsible_boxes_list", "ancestor_mask",
@@ -544,177 +577,136 @@ def generate_local_tree(traversal, comm=MPI.COMM_WORLD, workload_weight=None):
     current_rank = comm.Get_rank()
     total_rank = comm.Get_size()
 
-    # Log OpenCL context information
-    logger.info("Process %d of %d on %s with ctx %s." % (
-        comm.Get_rank(),
-        comm.Get_size(),
-        MPI.Get_processor_name(),
-        queue.context.devices)
-    )
-
     if current_rank == 0:
         start_time = time.time()
 
-    # {{{ Construct local tree for each rank on root
-
     if current_rank == 0:
         local_data = np.empty((total_rank,), dtype=object)
-        for i in range(total_rank):
-            local_data[i] = {
-                "src_mask": None, "src_scan": None, "nsources": None,
-                "tgt_mask": None, "tgt_scan": None, "ntargets": None
-            }
     else:
         local_data = None
 
     knls = None
+    box_to_user_starts = None
+    box_to_user_lists = None
 
     if current_rank == 0:
         tree = traversal.tree
 
-        local_tree = np.empty((total_rank,), dtype=object)
-        local_targets = np.empty((total_rank,), dtype=object)
-        local_sources = np.empty((total_rank,), dtype=object)
-        local_target_radii = np.empty((total_rank,), dtype=object)
-
         # {{{ Partition the work
 
-        # Each rank is responsible for calculating the multiple expansion as well as
-        # evaluating target potentials in *responsible_boxes*
+        # kernels for generating local trees
+        knls = get_gen_local_tree_kernels(tree)
+
+        from boxtree.partition import ResponsibleBoxesQuery
+        responsible_box_query = ResponsibleBoxesQuery(queue, traversal)
+
+        local_tree_builder = LocalTreeBuilder(tree)
+
         if workload_weight is None:
             workload_weight = WorkloadWeight(
-                direct=1,
-                m2l=1,
-                m2p=1,
-                p2l=1,
-                multipole=5
-            )
+                direct=1, m2l=1, m2p=1, p2l=1, multipole=5)
 
         from boxtree.partition import partition_work
         responsible_boxes_list = partition_work(traversal, total_rank,
                                                 workload_weight)
 
-        responsible_boxes_mask = np.zeros((total_rank, tree.nboxes), dtype=np.int8)
-        for irank in range(total_rank):
-            responsible_boxes_mask[irank, responsible_boxes_list[irank]] = 1
-        responsible_boxes_mask = cl.array.to_device(queue, responsible_boxes_mask)
-
-        for irank in range(total_rank):
-            responsible_boxes_list[irank] = cl.array.to_device(
-                queue, responsible_boxes_list[irank])
-
-        from boxtree.partition import ResponsibleBoxesQuery
-        responsible_box_query = ResponsibleBoxesQuery(queue, traversal)
-
-        # Calculate ancestors of responsible boxes
-        ancestor_boxes = cl.array.zeros(queue, (total_rank, tree.nboxes),
-                                        dtype=np.int8)
-        for irank in range(total_rank):
-            ancestor_boxes[irank, :] = responsible_box_query.ancestor_boxes_mask(
-                responsible_boxes_mask[irank, :])
-
-        # In order to evaluate, each rank needs sources in boxes in
-        # *src_boxes_mask*
-        src_boxes_mask = cl.array.zeros(queue, (total_rank, tree.nboxes),
-                                        dtype=np.int8)
-
-        for irank in range(total_rank):
-            src_boxes_mask[irank, :] = responsible_box_query.src_boxes_mask(
-                responsible_boxes_mask[irank, :], ancestor_boxes[irank, :]
-            )
-
-        # {{{ compute box_to_user
-
-        logger.debug("computing box_to_user: start")
-
-        box_mpole_is_used = cl.array.zeros(queue, (total_rank, tree.nboxes),
-                                           dtype=np.int8)
-
-        for irank in range(total_rank):
-            box_mpole_is_used[irank, :] = \
-                responsible_box_query.multipole_boxes_mask(
-                    responsible_boxes_mask[irank, :], ancestor_boxes[irank, :]
-                )
-
-        from boxtree.tools import MaskCompressorKernel
-        matcompr = MaskCompressorKernel(ctx)
-        (
-            box_to_user_starts,
-            box_to_user_lists,
-            evt) = matcompr(queue, box_mpole_is_used.transpose(),
-                            list_dtype=np.int32)
-
-        cl.wait_for_events([evt])
-        del box_mpole_is_used
-
-        logger.debug("computing box_to_user: done")
-
-        # }}}
-
-        # kernels for generating local trees
-        knls = get_gen_local_tree_kernels(tree)
+        box_mpole_is_used = cl.array.empty(
+            queue, (total_rank, tree.nboxes,), dtype=np.int8
+        )
 
         # request objects for non-blocking communication
         tree_req = []
         particles_req = []
 
-        for rank in range(total_rank):
-            local_tree[rank] = LocalTree.copy_from_global_tree(
-                tree, responsible_boxes_list[rank].get(),
-                ancestor_boxes[rank].get(),
-                box_to_user_starts.get(),
-                box_to_user_lists.get())
+        # buffer holding communication data so that it is not garbage collected
+        local_tree = np.empty((total_rank,), dtype=object)
+        local_targets = np.empty((total_rank,), dtype=object)
+        local_sources = np.empty((total_rank,), dtype=object)
+        local_target_radii = np.empty((total_rank,), dtype=object)
 
-            local_tree[rank].user_source_ids = None
-            local_tree[rank].sorted_target_ids = None
+        for irank in range(total_rank):
 
-            gen_local_tree_helper(tree,
-                                  src_boxes_mask[rank],
-                                  responsible_boxes_mask[rank],
-                                  local_tree[rank],
-                                  local_data[rank],
-                                  knls)
+            responsible_boxes_mask = np.zeros((tree.nboxes,), dtype=np.int8)
+            responsible_boxes_mask[responsible_boxes_list[irank]] = 1
+            responsible_boxes_mask = cl.array.to_device(
+                queue, responsible_boxes_mask)
 
-            if rank == 0:
-                # master process does not need to communicate with itself
+            # Calculate ancestors of responsible boxes
+            ancestor_boxes = responsible_box_query.ancestor_boxes_mask(
+                responsible_boxes_mask
+            )
+
+            # In order to evaluate, each rank needs sources in boxes in
+            # *src_boxes_mask*
+            src_boxes_mask = responsible_box_query.src_boxes_mask(
+                responsible_boxes_mask, ancestor_boxes
+            )
+
+            box_mpole_is_used[irank, :] = responsible_box_query.multipole_boxes_mask(
+                responsible_boxes_mask, ancestor_boxes
+            )
+
+            local_tree[irank], local_data[irank] = \
+                local_tree_builder.from_global_tree(
+                    responsible_boxes_list[irank], responsible_boxes_mask,
+                    src_boxes_mask, ancestor_boxes
+                )
+
+            # master process does not need to communicate with itself
+            if irank == 0:
                 continue
 
             # {{{ Peel sources and targets off tree
 
-            local_tree[rank]._dimensions = local_tree[rank].dimensions
+            local_tree[irank]._dimensions = local_tree[irank].dimensions
 
-            local_tree[rank]._ntargets = local_tree[rank].ntargets
-            local_targets[rank] = local_tree[rank].targets
-            local_tree[rank].targets = None
+            local_tree[irank]._ntargets = local_tree[irank].ntargets
+            local_targets[irank] = local_tree[irank].targets
+            local_tree[irank].targets = None
 
-            local_tree[rank]._nsources = local_tree[rank].nsources
-            local_sources[rank] = local_tree[rank].sources
-            local_tree[rank].sources = None
+            local_tree[irank]._nsources = local_tree[irank].nsources
+            local_sources[irank] = local_tree[irank].sources
+            local_tree[irank].sources = None
 
-            local_target_radii[rank] = local_tree[rank].target_radii
-            local_tree[rank].target_radii = None
+            local_target_radii[irank] = local_tree[irank].target_radii
+            local_tree[irank].target_radii = None
 
-            local_tree[rank]._particle_dtype = tree.sources[0].dtype
-            local_tree[rank]._radii_dtype = tree.target_radii.dtype
+            local_tree[irank]._particle_dtype = tree.sources[0].dtype
+            local_tree[irank]._radii_dtype = tree.target_radii.dtype
 
             # }}}
 
             # Send the local tree skeleton without sources and targets
             tree_req.append(comm.isend(
-                local_tree[rank], dest=rank, tag=MPITags["DIST_TREE"]))
+                local_tree[irank], dest=irank, tag=MPITags["DIST_TREE"]))
 
             # Send the sources and targets
             particles_req.append(comm.Isend(
-                local_sources[rank], dest=rank, tag=MPITags["DIST_SOURCES"]))
+                local_sources[irank], dest=irank, tag=MPITags["DIST_SOURCES"]))
 
             particles_req.append(comm.Isend(
-                local_targets[rank], dest=rank, tag=MPITags["DIST_TARGETS"]))
+                local_targets[irank], dest=irank, tag=MPITags["DIST_TARGETS"]))
 
             if tree.targets_have_extent:
                 particles_req.append(comm.Isend(
-                    local_target_radii[rank], dest=rank, tag=MPITags["DIST_RADII"]))
+                    local_target_radii[irank], dest=irank, tag=MPITags["DIST_RADII"])
+                )
 
-    # }}}
+        from boxtree.tools import MaskCompressorKernel
+        matcompr = MaskCompressorKernel(ctx)
+        (box_to_user_starts, box_to_user_lists, evt) = \
+            matcompr(queue, box_mpole_is_used.transpose(),
+                     list_dtype=np.int32)
+
+        cl.wait_for_events([evt])
+        del box_mpole_is_used
+
+        box_to_user_starts = box_to_user_starts.get()
+        box_to_user_lists = box_to_user_lists.get()
+
+        logger.debug("computing box_to_user: done")
+
+        # }}}
 
     # Receive the local tree from root
     if current_rank == 0:
@@ -772,6 +764,11 @@ def generate_local_tree(traversal, comm=MPI.COMM_WORLD, workload_weight=None):
         "min": box_target_bounding_box_min,
         "max": box_target_bounding_box_max
     }
+
+    box_to_user_starts = comm.bcast(box_to_user_starts, root=0)
+    box_to_user_lists = comm.bcast(box_to_user_lists, root=0)
+    local_tree.box_to_user_starts = box_to_user_starts
+    local_tree.box_to_user_lists = box_to_user_lists
 
     if current_rank == 0:
         logger.info("Distribute local tree in {} sec.".format(

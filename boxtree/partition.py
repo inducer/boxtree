@@ -30,6 +30,9 @@ THE SOFTWARE.
 def partition_work(traversal, total_rank, workload_weight):
     """ This function assigns responsible boxes of each process.
 
+    Each process is responsible for calculating the multiple expansions as well as
+    evaluating target potentials in *responsible_boxes*.
+
     :arg traversal: The traversal object built on root containing all particles.
     :arg total_rank: The total number of processes.
     :arg workload_weight: Workload coefficients of various operations (e.g. direct
@@ -312,7 +315,7 @@ class ResponsibleBoxesQuery(object):
 
         if self.tree.targets_have_extent:
 
-            # Add list 3 close
+            # Add list 3 close of responsible boxes
             if self.traversal.from_sep_close_smaller_starts is not None:
                 self.add_interaction_list_boxes(
                     self.target_boxes_dev,
@@ -322,7 +325,7 @@ class ResponsibleBoxesQuery(object):
                     src_boxes_mask
                 )
 
-            # Add list 4 close
+            # Add list 4 close of responsible boxes
             if self.traversal.from_sep_close_bigger_starts is not None:
                 self.add_interaction_list_boxes(
                     self.target_or_target_parent_boxes_dev,
