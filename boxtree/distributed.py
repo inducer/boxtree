@@ -571,7 +571,8 @@ def gen_local_tree_helper(tree, src_box_mask, tgt_box_mask, local_tree,
     local_data["tgt_box_mask"] = tgt_box_mask
 
 
-def generate_local_tree(traversal, responsible_boxes_list, comm=MPI.COMM_WORLD):
+def generate_local_tree(traversal, responsible_boxes_list, responsible_box_query,
+                        comm=MPI.COMM_WORLD):
 
     # Get MPI information
     current_rank = comm.Get_rank()
@@ -596,9 +597,6 @@ def generate_local_tree(traversal, responsible_boxes_list, comm=MPI.COMM_WORLD):
 
         # kernels for generating local trees
         knls = get_gen_local_tree_kernels(tree)
-
-        from boxtree.partition import ResponsibleBoxesQuery
-        responsible_box_query = ResponsibleBoxesQuery(queue, traversal)
 
         local_tree_builder = LocalTreeBuilder(tree)
 
@@ -1267,8 +1265,16 @@ class DistributedFMMInfo(object):
         else:
             responsible_boxes_list = None
 
+        if current_rank == 0:
+            from boxtree.partition import ResponsibleBoxesQuery
+            responsible_box_query = ResponsibleBoxesQuery(queue, global_trav)
+        else:
+            responsible_box_query = None
+
         self.local_tree, self.local_data, self.box_bounding_box, _ = \
-            generate_local_tree(self.global_trav, responsible_boxes_list)
+            generate_local_tree(self.global_trav, responsible_boxes_list,
+                                responsible_box_query)
+
         self.local_trav = generate_local_travs(
             self.local_tree, self.box_bounding_box, comm=comm,
             well_sep_is_n_away=well_sep_is_n_away)
