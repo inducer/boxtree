@@ -618,25 +618,9 @@ def generate_local_tree(traversal, responsible_boxes_list, comm=MPI.COMM_WORLD):
 
         for irank in range(total_rank):
 
-            responsible_boxes_mask = np.zeros((tree.nboxes,), dtype=np.int8)
-            responsible_boxes_mask[responsible_boxes_list[irank]] = 1
-            responsible_boxes_mask = cl.array.to_device(
-                queue, responsible_boxes_mask)
-
-            # Calculate ancestors of responsible boxes
-            ancestor_boxes = responsible_box_query.ancestor_boxes_mask(
-                responsible_boxes_mask
-            )
-
-            # In order to evaluate, each rank needs sources in boxes in
-            # *src_boxes_mask*
-            src_boxes_mask = responsible_box_query.src_boxes_mask(
-                responsible_boxes_mask, ancestor_boxes
-            )
-
-            box_mpole_is_used[irank, :] = responsible_box_query.multipole_boxes_mask(
-                responsible_boxes_mask, ancestor_boxes
-            )
+            (responsible_boxes_mask, ancestor_boxes, src_boxes_mask,
+             box_mpole_is_used[irank]) = \
+                responsible_box_query.get_boxes_mask(responsible_boxes_list[irank])
 
             local_tree[irank], local_data[irank] = \
                 local_tree_builder.from_global_tree(

@@ -380,3 +380,42 @@ class ResponsibleBoxesQuery(object):
             multipole_boxes_mask.finish()
 
         return multipole_boxes_mask
+
+    def get_boxes_mask(self, responsible_boxes_list):
+        """
+        Given a list of responsible boxes for a process, calculates the following
+        three masks:
+
+        responsible_box_mask: Current process will evaluate target potentials and
+            multipole expansions in these boxes. Sources and targets in these boxes
+            are needed.
+
+        ancestor_boxes_mask: The responsible boxes and the ancestor of the
+            responsible boxes.
+
+        src_boxes_mask: Current process needs sources but not targets in these boxes.
+
+        multipole_boxes_mask: Current process needs multipole expressions in these
+            boxes.
+
+        :param responsible_boxes_list: A numpy array of responsible box indices.
+
+        :returns: responsible_box_mask, ancestor_boxes_mask, src_boxes_mask and
+            multipole_boxes_mask, as described above.
+        """
+
+        responsible_boxes_mask = np.zeros((self.tree.nboxes,), dtype=np.int8)
+        responsible_boxes_mask[responsible_boxes_list] = 1
+        responsible_boxes_mask = cl.array.to_device(
+            self.queue, responsible_boxes_mask)
+
+        ancestor_boxes_mask = self.ancestor_boxes_mask(responsible_boxes_mask)
+
+        src_boxes_mask = self.src_boxes_mask(
+            responsible_boxes_mask, ancestor_boxes_mask)
+
+        multipole_boxes_mask = self.multipole_boxes_mask(
+            responsible_boxes_mask, ancestor_boxes_mask)
+
+        return (responsible_boxes_mask, ancestor_boxes_mask, src_boxes_mask,
+                multipole_boxes_mask)
