@@ -501,6 +501,70 @@ class MapValuesKernel(object):
 # }}}
 
 
+# {{{ time recording tool
+
+class record_time(object):  # noqa: N801
+    """A decorator for recording timing data for a function call.
+
+    Timing data is saved to a :class:`dict` passed as an optional keyword
+    argument. The following entries are written:
+
+    - *description*
+    - *callback*.
+
+    *callback* may be called once to obtain the elapsed wall time in
+    seconds.
+
+    Example usage::
+
+        >>> from time import sleep
+        >>> @record_time("timing_data")
+        ... def slow_function(n):
+        ...   sleep(n)
+        ...
+        >>> timing_result = {}
+        >>> slow_function(1, timing_data=timing_result)
+        >>> elapsed_time = timing_result["callback"]()
+    """
+
+    def __init__(self, arg=None, description=None):
+        self.arg = arg
+        self.description = description
+
+    def __call__(self, wrapped):
+        description = self.description or wrapped.__name__
+
+        from pytools import ProcessTimer
+        from contextlib import contextmanager
+
+        @contextmanager
+        def time_process(output):
+            timer = ProcessTimer()
+            yield
+            timer.done()
+
+            def callback():
+                return timer.wall_elapsed
+
+            output["description"] = description
+            output["callback"] = callback
+
+        def wrapper(*args, **kwargs):
+            output = kwargs.pop(self.arg, None)
+            if output is None:
+                return wrapped(*args, **kwargs)
+
+            with time_process(output):
+                return wrapped(*args, **kwargs)
+
+        from functools import update_wrapper
+        new_wrapper = update_wrapper(wrapper, wrapped)
+
+        return new_wrapper
+
+# }}}
+
+
 # {{{ binary search
 
 from mako.template import Template

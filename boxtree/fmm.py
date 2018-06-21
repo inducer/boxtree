@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 from pytools import ProcessLogger
 
 
-def drive_fmm(traversal, expansion_wrangler, src_weights):
+def drive_fmm(traversal, expansion_wrangler, src_weights, timing_data=None):
     """Top-level driver routine for a fast multipole calculation.
 
     In part, this is intended as a template for custom FMMs, in the sense that
@@ -44,6 +44,8 @@ def drive_fmm(traversal, expansion_wrangler, src_weights):
         :class:`ExpansionWranglerInterface`.
     :arg src_weights: Source 'density/weights/charges'.
         Passed unmodified to *expansion_wrangler*.
+    :arg timing_data: Either *None*, or a :class:`dict` inside which timing
+        information, if available, is returned
 
     Returns the potentials computed by *expansion_wrangler*.
     """
@@ -53,6 +55,7 @@ def drive_fmm(traversal, expansion_wrangler, src_weights):
     # to the expansion wrangler and should not be passed.
 
     fmm_proc = ProcessLogger(logger, "qbx fmm")
+    recorder = TimingDataRecorder()
 
     src_weights = wrangler.reorder_sources(src_weights)
 
@@ -61,7 +64,8 @@ def drive_fmm(traversal, expansion_wrangler, src_weights):
     mpole_exps = wrangler.form_multipoles(
             traversal.level_start_source_box_nrs,
             traversal.source_boxes,
-            src_weights)
+            src_weights,
+            timing_data=recorder.next_record())
 
     # }}}
 
@@ -70,7 +74,8 @@ def drive_fmm(traversal, expansion_wrangler, src_weights):
     wrangler.coarsen_multipoles(
             traversal.level_start_source_parent_box_nrs,
             traversal.source_parent_boxes,
-            mpole_exps)
+            mpole_exps,
+            timing_data=recorder.next_record())
 
     # mpole_exps is called Phi in [1]
 
@@ -82,7 +87,8 @@ def drive_fmm(traversal, expansion_wrangler, src_weights):
             traversal.target_boxes,
             traversal.neighbor_source_boxes_starts,
             traversal.neighbor_source_boxes_lists,
-            src_weights)
+            src_weights,
+            timing_data=recorder.next_record())
 
     # these potentials are called alpha in [1]
 
@@ -95,7 +101,8 @@ def drive_fmm(traversal, expansion_wrangler, src_weights):
             traversal.target_or_target_parent_boxes,
             traversal.from_sep_siblings_starts,
             traversal.from_sep_siblings_lists,
-            mpole_exps)
+            mpole_exps,
+            timing_data=recorder.next_record())
 
     # local_exps represents both Gamma and Delta in [1]
 
@@ -109,7 +116,8 @@ def drive_fmm(traversal, expansion_wrangler, src_weights):
     potentials = potentials + wrangler.eval_multipoles(
             traversal.target_boxes_sep_smaller_by_source_level,
             traversal.from_sep_smaller_by_level,
-            mpole_exps)
+            mpole_exps,
+            timing_data=recorder.next_record())
 
     # these potentials are called beta in [1]
 
@@ -121,7 +129,8 @@ def drive_fmm(traversal, expansion_wrangler, src_weights):
                 traversal.target_boxes,
                 traversal.from_sep_close_smaller_starts,
                 traversal.from_sep_close_smaller_lists,
-                src_weights)
+                src_weights,
+                timing_data=recorder.next_record())
 
     # }}}
 
@@ -132,14 +141,16 @@ def drive_fmm(traversal, expansion_wrangler, src_weights):
             traversal.target_or_target_parent_boxes,
             traversal.from_sep_bigger_starts,
             traversal.from_sep_bigger_lists,
-            src_weights)
+            src_weights,
+            timing_data=recorder.next_record())
 
     if traversal.from_sep_close_bigger_starts is not None:
         potentials = potentials + wrangler.eval_direct(
                 traversal.target_or_target_parent_boxes,
                 traversal.from_sep_close_bigger_starts,
                 traversal.from_sep_close_bigger_lists,
-                src_weights)
+                src_weights,
+                timing_data=recorder.next_record())
 
     # }}}
 
@@ -148,7 +159,8 @@ def drive_fmm(traversal, expansion_wrangler, src_weights):
     wrangler.refine_locals(
             traversal.level_start_target_or_target_parent_box_nrs,
             traversal.target_or_target_parent_boxes,
-            local_exps)
+            local_exps,
+            timing_data=recorder.next_record())
 
     # }}}
 
@@ -157,7 +169,8 @@ def drive_fmm(traversal, expansion_wrangler, src_weights):
     potentials = potentials + wrangler.eval_locals(
             traversal.level_start_target_box_nrs,
             traversal.target_boxes,
-            local_exps)
+            local_exps,
+            timing_data=recorder.next_record())
 
     # }}}
 
@@ -166,6 +179,9 @@ def drive_fmm(traversal, expansion_wrangler, src_weights):
     result = wrangler.finalize_potentials(result)
 
     fmm_proc.done()
+
+    if timing_data is not None:
+        timing_data.update(recorder.summarize())
 
     return result
 
@@ -181,6 +197,14 @@ class ExpansionWranglerInterface:
 
     Will usually hold a reference (and thereby be specific to) a
     :class:`boxtree.Tree` instance.
+
+    This interface supports collecting timing data. If timing data is requested,
+    the dictionary argument *timing_data* filled with the following two entries:
+
+    - *description*
+    - *callback*
+
+    *callback* may block until the operation is finished.
     """
 
     def multipole_expansion_zeros(self):
@@ -215,7 +239,8 @@ class ExpansionWranglerInterface:
         *source_weights* is in tree target order.
         """
 
-    def form_multipoles(self, level_start_source_box_nrs, source_boxes, src_weights):
+    def form_multipoles(self, level_start_source_box_nrs, source_boxes, src_weights,
+            timing_data=None):
         """Return an expansions array (compatible with
         :meth:`multipole_expansion_zeros`)
         containing multipole expansions in *source_boxes* due to sources
@@ -224,7 +249,7 @@ class ExpansionWranglerInterface:
         """
 
     def coarsen_multipoles(self, level_start_source_parent_box_nrs,
-            source_parent_boxes, mpoles):
+            source_parent_boxes, mpoles, timing_data=None):
         """For each box in *source_parent_boxes*,
         gather (and translate) the box's children's multipole expansions in
         *mpole* and add the resulting expansion into the box's multipole
@@ -234,7 +259,7 @@ class ExpansionWranglerInterface:
         """
 
     def eval_direct(self, target_boxes, neighbor_sources_starts,
-            neighbor_sources_lists, src_weights):
+            neighbor_sources_lists, src_weights, timing_data=None):
         """For each box in *target_boxes*, evaluate the influence of the
         neighbor sources due to *src_weights*, which use :ref:`csr` and are
         indexed like *target_boxes*.
@@ -245,7 +270,7 @@ class ExpansionWranglerInterface:
     def multipole_to_local(self,
             level_start_target_or_target_parent_box_nrs,
             target_or_target_parent_boxes,
-            starts, lists, mpole_exps):
+            starts, lists, mpole_exps, timing_data=None):
         """For each box in *target_or_target_parent_boxes*, translate and add
         the influence of the multipole expansion in *mpole_exps* into a new
         array of local expansions.  *starts* and *lists* use :ref:`csr`, and
@@ -256,7 +281,8 @@ class ExpansionWranglerInterface:
         """
 
     def eval_multipoles(self,
-            target_boxes_by_source_level, from_sep_smaller_by_level, mpole_exps):
+            target_boxes_by_source_level, from_sep_smaller_by_level, mpole_exps,
+            timing_data=None):
         """For a level *i*, each box in *target_boxes_by_source_level[i]*, evaluate
         the multipole expansion in *mpole_exps* in the nearby boxes given in
         *from_sep_smaller_by_level*, and return a new potential array.
@@ -268,7 +294,8 @@ class ExpansionWranglerInterface:
 
     def form_locals(self,
             level_start_target_or_target_parent_box_nrs,
-            target_or_target_parent_boxes, starts, lists, src_weights):
+            target_or_target_parent_boxes, starts, lists, src_weights,
+            timing_data=None):
         """For each box in *target_or_target_parent_boxes*, form local
         expansions due to the sources in the nearby boxes given in *starts* and
         *lists*, and return a new local expansion array.  *starts* and *lists*
@@ -281,7 +308,7 @@ class ExpansionWranglerInterface:
         pass
 
     def refine_locals(self, level_start_target_or_target_parent_box_nrs,
-            target_or_target_parent_boxes, local_exps):
+            target_or_target_parent_boxes, local_exps, timing_data=None):
         """For each box in *child_boxes*,
         translate the box's parent's local expansion in *local_exps* and add
         the resulting expansion into the box's local expansion in *local_exps*.
@@ -289,7 +316,8 @@ class ExpansionWranglerInterface:
         :returns: *local_exps*
         """
 
-    def eval_locals(self, level_start_target_box_nrs, target_boxes, local_exps):
+    def eval_locals(self, level_start_target_box_nrs, target_boxes, local_exps,
+            timing_data=None):
         """For each box in *target_boxes*, evaluate the local expansion in
         *local_exps* and return a new potential array.
 
@@ -302,6 +330,36 @@ class ExpansionWranglerInterface:
         factors could be applied. This is distinct from :meth:`reorder_potentials`
         because some derived FMMs (notably the QBX FMM) do their own reordering.
         """
+
+# }}}
+
+
+# {{{ timing data recorder
+
+class TimingDataRecorder(object):
+
+    def __init__(self):
+        self.records = []
+
+    def next_record(self):
+        self.records.append(dict())
+        return self.records[-1]
+
+    def summarize(self):
+        result = {}
+
+        for record in self.records:
+            if "description" not in record:
+                continue
+
+            description = record["description"]
+
+            if description in result:
+                result[description] += record["callback"]()
+            else:
+                result[description] = record["callback"]()
+
+        return result
 
 # }}}
 

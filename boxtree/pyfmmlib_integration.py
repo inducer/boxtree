@@ -26,7 +26,8 @@ THE SOFTWARE.
 
 
 import numpy as np
-from pytools import memoize_method, log_process, record_time
+from pytools import memoize_method, log_process
+from boxtree.tools import record_time
 
 import logging
 logger = logging.getLogger(__name__)
@@ -394,12 +395,10 @@ class FMMLibExpansionWrangler(object):
     # }}}
 
     @log_process(logger)
-    @record_time("timing_data")
     def reorder_sources(self, source_array):
         return source_array[..., self.tree.user_source_ids]
 
     @log_process(logger)
-    @record_time("timing_data")
     def reorder_potentials(self, potentials):
         return potentials[self.tree.sorted_target_ids]
 
@@ -822,7 +821,6 @@ class FMMLibExpansionWrangler(object):
         return output
 
     @log_process(logger)
-    @record_time("timing_data")
     def finalize_potentials(self, potential):
         if self.eqn_letter == "l" and self.dim == 2:
             scale_factor = -1/(2*np.pi)
