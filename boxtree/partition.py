@@ -266,8 +266,8 @@ class ResponsibleBoxesQuery(object):
         :param responsible_boxes_mask: A pyopencl.array.Array object of shape
             (tree.nboxes,) whose ith entry is 1 iff i is a responsible box.
         :return: A pyopencl.array.Array object of shape (tree.nboxes,) whose ith
-            entry is 1 iff i is either a responsible box or an ancestor of the
-            responsible boxes specified by responsible_boxes_mask.
+            entry is 1 iff i is an ancestor of the responsible boxes specified by
+            responsible_boxes_mask.
         """
         ancestor_boxes = cl.array.zeros(
             self.queue, (self.tree.nboxes,), dtype=np.int8)
@@ -390,8 +390,7 @@ class ResponsibleBoxesQuery(object):
             multipole expansions in these boxes. Sources and targets in these boxes
             are needed.
 
-        ancestor_boxes_mask: The responsible boxes and the ancestor of the
-            responsible boxes.
+        ancestor_boxes_mask: The the ancestor of the responsible boxes.
 
         src_boxes_mask: Current process needs sources but not targets in these boxes.
 
