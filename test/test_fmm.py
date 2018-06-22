@@ -48,7 +48,8 @@ def ignore_timing_data(f):
     from functools import wraps
 
     @wraps(f)
-    def wrapper(timing_data=None, *args, **kwargs):
+    def wrapper(*args, **kwargs):
+        kwargs.pop("timing_data")
         return f(*args, **kwargs)
 
     return wrapper
