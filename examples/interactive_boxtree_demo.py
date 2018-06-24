@@ -10,12 +10,22 @@ queue = cl.CommandQueue(ctx)
 tree = boxtree.tree_interactive_build.BoxTree()
 tree.generate_uniform_boxtree(queue, nlevels=3)
 
-quad = boxtree.tree_interactive_build.QuadratureOnBoxTree(tree)
+# the default quad formula uses cell centers and cell measures
+from modepy import GaussLegendreQuadrature
+quadrature_formula = GaussLegendreQuadrature(1)
+print(quadrature_formula.nodes, quadrature_formula.weights)
+quad = boxtree.tree_interactive_build.QuadratureOnBoxTree(tree,
+        quadrature_formula)
 cell_centers = quad.get_cell_centers(queue)
-
 cell_measures = quad.get_cell_measures(queue)
-print(cell_measures)
-print(np.sum(cell_measures.get()))
+q_points = quad.get_q_points(queue)
+q_weights = quad.get_q_weights(queue)
+
+print(q_points)
+print(q_weights)
+
+# print(q_points - cell_centers)
+# print(q_weights - cell_measures)
 
 # call get() before plotting
 from boxtree.visualization import BoxTreePlotter
