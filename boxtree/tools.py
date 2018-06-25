@@ -331,7 +331,7 @@ class DeviceDataRecord(Record):
 
         def _to_device(attr):
             if isinstance(attr, np.ndarray):
-                return cl.array.to_device(queue, attr)
+                return cl.array.to_device(queue, attr).with_queue(None)
             else:
                 return attr
 
