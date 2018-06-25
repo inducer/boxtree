@@ -8,7 +8,7 @@ ctx = cl.create_some_context()
 queue = cl.CommandQueue(ctx)
 
 dims = 2
-nparticles = 10**4
+nparticles = 500
 
 # -----------------------------------------------------------------------------
 # generate some random particle positions
@@ -26,7 +26,7 @@ particles = make_obj_array([
 # -----------------------------------------------------------------------------
 from boxtree import TreeBuilder
 tb = TreeBuilder(ctx)
-tree, _ = tb(queue, particles, max_particles_in_box=30)
+tree, _ = tb(queue, particles, max_particles_in_box=5)
 
 from boxtree.traversal import FMMTraversalBuilder
 tg = FMMTraversalBuilder(ctx)
@@ -40,12 +40,25 @@ trav, _ = tg(queue, tree)
 
 import matplotlib.pyplot as pt
 
-pt.plot(particles[0].get(), particles[1].get(), "x")
+pt.plot(particles[0].get(), particles[1].get(), "+")
 
 from boxtree.visualization import TreePlotter
 plotter = TreePlotter(tree.get(queue=queue))
 plotter.draw_tree(fill=False, edgecolor="black")
-plotter.draw_box_numbers()
+#plotter.draw_box_numbers()
 plotter.set_bounding_box()
 pt.gca().set_aspect("equal")
-pt.savefig("tree.png")
+pt.tight_layout()
+pt.tick_params(
+    axis='x',          # changes apply to the x-axis
+    which='both',      # both major and minor ticks are affected
+    bottom='off',      # ticks along the bottom edge are off
+    top='off',         # ticks along the top edge are off
+    labelbottom='off')
+pt.tick_params(
+    axis='y',
+    which='both',
+    left='off',
+    top='off',
+    labelleft='off')
+pt.savefig("tree.pdf")

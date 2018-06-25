@@ -31,6 +31,7 @@ import pyopencl as cl
 import pyopencl.array  # noqa
 from functools import partial
 from boxtree.tree import Tree
+from pytools import ProcessLogger, DebugProcessLogger
 
 import logging
 logger = logging.getLogger(__name__)
@@ -226,7 +227,13 @@ class TreeBuilder(object):
             # Targets weren't specified. Sources are also targets. Let's
             # call them "srcntgts".
 
-            srcntgts = particles
+            from pytools.obj_array import is_obj_array, make_obj_array
+            if is_obj_array(particles):
+                srcntgts = particles
+            else:
+                srcntgts = make_obj_array([
+                    p.with_queue(queue).copy() for p in particles
+                    ])
 
             assert source_radii is None
             assert target_radii is None
@@ -514,8 +521,8 @@ class TreeBuilder(object):
         # leaf.
         level_leaf_counts = np.array([1])
 
-        from time import time
-        tree_build_start_time = time()
+        tree_build_proc = ProcessLogger(logger, "tree build")
+
         if total_refine_weight > max_leaf_refine_weight:
             level = 1
         else:
@@ -533,7 +540,7 @@ class TreeBuilder(object):
         # single box, by how 'level' is set above. Read this as 'while True' with
         # an edge case.
 
-        logger.debug("entering level loop with %s srcntgts" % nsrcntgts)
+        level_loop_proc = DebugProcessLogger(logger, "tree build level loop")
 
         # When doing level restriction, the level loop may need to be entered
         # one more time after creating all the levels (see fixme note below
@@ -1116,12 +1123,8 @@ class TreeBuilder(object):
 
         nboxes = level_start_box_nrs[-1]
 
-        level_loop_elapsed = time()-tree_build_start_time
         npasses = level+1
-        logger.debug("tree build level loop complete: %d levels, %d boxes, "
-                "elapsed time: %g s (%g s/particle/pass)",
-                level, nboxes, level_loop_elapsed,
-                level_loop_elapsed/(npasses*nsrcntgts))
+        level_loop_proc.done("%d levels, %d boxes", level, nboxes)
         del npasses
 
         # }}}
@@ -1570,10 +1573,11 @@ class TreeBuilder(object):
         if targets_have_extent:
             extra_tree_attrs.update(target_radii=target_radii)
 
-        tree_build_elapsed = time() - tree_build_start_time
-        logger.info("tree build complete: %d levels, %d boxes, %d particles, "
-                "elapsed time: %g s",
-                nlevels, len(box_parent_ids), nsrcntgts, tree_build_elapsed)
+        tree_build_proc.done(
+                "%d levels, %d boxes, %d particles, box extent norm: %s, "
+                "max_leaf_refine_weight: %d",
+                nlevels, len(box_parent_ids), nsrcntgts, srcntgts_extent_norm,
+                max_leaf_refine_weight)
 
         return Tree(
                 # If you change this, also change the documentation

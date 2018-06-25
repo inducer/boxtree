@@ -1,6 +1,8 @@
 from __future__ import division, absolute_import, print_function
 
-__copyright__ = "Copyright (C) 2017 Matt Wala"
+__copyright__ = "Copyright (C) 2012 Andreas Kloeckner \
+                 Copyright (C) 2017 Matt Wala \
+                 Copyright (C) 2018 Hao Gao"
 
 __license__ = """
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -24,10 +26,7 @@ THE SOFTWARE.
 
 import logging
 import pytest
-import sys
-
 import numpy as np
-
 import pyopencl as cl
 import pyopencl.array  # noqa
 from pyopencl.tools import (  # noqa
@@ -128,14 +127,41 @@ def test_masked_list_compression(ctx_getter):
     assert set(arr_list) == set(arr.nonzero()[0])
 
 
+def test_device_record():
+    from boxtree.tools import DeviceDataRecord
+
+    array = np.arange(60).reshape((3, 4, 5))
+
+    obj_array = np.empty((3,), dtype=object)
+    for i in range(3):
+        obj_array[i] = np.arange((i + 1) * 40).reshape(5, i + 1, 8)
+
+    record = DeviceDataRecord(
+        array=array,
+        obj_array=obj_array
+    )
+
+    ctx = cl.create_some_context()
+
+    with cl.CommandQueue(ctx) as queue:
+        record_dev = record.to_device(queue)
+        record_host = record_dev.get(queue)
+
+        assert np.array_equal(record_host.array, record.array)
+
+        for i in range(3):
+            assert np.array_equal(record_host.obj_array[i], record.obj_array[i])
+
+
 # You can test individual routines by typing
-# $ python test_tree.py 'test_routine(cl.create_some_context)'
+# $ python test_tools.py 'test_routine'
 
 if __name__ == "__main__":
+    import sys
     if len(sys.argv) > 1:
         exec(sys.argv[1])
     else:
-        import py.test
-        py.test.cmdline.main([__file__])
+        from pytest import main
+        main([__file__])
 
 # vim: fdm=marker

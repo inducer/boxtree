@@ -30,11 +30,11 @@ import pyopencl.cltypes  # noqa
 from pyopencl.elementwise import ElementwiseTemplate
 from mako.template import Template
 from boxtree.tools import AXIS_NAMES, DeviceDataRecord
-from time import time
 
 import logging
 logger = logging.getLogger(__name__)
 
+from pytools import ProcessLogger, log_process
 
 # {{{ preamble
 
@@ -791,16 +791,47 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
                                 %endfor
                                 ;
 
-                            // l^2 distance between source box and target box.
-                            // Negative indicates overlap.
-                            coord_t l_2_box_dist =
+                            <% assert not sources_have_extent %>
+
+                            // We're considering convergence of a multipole
+                            // in the (square) source box at all locations
+                            // in the (round) target box. We need
+
+                            // src_box_l2_radius
+                            //    / d_2(src_box_center, tgt_box) <= sqrt(d)/3
+
+                            // <=>
+
+                            // src_box_linf_radius * sqrt(d)
+                            //    / d_2(src_box_center, tgt_box) <= sqrt(d)/3
+
+                            // <=>
+
+                            // 3 * src_box_linf_radius
+                            //    <= d_2(src_box_center, tgt_box)
+
+                            // <=>
+
+                            // 3 * src_box_linf_radius
+                            //    <= d_2(src_box_center, tgt_box_center)
+                            //    - sqrt(d) * tgt_stickout_l_inf_rad
+
+                            // <=> (because why not)
+
+                            // 2 * src_box_linf_radius
+                            //    <= d_2(src_box_center, tgt_box_center)
+                            //    - sqrt(d) * tgt_stickout_l_inf_rad
+                            //    - src_box_linf_radius
+
+                            coord_t rhs =
                                 sqrt(l_2_squared_center_dist)
                                 - sqrt((coord_t) (${dimensions}))
                                     * tgt_stickout_l_inf_rad
                                 - source_l_inf_rad;
 
-                            meets_sep_crit = l_2_box_dist >=
-                                (2 - 8 * COORD_T_MACH_EPS) * source_l_inf_rad;
+                            meets_sep_crit = (
+                                (2 - 8 * COORD_T_MACH_EPS) * source_l_inf_rad
+                                <= rhs);
                         }
 
                     %else:
@@ -923,6 +954,24 @@ inline bool meets_sep_bigger_criterion(
     coord_vec_t source_center, int source_level,
     coord_t stick_out_factor)
 {
+    <%
+        assert not sources_have_extent
+    %>
+
+    // What we are interested in ensuring is that
+
+    // (*)
+    // d_2(src_box, tgt_center)
+    //     >= 3 * (radius of tgt box potentially
+    //                   including stick-out)
+
+    // (because convergence factors are in l^2,
+    // irrespective of how we measure)
+
+    // Since d_2(a, b) >= d_inf(a, b), ensuring that
+    // (*) holds with d_inf implies that it also holds
+    // with d_2.
+
     coord_t target_rad = LEVEL_TO_RAD(target_level);
     coord_t source_rad = LEVEL_TO_RAD(source_level);
     coord_t max_allowed_center_l_inf_dist = (
@@ -1119,7 +1168,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
 # {{{ traversal info (output)
 
 class FMMTraversalInfo(DeviceDataRecord):
-    """Interaction lists needed for a fast-multipole-like linear-time gather of
+    r"""Interaction lists needed for a fast-multipole-like linear-time gather of
     particle interactions.
 
     Terminology (largely) follows this article:
@@ -1306,12 +1355,11 @@ class FMMTraversalInfo(DeviceDataRecord):
     through "List 3", but must be evaluated specially/directly
     because of :ref:`extent`.
 
-    Indexed like :attr:`target_or_target_parent_boxes`.  See :ref:`csr`.
-
     .. attribute:: target_boxes_sep_smaller_by_source_level
 
-        A list of arrays, one per level, indicating which target boxes are used with
-        the interaction list entries of :attr:`from_sep_smaller_by_level`.
+        A list of arrays of global box numbers, one array per level, indicating
+        which boxes are used with the interaction list entries of
+        :attr:`from_sep_smaller_by_level`.
         ``target_boxes_sep_smaller_by_source_level[i]`` has length
         ``from_sep_smaller_by_level[i].num_nonempty_lists`.
 
@@ -1333,6 +1381,8 @@ class FMMTraversalInfo(DeviceDataRecord):
         *i*.
 
     .. attribute:: from_sep_close_smaller_starts
+
+        Indexed like :attr:`target_boxes`.  See :ref:`csr`.
 
         ``box_id_t [ntarget_boxes+1]`` (or *None*)
 
@@ -1573,6 +1623,7 @@ class FMMTraversalBuilder:
     # {{{ kernel builder
 
     @memoize_method
+    @log_process(logger)
     def get_kernel_info(self, dimensions, particle_id_dtype, box_id_dtype,
             coord_dtype, box_level_dtype, max_levels,
             sources_are_targets, sources_have_extent, targets_have_extent,
@@ -1617,9 +1668,6 @@ class FMMTraversalBuilder:
                     % from_sep_smaller_crit)
 
         # }}}
-
-        logger.debug("traversal build kernels: start build")
-        kernel_build_start = time()
 
         debug = False
 
@@ -1776,14 +1824,6 @@ class FMMTraversalBuilder:
 
         # }}}
 
-        kernel_build_elapsed = time() - kernel_build_start
-        if kernel_build_start > 0.1:
-            build_logger = logger.info
-        else:
-            build_logger = logger.debug
-        build_logger("traversal build kernels: done after %g seconds",
-                kernel_build_elapsed)
-
         return _KernelInfo(**result)
 
     # }}}
@@ -1840,8 +1880,7 @@ class FMMTraversalBuilder:
 
             logger.debug(s)
 
-        traversal_build_start_time = time()
-        logger.debug("start building traversal")
+        traversal_plog = ProcessLogger(logger, "build traversal")
 
         # {{{ source boxes, their parents, and target boxes
 
@@ -2142,8 +2181,9 @@ class FMMTraversalBuilder:
 
         evt, = wait_for
 
-        logger.info("traversal built after %g seconds",
-                time()-traversal_build_start_time)
+        traversal_plog.done(
+                "from_sep_smaller_crit: %s",
+                self.from_sep_smaller_crit)
 
         return FMMTraversalInfo(
                 tree=tree,
