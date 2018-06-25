@@ -25,6 +25,7 @@ import numpy as np
 from itertools import product
 
 import loopy as lp
+from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2
 import pyopencl as cl
 import pyopencl.array  # noqa
 from pytools.obj_array import make_obj_array
@@ -359,12 +360,16 @@ class QuadratureOnBoxTree(object):
                     ["0<=" + qvar + "<n_q_nodes" for qvar in quad_vars])
                 + "}",
                 """
-                <> box_id = active_boxes[iabox]
-                <> box_level = box_levels[box_id]
-                <> box_relative_extent = root_extent / 2 ** (box_level+1)
-                result[iaxis, iabox, QUAD_VARS] = box_centers[iaxis, box_id] + (
-                        GET_TENSOR_Q_NODE_IAXIS
-                        ) * box_relative_extent
+                for iabox
+                    <> box_id = active_boxes[iabox]
+                    <> box_level = box_levels[box_id]
+                    <> box_relative_extent = root_extent / 2 ** (box_level+1)
+                    for iaxis, QUAD_VARS
+                        result[iaxis, iabox, QUAD_VARS] = box_centers[
+                            iaxis, box_id] + (
+                            GET_TENSOR_Q_NODE_IAXIS * box_relative_extent)
+                    end
+                end
                 """
                 .replace("GET_TENSOR_Q_NODE_IAXIS", tensor_q_node_code(dim))
                 .replace("QUAD_VARS", ", ".join(quad_vars)),
@@ -422,11 +427,16 @@ class QuadratureOnBoxTree(object):
                     ["0<=" + qvar + "<n_q_nodes" for qvar in quad_vars])
                 + "}",
                 """
-                <> box_id = active_boxes[iabox]
-                <> box_level = box_levels[box_id]
-                <> box_relative_measure = root_measure / (
-                                             2 ** ((box_level+1) * DIM))
-                result[QUAD_VARS, iabox] = QUAD_WEIGHT * box_relative_measure
+                for iabox
+                    <> box_id = active_boxes[iabox]
+                    <> box_level = box_levels[box_id]
+                    <> box_relative_measure = root_measure / (
+                                                 2 ** ((box_level+1) * DIM))
+                    for QUAD_VARS
+                        result[QUAD_VARS, iabox] = (QUAD_WEIGHT
+                            * box_relative_measure)
+                    end
+                end
                 """.replace("DIM", str(dim))
                 .replace("QUAD_VARS", ", ".join(quad_vars))
                 .replace("QUAD_WEIGHT", " * ".join(
@@ -475,8 +485,10 @@ class QuadratureOnBoxTree(object):
                 "{[iabox, iaxis]: 0<=iabox<n_active_boxes and "
                                  "0<=iaxis<dims}",
                 """
-                <> box_id = active_boxes[iabox]
-                result[iaxis, iabox] = box_centers[iaxis, box_id]
+                for iabox
+                    <> box_id = active_boxes[iabox]
+                    result[iaxis, iabox] = box_centers[iaxis, box_id]
+                end
                 """,
                 [
                     lp.GlobalArg("result", self.boxtree.coord_dtype,
@@ -515,9 +527,11 @@ class QuadratureOnBoxTree(object):
             knl = lp.make_kernel(
                 "{[iabox]: 0<=iabox<n_active_boxes}",
                 """
-                <> box_id = active_boxes[iabox]
-                <> box_level = box_levels[box_id]
-                result[iabox] = root_measure / (2 ** (box_level * dims))
+                for iabox
+                    <> box_id = active_boxes[iabox]
+                    <> box_level = box_levels[box_id]
+                    result[iabox] = root_measure / (2 ** (box_level * dims))
+                end
                 """,
                 [
                     lp.GlobalArg("result", self.boxtree.coord_dtype,

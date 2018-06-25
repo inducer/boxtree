@@ -25,7 +25,7 @@ q_points = quad.get_q_points(queue)
 q_weights = quad.get_q_weights(queue)
 
 # print(q_points)
-# print(q_weights)
+# print(q_weights, np.sum(q_weights.get()))
 
 # print(q_points - cell_centers)
 # print(q_weights - cell_measures)
