@@ -51,34 +51,6 @@ logger.info("Process %d of %d on %s with ctx %s." % (
 )
 
 
-def tree_to_device(queue, tree, additional_fields_to_device=[]):
-    field_to_device = [
-        "box_centers", "box_child_ids", "box_flags", "box_levels",
-        "box_parent_ids", "box_source_counts_cumul",
-        "box_source_counts_nonchild", "box_source_starts",
-        "box_target_counts_cumul", "box_target_counts_nonchild",
-        "box_target_starts", "level_start_box_nrs_dev", "sources", "targets",
-    ] + additional_fields_to_device
-    d_tree = tree.copy()
-    for field in field_to_device:
-        current_obj = d_tree.__getattribute__(field)
-        if current_obj.dtype == object:
-            new_obj = np.empty_like(current_obj)
-            for i in range(current_obj.shape[0]):
-                new_obj[i] = cl.array.to_device(queue, current_obj[i])
-            d_tree.__setattr__(field, new_obj)
-        else:
-            d_tree.__setattr__(
-                field, cl.array.to_device(queue, current_obj))
-
-    if tree.sources_have_extent:
-        d_tree.source_radii = cl.array.to_device(queue, d_tree.source_radii)
-    if tree.targets_have_extent:
-        d_tree.target_radii = cl.array.to_device(queue, d_tree.target_radii)
-
-    return d_tree
-
-
 class LocalTreeBuilder(object):
 
     def __init__(self, global_tree):
@@ -148,12 +120,6 @@ class LocalTree(Tree):
     @property
     def ntargets(self):
         return self.targets[0].shape[0]
-
-    def to_device(self, queue):
-        additional_fields_to_device = ["responsible_boxes_list", "ancestor_mask",
-                                       "box_to_user_starts", "box_to_user_lists"]
-
-        return tree_to_device(queue, self, additional_fields_to_device)
 
 
 # {{{ distributed fmm wrangler
@@ -436,7 +402,7 @@ def gen_local_tree_helper(tree, src_box_mask, tgt_box_mask, local_tree,
     """ This helper function generates a copy of the tree but with subset of
         particles, and fetch the generated fields to *local_tree*.
     """
-    d_tree = tree_to_device(queue, tree)
+    d_tree = tree.to_device(queue).with_queue(queue)
     nsources = tree.nsources
 
     # source particle mask
@@ -759,7 +725,7 @@ def generate_local_travs(
 
     start_time = time.time()
 
-    d_tree = local_tree.to_device(queue)
+    d_tree = local_tree.to_device(queue).with_queue(queue)
 
     # Modify box flags for targets
     from boxtree import box_flags_enum
