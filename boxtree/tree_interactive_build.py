@@ -433,7 +433,7 @@ class QuadratureOnBoxTree(object):
                     <> box_relative_measure = root_measure / (
                                                  2 ** ((box_level+1) * DIM))
                     for QUAD_VARS
-                        result[QUAD_VARS, iabox] = (QUAD_WEIGHT
+                        result[iabox, QUAD_VARS] = (QUAD_WEIGHT
                             * box_relative_measure)
                     end
                 end
