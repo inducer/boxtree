@@ -324,6 +324,19 @@ class DeviceDataRecord(Record):
 
         return self._transform_arrays(try_with_queue)
 
+    def to_device(self, queue):
+        """ Return a copy of `self` in all :class:`numpy.ndarray` arrays are
+        transferred to device memory as :class:`pyopencl.array.Array` objects.
+        """
+
+        def _to_device(attr):
+            if isinstance(attr, np.ndarray):
+                return cl.array.to_device(queue, attr).with_queue(None)
+            else:
+                return attr
+
+        return self._transform_arrays(_to_device)
+
 # }}}
 
 
