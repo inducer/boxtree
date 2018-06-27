@@ -22,6 +22,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 import numpy as np
+from cgen import Enum
 from itertools import product
 
 import loopy as lp
@@ -30,6 +31,20 @@ import pyopencl as cl
 import pyopencl.array  # noqa
 from pytools.obj_array import make_obj_array
 from boxtree.tools import DeviceDataRecord
+
+# {{{ adaptivity_flags
+
+class adaptivity_flags_enum(Enum):  # noqa
+    """Constants for box adaptivity flags bit field."""
+
+    c_name = "adaptivity_flags_t"
+    dtype = np.dtype(np.uint8)
+    c_value_prefix = "ADAPTIVITY_FLAG_"
+
+    REFINE = 1 << 0
+    COARSEN = 1 << 1
+
+# }}}
 
 # {{{ Data structure for a tree of boxes
 
@@ -128,6 +143,31 @@ class BoxTree(DeviceDataRecord):
     .. attribute:: active_boxes
 
         ``box_id_t [n_active_boxes]``
+
+    .. ------------------------------------------------------------------------
+    .. rubric:: Adaptivity properties
+    .. ------------------------------------------------------------------------
+
+    .. attribute:: adaptivity_flags
+
+        :attr:`adaptivity_flags_enum.dtype` ``[n_active_boxes]``
+
+        A bitwise combination of :class:`adaptivity_flags_enum` constants.
+
+    .. attribute:: n_active_neighbors
+
+        ``size_t [n_active_boxes]``
+
+        Number of adjacent active boxes for each active box.
+
+    .. attribute:: neighboring_active_boxes
+
+        ``box_id_t [n_active_boxes, n_active_neighbors[n_active_boxes]]``
+
+        List of adjacent active boxes for each active box. The root box
+        cannot be in this list of any box, and 0 is used as a placeholder
+        in the case that the actual number of neighbors is less than
+        the value held in n_active_neighbors[].
     """
     def get_copy_kwargs(self, **kwargs):
         # cl arrays
@@ -200,6 +240,7 @@ class BoxTree(DeviceDataRecord):
                 np.array(
                     range(nboxes - n_active_boxes, nboxes),
                     dtype=self.box_id_dtype))
+        assert len(self.active_boxes) == 1 << ((nlevels - 1) * dim)
         self.register_fields({"active_boxes":self.active_boxes})
 
         # FIXME: map bool in pyopencl
@@ -250,6 +291,57 @@ class BoxTree(DeviceDataRecord):
         self.register_fields({
             "box_parent_ids":self.box_parent_ids,
             "box_child_ids":self.box_child_ids})
+
+        self.adaptivity_flags = cl.array.zeros(queue,
+                self.n_active_boxes,
+                adaptivity_flags_enum.dtype)
+        self.register_fields({"adaptivity_flags": self.adaptivity_flags})
+
+        n_active_neighbors_host = np.zeros(n_active_boxes, dtype=self.size_t)
+        nbpatch = [np.array(patch)
+                for patch in product(range(-1, 2), repeat=dim)
+                if sum(np.abs(patch)) > 0]
+        assert len(nbpatch) == 3 ** dim - 1
+        maxid = (1 << (nlevels - 1)) - 1
+        iabox = 0
+        for multiabox in product(range(1 << (nlevels - 1)), repeat=dim):
+            if (
+                    min(multiabox) > 0 and
+                    max(multiabox) < maxid
+                    ):
+                n_active_neighbors_host[iabox] = 3 ** dim - 1
+            else:
+                n_active_neighbors_host[iabox] = sum(1 for patch in nbpatch
+                        if (
+                            np.min(np.array(multiabox) + patch) >= 0 and
+                            np.max(np.array(multiabox) + patch) <= maxid
+                            ))
+            iabox += 1
+        self.n_active_neighbors = cl.array.to_device(queue,
+                n_active_neighbors_host)
+        self.register_fields({"n_active_neighbors": self.n_active_neighbors})
+
+        ind_bases = np.array([1 << (nlevels - 1) * (dim - d - 1)
+            for d in range(dim)])
+        anb_pre = []
+        iabox = 0
+        for multiabox in product(range(1 << (nlevels - 1)), repeat=dim):
+            nbid = 0
+            anb_pre.append(np.zeros(
+                n_active_neighbors_host[iabox], dtype=self.box_id_dtype))
+            for patch in nbpatch:
+                tmp = np.array(multiabox) + patch
+                if np.min(tmp) >= 0 and np.max(tmp) <= maxid:
+                    print(patch, tmp)
+                    anb_pre[-1][nbid] = self.box_id_dtype(
+                            nboxes - n_active_boxes +
+                            np.sum(tmp * ind_bases))
+                    nbid += 1
+            iabox += 1
+        self.active_neighboring_boxes = make_obj_array([
+            cl.array.to_device(queue, anb) for anb in anb_pre])
+        self.register_fields({
+            "active_neighboring_boxes": self.active_neighboring_boxes})
 
     @property
     def dimensions(self):
