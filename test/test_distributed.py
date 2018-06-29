@@ -1,7 +1,8 @@
 import numpy as np
+import pyopencl as cl
 from mpi4py import MPI
-from boxtree.distributed import (
-    DistributedFMMInfo, DistributedFMMLibExpansionWrangler)
+from boxtree.distributed.calculation import DistributedFMMLibExpansionWrangler
+from boxtree.distributed import DistributedFMMInfo
 import numpy.linalg as la
 from boxtree.pyfmmlib_integration import FMMLibExpansionWrangler
 import logging
@@ -26,6 +27,13 @@ trav = None
 sources_weights = None
 HELMHOLTZ_K = 0
 
+# Configure PyOpenCL
+# from boxtree.distributed_old import queue
+# ctx = queue.context
+# print(queue.context.devices)
+ctx = cl.create_some_context()
+queue = cl.CommandQueue(ctx)
+
 
 def fmm_level_to_nterms(tree, level):
     return max(level, 3)
@@ -33,11 +41,6 @@ def fmm_level_to_nterms(tree, level):
 
 # Generate particles and run shared-memory parallelism on rank 0
 if rank == 0:
-    # Configure PyOpenCL
-    import pyopencl as cl
-    ctx = cl.create_some_context()
-    queue = cl.CommandQueue(ctx)
-    print(queue.context.devices)
 
     # Generate random particles and source weights
     from boxtree.tools import make_normal_particle_array as p_normal
@@ -75,17 +78,16 @@ if rank == 0:
     from boxtree.fmm import drive_fmm
     pot_fmm = drive_fmm(trav, wrangler, sources_weights) * 2 * np.pi
 
-# Compute FMM using distributed memory parallelism
-from boxtree.distributed import queue
 
+# Compute FMM using distributed memory parallelism
 
 def distributed_expansion_wrangler_factory(tree):
     return DistributedFMMLibExpansionWrangler(
-        tree, HELMHOLTZ_K, fmm_level_to_nterms=fmm_level_to_nterms)
+        queue, tree, HELMHOLTZ_K, fmm_level_to_nterms=fmm_level_to_nterms)
 
 
 distribued_fmm_info = DistributedFMMInfo(
-    trav, distributed_expansion_wrangler_factory, comm=comm)
+    queue, trav, distributed_expansion_wrangler_factory, comm=comm)
 pot_dfmm = distribued_fmm_info.drive_dfmm(sources_weights)
 
 if rank == 0:

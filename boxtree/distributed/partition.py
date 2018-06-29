@@ -1,7 +1,4 @@
-import numpy as np
-import pyopencl as cl
-from pyopencl.tools import dtype_to_ctype
-from mako.template import Template
+from __future__ import division
 
 __copyright__ = "Copyright (C) 2012 Andreas Kloeckner \
                  Copyright (C) 2018 Hao Gao"
@@ -25,6 +22,11 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
+
+import numpy as np
+import pyopencl as cl
+from pyopencl.tools import dtype_to_ctype
+from mako.template import Template
 
 
 def partition_work(traversal, total_rank, workload_weight):
