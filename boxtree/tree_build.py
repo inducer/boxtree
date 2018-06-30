@@ -126,7 +126,11 @@ class TreeBuilder(object):
         :arg bbox: Bounding box of the same type as returned by
             *boxtree.bounding_box.make_bounding_box_dtype*.
             When given, this bounding box is used for tree
-            building. Otherwise, the bounding box is determined from particles.
+            building. Otherwise, the bounding box is determined from particles
+            in such a way that it is square and is slightly larger at the top (so
+            that scaled coordinates are always < 1).
+            When supplied, the bounding box must be square and have all the
+            particles in its closure.
         :arg kwargs: Used internally for debugging.
 
         :returns: a tuple ``(tree, event)``, where *tree* is an instance of
