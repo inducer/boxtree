@@ -205,8 +205,19 @@ def get_fetch_local_particles_knls(context, global_tree):
     )
 
 
+LocalData = namedtuple(
+    'LocalData',
+    [
+        'nsources',
+        'ntargets',
+        'src_idx',
+        'tgt_idx'
+    ]
+)
+
+
 def fetch_local_particles(queue, global_tree, src_box_mask, tgt_box_mask, local_tree,
-                          local_data, knls):
+                          knls):
     """ This helper function fetches particles needed for worker processes, and
     reconstruct list of lists indexing.
 
@@ -460,17 +471,28 @@ def fetch_local_particles(queue, global_tree, src_box_mask, tgt_box_mask, local_
 
     # }}}
 
-    # {{{ Fetch fields to local_data
+    # {{{ src_idx and tgt_idx
 
-    local_data["src_mask"] = src_particle_mask
-    local_data["src_scan"] = src_particle_scan
-    local_data["nsources"] = local_nsources
-    local_data["tgt_mask"] = tgt_particle_mask
-    local_data["tgt_scan"] = tgt_particle_scan
-    local_data["ntargets"] = local_ntargets
-    local_data["tgt_box_mask"] = tgt_box_mask
+    src_particle_mask = src_particle_mask.get(queue=queue).astype(bool)
+    src_idx = np.arange(nsources)[src_particle_mask]
+
+    tgt_particle_mask = tgt_particle_mask.get(queue=queue).astype(bool)
+    tgt_idx = np.arange(ntargets)[tgt_particle_mask]
 
     # }}}
+
+    # {{{ Fetch fields to local_data
+
+    local_data = LocalData(
+        nsources=local_nsources,
+        ntargets=local_ntargets,
+        src_idx=src_idx,
+        tgt_idx=tgt_idx
+    )
+
+    # }}}
+
+    return local_tree, local_data
 
 
 class LocalTreeBuilder:
@@ -496,18 +518,12 @@ class LocalTreeBuilder:
         local_tree.user_source_ids = None
         local_tree.sorted_target_ids = None
 
-        local_data = {
-            "src_mask": None, "src_scan": None, "nsources": None,
-            "tgt_mask": None, "tgt_scan": None, "ntargets": None
-        }
-
-        fetch_local_particles(
+        local_tree, local_data = fetch_local_particles(
             self.queue,
             self.global_tree,
             src_boxes_mask,
             responsible_boxes_mask,
             local_tree,
-            local_data,
             self.knls
         )
 

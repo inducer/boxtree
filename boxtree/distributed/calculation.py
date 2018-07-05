@@ -309,15 +309,9 @@ def distribute_source_weights(queue, source_weights, global_tree, local_data,
         local_src_weights = np.empty((total_rank,), dtype=object)
 
         # Generate local_weights
-        source_weights = cl.array.to_device(queue, source_weights)
-        gen_local_weights_helper = get_gen_local_weights_helper(
-            queue, global_tree.particle_id_dtype, source_weights.dtype)
         for rank in range(total_rank):
-            local_src_weights[rank] = gen_local_weights_helper(
-                    source_weights,
-                    local_data[rank]["src_mask"],
-                    local_data[rank]["src_scan"]
-            )
+            local_src_weights[rank] = source_weights[local_data[rank].src_idx]
+
             weight_req[rank] = comm.isend(local_src_weights[rank], dest=rank,
                                           tag=MPITags["DIST_WEIGHT"])
 
@@ -490,7 +484,7 @@ def calculate_pot(queue, wrangler, global_wrangler, local_trav, source_weights,
         potentials_all_ranks[0] = potentials
         for i in range(1, total_rank):
             potentials_all_ranks[i] = np.empty(
-                (local_data[i]["ntargets"],), dtype=potentials.dtype)
+                (local_data[i].ntargets,), dtype=potentials.dtype)
             comm.Recv([potentials_all_ranks[i], potentials_mpi_type],
                       source=i, tag=MPITags["GATHER_POTENTIALS"])
     else:
@@ -498,32 +492,12 @@ def calculate_pot(queue, wrangler, global_wrangler, local_trav, source_weights,
                   dest=0, tag=MPITags["GATHER_POTENTIALS"])
 
     if current_rank == 0:
-        d_potentials = cl.array.empty(queue, (global_wrangler.tree.ntargets,),
-                                      dtype=potentials.dtype)
-        fill_potentials_knl = cl.elementwise.ElementwiseKernel(
-            queue.context,
-            Template("""
-                __global ${particle_id_t} *particle_mask,
-                __global ${particle_id_t} *particle_scan,
-                __global ${potential_t} *local_potentials,
-                __global ${potential_t} *potentials
-            """).render(
-                particle_id_t=dtype_to_ctype(global_wrangler.tree.particle_id_dtype),
-                potential_t=dtype_to_ctype(potentials.dtype)),
-            r"""
-                if(particle_mask[i]) {
-                    potentials[i] = local_potentials[particle_scan[i]];
-                }
-            """
-        )
 
-        for i in range(total_rank):
-            local_potentials = cl.array.to_device(queue, potentials_all_ranks[i])
-            fill_potentials_knl(
-                local_data[i]["tgt_mask"], local_data[i]["tgt_scan"],
-                local_potentials, d_potentials)
+        potentials = np.empty((global_wrangler.tree.ntargets,),
+                              dtype=potentials.dtype)
 
-        potentials = d_potentials.get()
+        for irank in range(total_rank):
+            potentials[local_data[irank].tgt_idx] = potentials_all_ranks[irank]
 
         logger.debug("reorder potentials")
         result = global_wrangler.reorder_potentials(potentials)
