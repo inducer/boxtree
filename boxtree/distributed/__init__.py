@@ -63,8 +63,6 @@ class DistributedFMMInfo(object):
     def __init__(self, queue, global_trav, distributed_expansion_wrangler_factory,
                  comm=MPI.COMM_WORLD):
 
-        self.queue = queue
-
         self.global_trav = global_trav
         self.distributed_expansion_wrangler_factory = \
             distributed_expansion_wrangler_factory
@@ -146,5 +144,6 @@ class DistributedFMMInfo(object):
     def drive_dfmm(self, source_weights):
         from boxtree.distributed.calculation import calculate_pot
         return calculate_pot(
-            self.queue, self.local_wrangler, self.global_wrangler, self.local_trav,
-            source_weights, self.local_data)
+            self.local_wrangler, self.global_wrangler, self.local_trav,
+            source_weights, self.local_data
+        )

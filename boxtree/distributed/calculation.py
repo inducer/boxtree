@@ -27,8 +27,6 @@ import numpy as np
 import pyopencl as cl
 from boxtree.distributed import MPITags
 from mpi4py import MPI
-from mako.template import Template
-from pyopencl.tools import dtype_to_ctype
 import time
 from boxtree.distributed import dtype_to_mpi
 from boxtree.pyfmmlib_integration import FMMLibExpansionWrangler
@@ -40,7 +38,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-# {{{ distributed fmm wrangler
+# {{{ Distributed FMM wrangler
 
 class DistributedFMMLibExpansionWrangler(FMMLibExpansionWrangler):
 
@@ -264,59 +262,35 @@ def communicate_mpoles(wrangler, comm, trav, mpole_exps, return_stats=False):
 # }}}
 
 
-def get_gen_local_weights_helper(queue, particle_dtype, weight_dtype):
-    gen_local_source_weights_knl = cl.elementwise.ElementwiseKernel(
-        queue.context,
-        arguments=Template("""
-            __global ${weight_t} *src_weights,
-            __global ${particle_id_t} *particle_mask,
-            __global ${particle_id_t} *particle_scan,
-            __global ${weight_t} *local_weights
-        """, strict_undefined=True).render(
-            weight_t=dtype_to_ctype(weight_dtype),
-            particle_id_t=dtype_to_ctype(particle_dtype)
-        ),
-        operation="""
-            if(particle_mask[i]) {
-                local_weights[particle_scan[i]] = src_weights[i];
-            }
-        """
-    )
+def distribute_source_weights(source_weights, local_data, comm=MPI.COMM_WORLD):
+    """ This function transfers needed source_weights from root process to each
+    worker process in communicator :arg comm.
 
-    def gen_local_weights(global_weights, source_mask, source_scan):
-        local_nsources = source_scan[-1].get(queue)
-        local_weights = cl.array.empty(queue, (local_nsources,),
-                                       dtype=weight_dtype)
-        gen_local_source_weights_knl(global_weights, source_mask, source_scan,
-                                     local_weights)
-        return local_weights.get(queue)
+    This function needs to be called by all processes in the :arg comm communicator.
 
-    return gen_local_weights
-
-
-def distribute_source_weights(queue, source_weights, global_tree, local_data,
-        comm=MPI.COMM_WORLD):
-    """
-    source_weights: source weights in tree order
-    global_tree: complete tree structure on root, None otherwise.
-    local_data: returned from *generate_local_tree*
+    :param source_weights: Source weights in tree order on root, None on worker
+        processes.
+    :param local_data: Returned from *generate_local_tree*. None on worker processes.
+    :return Source weights needed for the current process.
     """
     current_rank = comm.Get_rank()
     total_rank = comm.Get_size()
 
     if current_rank == 0:
-        weight_req = np.empty((total_rank,), dtype=object)
+        weight_req = []
         local_src_weights = np.empty((total_rank,), dtype=object)
 
-        # Generate local_weights
-        for rank in range(total_rank):
-            local_src_weights[rank] = source_weights[local_data[rank].src_idx]
+        for irank in range(total_rank):
+            local_src_weights[irank] = source_weights[local_data[irank].src_idx]
 
-            weight_req[rank] = comm.isend(local_src_weights[rank], dest=rank,
-                                          tag=MPITags["DIST_WEIGHT"])
+            if irank != 0:
+                weight_req.append(
+                    comm.isend(local_src_weights[irank], dest=irank,
+                               tag=MPITags["DIST_WEIGHT"])
+                )
 
-        for rank in range(1, total_rank):
-            weight_req[rank].wait()
+        MPI.Request.Waitall(weight_req)
+
         local_src_weights = local_src_weights[0]
     else:
         local_src_weights = comm.recv(source=0, tag=MPITags["DIST_WEIGHT"])
@@ -324,9 +298,8 @@ def distribute_source_weights(queue, source_weights, global_tree, local_data,
     return local_src_weights
 
 
-def calculate_pot(queue, wrangler, global_wrangler, local_trav, source_weights,
-                  local_data, comm=MPI.COMM_WORLD,
-                  _communicate_mpoles_via_allreduce=False):
+def calculate_pot(wrangler, global_wrangler, local_trav, source_weights, local_data,
+                  comm=MPI.COMM_WORLD, _communicate_mpoles_via_allreduce=False):
 
     # Get MPI information
     current_rank = comm.Get_rank()
@@ -338,14 +311,12 @@ def calculate_pot(queue, wrangler, global_wrangler, local_trav, source_weights,
     # {{{ Distribute source weights
 
     if current_rank == 0:
-        global_tree = global_wrangler.tree
         # Convert src_weights to tree order
-        source_weights = source_weights[global_tree.user_source_ids]
-    else:
-        global_tree = None
+        source_weights = source_weights[global_wrangler.tree.user_source_ids]
 
     local_src_weights = distribute_source_weights(
-        queue, source_weights, global_tree, local_data, comm=comm)
+        source_weights, local_data, comm=comm
+    )
 
     # }}}
 
