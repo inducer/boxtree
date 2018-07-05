@@ -14,3 +14,8 @@ distribute*tar.gz
 a.out
 
 .cache
+.pytest_cache
+
+.DS_Store
+.idea
+.vscode

@@ -22,15 +22,12 @@ dtype = np.float64
 comm = MPI.COMM_WORLD
 rank = comm.Get_rank()
 
-# Initialization
+# Initialize arguments for worker processes
 trav = None
 sources_weights = None
 HELMHOLTZ_K = 0
 
 # Configure PyOpenCL
-# from boxtree.distributed_old import queue
-# ctx = queue.context
-# print(queue.context.devices)
 ctx = cl.create_some_context()
 queue = cl.CommandQueue(ctx)
 

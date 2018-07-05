@@ -72,12 +72,18 @@ class DistributedFMMInfo(object):
         self.comm = comm
         current_rank = comm.Get_rank()
 
+        # {{{ Broadcast well_sep_is_n_away
+
         if current_rank == 0:
             well_sep_is_n_away = global_trav.well_sep_is_n_away
         else:
             well_sep_is_n_away = None
 
         well_sep_is_n_away = comm.bcast(well_sep_is_n_away, root=0)
+
+        # }}}
+
+        # {{{ Partiton work
 
         if current_rank == 0:
             from boxtree.distributed.partition import partition_work
@@ -90,6 +96,10 @@ class DistributedFMMInfo(object):
         else:
             responsible_boxes_list = None
 
+        # }}}
+
+        # {{{ Compute and distribute local tree
+
         if current_rank == 0:
             from boxtree.distributed.partition import ResponsibleBoxesQuery
             responsible_box_query = ResponsibleBoxesQuery(queue, global_trav)
@@ -101,10 +111,26 @@ class DistributedFMMInfo(object):
             generate_local_tree(queue, self.global_trav, responsible_boxes_list,
                                 responsible_box_query)
 
+        # }}}
+
+        # {{{ Compute traversal object on each process
+
         from boxtree.distributed.local_traversal import generate_local_travs
         self.local_trav = generate_local_travs(
             queue, self.local_tree, self.box_bounding_box,
             well_sep_is_n_away=well_sep_is_n_away)
+
+        # }}}
+
+        # {{{ Get local and global wrangler
+
+        """
+        Note: The difference between "local wrangler" and "global wrangler" is that
+        they reference different tree object. "local wrangler" uses local tree
+        object on each worker process for FMM computation, whereas "global wrangler"
+        is only valid on root process used for assembling results from worker
+        processes.
+        """
 
         self.local_wrangler = self.distributed_expansion_wrangler_factory(
             self.local_tree)
@@ -114,6 +140,8 @@ class DistributedFMMInfo(object):
                 self.global_trav.tree)
         else:
             self.global_wrangler = None
+
+        # }}}
 
     def drive_dfmm(self, source_weights):
         from boxtree.distributed.calculation import calculate_pot
