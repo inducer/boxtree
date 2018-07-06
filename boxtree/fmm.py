@@ -347,8 +347,14 @@ class TimingResult(Record):
                 process_elapsed=process_elapsed)
 
     def __add__(self, other):
-        wall_elapsed = self.wall_elapsed + other.wall_elapsed
-        process_elapsed = self.process_elapsed + other.process_elapsed
+        wall_elapsed = (
+                self.wall_elapsed + other.wall_elapsed
+                if self.wall_elapsed is not None else None)
+
+        process_elapsed = (
+                self.process_elapsed + other.process_elapsed
+                if self.process_elapsed is not None else None)
+
         return TimingResult(wall_elapsed, process_elapsed)
 
 # }}}
