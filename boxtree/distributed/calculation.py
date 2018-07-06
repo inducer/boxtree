@@ -142,7 +142,7 @@ class DistributedFMMLibExpansionWrangler(FMMLibExpansionWrangler):
 # }}}
 
 
-# {{{ communicate mpoles
+# {{{ Communicate mpoles
 
 def communicate_mpoles(wrangler, comm, trav, mpole_exps, return_stats=False):
     """Based on Algorithm 3: Reduce and Scatter in [1].
@@ -150,6 +150,8 @@ def communicate_mpoles(wrangler, comm, trav, mpole_exps, return_stats=False):
     The main idea is to mimic a allreduce as done on a hypercube network, but to
     decrease the bandwidth cost by sending only information that is relevant to
     the processes receiving the message.
+
+    This function needs to be called collectively by all processes in :arg comm.
 
     .. [1] Lashuk, Ilya, Aparna Chandramowlishwaran, Harper Langston,
        Tuan-Anh Nguyen, Rahul Sampath, Aashay Shringarpure, Richard Vuduc, Lexing
@@ -262,6 +264,8 @@ def communicate_mpoles(wrangler, comm, trav, mpole_exps, return_stats=False):
 # }}}
 
 
+# {{{ Distribute source weights
+
 def distribute_source_weights(source_weights, local_data, comm=MPI.COMM_WORLD):
     """ This function transfers needed source_weights from root process to each
     worker process in communicator :arg comm.
@@ -297,9 +301,33 @@ def distribute_source_weights(source_weights, local_data, comm=MPI.COMM_WORLD):
 
     return local_src_weights
 
+# }}}
 
-def calculate_pot(wrangler, global_wrangler, local_trav, source_weights, local_data,
-                  comm=MPI.COMM_WORLD, _communicate_mpoles_via_allreduce=False):
+
+# {{{ FMM driver for calculating potentials
+
+def calculate_pot(local_wrangler, global_wrangler, local_trav, source_weights,
+                  local_data, comm=MPI.COMM_WORLD,
+                  _communicate_mpoles_via_allreduce=False):
+    """ Calculate potentials for targets on distributed memory machines.
+
+    This function needs to be called collectively by all process in :arg comm.
+
+    :param local_wrangler: Expansion wranglers for each worker process for FMM.
+    :param global_wrangler: Expansion wrangler on root process for assembling partial
+        results from worker processes together. This argument differs from
+        :arg local_wrangler by referening the global tree instead of local trees.
+        This argument is None on worker process.
+    :param local_trav: Local traversal object returned from generate_local_travs.
+    :param source_weights: Source weights for FMM. None on worker processes.
+    :param local_data: LocalData object returned from generate_local_tree.
+    :param comm: MPI communicator.
+    :param _communicate_mpoles_via_allreduce: Use MPI allreduce for communicating
+        multipole expressions. Using MPI allreduce is slower but might be helpful for
+        debugging purpose.
+    :return: On the root process, this function returns calculated potentials. On
+        worker processes, this function returns None.
+    """
 
     # Get MPI information
     current_rank = comm.Get_rank()
@@ -323,7 +351,7 @@ def calculate_pot(wrangler, global_wrangler, local_trav, source_weights, local_d
     # {{{ "Step 2.1:" Construct local multipoles
 
     logger.debug("construct local multipoles")
-    mpole_exps = wrangler.form_multipoles(
+    mpole_exps = local_wrangler.form_multipoles(
             local_trav.level_start_source_box_nrs,
             local_trav.source_boxes,
             local_src_weights)
@@ -333,7 +361,7 @@ def calculate_pot(wrangler, global_wrangler, local_trav, source_weights, local_d
     # {{{ "Step 2.2:" Propagate multipoles upward
 
     logger.debug("propagate multipoles upward")
-    wrangler.coarsen_multipoles(
+    local_wrangler.coarsen_multipoles(
             local_trav.level_start_source_parent_box_nrs,
             local_trav.source_parent_boxes,
             mpole_exps)
@@ -349,14 +377,14 @@ def calculate_pot(wrangler, global_wrangler, local_trav, source_weights, local_d
         comm.Allreduce(mpole_exps, mpole_exps_all)
         mpole_exps = mpole_exps_all
     else:
-        communicate_mpoles(wrangler, comm, local_trav, mpole_exps)
+        communicate_mpoles(local_wrangler, comm, local_trav, mpole_exps)
 
     # }}}
 
     # {{{ "Stage 3:" Direct evaluation from neighbor source boxes ("list 1")
 
     logger.debug("direct evaluation from neighbor source boxes ('list 1')")
-    potentials = wrangler.eval_direct(
+    potentials = local_wrangler.eval_direct(
             local_trav.target_boxes,
             local_trav.neighbor_source_boxes_starts,
             local_trav.neighbor_source_boxes_lists,
@@ -369,7 +397,7 @@ def calculate_pot(wrangler, global_wrangler, local_trav, source_weights, local_d
     # {{{ "Stage 4:" translate separated siblings' ("list 2") mpoles to local
 
     logger.debug("translate separated siblings' ('list 2') mpoles to local")
-    local_exps = wrangler.multipole_to_local(
+    local_exps = local_wrangler.multipole_to_local(
             local_trav.level_start_target_or_target_parent_box_nrs,
             local_trav.target_or_target_parent_boxes,
             local_trav.from_sep_siblings_starts,
@@ -387,7 +415,7 @@ def calculate_pot(wrangler, global_wrangler, local_trav, source_weights, local_d
     # (the point of aiming this stage at particles is specifically to keep its
     # contribution *out* of the downward-propagating local expansions)
 
-    potentials = potentials + wrangler.eval_multipoles(
+    potentials = potentials + local_wrangler.eval_multipoles(
             local_trav.target_boxes_sep_smaller_by_source_level,
             local_trav.from_sep_smaller_by_level,
             mpole_exps)
@@ -397,7 +425,7 @@ def calculate_pot(wrangler, global_wrangler, local_trav, source_weights, local_d
     if local_trav.from_sep_close_smaller_starts is not None:
         logger.debug("evaluate separated close smaller interactions directly "
                      "('list 3 close')")
-        potentials = potentials + wrangler.eval_direct(
+        potentials = potentials + local_wrangler.eval_direct(
                 local_trav.target_boxes,
                 local_trav.from_sep_close_smaller_starts,
                 local_trav.from_sep_close_smaller_lists,
@@ -409,7 +437,7 @@ def calculate_pot(wrangler, global_wrangler, local_trav, source_weights, local_d
 
     logger.debug("form locals for separated bigger source boxes ('list 4 far')")
 
-    local_exps = local_exps + wrangler.form_locals(
+    local_exps = local_exps + local_wrangler.form_locals(
             local_trav.level_start_target_or_target_parent_box_nrs,
             local_trav.target_or_target_parent_boxes,
             local_trav.from_sep_bigger_starts,
@@ -420,7 +448,7 @@ def calculate_pot(wrangler, global_wrangler, local_trav, source_weights, local_d
         logger.debug("evaluate separated close bigger interactions directly "
                      "('list 4 close')")
 
-        potentials = potentials + wrangler.eval_direct(
+        potentials = potentials + local_wrangler.eval_direct(
                 local_trav.target_or_target_parent_boxes,
                 local_trav.from_sep_close_bigger_starts,
                 local_trav.from_sep_close_bigger_lists,
@@ -432,7 +460,7 @@ def calculate_pot(wrangler, global_wrangler, local_trav, source_weights, local_d
 
     logger.debug("propagate local_exps downward")
 
-    wrangler.refine_locals(
+    local_wrangler.refine_locals(
             local_trav.level_start_target_or_target_parent_box_nrs,
             local_trav.target_or_target_parent_boxes,
             local_exps)
@@ -442,25 +470,35 @@ def calculate_pot(wrangler, global_wrangler, local_trav, source_weights, local_d
     # {{{ "Stage 8:" evaluate locals
 
     logger.debug("evaluate locals")
-    potentials = potentials + wrangler.eval_locals(
+    potentials = potentials + local_wrangler.eval_locals(
             local_trav.level_start_target_box_nrs,
             local_trav.target_boxes,
             local_exps)
 
     # }}}
 
+    # {{{ Worker processes send calculated potentials to the root process
+
     potentials_mpi_type = dtype_to_mpi(potentials.dtype)
+
     if current_rank == 0:
+
         potentials_all_ranks = np.empty((total_rank,), dtype=object)
         potentials_all_ranks[0] = potentials
-        for i in range(1, total_rank):
-            potentials_all_ranks[i] = np.empty(
-                (local_data[i].ntargets,), dtype=potentials.dtype)
-            comm.Recv([potentials_all_ranks[i], potentials_mpi_type],
-                      source=i, tag=MPITags["GATHER_POTENTIALS"])
+
+        for irank in range(1, total_rank):
+            potentials_all_ranks[irank] = np.empty(
+                (local_data[irank].ntargets,), dtype=potentials.dtype)
+
+            comm.Recv([potentials_all_ranks[irank], potentials_mpi_type],
+                      source=irank, tag=MPITags["GATHER_POTENTIALS"])
     else:
         comm.Send([potentials, potentials_mpi_type],
                   dest=0, tag=MPITags["GATHER_POTENTIALS"])
+
+    # }}}
+
+    # {{{ Assemble potentials from worker processes together on the root process
 
     if current_rank == 0:
 
@@ -476,8 +514,14 @@ def calculate_pot(wrangler, global_wrangler, local_trav, source_weights, local_d
         logger.debug("finalize potentials")
         result = global_wrangler.finalize_potentials(result)
 
+    # }}}
+
+    if current_rank == 0:
+
         logger.info("Distributed FMM evaluation completes in {} sec.".format(
             str(time.time() - start_time)
         ))
 
         return result
+
+# }}}
