@@ -201,7 +201,8 @@ class ExpansionWranglerInterface:
     :class:`boxtree.Tree` instance.
 
     This interface supports collecting timing data. If timing data is requested,
-    the *timing_data* argument is a :class:`TimingDataWaiter` whose fields can
+    the *timing_data* argument expects a :class:`TimingWaiter`. Otherwise
+    *timing_data* should be *None*.
     """
 
     def multipole_expansion_zeros(self):
@@ -358,7 +359,7 @@ class TimingResult(Record):
 class TimingWaiter(object):
     """Obtains timing data through a supplied callback function.
 
-    Attributes that can be set::
+    Attributes that should be set:
 
     .. attribute:: description
 
@@ -380,6 +381,7 @@ class TimingWaiter(object):
 
     @property
     def result(self):
+        """The timing data result obtained from *callback*."""
         if self._result is None:
             self.wait()
 
