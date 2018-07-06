@@ -25,7 +25,7 @@ THE SOFTWARE.
 import logging
 logger = logging.getLogger(__name__)
 
-from pytools import ProcessLogger
+from pytools import ProcessLogger, Record
 
 
 def drive_fmm(traversal, expansion_wrangler, src_weights, timing_data=None):
@@ -44,10 +44,12 @@ def drive_fmm(traversal, expansion_wrangler, src_weights, timing_data=None):
         :class:`ExpansionWranglerInterface`.
     :arg src_weights: Source 'density/weights/charges'.
         Passed unmodified to *expansion_wrangler*.
-    :arg timing_data: Either *None*, or a :class:`dict` inside which timing
-        information, if available, is returned
+    :arg timing_data: Either *None*, or a :class:`dict` that is populated with
+        timing information for the stages of the algorithm (in the form of
+        instances of :class:`TimingResult`), if such information is available.
 
     Returns the potentials computed by *expansion_wrangler*.
+
     """
     wrangler = expansion_wrangler
 
@@ -55,7 +57,7 @@ def drive_fmm(traversal, expansion_wrangler, src_weights, timing_data=None):
     # to the expansion wrangler and should not be passed.
 
     fmm_proc = ProcessLogger(logger, "qbx fmm")
-    recorder = TimingDataRecorder()
+    recorder = TimingRecorder()
 
     src_weights = wrangler.reorder_sources(src_weights)
 
@@ -65,7 +67,7 @@ def drive_fmm(traversal, expansion_wrangler, src_weights, timing_data=None):
             traversal.level_start_source_box_nrs,
             traversal.source_boxes,
             src_weights,
-            timing_data=recorder.next_record())
+            timing_data=recorder.next())
 
     # }}}
 
@@ -75,7 +77,7 @@ def drive_fmm(traversal, expansion_wrangler, src_weights, timing_data=None):
             traversal.level_start_source_parent_box_nrs,
             traversal.source_parent_boxes,
             mpole_exps,
-            timing_data=recorder.next_record())
+            timing_data=recorder.next())
 
     # mpole_exps is called Phi in [1]
 
@@ -88,7 +90,7 @@ def drive_fmm(traversal, expansion_wrangler, src_weights, timing_data=None):
             traversal.neighbor_source_boxes_starts,
             traversal.neighbor_source_boxes_lists,
             src_weights,
-            timing_data=recorder.next_record())
+            timing_data=recorder.next())
 
     # these potentials are called alpha in [1]
 
@@ -102,7 +104,7 @@ def drive_fmm(traversal, expansion_wrangler, src_weights, timing_data=None):
             traversal.from_sep_siblings_starts,
             traversal.from_sep_siblings_lists,
             mpole_exps,
-            timing_data=recorder.next_record())
+            timing_data=recorder.next())
 
     # local_exps represents both Gamma and Delta in [1]
 
@@ -117,7 +119,7 @@ def drive_fmm(traversal, expansion_wrangler, src_weights, timing_data=None):
             traversal.target_boxes_sep_smaller_by_source_level,
             traversal.from_sep_smaller_by_level,
             mpole_exps,
-            timing_data=recorder.next_record())
+            timing_data=recorder.next())
 
     # these potentials are called beta in [1]
 
@@ -130,7 +132,7 @@ def drive_fmm(traversal, expansion_wrangler, src_weights, timing_data=None):
                 traversal.from_sep_close_smaller_starts,
                 traversal.from_sep_close_smaller_lists,
                 src_weights,
-                timing_data=recorder.next_record())
+                timing_data=recorder.next())
 
     # }}}
 
@@ -142,7 +144,7 @@ def drive_fmm(traversal, expansion_wrangler, src_weights, timing_data=None):
             traversal.from_sep_bigger_starts,
             traversal.from_sep_bigger_lists,
             src_weights,
-            timing_data=recorder.next_record())
+            timing_data=recorder.next())
 
     if traversal.from_sep_close_bigger_starts is not None:
         potentials = potentials + wrangler.eval_direct(
@@ -150,7 +152,7 @@ def drive_fmm(traversal, expansion_wrangler, src_weights, timing_data=None):
                 traversal.from_sep_close_bigger_starts,
                 traversal.from_sep_close_bigger_lists,
                 src_weights,
-                timing_data=recorder.next_record())
+                timing_data=recorder.next())
 
     # }}}
 
@@ -160,7 +162,7 @@ def drive_fmm(traversal, expansion_wrangler, src_weights, timing_data=None):
             traversal.level_start_target_or_target_parent_box_nrs,
             traversal.target_or_target_parent_boxes,
             local_exps,
-            timing_data=recorder.next_record())
+            timing_data=recorder.next())
 
     # }}}
 
@@ -170,7 +172,7 @@ def drive_fmm(traversal, expansion_wrangler, src_weights, timing_data=None):
             traversal.level_start_target_box_nrs,
             traversal.target_boxes,
             local_exps,
-            timing_data=recorder.next_record())
+            timing_data=recorder.next())
 
     # }}}
 
@@ -199,12 +201,7 @@ class ExpansionWranglerInterface:
     :class:`boxtree.Tree` instance.
 
     This interface supports collecting timing data. If timing data is requested,
-    the dictionary argument *timing_data* filled with the following two entries:
-
-    - *description*
-    - *callback*
-
-    *callback* may block until the operation is finished.
+    the *timing_data* argument is a :class:`TimingDataWaiter` whose fields can
     """
 
     def multipole_expansion_zeros(self):
@@ -305,7 +302,6 @@ class ExpansionWranglerInterface:
         :returns: a new local expansion array, see
             :meth:`local_expansion_zeros`.
         """
-        pass
 
     def refine_locals(self, level_start_target_or_target_parent_box_nrs,
             target_or_target_parent_boxes, local_exps, timing_data=None):
@@ -334,30 +330,97 @@ class ExpansionWranglerInterface:
 # }}}
 
 
-# {{{ timing data recorder
+# {{{ timing result
 
-class TimingDataRecorder(object):
+class TimingResult(Record):
+    """
+    .. automethod:: __add__
+
+    .. attribute:: wall_elapsed
+    .. attribute:: process_elapsed
+    """
+
+    def __init__(self, wall_elapsed, process_elapsed):
+        Record.__init__(self,
+                wall_elapsed=wall_elapsed,
+                process_elapsed=process_elapsed)
+
+    def __add__(self, other):
+        wall_elapsed = self.wall_elapsed + other.wall_elapsed
+        process_elapsed = self.process_elapsed + other.process_elapsed
+        return TimingResult(wall_elapsed, process_elapsed)
+
+# }}}
+
+
+# {{{ timing waiter
+
+class TimingWaiter(object):
+    """Obtains timing data through a supplied callback function.
+
+    Attributes that can be set::
+
+    .. attribute:: description
+
+        A string, the description of the timing data.
+
+    .. attribute:: callback
+
+        Returns a :class:`TimingResult`.
+    """
+
+    def __init__(self):
+        self.description = None
+        self.callback = None
+        self._result = None
+
+    @property
+    def empty(self):
+        return not self.callback
+
+    @property
+    def result(self):
+        if self._result is None:
+            self.wait()
+
+        return self._result
+
+    def wait(self):
+        if self.empty:
+            return
+
+        callback_result = self.callback()
+        self._result = TimingResult(
+                callback_result.wall_elapsed,
+                callback_result.process_elapsed)
+
+# }}}
+
+
+# {{{ timing recorder
+
+class TimingRecorder(object):
 
     def __init__(self):
         self.records = []
 
-    def next_record(self):
-        self.records.append(dict())
+    def next(self):
+        self.records.append(TimingWaiter())
         return self.records[-1]
 
     def summarize(self):
         result = {}
 
         for record in self.records:
-            if "description" not in record:
+            if record.empty:
                 continue
 
-            description = record["description"]
+            description = record.description
 
             if description in result:
-                result[description] += record["callback"]()
+                result[description] += record.result
             else:
-                result[description] = record["callback"]()
+                result[description] = record.result
 
         return result
 

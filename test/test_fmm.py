@@ -586,6 +586,7 @@ def test_pyfmmlib_fmm(ctx_getter, dims, use_dipoles, helmholtz_k):
 
     timing_data = {}
     pot = drive_fmm(trav, wrangler, weights, timing_data=timing_data)
+    print(timing_data)
     assert timing_data
 
     # {{{ ref fmmlib computation

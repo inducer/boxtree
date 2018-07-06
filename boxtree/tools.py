@@ -506,25 +506,12 @@ class MapValuesKernel(object):
 class record_time(object):  # noqa: N801
     """A decorator for recording timing data for a function call.
 
-    Timing data is saved to a :class:`dict` passed as an optional keyword
-    argument. The following entries are written:
+    This introduces an extra keyword argument to the decorated function. For the
+    newly added argument, the caller should pass either *None* or an instance of
+    :class:`boxtree.fmm.TimingWaiter`. If the latter gets passed, the fields
+    *callback* and *description* are populated with timing data for the function
+    call.
 
-    - *description*
-    - *callback*.
-
-    *callback* may be called once to obtain the elapsed wall time in
-    seconds.
-
-    Example usage::
-
-        >>> from time import sleep
-        >>> @record_time("timing_data")
-        ... def slow_function(n):
-        ...   sleep(n)
-        ...
-        >>> timing_result = {}
-        >>> slow_function(1, timing_data=timing_result)
-        >>> elapsed_time = timing_result["callback"]()
     """
 
     def __init__(self, arg=None, description=None):
@@ -543,11 +530,8 @@ class record_time(object):  # noqa: N801
             yield
             timer.done()
 
-            def callback():
-                return timer.wall_elapsed
-
-            output["description"] = description
-            output["callback"] = callback
+            output.description = description
+            output.callback = lambda: timer
 
         def wrapper(*args, **kwargs):
             output = kwargs.pop(self.arg, None)
