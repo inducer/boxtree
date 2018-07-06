@@ -15,6 +15,6 @@ Integration with PyFMMLib
 
 .. automodule:: boxtree.pyfmmlib_integration
 
-.. autoclass:: Helmholtz2DExpansionWrangler
+.. autoclass:: FMMLibExpansionWrangler
 
 .. vim: sw=4
