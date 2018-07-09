@@ -37,11 +37,7 @@ AXIS_NAMES = ("x", "y", "z", "w")
 
 def padded_bin(i, l):
     """Format *i* as binary number, pad it to length *l*."""
-
-    s = bin(i)[2:]
-    while len(s) < l:
-        s = '0' + s
-    return s
+    return bin(i)[2:].rjust(l, "0")
 
 
 # NOTE: Order of positional args should match GappyCopyAndMapKernel.__call__()
@@ -323,6 +319,19 @@ class DeviceDataRecord(Record):
             return ary
 
         return self._transform_arrays(try_with_queue)
+
+    def to_device(self, queue):
+        """ Return a copy of `self` in all :class:`numpy.ndarray` arrays are
+        transferred to device memory as :class:`pyopencl.array.Array` objects.
+        """
+
+        def _to_device(attr):
+            if isinstance(attr, np.ndarray):
+                return cl.array.to_device(queue, attr).with_queue(None)
+            else:
+                return attr
+
+        return self._transform_arrays(_to_device)
 
 # }}}
 
