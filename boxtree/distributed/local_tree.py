@@ -626,8 +626,9 @@ def generate_local_tree(queue, traversal, responsible_boxes_list,
             local_sources[irank] = local_tree[irank].sources
             local_tree[irank].sources = None
 
-            local_target_radii[irank] = local_tree[irank].target_radii
-            local_tree[irank].target_radii = None
+            if tree.targets_have_extent:
+                local_target_radii[irank] = local_tree[irank].target_radii
+                local_tree[irank].target_radii = None
 
             # }}}
 
