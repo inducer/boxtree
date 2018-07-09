@@ -46,7 +46,7 @@ def drive_fmm(traversal, expansion_wrangler, src_weights, timing_data=None):
         Passed unmodified to *expansion_wrangler*.
     :arg timing_data: Either *None*, or a :class:`dict` that is populated with
         timing information for the stages of the algorithm (in the form of
-        instances of :class:`TimingResult`), if such information is available.
+        :class:`TimingResult`), if such information is available.
 
     Returns the potentials computed by *expansion_wrangler*.
 
@@ -63,21 +63,23 @@ def drive_fmm(traversal, expansion_wrangler, src_weights, timing_data=None):
 
     # {{{ "Step 2.1:" Construct local multipoles
 
-    mpole_exps = wrangler.form_multipoles(
+    mpole_exps, timing_future = wrangler.form_multipoles(
             traversal.level_start_source_box_nrs,
             traversal.source_boxes,
-            src_weights,
-            timing_data=recorder.next())
+            src_weights)
+
+    recorder.add("form_multipoles", timing_future)
 
     # }}}
 
     # {{{ "Step 2.2:" Propagate multipoles upward
 
-    wrangler.coarsen_multipoles(
+    mpole_exps, timing_future = wrangler.coarsen_multipoles(
             traversal.level_start_source_parent_box_nrs,
             traversal.source_parent_boxes,
-            mpole_exps,
-            timing_data=recorder.next())
+            mpole_exps)
+
+    recorder.add("coarsen_multipoles", timing_future)
 
     # mpole_exps is called Phi in [1]
 
@@ -85,12 +87,13 @@ def drive_fmm(traversal, expansion_wrangler, src_weights, timing_data=None):
 
     # {{{ "Stage 3:" Direct evaluation from neighbor source boxes ("list 1")
 
-    potentials = wrangler.eval_direct(
+    potentials, timing_future = wrangler.eval_direct(
             traversal.target_boxes,
             traversal.neighbor_source_boxes_starts,
             traversal.neighbor_source_boxes_lists,
-            src_weights,
-            timing_data=recorder.next())
+            src_weights)
+
+    recorder.add("eval_direct", timing_future)
 
     # these potentials are called alpha in [1]
 
@@ -98,13 +101,14 @@ def drive_fmm(traversal, expansion_wrangler, src_weights, timing_data=None):
 
     # {{{ "Stage 4:" translate separated siblings' ("list 2") mpoles to local
 
-    local_exps = wrangler.multipole_to_local(
+    local_exps, timing_future = wrangler.multipole_to_local(
             traversal.level_start_target_or_target_parent_box_nrs,
             traversal.target_or_target_parent_boxes,
             traversal.from_sep_siblings_starts,
             traversal.from_sep_siblings_lists,
-            mpole_exps,
-            timing_data=recorder.next())
+            mpole_exps)
+
+    recorder.add("multipole_to_local", timing_future)
 
     # local_exps represents both Gamma and Delta in [1]
 
@@ -115,11 +119,14 @@ def drive_fmm(traversal, expansion_wrangler, src_weights, timing_data=None):
     # (the point of aiming this stage at particles is specifically to keep its
     # contribution *out* of the downward-propagating local expansions)
 
-    potentials = potentials + wrangler.eval_multipoles(
+    mpole_result, timing_future = wrangler.eval_multipoles(
             traversal.target_boxes_sep_smaller_by_source_level,
             traversal.from_sep_smaller_by_level,
-            mpole_exps,
-            timing_data=recorder.next())
+            mpole_exps)
+
+    recorder.add("eval_multipoles", timing_future)
+
+    potentials = potentials + mpole_result
 
     # these potentials are called beta in [1]
 
@@ -127,52 +134,65 @@ def drive_fmm(traversal, expansion_wrangler, src_weights, timing_data=None):
         logger.debug("evaluate separated close smaller interactions directly "
                 "('list 3 close')")
 
-        potentials = potentials + wrangler.eval_direct(
+        direct_result, timing_future = wrangler.eval_direct(
                 traversal.target_boxes,
                 traversal.from_sep_close_smaller_starts,
                 traversal.from_sep_close_smaller_lists,
-                src_weights,
-                timing_data=recorder.next())
+                src_weights)
+
+        recorder.add("eval_direct", timing_future)
+
+        potentials = potentials + direct_result
 
     # }}}
 
     # {{{ "Stage 6:" form locals for separated bigger source boxes ("list 4")
 
-    local_exps = local_exps + wrangler.form_locals(
+    local_result, timing_future = wrangler.form_locals(
             traversal.level_start_target_or_target_parent_box_nrs,
             traversal.target_or_target_parent_boxes,
             traversal.from_sep_bigger_starts,
             traversal.from_sep_bigger_lists,
-            src_weights,
-            timing_data=recorder.next())
+            src_weights)
+
+    recorder.add("form_locals", timing_future)
+
+    local_exps = local_exps + local_result
 
     if traversal.from_sep_close_bigger_starts is not None:
-        potentials = potentials + wrangler.eval_direct(
+        direct_result, timing_future = wrangler.eval_direct(
                 traversal.target_or_target_parent_boxes,
                 traversal.from_sep_close_bigger_starts,
                 traversal.from_sep_close_bigger_lists,
-                src_weights,
-                timing_data=recorder.next())
+                src_weights)
+
+        recorder.add("eval_direct", timing_future)
+
+        potentials = potentials + direct_result
 
     # }}}
 
     # {{{ "Stage 7:" propagate local_exps downward
 
-    wrangler.refine_locals(
+    local_exps, timing_future = wrangler.refine_locals(
             traversal.level_start_target_or_target_parent_box_nrs,
             traversal.target_or_target_parent_boxes,
-            local_exps,
-            timing_data=recorder.next())
+            local_exps)
+
+    recorder.add("refine_locals", timing_future)
 
     # }}}
 
     # {{{ "Stage 8:" evaluate locals
 
-    potentials = potentials + wrangler.eval_locals(
+    local_result, timing_future = wrangler.eval_locals(
             traversal.level_start_target_box_nrs,
             traversal.target_boxes,
-            local_exps,
-            timing_data=recorder.next())
+            local_exps)
+
+    recorder.add("eval_locals", timing_future)
+
+    potentials = potentials + local_result
 
     # }}}
 
@@ -200,9 +220,12 @@ class ExpansionWranglerInterface:
     Will usually hold a reference (and thereby be specific to) a
     :class:`boxtree.Tree` instance.
 
-    This interface supports collecting timing data. If timing data is requested,
-    the *timing_data* argument expects a :class:`TimingWaiter`. Otherwise
-    *timing_data* should be *None*.
+    Functions that support returning timing data return a value supporting the
+    :class:`TimingFuture` interface.
+
+    .. versionchanged:: 2018.1
+
+        Changed (a subset of) functions to return timing data.
     """
 
     def multipole_expansion_zeros(self):
@@ -237,88 +260,89 @@ class ExpansionWranglerInterface:
         *source_weights* is in tree target order.
         """
 
-    def form_multipoles(self, level_start_source_box_nrs, source_boxes, src_weights,
-            timing_data=None):
+    def form_multipoles(self, level_start_source_box_nrs, source_boxes, src_weights):
         """Return an expansions array (compatible with
         :meth:`multipole_expansion_zeros`)
         containing multipole expansions in *source_boxes* due to sources
         with *src_weights*.
         All other expansions must be zero.
+
+        :return: A pair (*mpoles*, *timing_future*).
         """
 
     def coarsen_multipoles(self, level_start_source_parent_box_nrs,
-            source_parent_boxes, mpoles, timing_data=None):
+            source_parent_boxes, mpoles):
         """For each box in *source_parent_boxes*,
         gather (and translate) the box's children's multipole expansions in
         *mpole* and add the resulting expansion into the box's multipole
         expansion in *mpole*.
 
-        :returns: *mpoles*
+        :returns: A pair (*mpoles*, *timing_future*).
         """
 
     def eval_direct(self, target_boxes, neighbor_sources_starts,
-            neighbor_sources_lists, src_weights, timing_data=None):
+            neighbor_sources_lists, src_weights):
         """For each box in *target_boxes*, evaluate the influence of the
         neighbor sources due to *src_weights*, which use :ref:`csr` and are
         indexed like *target_boxes*.
 
-        :returns: a new potential array, see :meth:`output_zeros`.
+        :returns: A pair (*pot*, *timing_future*), where *pot* is a
+            a new potential array, see :meth:`output_zeros`.
         """
 
     def multipole_to_local(self,
             level_start_target_or_target_parent_box_nrs,
             target_or_target_parent_boxes,
-            starts, lists, mpole_exps, timing_data=None):
+            starts, lists, mpole_exps):
         """For each box in *target_or_target_parent_boxes*, translate and add
         the influence of the multipole expansion in *mpole_exps* into a new
         array of local expansions.  *starts* and *lists* use :ref:`csr`, and
         *starts* is indexed like *target_or_target_parent_boxes*.
 
-        :returns: a new (local) expansion array, see
-            :meth:`local_expansion_zeros`.
+        :returns: A pair (*pot*, *timing_future*) where *pot* is
+            a new (local) expansion array, see :meth:`local_expansion_zeros`.
         """
 
     def eval_multipoles(self,
-            target_boxes_by_source_level, from_sep_smaller_by_level, mpole_exps,
-            timing_data=None):
+            target_boxes_by_source_level, from_sep_smaller_by_level, mpole_exps):
         """For a level *i*, each box in *target_boxes_by_source_level[i]*, evaluate
         the multipole expansion in *mpole_exps* in the nearby boxes given in
         *from_sep_smaller_by_level*, and return a new potential array.
         *starts* and *lists* in *from_sep_smaller_by_level[i]* use :ref:`csr`
         and *starts* is indexed like *target_boxes_by_source_level[i]*.
 
-        :returns: a new potential array, see :meth:`output_zeros`.
+        :returns: A pair (*pot*, *timing_future*) where *pot* is a new potential
+            array, see :meth:`output_zeros`.
         """
 
     def form_locals(self,
             level_start_target_or_target_parent_box_nrs,
-            target_or_target_parent_boxes, starts, lists, src_weights,
-            timing_data=None):
+            target_or_target_parent_boxes, starts, lists, src_weights):
         """For each box in *target_or_target_parent_boxes*, form local
         expansions due to the sources in the nearby boxes given in *starts* and
         *lists*, and return a new local expansion array.  *starts* and *lists*
         use :ref:`csr` and *starts* is indexed like
         *target_or_target_parent_boxes*.
 
-        :returns: a new local expansion array, see
-            :meth:`local_expansion_zeros`.
+        :returns: A pair (*pot*, *timing_future*) where *pot* is a new
+            local expansion array, see :meth:`local_expansion_zeros`.
         """
 
     def refine_locals(self, level_start_target_or_target_parent_box_nrs,
-            target_or_target_parent_boxes, local_exps, timing_data=None):
+            target_or_target_parent_boxes, local_exps):
         """For each box in *child_boxes*,
         translate the box's parent's local expansion in *local_exps* and add
         the resulting expansion into the box's local expansion in *local_exps*.
 
-        :returns: *local_exps*
+        :returns: A pair (*local_exps*, *timing_future*).
         """
 
-    def eval_locals(self, level_start_target_box_nrs, target_boxes, local_exps,
-            timing_data=None):
+    def eval_locals(self, level_start_target_box_nrs, target_boxes, local_exps):
         """For each box in *target_boxes*, evaluate the local expansion in
         *local_exps* and return a new potential array.
 
-        :returns: a new potential array, see :meth:`output_zeros`.
+        :returns: A pair (*pot*, *timing_future*) where *pot* is a new potential
+            array, see :meth:`output_zeros`.
         """
 
     def finalize_potentials(self, potentials):
@@ -335,8 +359,6 @@ class ExpansionWranglerInterface:
 
 class TimingResult(Record):
     """
-    .. automethod:: __add__
-
     .. attribute:: wall_elapsed
     .. attribute:: process_elapsed
     """
@@ -346,61 +368,25 @@ class TimingResult(Record):
                 wall_elapsed=wall_elapsed,
                 process_elapsed=process_elapsed)
 
-    def __add__(self, other):
-        wall_elapsed = (
-                self.wall_elapsed + other.wall_elapsed
-                if self.wall_elapsed is not None else None)
-
-        process_elapsed = (
-                self.process_elapsed + other.process_elapsed
-                if self.process_elapsed is not None else None)
-
-        return TimingResult(wall_elapsed, process_elapsed)
-
 # }}}
 
 
-# {{{ timing waiter
+# {{{ timing future
 
-class TimingWaiter(object):
-    """Obtains timing data through a supplied callback function.
+class TimingFuture(object):
+    """Returns timing data for a potentially asynchronous operation.
 
-    Attributes that should be set:
-
-    .. attribute:: description
-
-        A string, the description of the timing data.
-
-    .. attribute:: callback
-
-        Returns a :class:`TimingResult`.
+    .. automethod:: result
+    .. automethod:: done
     """
 
-    def __init__(self):
-        self.description = None
-        self.callback = None
-        self._result = None
-
-    @property
-    def empty(self):
-        return not self.callback
-
-    @property
     def result(self):
-        """The timing data result obtained from *callback*."""
-        if self._result is None:
-            self.wait()
+        """Return a :class:`TimingResult`. May block."""
+        raise NotImplementedError
 
-        return self._result
-
-    def wait(self):
-        if self.empty:
-            return
-
-        callback_result = self.callback()
-        self._result = TimingResult(
-                callback_result.wall_elapsed,
-                callback_result.process_elapsed)
+    def done(self):
+        """Return *True* if the operation is complete."""
+        raise NotImplementedError
 
 # }}}
 
@@ -410,25 +396,34 @@ class TimingWaiter(object):
 class TimingRecorder(object):
 
     def __init__(self):
-        self.records = []
+        from collections import defaultdict
+        self.futures = defaultdict(list)
 
-    def next(self):
-        self.records.append(TimingWaiter())
-        return self.records[-1]
+    def add(self, description, future):
+        self.futures[description].append(future)
+
+    def merge(self, result1, result2):
+        wall_elapsed = None
+        process_elapsed = None
+
+        if None not in (result1.wall_elapsed, result2.wall_elapsed):
+            wall_elapsed = result1.wall_elapsed + result2.wall_elapsed
+        if None not in (result1.process_elapsed, result2.process_elapsed):
+            process_elapsed = result1.process_elapsed + result2.process_elapsed
+
+        return TimingResult(wall_elapsed, process_elapsed)
 
     def summarize(self):
         result = {}
 
-        for record in self.records:
-            if record.empty:
-                continue
+        for description, futures_list in self.futures.items():
+            futures = iter(futures_list)
 
-            description = record.description
+            timing_result = next(futures).result()
+            for future in futures:
+                timing_result = self.merge(timing_result, future.result())
 
-            if description in result:
-                result[description] += record.result
-            else:
-                result[description] = record.result
+            result[description] = timing_result
 
         return result
 

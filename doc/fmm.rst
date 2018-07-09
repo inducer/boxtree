@@ -12,7 +12,7 @@ FMM driver
 
 .. autoclass:: TimingResult
 
-.. autoclass:: TimingWaiter
+.. autoclass:: TimingFuture
 
 Integration with PyFMMLib
 -------------------------

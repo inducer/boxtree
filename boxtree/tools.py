@@ -30,6 +30,7 @@ import pyopencl.array  # noqa
 from pyopencl.tools import dtype_to_c_struct
 from mako.template import Template
 from pytools.obj_array import make_obj_array
+from boxtree.fmm import TimingFuture, TimingResult
 
 
 AXIS_NAMES = ("x", "y", "z", "w")
@@ -512,48 +513,45 @@ class MapValuesKernel(object):
 
 # {{{ time recording tool
 
-class record_time(object):  # noqa: N801
+class DummyTimingFuture(TimingFuture):
+
+    @classmethod
+    def from_timer(cls, timer):
+        return cls(timer.wall_elapsed, timer.process_elapsed)
+
+    def __init__(self, wall_elapsed, process_elapsed):
+        self.wall_elapsed = wall_elapsed
+        self.process_elapsed = process_elapsed
+
+    def result(self):
+        return TimingResult(self.wall_elapsed, self.process_elapsed)
+
+    def done(self):
+        return True
+
+
+def return_timing_data(wrapped):
     """A decorator for recording timing data for a function call.
 
-    This introduces an extra keyword argument to the decorated function. For the
-    newly added argument, the caller should pass either *None* or an instance of
-    :class:`boxtree.fmm.TimingWaiter`. If the latter gets passed, the fields
-    *callback* and *description* are populated with timing data for the function
-    call.
-
+    The decorated function returns a tuple (*retval*, *timing_future*)
+    where *retval* is the original return value and *timing_future*
+    supports the timing data future interface in :mod:`boxtree.fmm`.
     """
 
-    def __init__(self, arg=None, description=None):
-        self.arg = arg
-        self.description = description
+    from pytools import ProcessTimer
 
-    def __call__(self, wrapped):
-        description = self.description or wrapped.__name__
+    def wrapper(*args, **kwargs):
+        timer = ProcessTimer()
+        retval = wrapped(*args, **kwargs)
+        timer.done()
 
-        from pytools import ProcessTimer
-        from contextlib import contextmanager
+        future = DummyTimingFuture.from_timer(timer)
+        return (retval, future)
 
-        @contextmanager
-        def time_process(output):
-            timer = ProcessTimer()
-            yield
-            timer.done()
+    from functools import update_wrapper
+    new_wrapper = update_wrapper(wrapper, wrapped)
 
-            output.description = description
-            output.callback = lambda: timer
-
-        def wrapper(*args, **kwargs):
-            output = kwargs.pop(self.arg, None)
-            if output is None:
-                return wrapped(*args, **kwargs)
-
-            with time_process(output):
-                return wrapped(*args, **kwargs)
-
-        from functools import update_wrapper
-        new_wrapper = update_wrapper(wrapper, wrapped)
-
-        return new_wrapper
+    return new_wrapper
 
 # }}}
 

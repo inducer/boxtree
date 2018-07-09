@@ -44,15 +44,7 @@ logger = logging.getLogger(__name__)
 
 # {{{ fmm interaction completeness test
 
-def ignore_timing_data(f):
-    from functools import wraps
-
-    @wraps(f)
-    def wrapper(*args, **kwargs):
-        kwargs.pop("timing_data")
-        return f(*args, **kwargs)
-
-    return wrapper
+from boxtree.tools import return_timing_data
 
 
 class ConstantOneExpansionWrangler(object):
@@ -88,7 +80,7 @@ class ConstantOneExpansionWrangler(object):
     def reorder_potentials(self, potentials):
         return potentials[self.tree.sorted_target_ids]
 
-    @ignore_timing_data
+    @return_timing_data
     def form_multipoles(self, level_start_source_box_nrs, source_boxes, src_weights):
         mpoles = self.multipole_expansion_zeros()
         for ibox in source_boxes:
@@ -97,7 +89,7 @@ class ConstantOneExpansionWrangler(object):
 
         return mpoles
 
-    @ignore_timing_data
+    @return_timing_data
     def coarsen_multipoles(self, level_start_source_parent_box_nrs,
             source_parent_boxes, mpoles):
         tree = self.tree
@@ -117,7 +109,9 @@ class ConstantOneExpansionWrangler(object):
                     if child:
                         mpoles[ibox] += mpoles[child]
 
-    @ignore_timing_data
+        return mpoles
+
+    @return_timing_data
     def eval_direct(self, target_boxes, neighbor_sources_starts,
             neighbor_sources_lists, src_weights):
         pot = self.potential_zeros()
@@ -137,7 +131,7 @@ class ConstantOneExpansionWrangler(object):
 
         return pot
 
-    @ignore_timing_data
+    @return_timing_data
     def multipole_to_local(self,
             level_start_target_or_target_parent_box_nrs,
             target_or_target_parent_boxes,
@@ -156,7 +150,7 @@ class ConstantOneExpansionWrangler(object):
 
         return local_exps
 
-    @ignore_timing_data
+    @return_timing_data
     def eval_multipoles(self,
             target_boxes_by_source_level, from_sep_smaller_nonsiblings_by_level,
             mpole_exps):
@@ -177,7 +171,7 @@ class ConstantOneExpansionWrangler(object):
 
         return pot
 
-    @ignore_timing_data
+    @return_timing_data
     def form_locals(self,
             level_start_target_or_target_parent_box_nrs,
             target_or_target_parent_boxes, starts, lists, src_weights):
@@ -197,7 +191,7 @@ class ConstantOneExpansionWrangler(object):
 
         return local_exps
 
-    @ignore_timing_data
+    @return_timing_data
     def refine_locals(self, level_start_target_or_target_parent_box_nrs,
             target_or_target_parent_boxes, local_exps):
 
@@ -209,7 +203,7 @@ class ConstantOneExpansionWrangler(object):
 
         return local_exps
 
-    @ignore_timing_data
+    @return_timing_data
     def eval_locals(self, level_start_target_box_nrs, target_boxes, local_exps):
         pot = self.potential_zeros()
 

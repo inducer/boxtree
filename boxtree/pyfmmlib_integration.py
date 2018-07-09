@@ -27,7 +27,7 @@ THE SOFTWARE.
 
 import numpy as np
 from pytools import memoize_method, log_process
-from boxtree.tools import record_time
+from boxtree.tools import return_timing_data
 
 import logging
 logger = logging.getLogger(__name__)
@@ -421,7 +421,7 @@ class FMMLibExpansionWrangler(object):
                         }
 
     @log_process(logger)
-    @record_time("timing_data")
+    @return_timing_data
     def form_multipoles(self, level_start_source_box_nrs, source_boxes, src_weights):
         formmp = self.get_routine("%ddformmp" + self.dp_suffix)
 
@@ -461,7 +461,7 @@ class FMMLibExpansionWrangler(object):
         return mpoles
 
     @log_process(logger)
-    @record_time("timing_data")
+    @return_timing_data
     def coarsen_multipoles(self, level_start_source_parent_box_nrs,
             source_parent_boxes, mpoles):
         tree = self.tree
@@ -514,8 +514,10 @@ class FMMLibExpansionWrangler(object):
                         target_mpoles_view[
                                 ibox - target_level_start_ibox] += new_mp[..., 0].T
 
+        return mpoles
+
     @log_process(logger)
-    @record_time("timing_data")
+    @return_timing_data
     def eval_direct(self, target_boxes, neighbor_sources_starts,
             neighbor_sources_lists, src_weights):
         output = self.output_zeros()
@@ -557,7 +559,7 @@ class FMMLibExpansionWrangler(object):
         return output
 
     @log_process(logger)
-    @record_time("timing_data")
+    @return_timing_data
     def multipole_to_local(self,
             level_start_target_or_target_parent_box_nrs,
             target_or_target_parent_boxes,
@@ -643,7 +645,7 @@ class FMMLibExpansionWrangler(object):
         return local_exps
 
     @log_process(logger)
-    @record_time("timing_data")
+    @return_timing_data
     def eval_multipoles(self,
             target_boxes_by_source_level, sep_smaller_nonsiblings_by_level,
             mpole_exps):
@@ -686,7 +688,7 @@ class FMMLibExpansionWrangler(object):
         return output
 
     @log_process(logger)
-    @record_time("timing_data")
+    @return_timing_data
     def form_locals(self,
             level_start_target_or_target_parent_box_nrs,
             target_or_target_parent_boxes, starts, lists, src_weights):
@@ -738,7 +740,7 @@ class FMMLibExpansionWrangler(object):
         return local_exps
 
     @log_process(logger)
-    @record_time("timing_data")
+    @return_timing_data
     def refine_locals(self, level_start_target_or_target_parent_box_nrs,
             target_or_target_parent_boxes, local_exps):
 
@@ -785,7 +787,7 @@ class FMMLibExpansionWrangler(object):
         return local_exps
 
     @log_process(logger)
-    @record_time("timing_data")
+    @return_timing_data
     def eval_locals(self, level_start_target_box_nrs, target_boxes, local_exps):
         output = self.output_zeros()
         taeval = self.get_expn_eval_routine("ta")
