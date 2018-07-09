@@ -37,11 +37,7 @@ AXIS_NAMES = ("x", "y", "z", "w")
 
 def padded_bin(i, l):
     """Format *i* as binary number, pad it to length *l*."""
-
-    s = bin(i)[2:]
-    while len(s) < l:
-        s = '0' + s
-    return s
+    return bin(i)[2:].rjust(l, "0")
 
 
 # NOTE: Order of positional args should match GappyCopyAndMapKernel.__call__()
