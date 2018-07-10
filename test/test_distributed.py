@@ -375,9 +375,16 @@ if __name__ == "__main__":
 
     else:
         import sys
+
         if len(sys.argv) > 1:
+
+            # You can test individual routines by typing
+            # $ python test_distributed.py 'test_constantone(4, 3, 10000, 10000)'
             exec(sys.argv[1])
+
         elif len(sys.argv) == 1:
+
+            # Run against_shared test case with default parameter
             dims = 3
             nsources = 10000
             ntargets = 10000

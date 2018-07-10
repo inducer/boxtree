@@ -317,7 +317,7 @@ def calculate_pot(local_wrangler, global_wrangler, local_trav, source_weights,
     :param global_wrangler: Expansion wrangler on root process for assembling partial
         results from worker processes together. This argument differs from
         :arg local_wrangler by referening the global tree instead of local trees.
-        This argument is None on worker process.
+        This argument is None on worker processes.
     :param local_trav: Local traversal object returned from generate_local_travs.
     :param source_weights: Source weights for FMM. None on worker processes.
     :param local_data: LocalData object returned from generate_local_tree.
