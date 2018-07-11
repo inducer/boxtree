@@ -24,12 +24,17 @@ for instructions.
 User-visible Changes
 ====================
 
-Version 2013.1
+Version 2018.1
 --------------
 .. note::
 
     This version is currently under development. You can get snapshots from
     boxtree's `git repository <https://github.com/inducer/boxtree>`_
+
+* Added *timing_data* parameter to FMM driver.
+
+Version 2013.1
+--------------
 
 * Initial release.
 

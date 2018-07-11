@@ -10,6 +10,10 @@ FMM driver
     :undoc-members:
     :member-order: bysource
 
+.. autoclass:: TimingResult
+
+.. autoclass:: TimingFuture
+
 Integration with PyFMMLib
 -------------------------
 
