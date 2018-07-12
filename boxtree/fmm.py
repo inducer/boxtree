@@ -26,6 +26,8 @@ import logging
 logger = logging.getLogger(__name__)
 
 from pytools import ProcessLogger, Record
+import pyopencl as cl
+import numpy as np
 
 
 def drive_fmm(traversal, expansion_wrangler, src_weights, timing_data=None):
@@ -429,5 +431,92 @@ class TimingRecorder(object):
 
 # }}}
 
+
+def calculate_nsources_by_level(tree):
+    nsources_by_level = np.empty((tree.nlevels,), dtype=np.int32)
+
+    for ilevel in range(tree.nlevels):
+        start_ibox = tree.level_start_box_nrs[ilevel]
+        end_ibox = tree.level_start_box_nrs[ilevel + 1]
+        count = 0
+
+        for ibox in range(start_ibox, end_ibox):
+            count += tree.box_source_counts_nonchild[ibox]
+
+        nsources_by_level[ilevel] = count
+
+    return nsources_by_level
+
+
+class PerformanceModel:
+
+    def __init__(self, cl_context, wrangler_factory, uses_pde_expansions):
+        self.cl_context = cl_context
+        self.wrangler_factory = wrangler_factory
+        self.uses_pde_expansions = uses_pde_expansions
+
+        self.time_result = []
+
+        from pyopencl.clrandom import PhiloxGenerator
+        self.rng = PhiloxGenerator(cl_context)
+
+    def time_performance(self, traversal):
+        # Calculate "nterms_fmm_total"
+        dimensions = traversal.tree.dimensions
+        wrangler = self.wrangler_factory(traversal.tree)
+        nsources_by_level = calculate_nsources_by_level(traversal.tree)
+
+        level_nterms = wrangler.level_nterms
+
+        if self.uses_pde_expansions:
+            ncoeffs_fmm_by_level = level_nterms ** (dimensions - 1)
+        else:
+            ncoeffs_fmm_by_level = level_nterms ** dimensions
+
+        nterms_fmm_total = np.sum(nsources_by_level * ncoeffs_fmm_by_level)
+
+        # Record useful metadata for assembling performance data
+        timing_data = {
+            "nterms_fmm_total": nterms_fmm_total
+        }
+
+        # Generate random source weights
+        with cl.CommandQueue(self.cl_context) as queue:
+            source_weights = self.rng.uniform(
+                queue,
+                traversal.tree.nsources,
+                traversal.tree.coord_dtype
+            ).get()
+
+        # Time a FMM run
+        drive_fmm(traversal, wrangler, source_weights, timing_data=timing_data)
+
+        self.time_result.append(timing_data)
+
+    def form_multipole_model(self):
+        nresult = len(self.time_result)
+
+        if nresult < 1:
+            raise RuntimeError("Please run FMM at lease once using time_performance"
+                               "before forming models.")
+        elif nresult == 1:
+            result = self.time_result[0]
+            wall_elapsed_time = result["form_multipoles"].wall_elapsed
+            nterm_fmm_total = result["nterms_fmm_total"]
+            return wall_elapsed_time / nterm_fmm_total, 0.0
+        else:
+            wall_elapsed_time = np.empty((nresult,), dtype=float)
+            coeff_matrix = np.empty((nresult, 2), dtype=float)
+
+            for iresult, result in enumerate(self.time_result):
+                wall_elapsed_time[iresult] = result["form_multipoles"].wall_elapsed
+                coeff_matrix[iresult, 0] = result["nterms_fmm_total"]
+
+            coeff_matrix[:, 1] = 1
+
+            from numpy.linalg import lstsq
+            coeff = lstsq(coeff_matrix, wall_elapsed_time, rcond=-1)[0]
+
+            return coeff[0], coeff[1]
 
 # vim: filetype=pyopencl:fdm=marker
