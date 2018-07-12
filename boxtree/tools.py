@@ -30,6 +30,7 @@ import pyopencl.array  # noqa
 from pyopencl.tools import dtype_to_c_struct
 from mako.template import Template
 from pytools.obj_array import make_obj_array
+from boxtree.fmm import TimingFuture, TimingResult
 
 
 AXIS_NAMES = ("x", "y", "z", "w")
@@ -37,11 +38,7 @@ AXIS_NAMES = ("x", "y", "z", "w")
 
 def padded_bin(i, l):
     """Format *i* as binary number, pad it to length *l*."""
-
-    s = bin(i)[2:]
-    while len(s) < l:
-        s = '0' + s
-    return s
+    return bin(i)[2:].rjust(l, "0")
 
 
 # NOTE: Order of positional args should match GappyCopyAndMapKernel.__call__()
@@ -510,6 +507,51 @@ class MapValuesKernel(object):
         evt = kernel(dst, src, map_values)
 
         return dst, evt
+
+# }}}
+
+
+# {{{ time recording tool
+
+class DummyTimingFuture(TimingFuture):
+
+    @classmethod
+    def from_timer(cls, timer):
+        return cls(timer.wall_elapsed, timer.process_elapsed)
+
+    def __init__(self, wall_elapsed, process_elapsed):
+        self.wall_elapsed = wall_elapsed
+        self.process_elapsed = process_elapsed
+
+    def result(self):
+        return TimingResult(self.wall_elapsed, self.process_elapsed)
+
+    def done(self):
+        return True
+
+
+def return_timing_data(wrapped):
+    """A decorator for recording timing data for a function call.
+
+    The decorated function returns a tuple (*retval*, *timing_future*)
+    where *retval* is the original return value and *timing_future*
+    supports the timing data future interface in :mod:`boxtree.fmm`.
+    """
+
+    from pytools import ProcessTimer
+
+    def wrapper(*args, **kwargs):
+        timer = ProcessTimer()
+        retval = wrapped(*args, **kwargs)
+        timer.done()
+
+        future = DummyTimingFuture.from_timer(timer)
+        return (retval, future)
+
+    from functools import update_wrapper
+    new_wrapper = update_wrapper(wrapper, wrapped)
+
+    return new_wrapper
 
 # }}}
 

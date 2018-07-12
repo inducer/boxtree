@@ -44,6 +44,9 @@ logger = logging.getLogger(__name__)
 
 # {{{ fmm interaction completeness test
 
+from boxtree.tools import return_timing_data
+
+
 class ConstantOneExpansionWrangler(object):
     """This implements the 'analytical routines' for a Green's function that is
     constant 1 everywhere. For 'charges' of 'ones', this should get every particle
@@ -77,6 +80,7 @@ class ConstantOneExpansionWrangler(object):
     def reorder_potentials(self, potentials):
         return potentials[self.tree.sorted_target_ids]
 
+    @return_timing_data
     def form_multipoles(self, level_start_source_box_nrs, source_boxes, src_weights):
         mpoles = self.multipole_expansion_zeros()
         for ibox in source_boxes:
@@ -85,6 +89,7 @@ class ConstantOneExpansionWrangler(object):
 
         return mpoles
 
+    @return_timing_data
     def coarsen_multipoles(self, level_start_source_parent_box_nrs,
             source_parent_boxes, mpoles):
         tree = self.tree
@@ -104,6 +109,9 @@ class ConstantOneExpansionWrangler(object):
                     if child:
                         mpoles[ibox] += mpoles[child]
 
+        return mpoles
+
+    @return_timing_data
     def eval_direct(self, target_boxes, neighbor_sources_starts,
             neighbor_sources_lists, src_weights):
         pot = self.potential_zeros()
@@ -123,6 +131,7 @@ class ConstantOneExpansionWrangler(object):
 
         return pot
 
+    @return_timing_data
     def multipole_to_local(self,
             level_start_target_or_target_parent_box_nrs,
             target_or_target_parent_boxes,
@@ -141,6 +150,7 @@ class ConstantOneExpansionWrangler(object):
 
         return local_exps
 
+    @return_timing_data
     def eval_multipoles(self,
             target_boxes_by_source_level, from_sep_smaller_nonsiblings_by_level,
             mpole_exps):
@@ -161,6 +171,7 @@ class ConstantOneExpansionWrangler(object):
 
         return pot
 
+    @return_timing_data
     def form_locals(self,
             level_start_target_or_target_parent_box_nrs,
             target_or_target_parent_boxes, starts, lists, src_weights):
@@ -180,6 +191,7 @@ class ConstantOneExpansionWrangler(object):
 
         return local_exps
 
+    @return_timing_data
     def refine_locals(self, level_start_target_or_target_parent_box_nrs,
             target_or_target_parent_boxes, local_exps):
 
@@ -191,6 +203,7 @@ class ConstantOneExpansionWrangler(object):
 
         return local_exps
 
+    @return_timing_data
     def eval_locals(self, level_start_target_box_nrs, target_boxes, local_exps):
         pot = self.potential_zeros()
 
@@ -564,7 +577,11 @@ def test_pyfmmlib_fmm(ctx_getter, dims, use_dipoles, helmholtz_k):
             dipole_vec=dipole_vec)
 
     from boxtree.fmm import drive_fmm
-    pot = drive_fmm(trav, wrangler, weights)
+
+    timing_data = {}
+    pot = drive_fmm(trav, wrangler, weights, timing_data=timing_data)
+    print(timing_data)
+    assert timing_data
 
     # {{{ ref fmmlib computation
 
