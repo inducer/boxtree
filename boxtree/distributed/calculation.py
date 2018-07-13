@@ -354,7 +354,7 @@ def calculate_pot(local_wrangler, global_wrangler, local_trav, source_weights,
     mpole_exps = local_wrangler.form_multipoles(
             local_trav.level_start_source_box_nrs,
             local_trav.source_boxes,
-            local_src_weights)
+            local_src_weights)[0]
 
     # }}}
 
@@ -388,7 +388,7 @@ def calculate_pot(local_wrangler, global_wrangler, local_trav, source_weights,
             local_trav.target_boxes,
             local_trav.neighbor_source_boxes_starts,
             local_trav.neighbor_source_boxes_lists,
-            local_src_weights)
+            local_src_weights)[0]
 
     # these potentials are called alpha in [1]
 
@@ -402,7 +402,7 @@ def calculate_pot(local_wrangler, global_wrangler, local_trav, source_weights,
             local_trav.target_or_target_parent_boxes,
             local_trav.from_sep_siblings_starts,
             local_trav.from_sep_siblings_lists,
-            mpole_exps)
+            mpole_exps)[0]
 
     # local_exps represents both Gamma and Delta in [1]
 
@@ -418,7 +418,7 @@ def calculate_pot(local_wrangler, global_wrangler, local_trav, source_weights,
     potentials = potentials + local_wrangler.eval_multipoles(
             local_trav.target_boxes_sep_smaller_by_source_level,
             local_trav.from_sep_smaller_by_level,
-            mpole_exps)
+            mpole_exps)[0]
 
     # these potentials are called beta in [1]
 
@@ -429,7 +429,7 @@ def calculate_pot(local_wrangler, global_wrangler, local_trav, source_weights,
                 local_trav.target_boxes,
                 local_trav.from_sep_close_smaller_starts,
                 local_trav.from_sep_close_smaller_lists,
-                local_src_weights)
+                local_src_weights)[0]
 
     # }}}
 
@@ -442,7 +442,7 @@ def calculate_pot(local_wrangler, global_wrangler, local_trav, source_weights,
             local_trav.target_or_target_parent_boxes,
             local_trav.from_sep_bigger_starts,
             local_trav.from_sep_bigger_lists,
-            local_src_weights)
+            local_src_weights)[0]
 
     if local_trav.from_sep_close_bigger_starts is not None:
         logger.debug("evaluate separated close bigger interactions directly "
@@ -452,7 +452,7 @@ def calculate_pot(local_wrangler, global_wrangler, local_trav, source_weights,
                 local_trav.target_or_target_parent_boxes,
                 local_trav.from_sep_close_bigger_starts,
                 local_trav.from_sep_close_bigger_lists,
-                local_src_weights)
+                local_src_weights)[0]
 
     # }}}
 
@@ -473,7 +473,7 @@ def calculate_pot(local_wrangler, global_wrangler, local_trav, source_weights,
     potentials = potentials + local_wrangler.eval_locals(
             local_trav.level_start_target_box_nrs,
             local_trav.target_boxes,
-            local_exps)
+            local_exps)[0]
 
     # }}}
 
