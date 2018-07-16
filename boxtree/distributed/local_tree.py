@@ -569,7 +569,8 @@ class LocalTree(Tree):
 
 
 def generate_local_tree(queue, traversal, responsible_boxes_list,
-                        responsible_box_query, comm=MPI.COMM_WORLD):
+                        responsible_box_query, comm=MPI.COMM_WORLD,
+                        no_targets=False):
 
     # Get MPI information
     current_rank = comm.Get_rank()
@@ -640,13 +641,15 @@ def generate_local_tree(queue, traversal, responsible_boxes_list,
             particles_req.append(comm.Isend(
                 local_sources[irank], dest=irank, tag=MPITags["DIST_SOURCES"]))
 
-            particles_req.append(comm.Isend(
-                local_targets[irank], dest=irank, tag=MPITags["DIST_TARGETS"]))
-
-            if tree.targets_have_extent:
+            if not no_targets:
                 particles_req.append(comm.Isend(
-                    local_target_radii[irank], dest=irank, tag=MPITags["DIST_RADII"])
-                )
+                    local_targets[irank], dest=irank, tag=MPITags["DIST_TARGETS"]))
+
+                if tree.targets_have_extent:
+                    particles_req.append(comm.Isend(
+                        local_target_radii[irank], dest=irank,
+                        tag=MPITags["DIST_RADII"])
+                    )
 
         from boxtree.tools import MaskCompressorKernel
         matcompr = MaskCompressorKernel(queue.context)
@@ -682,20 +685,27 @@ def generate_local_tree(queue, traversal, responsible_boxes_list,
         reqs.append(comm.Irecv(
             local_tree.sources, source=0, tag=MPITags["DIST_SOURCES"]))
 
-        local_tree.targets = np.empty(
-            (local_tree.dimensions, local_tree.ntargets),
-            dtype=local_tree.coord_dtype
-        )
-        reqs.append(comm.Irecv(
-            local_tree.targets, source=0, tag=MPITags["DIST_TARGETS"]))
-
-        if local_tree.targets_have_extent:
-            local_tree.target_radii = np.empty(
-                (local_tree.ntargets,),
+        if no_targets:
+            local_tree.targets = None
+            if local_tree.targets_have_extent:
+                local_tree.target_radii = None
+        else:
+            local_tree.targets = np.empty(
+                (local_tree.dimensions, local_tree.ntargets),
                 dtype=local_tree.coord_dtype
             )
+
             reqs.append(comm.Irecv(
-                local_tree.target_radii, source=0, tag=MPITags["DIST_RADII"]))
+                local_tree.targets, source=0, tag=MPITags["DIST_TARGETS"]))
+
+            if local_tree.targets_have_extent:
+                local_tree.target_radii = np.empty(
+                    (local_tree.ntargets,),
+                    dtype=local_tree.coord_dtype
+                )
+
+                reqs.append(comm.Irecv(
+                    local_tree.target_radii, source=0, tag=MPITags["DIST_RADII"]))
 
         MPI.Request.Waitall(reqs)
 
