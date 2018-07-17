@@ -433,6 +433,10 @@ class TimingRecorder(object):
 
 
 def calculate_nsources_by_level(tree):
+    """
+    :return: A numpy array of share (tree.nlevels,) such that the ith index documents
+        the number of sources on level i.
+    """
     nsources_by_level = np.empty((tree.nlevels,), dtype=np.int32)
 
     for ilevel in range(tree.nlevels):
@@ -461,23 +465,11 @@ class PerformanceModel:
         self.rng = PhiloxGenerator(cl_context)
 
     def time_performance(self, traversal):
-        # Calculate "nterms_fmm_total"
-        dimensions = traversal.tree.dimensions
         wrangler = self.wrangler_factory(traversal.tree)
-        nsources_by_level = calculate_nsources_by_level(traversal.tree)
-
-        level_nterms = wrangler.level_nterms
-
-        if self.uses_pde_expansions:
-            ncoeffs_fmm_by_level = level_nterms ** (dimensions - 1)
-        else:
-            ncoeffs_fmm_by_level = level_nterms ** dimensions
-
-        nterms_fmm_total = np.sum(nsources_by_level * ncoeffs_fmm_by_level)
 
         # Record useful metadata for assembling performance data
         timing_data = {
-            "nterms_fmm_total": nterms_fmm_total
+            "nterms_fmm_total": self._calculate_nters_fmm_total(wrangler)
         }
 
         # Generate random source weights
@@ -518,5 +510,24 @@ class PerformanceModel:
             coeff = lstsq(coeff_matrix, wall_elapsed_time, rcond=-1)[0]
 
             return coeff[0], coeff[1]
+
+    def _calculate_nters_fmm_total(self, wrangler):
+        """
+        :return: total number of terms formed during form_multipole
+        """
+        dimensions = wrangler.tree.dimensions
+
+        # Calculate "nterms_fmm_total"
+        nsources_by_level = calculate_nsources_by_level(wrangler.tree)
+        level_nterms = wrangler.level_nterms
+
+        if self.uses_pde_expansions:
+            ncoeffs_fmm_by_level = level_nterms ** (dimensions - 1)
+        else:
+            ncoeffs_fmm_by_level = level_nterms ** dimensions
+
+        nterms_fmm_total = np.sum(nsources_by_level * ncoeffs_fmm_by_level)
+
+        return nterms_fmm_total
 
 # vim: filetype=pyopencl:fdm=marker
