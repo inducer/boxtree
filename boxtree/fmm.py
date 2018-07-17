@@ -476,7 +476,7 @@ class PerformanceCounter:
             direct_workload = np.zeros((ntarget_boxes,), dtype=np.int64)
 
         for itgt_box, tgt_ibox in enumerate(traversal.target_boxes):
-            ntargets = traversal.box_target_counts_nonchild[tgt_ibox]
+            ntargets = tree.box_target_counts_nonchild[tgt_ibox]
             nsources = 0
 
             start, end = traversal.neighbor_source_boxes_starts[itgt_box:itgt_box+2]
@@ -543,31 +543,13 @@ class PerformanceModel:
 
         self.time_result.append(timing_data)
 
-    def form_multipole_model(self):
-        nresult = len(self.time_result)
+    def form_multipoles_model(self, wall_time=True):
+        return self._linear_regression("nterms_fmm_total", "form_multipoles",
+                                       wall_time=wall_time)
 
-        if nresult < 1:
-            raise RuntimeError("Please run FMM at lease once using time_performance"
-                               "before forming models.")
-        elif nresult == 1:
-            result = self.time_result[0]
-            wall_elapsed_time = result["form_multipoles"].wall_elapsed
-            nterm_fmm_total = result["nterms_fmm_total"]
-            return wall_elapsed_time / nterm_fmm_total, 0.0
-        else:
-            wall_elapsed_time = np.empty((nresult,), dtype=float)
-            coeff_matrix = np.empty((nresult, 2), dtype=float)
-
-            for iresult, result in enumerate(self.time_result):
-                wall_elapsed_time[iresult] = result["form_multipoles"].wall_elapsed
-                coeff_matrix[iresult, 0] = result["nterms_fmm_total"]
-
-            coeff_matrix[:, 1] = 1
-
-            from numpy.linalg import lstsq
-            coeff = lstsq(coeff_matrix, wall_elapsed_time, rcond=-1)[0]
-
-            return coeff[0], coeff[1]
+    def eval_direct_model(self, wall_time=True):
+        return self._linear_regression("direct_workload", "eval_direct",
+                                       wall_time=wall_time)
 
     def _calculate_nters_fmm_total(self, wrangler, counter):
         """
@@ -575,7 +557,7 @@ class PerformanceModel:
         """
         dimensions = wrangler.tree.dimensions
 
-        nsources_by_level = counter.count_nsources_by_level(wrangler.tree)
+        nsources_by_level = counter.count_nsources_by_level()
         level_nterms = wrangler.level_nterms
 
         if self.uses_pde_expansions:
@@ -586,5 +568,44 @@ class PerformanceModel:
         nterms_fmm_total = np.sum(nsources_by_level * ncoeffs_fmm_by_level)
 
         return nterms_fmm_total
+
+    def _linear_regression(self, x_name, y_name, wall_time=True):
+        nresult = len(self.time_result)
+
+        if nresult < 1:
+            raise RuntimeError("Please run FMM at lease once using time_performance"
+                               "before forming models.")
+        elif nresult == 1:
+            result = self.time_result[0]
+
+            if wall_time:
+                dependent_value = result[y_name].wall_elapsed
+            else:
+                dependent_value = result[y_name].process_elapsed
+
+            independent_value = result[x_name]
+            return dependent_value / independent_value, 0.0
+        else:
+            dependent_value = np.empty((nresult,), dtype=float)
+            coeff_matrix = np.empty((nresult, 2), dtype=float)
+
+            for iresult, result in enumerate(self.time_result):
+                if wall_time:
+                    dependent_value[iresult] = result[y_name].wall_elapsed
+                else:
+                    dependent_value[iresult] = result[y_name].process_elapsed
+
+                coeff_matrix[iresult, 0] = result[x_name]
+
+            coeff_matrix[:, 1] = 1
+
+            from numpy.linalg import lstsq
+            coeff = lstsq(coeff_matrix, dependent_value, rcond=-1)[0]
+
+            print(coeff_matrix)
+            print(dependent_value)
+
+            return coeff[0], coeff[1]
+
 
 # vim: filetype=pyopencl:fdm=marker
