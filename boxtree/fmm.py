@@ -432,24 +432,80 @@ class TimingRecorder(object):
 # }}}
 
 
-def calculate_nsources_by_level(tree):
-    """
-    :return: A numpy array of share (tree.nlevels,) such that the ith index documents
-        the number of sources on level i.
-    """
-    nsources_by_level = np.empty((tree.nlevels,), dtype=np.int32)
+class PerformanceCounter:
 
-    for ilevel in range(tree.nlevels):
-        start_ibox = tree.level_start_box_nrs[ilevel]
-        end_ibox = tree.level_start_box_nrs[ilevel + 1]
-        count = 0
+    def __init__(self, traversal):
+        self.traversal = traversal
 
-        for ibox in range(start_ibox, end_ibox):
-            count += tree.box_source_counts_nonchild[ibox]
+    def count_nsources_by_level(self):
+        """
+        :return: A numpy array of share (tree.nlevels,) such that the ith index
+            documents the number of sources on level i.
+        """
+        tree = self.traversal.tree
 
-        nsources_by_level[ilevel] = count
+        nsources_by_level = np.empty((tree.nlevels,), dtype=np.int32)
 
-    return nsources_by_level
+        for ilevel in range(tree.nlevels):
+            start_ibox = tree.level_start_box_nrs[ilevel]
+            end_ibox = tree.level_start_box_nrs[ilevel + 1]
+            count = 0
+
+            for ibox in range(start_ibox, end_ibox):
+                count += tree.box_source_counts_nonchild[ibox]
+
+            nsources_by_level[ilevel] = count
+
+        return nsources_by_level
+
+    def count_direct(self, use_global_idx=False):
+        """
+        :return: If *use_global_idx* is True, return a numpy array of shape
+            (tree.nboxes,) such that the ith entry represents the workload from
+            direct evaluation on box i. If *use_global_idx* is False, return a numpy
+            array of shape (ntarget_boxes,) such that the ith entry represents the
+            workload on *target_boxes* i.
+        """
+        traversal = self.traversal
+        tree = traversal.tree
+
+        if use_global_idx:
+            direct_workload = np.zeros((tree.nboxes,), dtype=np.int64)
+        else:
+            ntarget_boxes = len(traversal.target_boxes)
+            direct_workload = np.zeros((ntarget_boxes,), dtype=np.int64)
+
+        for itgt_box, tgt_ibox in enumerate(traversal.target_boxes):
+            ntargets = traversal.box_target_counts_nonchild[tgt_ibox]
+            nsources = 0
+
+            start, end = traversal.neighbor_source_boxes_starts[itgt_box:itgt_box+2]
+
+            for src_ibox in traversal.neighbor_source_boxes_lists[start:end]:
+                nsources += tree.box_source_counts_nonchild[src_ibox]
+
+            if traversal.from_sep_close_smaller_starts is not None:
+                start, end = (
+                    traversal.from_sep_close_smaller_starts[itgt_box:itgt_box+2])
+
+                for src_ibox in traversal.from_sep_close_smaller_lists[start:end]:
+                    nsources += tree.box_source_counts_nonchild[src_ibox]
+
+            if traversal.from_sep_close_bigger_starts is not None:
+                start, end = (
+                    traversal.from_sep_close_bigger_starts[itgt_box:itgt_box+2])
+
+                for src_ibox in traversal.from_sep_close_bigger_lists[start:end]:
+                    nsources += tree.box_source_counts_nonchild[src_ibox]
+
+            count = nsources * ntargets
+
+            if use_global_idx:
+                direct_workload[tgt_ibox] = count
+            else:
+                direct_workload[itgt_box] = count
+
+        return direct_workload
 
 
 class PerformanceModel:
@@ -466,10 +522,12 @@ class PerformanceModel:
 
     def time_performance(self, traversal):
         wrangler = self.wrangler_factory(traversal.tree)
+        counter = PerformanceCounter(traversal)
 
         # Record useful metadata for assembling performance data
         timing_data = {
-            "nterms_fmm_total": self._calculate_nters_fmm_total(wrangler)
+            "nterms_fmm_total": self._calculate_nters_fmm_total(wrangler, counter),
+            "direct_workload": np.sum(counter.count_direct())
         }
 
         # Generate random source weights
@@ -511,14 +569,13 @@ class PerformanceModel:
 
             return coeff[0], coeff[1]
 
-    def _calculate_nters_fmm_total(self, wrangler):
+    def _calculate_nters_fmm_total(self, wrangler, counter):
         """
-        :return: total number of terms formed during form_multipole
+        :return: total number of terms formed across all levels during form_multipole
         """
         dimensions = wrangler.tree.dimensions
 
-        # Calculate "nterms_fmm_total"
-        nsources_by_level = calculate_nsources_by_level(wrangler.tree)
+        nsources_by_level = counter.count_nsources_by_level(wrangler.tree)
         level_nterms = wrangler.level_nterms
 
         if self.uses_pde_expansions:
