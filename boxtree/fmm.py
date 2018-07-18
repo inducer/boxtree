@@ -544,11 +544,11 @@ class PerformanceModel:
         self.time_result.append(timing_data)
 
     def form_multipoles_model(self, wall_time=True):
-        return self._linear_regression("nterms_fmm_total", "form_multipoles",
+        return self._linear_regression("form_multipoles", ["nterms_fmm_total"],
                                        wall_time=wall_time)
 
     def eval_direct_model(self, wall_time=True):
-        return self._linear_regression("direct_workload", "eval_direct",
+        return self._linear_regression("eval_direct", ["direct_workload"],
                                        wall_time=wall_time)
 
     def _calculate_nters_fmm_total(self, wrangler, counter):
@@ -569,8 +569,13 @@ class PerformanceModel:
 
         return nterms_fmm_total
 
-    def _linear_regression(self, x_name, y_name, wall_time=True):
+    def _linear_regression(self, y_name, x_name, wall_time=True):
+        """
+            :arg y_name: Name of the depedent variable
+            :arg x_name: A list of names of independent variables
+        """
         nresult = len(self.time_result)
+        nvariables = len(x_name)
 
         if nresult < 1:
             raise RuntimeError("Please run FMM at lease once using time_performance"
@@ -583,11 +588,13 @@ class PerformanceModel:
             else:
                 dependent_value = result[y_name].process_elapsed
 
-            independent_value = result[x_name]
-            return dependent_value / independent_value, 0.0
+            independent_value = result[x_name[0]]
+            coeff = dependent_value / independent_value
+
+            return (coeff,) + tuple(0.0 for _ in range(nvariables - 1))
         else:
             dependent_value = np.empty((nresult,), dtype=float)
-            coeff_matrix = np.empty((nresult, 2), dtype=float)
+            coeff_matrix = np.empty((nresult, nvariables + 1), dtype=float)
 
             for iresult, result in enumerate(self.time_result):
                 if wall_time:
@@ -595,9 +602,10 @@ class PerformanceModel:
                 else:
                     dependent_value[iresult] = result[y_name].process_elapsed
 
-                coeff_matrix[iresult, 0] = result[x_name]
+                for icol, variable_name in enumerate(x_name):
+                    coeff_matrix[iresult, icol] = result[variable_name]
 
-            coeff_matrix[:, 1] = 1
+            coeff_matrix[:, -1] = 1
 
             from numpy.linalg import lstsq
             coeff = lstsq(coeff_matrix, dependent_value, rcond=-1)[0]
@@ -605,7 +613,7 @@ class PerformanceModel:
             print(coeff_matrix)
             print(dependent_value)
 
-            return coeff[0], coeff[1]
+            return coeff
 
 
 # vim: filetype=pyopencl:fdm=marker
