@@ -28,6 +28,7 @@ logger = logging.getLogger(__name__)
 from pytools import ProcessLogger, Record
 import pyopencl as cl
 import numpy as np
+from collections import namedtuple
 
 
 def drive_fmm(traversal, expansion_wrangler, src_weights, timing_data=None):
@@ -508,6 +509,15 @@ class PerformanceCounter:
         return direct_workload
 
 
+FMMParameters = namedtuple(
+    "FMMParameters",
+    ['ncoeffs_fmm_by_level',
+     'translation_source_power',
+     'translation_target_power',
+     'translation_max_power']
+)
+
+
 class PerformanceModel:
 
     def __init__(self, cl_context, wrangler_factory, uses_pde_expansions):
@@ -522,12 +532,20 @@ class PerformanceModel:
 
     def time_performance(self, traversal):
         wrangler = self.wrangler_factory(traversal.tree)
+
         counter = PerformanceCounter(traversal)
+
+        parameters = self.get_fmm_parameters(
+            traversal.tree.dimensions,
+            self.uses_pde_expansions,
+            wrangler.level_nterms
+        )
 
         # Record useful metadata for assembling performance data
         timing_data = {
-            "nterms_fmm_total": self._calculate_nters_fmm_total(wrangler, counter),
-            "direct_workload": np.sum(counter.count_direct())
+            "nterms_fmm_total": self.calculate_nters_fmm_total(counter, parameters),
+            "direct_workload": np.sum(counter.count_direct()),
+            "direct_nsource_boxes": traversal.neighbor_source_boxes_starts[-1]
         }
 
         # Generate random source weights
@@ -548,22 +566,51 @@ class PerformanceModel:
                                        wall_time=wall_time)
 
     def eval_direct_model(self, wall_time=True):
-        return self._linear_regression("eval_direct", ["direct_workload"],
-                                       wall_time=wall_time)
+        return self._linear_regression(
+            "eval_direct",
+            ["direct_workload", "direct_nsource_boxes"],
+            wall_time=wall_time)
 
-    def _calculate_nters_fmm_total(self, wrangler, counter):
+    @staticmethod
+    def get_fmm_parameters(dimensions, use_pde_expansions, level_nterms):
+        if use_pde_expansions:
+            ncoeffs_fmm_by_level = level_nterms ** (dimensions - 1)
+
+            if dimensions == 2:
+                translation_source_power = 1
+                translation_target_power = 1
+                translation_max_power = 0
+            elif dimensions == 3:
+                # Based on a reading of FMMlib, i.e. a point-and-shoot FMM.
+                translation_source_power = 0
+                translation_target_power = 0
+                translation_max_power = 3
+            else:
+                raise ValueError("Don't know how to estimate expansion complexities "
+                                 "for dimension %d" % dimensions)
+
+        else:
+            ncoeffs_fmm_by_level = level_nterms ** dimensions
+
+            translation_source_power = dimensions
+            translation_target_power = dimensions
+            translation_max_power = 0
+
+        return FMMParameters(
+            ncoeffs_fmm_by_level=ncoeffs_fmm_by_level,
+            translation_source_power=translation_source_power,
+            translation_target_power=translation_target_power,
+            translation_max_power=translation_max_power
+        )
+
+    @staticmethod
+    def calculate_nters_fmm_total(counter, parameters):
         """
         :return: total number of terms formed across all levels during form_multipole
         """
-        dimensions = wrangler.tree.dimensions
-
         nsources_by_level = counter.count_nsources_by_level()
-        level_nterms = wrangler.level_nterms
 
-        if self.uses_pde_expansions:
-            ncoeffs_fmm_by_level = level_nterms ** (dimensions - 1)
-        else:
-            ncoeffs_fmm_by_level = level_nterms ** dimensions
+        ncoeffs_fmm_by_level = parameters.ncoeffs_fmm_by_level
 
         nterms_fmm_total = np.sum(nsources_by_level * ncoeffs_fmm_by_level)
 
