@@ -433,10 +433,71 @@ class TimingRecorder(object):
 # }}}
 
 
+FMMParameters = namedtuple(
+    "FMMParameters",
+    ['ncoeffs_fmm_by_level',
+     'translation_source_power',
+     'translation_target_power',
+     'translation_max_power']
+)
+
+
 class PerformanceCounter:
 
-    def __init__(self, traversal):
+    def __init__(self, traversal, wrangler, uses_pde_expansions):
         self.traversal = traversal
+        self.wrangler = wrangler
+        self.uses_pde_expansions = uses_pde_expansions
+
+        self.parameters = self.get_fmm_parameters(
+            traversal.tree.dimensions,
+            uses_pde_expansions,
+            wrangler.level_nterms
+        )
+
+    @staticmethod
+    def xlat_cost(p_source, p_target, parameters):
+        """
+        :param p_source: A numpy array of numbers of source terms
+        :return: The same shape as *p_source*
+        """
+        return (
+                p_source ** parameters.translation_source_power
+                * p_target ** parameters.translation_target_power
+                * np.maximum(p_source, p_target) ** parameters.translation_max_power
+        )
+
+    @staticmethod
+    def get_fmm_parameters(dimensions, use_pde_expansions, level_nterms):
+        if use_pde_expansions:
+            ncoeffs_fmm_by_level = level_nterms ** (dimensions - 1)
+
+            if dimensions == 2:
+                translation_source_power = 1
+                translation_target_power = 1
+                translation_max_power = 0
+            elif dimensions == 3:
+                # Based on a reading of FMMlib, i.e. a point-and-shoot FMM.
+                translation_source_power = 0
+                translation_target_power = 0
+                translation_max_power = 3
+            else:
+                raise ValueError("Don't know how to estimate expansion complexities "
+                                 "for dimension %d" % dimensions)
+
+        else:
+            ncoeffs_fmm_by_level = level_nterms ** dimensions
+
+            translation_source_power = dimensions
+            translation_target_power = dimensions
+            translation_max_power = 0
+
+        return FMMParameters(
+            ncoeffs_fmm_by_level=ncoeffs_fmm_by_level,
+            translation_source_power=translation_source_power,
+            translation_target_power=translation_target_power,
+            translation_max_power=translation_max_power
+        )
 
     def count_nsources_by_level(self):
         """
@@ -458,6 +519,18 @@ class PerformanceCounter:
             nsources_by_level[ilevel] = count
 
         return nsources_by_level
+
+    def count_nters_fmm_total(self):
+        """
+        :return: total number of terms formed across all levels during form_multipole
+        """
+        nsources_by_level = self.count_nsources_by_level()
+
+        ncoeffs_fmm_by_level = self.parameters.ncoeffs_fmm_by_level
+
+        nterms_fmm_total = np.sum(nsources_by_level * ncoeffs_fmm_by_level)
+
+        return nterms_fmm_total
 
     def count_direct(self, use_global_idx=False):
         """
@@ -508,14 +581,49 @@ class PerformanceCounter:
 
         return direct_workload
 
+    def count_m2l(self, use_global_idx=False):
+        """
+        :return: If *use_global_idx* is True, return a numpy array of shape
+            (tree.nboxes,) such that the ith entry represents the workload from
+            multipole to local expansion on box i. If *use_global_idx* is False,
+            return a numpy array of shape (ntarget_or_target_parent_boxes,) such that
+            the ith entry represents the workload on *target_or_target_parent_boxes*
+            i.
+        """
+        trav = self.traversal
+        wrangler = self.wrangler
+        parameters = self.parameters
 
-FMMParameters = namedtuple(
-    "FMMParameters",
-    ['ncoeffs_fmm_by_level',
-     'translation_source_power',
-     'translation_target_power',
-     'translation_max_power']
-)
+        ntarget_or_target_parent_boxes = len(trav.target_or_target_parent_boxes)
+
+        if use_global_idx:
+            nm2l = np.zeros((trav.tree.nboxes,), dtype=np.intp)
+        else:
+            nm2l = np.zeros((ntarget_or_target_parent_boxes,), dtype=np.intp)
+
+        for itgt_box, tgt_ibox in enumerate(trav.target_or_target_parent_boxes):
+            start, end = trav.from_sep_siblings_starts[itgt_box:itgt_box+2]
+            from_sep_siblings_level = trav.tree.box_levels[
+                trav.from_sep_siblings_lists[start:end]
+            ]
+
+            if start == end:
+                continue
+
+            tgt_box_level = trav.tree.box_levels[tgt_ibox]
+
+            from_sep_siblings_nterms = wrangler.level_nterms[from_sep_siblings_level]
+            tgt_box_nterms = wrangler.level_nterms[tgt_box_level]
+
+            from_sep_siblings_costs = self.xlat_cost(
+                from_sep_siblings_nterms, tgt_box_nterms, parameters)
+
+            if use_global_idx:
+                nm2l[tgt_ibox] += np.sum(from_sep_siblings_costs)
+            else:
+                nm2l[itgt_box] += np.sum(from_sep_siblings_costs)
+
+        return nm2l
 
 
 class PerformanceModel:
@@ -533,19 +641,14 @@ class PerformanceModel:
     def time_performance(self, traversal):
         wrangler = self.wrangler_factory(traversal.tree)
 
-        counter = PerformanceCounter(traversal)
-
-        parameters = self.get_fmm_parameters(
-            traversal.tree.dimensions,
-            self.uses_pde_expansions,
-            wrangler.level_nterms
-        )
+        counter = PerformanceCounter(traversal, wrangler, self.uses_pde_expansions)
 
         # Record useful metadata for assembling performance data
         timing_data = {
-            "nterms_fmm_total": self.calculate_nters_fmm_total(counter, parameters),
+            "nterms_fmm_total": counter.count_nters_fmm_total(),
             "direct_workload": np.sum(counter.count_direct()),
-            "direct_nsource_boxes": traversal.neighbor_source_boxes_starts[-1]
+            "direct_nsource_boxes": traversal.neighbor_source_boxes_starts[-1],
+            "m2l_workload": np.sum(counter.count_m2l())
         }
 
         # Generate random source weights
@@ -562,61 +665,16 @@ class PerformanceModel:
         self.time_result.append(timing_data)
 
     def form_multipoles_model(self, wall_time=True):
-        return self._linear_regression("form_multipoles", ["nterms_fmm_total"],
+        return self.linear_regression("form_multipoles", ["nterms_fmm_total"],
                                        wall_time=wall_time)
 
     def eval_direct_model(self, wall_time=True):
-        return self._linear_regression(
+        return self.linear_regression(
             "eval_direct",
             ["direct_workload", "direct_nsource_boxes"],
             wall_time=wall_time)
 
-    @staticmethod
-    def get_fmm_parameters(dimensions, use_pde_expansions, level_nterms):
-        if use_pde_expansions:
-            ncoeffs_fmm_by_level = level_nterms ** (dimensions - 1)
-
-            if dimensions == 2:
-                translation_source_power = 1
-                translation_target_power = 1
-                translation_max_power = 0
-            elif dimensions == 3:
-                # Based on a reading of FMMlib, i.e. a point-and-shoot FMM.
-                translation_source_power = 0
-                translation_target_power = 0
-                translation_max_power = 3
-            else:
-                raise ValueError("Don't know how to estimate expansion complexities "
-                                 "for dimension %d" % dimensions)
-
-        else:
-            ncoeffs_fmm_by_level = level_nterms ** dimensions
-
-            translation_source_power = dimensions
-            translation_target_power = dimensions
-            translation_max_power = 0
-
-        return FMMParameters(
-            ncoeffs_fmm_by_level=ncoeffs_fmm_by_level,
-            translation_source_power=translation_source_power,
-            translation_target_power=translation_target_power,
-            translation_max_power=translation_max_power
-        )
-
-    @staticmethod
-    def calculate_nters_fmm_total(counter, parameters):
-        """
-        :return: total number of terms formed across all levels during form_multipole
-        """
-        nsources_by_level = counter.count_nsources_by_level()
-
-        ncoeffs_fmm_by_level = parameters.ncoeffs_fmm_by_level
-
-        nterms_fmm_total = np.sum(nsources_by_level * ncoeffs_fmm_by_level)
-
-        return nterms_fmm_total
-
-    def _linear_regression(self, y_name, x_name, wall_time=True):
+    def linear_regression(self, y_name, x_name, wall_time=True):
         """
             :arg y_name: Name of the depedent variable
             :arg x_name: A list of names of independent variables
