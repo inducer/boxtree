@@ -87,6 +87,16 @@ predict_timing["multipole_to_local"] = m2l_workload * param[0] + param[1]
 
 # }}}
 
+# {{{ Predict eval_multipoles
+
+param = model.eval_multipoles_model(wall_time=wall_time)
+
+m2p_workload = np.sum(eval_counter.count_m2p())
+
+predict_timing["eval_multipoles"] = m2p_workload * param[0] + param[1]
+
+# }}}
+
 # {{{ Actual timing
 
 true_timing = {}
@@ -100,7 +110,7 @@ _ = drive_fmm(eval_traversal, eval_wrangler, source_weights, timing_data=true_ti
 # }}}
 
 
-for field in ["eval_direct", "multipole_to_local"]:
+for field in ["eval_direct", "multipole_to_local", "eval_multipoles"]:
     wall_time_field = predict_timing[field]
 
     if wall_time:

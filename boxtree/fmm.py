@@ -625,6 +625,33 @@ class PerformanceCounter:
 
         return nm2l
 
+    def count_m2p(self, use_global_idx=False):
+        trav = self.traversal
+        tree = trav.tree
+
+        if use_global_idx:
+            nm2p = np.zeros((tree.nboxes,), dtype=np.intp)
+        else:
+            nm2p = np.zeros((len(trav.target_boxes),), dtype=np.intp)
+
+        for ilevel, sep_smaller_list in enumerate(trav.from_sep_smaller_by_level):
+            ncoeffs_fmm_cur_level = self.parameters.ncoeffs_fmm_by_level[ilevel]
+            tgt_box_list = trav.target_boxes_sep_smaller_by_source_level[ilevel]
+
+            for itgt_box, tgt_ibox in enumerate(tgt_box_list):
+                ntargets = tree.box_target_counts_nonchild[tgt_ibox]
+
+                start, end = sep_smaller_list.starts[itgt_box:itgt_box + 2]
+
+                workload = (end - start) * ntargets * ncoeffs_fmm_cur_level
+
+                if use_global_idx:
+                    nm2p[tgt_ibox] += workload
+                else:
+                    nm2p[sep_smaller_list.nonempty_indices[itgt_box]] += workload
+
+        return nm2p
+
 
 class PerformanceModel:
 
@@ -648,7 +675,8 @@ class PerformanceModel:
             "nterms_fmm_total": counter.count_nters_fmm_total(),
             "direct_workload": np.sum(counter.count_direct()),
             "direct_nsource_boxes": traversal.neighbor_source_boxes_starts[-1],
-            "m2l_workload": np.sum(counter.count_m2l())
+            "m2l_workload": np.sum(counter.count_m2l()),
+            "m2p_workload": np.sum(counter.count_m2p())
         }
 
         # Generate random source weights
@@ -665,8 +693,9 @@ class PerformanceModel:
         self.time_result.append(timing_data)
 
     def form_multipoles_model(self, wall_time=True):
-        return self.linear_regression("form_multipoles", ["nterms_fmm_total"],
-                                       wall_time=wall_time)
+        return self.linear_regression(
+            "form_multipoles", ["nterms_fmm_total"],
+            wall_time=wall_time)
 
     def eval_direct_model(self, wall_time=True):
         return self.linear_regression(
@@ -677,6 +706,12 @@ class PerformanceModel:
     def multipole_to_local_model(self, wall_time=True):
         return self.linear_regression(
             "multipole_to_local", ["m2l_workload"],
+            wall_time=wall_time
+        )
+
+    def eval_multipoles_model(self, wall_time=True):
+        return self.linear_regression(
+            "eval_multipoles", ["m2p_workload"],
             wall_time=wall_time
         )
 
