@@ -652,6 +652,33 @@ class PerformanceCounter:
 
         return nm2p
 
+    def count_p2l(self, use_global_idx=False):
+        trav = self.traversal
+        tree = trav.tree
+        parameters = self.parameters
+
+        if use_global_idx:
+            np2l = np.zeros((tree.nboxes,), dtype=np.intp)
+        else:
+            np2l = np.zeros(len(trav.target_or_target_parent_boxes), dtype=np.intp)
+
+        for itgt_box, tgt_ibox in enumerate(trav.target_or_target_parent_boxes):
+            tgt_box_level = trav.tree.box_levels[tgt_ibox]
+            ncoeffs = parameters.ncoeffs_fmm_by_level[tgt_box_level]
+
+            start, end = trav.from_sep_bigger_starts[itgt_box:itgt_box + 2]
+
+            np2l_sources = 0
+            for src_ibox in trav.from_sep_bigger_lists[start:end]:
+                np2l_sources += tree.box_source_counts_nonchild[src_ibox]
+
+            if use_global_idx:
+                np2l[tgt_ibox] = np2l_sources * ncoeffs
+            else:
+                np2l[itgt_box] = np2l_sources * ncoeffs
+
+        return np2l
+
 
 class PerformanceModel:
 
@@ -676,7 +703,8 @@ class PerformanceModel:
             "direct_workload": np.sum(counter.count_direct()),
             "direct_nsource_boxes": traversal.neighbor_source_boxes_starts[-1],
             "m2l_workload": np.sum(counter.count_m2l()),
-            "m2p_workload": np.sum(counter.count_m2p())
+            "m2p_workload": np.sum(counter.count_m2p()),
+            "p2l_workload": np.sum(counter.count_p2l())
         }
 
         # Generate random source weights
@@ -712,6 +740,12 @@ class PerformanceModel:
     def eval_multipoles_model(self, wall_time=True):
         return self.linear_regression(
             "eval_multipoles", ["m2p_workload"],
+            wall_time=wall_time
+        )
+
+    def form_locals_model(self, wall_time=True):
+        return self.linear_regression(
+            "form_locals", ["p2l_workload"],
             wall_time=wall_time
         )
 

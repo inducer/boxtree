@@ -97,6 +97,16 @@ predict_timing["eval_multipoles"] = m2p_workload * param[0] + param[1]
 
 # }}}
 
+# {{{ Predict form_locals
+
+param = model.form_locals_model(wall_time=wall_time)
+
+p2l_workload = np.sum(eval_counter.count_p2l())
+
+predict_timing["form_locals"] = p2l_workload * param[0] + param[1]
+
+# }}}
+
 # {{{ Actual timing
 
 true_timing = {}
@@ -110,14 +120,15 @@ _ = drive_fmm(eval_traversal, eval_wrangler, source_weights, timing_data=true_ti
 # }}}
 
 
-for field in ["eval_direct", "multipole_to_local", "eval_multipoles"]:
-    wall_time_field = predict_timing[field]
+for field in ["eval_direct", "multipole_to_local", "eval_multipoles", "form_locals"]:
+    predict_time_field = predict_timing[field]
 
     if wall_time:
         true_time_field = true_timing[field].wall_elapsed
     else:
         true_time_field = true_timing[field].process_elapsed
 
-    diff = abs(wall_time_field - true_time_field)
+    diff = abs(predict_time_field - true_time_field)
 
-    print(field + " error: " + str(diff / true_time_field))
+    print(field + ": predict " + str(predict_time_field) + " actual " +
+          str(true_time_field) + " error " + str(diff / true_time_field))
