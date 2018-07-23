@@ -715,9 +715,6 @@ class PerformanceModel:
             from numpy.linalg import lstsq
             coeff = lstsq(coeff_matrix, dependent_value, rcond=-1)[0]
 
-            print(coeff_matrix)
-            print(dependent_value)
-
             return coeff
 
 
