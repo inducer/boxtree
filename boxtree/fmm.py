@@ -674,6 +674,12 @@ class PerformanceModel:
             ["direct_workload", "direct_nsource_boxes"],
             wall_time=wall_time)
 
+    def multipole_to_local_model(self, wall_time=True):
+        return self.linear_regression(
+            "multipole_to_local", ["m2l_workload"],
+            wall_time=wall_time
+        )
+
     def linear_regression(self, y_name, x_name, wall_time=True):
         """
             :arg y_name: Name of the depedent variable
