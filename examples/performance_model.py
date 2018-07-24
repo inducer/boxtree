@@ -55,7 +55,7 @@ wrangler_factory = functools.partial(
 ntraversals = len(traversals)
 model = PerformanceModel(context, wrangler_factory, True)
 for i in range(ntraversals - 1):
-    model.time_performance(traversals[i])
+    model.time_performance(traversals[i], drive_fmm)
 
 eval_traversal = traversals[-1]
 eval_wrangler = wrangler_factory(eval_traversal.tree)
@@ -107,6 +107,16 @@ predict_timing["form_locals"] = p2l_workload * param[0] + param[1]
 
 # }}}
 
+# {{{
+
+param = model.eval_locals_model(wall_time=wall_time)
+
+eval_part_workload = np.sum(eval_counter.count_eval_part())
+
+predict_timing["eval_locals"] = eval_part_workload * param[0] + param[1]
+
+# }}}
+
 # {{{ Actual timing
 
 true_timing = {}
@@ -120,7 +130,8 @@ _ = drive_fmm(eval_traversal, eval_wrangler, source_weights, timing_data=true_ti
 # }}}
 
 
-for field in ["eval_direct", "multipole_to_local", "eval_multipoles", "form_locals"]:
+for field in ["eval_direct", "multipole_to_local", "eval_multipoles", "form_locals",
+              "eval_locals"]:
     predict_time_field = predict_timing[field]
 
     if wall_time:

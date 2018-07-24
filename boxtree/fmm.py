@@ -679,6 +679,28 @@ class PerformanceCounter:
 
         return np2l
 
+    def count_eval_part(self, use_global_idx=False):
+        trav = self.traversal
+        tree = trav.tree
+        parameters = self.parameters
+
+        if use_global_idx:
+            neval_part = np.zeros(tree.nboxes, dtype=np.intp)
+        else:
+            neval_part = np.zeros(len(trav.target_boxes), dtype=np.intp)
+
+        for itgt_box, tgt_ibox in enumerate(trav.target_boxes):
+            ntargets = tree.box_target_counts_nonchild[tgt_ibox]
+            tgt_box_level = trav.tree.box_levels[tgt_ibox]
+            ncoeffs_fmm = parameters.ncoeffs_fmm_by_level[tgt_box_level]
+
+            if use_global_idx:
+                neval_part[tgt_ibox] = ntargets * ncoeffs_fmm
+            else:
+                neval_part[itgt_box] = ntargets * ncoeffs_fmm
+
+        return neval_part
+
 
 class PerformanceModel:
 
@@ -692,7 +714,7 @@ class PerformanceModel:
         from pyopencl.clrandom import PhiloxGenerator
         self.rng = PhiloxGenerator(cl_context)
 
-    def time_performance(self, traversal):
+    def time_performance(self, traversal, drive_fmm):
         wrangler = self.wrangler_factory(traversal.tree)
 
         counter = PerformanceCounter(traversal, wrangler, self.uses_pde_expansions)
@@ -704,7 +726,8 @@ class PerformanceModel:
             "direct_nsource_boxes": traversal.neighbor_source_boxes_starts[-1],
             "m2l_workload": np.sum(counter.count_m2l()),
             "m2p_workload": np.sum(counter.count_m2p()),
-            "p2l_workload": np.sum(counter.count_p2l())
+            "p2l_workload": np.sum(counter.count_p2l()),
+            "eval_part_workload": np.sum(counter.count_eval_part())
         }
 
         # Generate random source weights
@@ -746,6 +769,12 @@ class PerformanceModel:
     def form_locals_model(self, wall_time=True):
         return self.linear_regression(
             "form_locals", ["p2l_workload"],
+            wall_time=wall_time
+        )
+
+    def eval_locals_model(self, wall_time=True):
+        return self.linear_regression(
+            "eval_locals", ["eval_part_workload"],
             wall_time=wall_time
         )
 
