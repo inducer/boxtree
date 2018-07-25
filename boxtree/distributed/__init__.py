@@ -24,8 +24,8 @@ THE SOFTWARE.
 """
 
 from mpi4py import MPI
-from collections import namedtuple
 import numpy as np
+from boxtree.distributed.perf_model import PerformanceModel, PerformanceCounter
 
 MPITags = dict(
     DIST_TREE=0,
@@ -36,11 +36,6 @@ MPITags = dict(
     GATHER_POTENTIALS=5,
     REDUCE_POTENTIALS=6,
     REDUCE_INDICES=7
-)
-
-WorkloadWeight = namedtuple(
-    'Workload',
-    ['direct', 'm2l', 'm2p', 'p2l', 'multipole']
 )
 
 
@@ -70,6 +65,17 @@ class DistributedFMMInfo(object):
         self.comm = comm
         current_rank = comm.Get_rank()
 
+        # {{{ Get global wrangler
+
+        if current_rank == 0:
+            self.global_wrangler = distributed_expansion_wrangler_factory(
+                self.global_trav.tree
+            )
+        else:
+            self.global_wrangler = None
+
+        # }}}
+
         # {{{ Broadcast well_sep_is_n_away
 
         if current_rank == 0:
@@ -81,15 +87,27 @@ class DistributedFMMInfo(object):
 
         # }}}
 
+        # {{{ Get performance model and counter
+
+        if current_rank == 0:
+            from boxtree.fmm import drive_fmm
+            model = PerformanceModel(
+                queue.context,
+                distributed_expansion_wrangler_factory,
+                True, drive_fmm
+            )
+            model.time_random_traversals()
+
+            counter = PerformanceCounter(global_trav, self.global_wrangler, True)
+
+        # }}}
+
         # {{{ Partiton work
 
         if current_rank == 0:
             from boxtree.distributed.partition import partition_work
-            workload_weight = WorkloadWeight(
-                direct=1, m2l=1, m2p=1, p2l=1, multipole=5
-            )
             responsible_boxes_list = partition_work(
-                global_trav, comm.Get_size(), workload_weight
+                model, counter, global_trav, comm.Get_size()
             )
         else:
             responsible_boxes_list = None
@@ -120,7 +138,7 @@ class DistributedFMMInfo(object):
 
         # }}}
 
-        # {{{ Get local and global wrangler
+        # {{{ Get local wrangler
 
         """
         Note: The difference between "local wrangler" and "global wrangler" is that
@@ -132,12 +150,6 @@ class DistributedFMMInfo(object):
 
         self.local_wrangler = self.distributed_expansion_wrangler_factory(
             self.local_tree)
-
-        if current_rank == 0:
-            self.global_wrangler = self.distributed_expansion_wrangler_factory(
-                self.global_trav.tree)
-        else:
-            self.global_wrangler = None
 
         # }}}
 

@@ -29,7 +29,7 @@ from pyopencl.tools import dtype_to_ctype
 from mako.template import Template
 
 
-def partition_work(traversal, total_rank, workload_weight):
+def partition_work(perf_model, perf_counter, traversal, total_rank):
     """ This function assigns responsible boxes of each process.
 
     Each process is responsible for calculating the multiple expansions as well as
@@ -37,87 +37,36 @@ def partition_work(traversal, total_rank, workload_weight):
 
     :arg traversal: The traversal object built on root containing all particles.
     :arg total_rank: The total number of processes.
-    :arg workload_weight: Workload coefficients of various operations (e.g. direct
-        evaluations, multipole-to-local, etc.) used for load balacing.
     :return: A numpy array of shape (total_rank,), where the ith element is an numpy
         array containing the responsible boxes of process i.
     """
     tree = traversal.tree
 
-    # store the workload of each box
-    workload = np.zeros((tree.nboxes,), dtype=np.float64)
+    time_increment = np.zeros((tree.nboxes,), dtype=np.float64)
 
-    # add workload of list 1
-    for itarget_box, box_idx in enumerate(traversal.target_boxes):
-        box_ntargets = tree.box_target_counts_nonchild[box_idx]
-        start = traversal.neighbor_source_boxes_starts[itarget_box]
-        end = traversal.neighbor_source_boxes_starts[itarget_box + 1]
-        list1 = traversal.neighbor_source_boxes_lists[start:end]
-        particle_count = 0
-        for ibox in list1:
-            particle_count += tree.box_source_counts_nonchild[ibox]
-        workload[box_idx] += box_ntargets * particle_count * workload_weight.direct
+    param = perf_model.eval_direct_model()
+    direct_workload = perf_counter.count_direct(use_global_idx=True)
+    time_increment += (direct_workload * param[0] + param[1])
 
-    # add workload of list 2
-    for itarget_or_target_parent_boxes, box_idx in enumerate(
-            traversal.target_or_target_parent_boxes):
-        start = traversal.from_sep_siblings_starts[itarget_or_target_parent_boxes]
-        end = traversal.from_sep_siblings_starts[itarget_or_target_parent_boxes + 1]
-        workload[box_idx] += (end - start) * workload_weight.m2l
+    param = perf_model.multipole_to_local_model()
+    m2l_workload = perf_counter.count_m2l(use_global_idx=True)
+    time_increment += (m2l_workload * param[0])
 
-    for ilevel in range(tree.nlevels):
-        # add workload of list 3 far
-        for itarget_box, box_idx in enumerate(
-                traversal.target_boxes_sep_smaller_by_source_level[ilevel]):
-            box_ntargets = tree.box_target_counts_nonchild[box_idx]
-            start = traversal.from_sep_smaller_by_level[ilevel].starts[itarget_box]
-            end = traversal.from_sep_smaller_by_level[ilevel].starts[
-                                                                itarget_box + 1]
-            workload[box_idx] += (end - start) * box_ntargets
+    param = perf_model.eval_multipoles_model()
+    m2p_workload = perf_counter.count_m2p(use_global_idx=True)
+    time_increment += (m2p_workload * param[0])
 
-        # add workload of list 3 near
-        if tree.targets_have_extent and \
-                traversal.from_sep_close_smaller_starts is not None:
-            for itarget_box, box_idx in enumerate(traversal.target_boxes):
-                box_ntargets = tree.box_target_counts_nonchild[box_idx]
-                start = traversal.from_sep_close_smaller_starts[itarget_box]
-                end = traversal.from_sep_close_smaller_starts[itarget_box + 1]
-                particle_count = 0
-                for near_box_id in traversal.from_sep_close_smaller_lists[start:end]:
-                    particle_count += tree.box_source_counts_nonchild[near_box_id]
-                workload[box_idx] += (
-                    box_ntargets * particle_count * workload_weight.direct)
+    param = perf_model.form_locals_model()
+    p2l_workload = perf_counter.count_p2l(use_global_idx=True)
+    time_increment += (p2l_workload * param[0])
 
-    # add workload of list 4
-    for itarget_or_target_parent_boxes, box_idx in enumerate(
-            traversal.target_or_target_parent_boxes):
-        start = traversal.from_sep_bigger_starts[itarget_or_target_parent_boxes]
-        end = traversal.from_sep_bigger_starts[itarget_or_target_parent_boxes + 1]
-        particle_count = 0
-        for far_box_id in traversal.from_sep_bigger_lists[start:end]:
-            particle_count += tree.box_source_counts_nonchild[far_box_id]
-        workload[box_idx] += particle_count * workload_weight.p2l
-
-        if tree.targets_have_extent and \
-                traversal.from_sep_close_bigger_starts is not None:
-            box_ntargets = tree.box_target_counts_nonchild[box_idx]
-            start = traversal.from_sep_close_bigger_starts[
-                        itarget_or_target_parent_boxes]
-            end = traversal.from_sep_close_bigger_starts[
-                        itarget_or_target_parent_boxes + 1]
-            particle_count = 0
-            for direct_box_id in traversal.from_sep_close_bigger_lists[start:end]:
-                particle_count += tree.box_source_counts_nonchild[direct_box_id]
-            workload[box_idx] += (
-                    box_ntargets * particle_count * workload_weight.direct)
-
-    for i in range(tree.nboxes):
-        # add workload of multipole calculation
-        workload[i] += tree.box_source_counts_nonchild[i] * workload_weight.multipole
+    param = perf_model.eval_locals_model()
+    eval_part_workload = perf_counter.count_eval_part(use_global_idx=True)
+    time_increment += (eval_part_workload * param[0])
 
     total_workload = 0
     for i in range(tree.nboxes):
-        total_workload += workload[i]
+        total_workload += time_increment[i]
 
     # transform tree from level order to dfs order
     dfs_order = np.empty((tree.nboxes,), dtype=tree.box_id_dtype)
@@ -139,7 +88,7 @@ def partition_work(traversal, total_rank, workload_weight):
     workload_count = 0
     for i in range(tree.nboxes):
         box_idx = dfs_order[i]
-        workload_count += workload[box_idx]
+        workload_count += time_increment[box_idx]
         if (workload_count > (rank + 1)*total_workload/total_rank or
                 i == tree.nboxes - 1):
             responsible_boxes_list[rank] = dfs_order[start:i+1]
