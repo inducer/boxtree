@@ -56,7 +56,7 @@ def dtype_to_mpi(dtype):
 class DistributedFMMInfo(object):
 
     def __init__(self, queue, global_trav, distributed_expansion_wrangler_factory,
-                 comm=MPI.COMM_WORLD):
+                 model_filename=None, comm=MPI.COMM_WORLD):
 
         self.global_trav = global_trav
         self.distributed_expansion_wrangler_factory = \
@@ -96,7 +96,11 @@ class DistributedFMMInfo(object):
                 distributed_expansion_wrangler_factory,
                 True, drive_fmm
             )
-            model.time_random_traversals()
+            if model_filename is not None:
+                model.load(model_filename)
+
+            if len(model.time_result) == 0:
+                model.time_random_traversals()
 
             counter = PerformanceCounter(global_trav, self.global_wrangler, True)
 

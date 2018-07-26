@@ -93,6 +93,10 @@ def partition_work(perf_model, perf_counter, traversal, total_rank):
     start = 0
     workload_count = 0
     for i in range(tree.nboxes):
+        if rank + 1 == total_rank:
+            responsible_boxes_list[rank] = dfs_order[start:tree.nboxes]
+            break
+
         box_idx = dfs_order[i]
         workload_count += time_increment[box_idx]
         if (workload_count > (rank + 1)*total_workload/total_rank

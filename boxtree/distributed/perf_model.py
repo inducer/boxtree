@@ -356,7 +356,7 @@ class PerformanceModel:
         self.rng = PhiloxGenerator(cl_context)
 
     def time_performance(self, traversal):
-        wrangler = self.wrangler_factory(traversal.tree)
+        wrangler = self.wrangler_factory(tree=traversal.tree)
 
         counter = PerformanceCounter(traversal, wrangler, self.uses_pde_expansions)
 
