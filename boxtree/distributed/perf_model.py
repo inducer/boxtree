@@ -27,6 +27,7 @@ import pyopencl as cl
 import numpy as np
 from collections import namedtuple
 from pyopencl.clrandom import PhiloxGenerator
+import pickle
 
 
 def generate_random_traversal(context, nsources, ntargets, dims, dtype):
@@ -549,3 +550,19 @@ class PerformanceModel:
         # }}}
 
         return predict_timing
+
+    def save(self, filename):
+        with open(filename, 'wb') as f:
+            pickle.dump(self.time_result, f)
+            print("Save {} records to disk.".format(len(self.time_result)))
+
+    def load(self, filename):
+        try:
+            with open(filename, 'rb') as f:
+                loaded_result = pickle.load(f)
+                self.time_result.extend(loaded_result)
+                print("Load {} records from disk.".format(len(loaded_result)))
+        except IOError:
+            print("Cannot open file '" + filename + "'")
+        except EOFError:
+            print("Nothing to read from file.")
