@@ -24,7 +24,8 @@ wrangler_factory = functools.partial(
 
 
 def train_model():
-    traversals = []
+    model = PerformanceModel(context, wrangler_factory, True, drive_fmm)
+    model.load('model')
 
     test_cases = [
         (9000, 9000),
@@ -38,17 +39,8 @@ def train_model():
     ]
 
     for nsources, ntargets in test_cases:
-        traversals.append(generate_random_traversal(
-            context, nsources, ntargets, dims, dtype
-        ))
-
-    ntraversals = len(traversals)
-    model = PerformanceModel(context, wrangler_factory, True, drive_fmm)
-
-    model.load('model')
-
-    for i in range(ntraversals - 1):
-        model.time_performance(traversals[i])
+        trav = generate_random_traversal(context, nsources, ntargets, dims, dtype)
+        model.time_performance(trav)
 
     model.save('model')
 

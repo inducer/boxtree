@@ -461,10 +461,15 @@ class PerformanceModel:
 
             coeff_matrix[:, -1] = 1
 
+            """
             from numpy.linalg import lstsq
             coeff = lstsq(coeff_matrix, dependent_value, rcond=-1)[0]
+            """
+            import statsmodels.api as sm
+            rlm_model = sm.RLM(dependent_value, coeff_matrix)
+            rlm_result = rlm_model.fit()
 
-            return coeff
+            return rlm_result.params
 
     def time_random_traversals(self):
         context = self.cl_context
