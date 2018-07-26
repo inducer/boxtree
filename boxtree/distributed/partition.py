@@ -58,12 +58,13 @@ def partition_work(perf_model, perf_counter, traversal, total_rank):
     time_increment += (m2l_workload * param[0])
 
     param = perf_model.eval_multipoles_model()
-    m2p_workload = perf_counter.count_m2p(use_global_idx=True)
-    time_increment += (m2p_workload * param[0])
+    m2p_workload, m2p_nboxes = perf_counter.count_m2p(use_global_idx=True)
+    time_increment += (m2p_workload * param[0] + m2p_nboxes * param[1])
 
     param = perf_model.form_locals_model()
     p2l_workload = perf_counter.count_p2l(use_global_idx=True)
-    time_increment += (p2l_workload * param[0])
+    p2l_nboxes = perf_counter.count_p2l_source_boxes(use_global_idx=True)
+    time_increment += (p2l_workload * param[0] + p2l_nboxes * param[1])
 
     param = perf_model.eval_locals_model()
     eval_part_workload = perf_counter.count_eval_part(use_global_idx=True)

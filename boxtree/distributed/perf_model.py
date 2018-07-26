@@ -250,8 +250,10 @@ class PerformanceCounter:
 
         if use_global_idx:
             nm2p = np.zeros((tree.nboxes,), dtype=np.intp)
+            nm2p_boxes = np.zeros((tree.nboxes,), dtype=np.intp)
         else:
             nm2p = np.zeros((len(trav.target_boxes),), dtype=np.intp)
+            nm2p_boxes = np.zeros((len(trav.target_boxes),), dtype=np.intp)
 
         for ilevel, sep_smaller_list in enumerate(trav.from_sep_smaller_by_level):
             ncoeffs_fmm_cur_level = self.parameters.ncoeffs_fmm_by_level[ilevel]
@@ -266,10 +268,14 @@ class PerformanceCounter:
 
                 if use_global_idx:
                     nm2p[tgt_ibox] += workload
+                    nm2p_boxes[tgt_ibox] += (end - start)
                 else:
                     nm2p[sep_smaller_list.nonempty_indices[itgt_box]] += workload
+                    nm2p_boxes[sep_smaller_list.nonempty_indices[itgt_box]] += (
+                        end - start
+                    )
 
-        return nm2p
+        return nm2p, nm2p_boxes
 
     def count_p2l(self, use_global_idx=False):
         trav = self.traversal
@@ -297,6 +303,20 @@ class PerformanceCounter:
                 np2l[itgt_box] = np2l_sources * ncoeffs
 
         return np2l
+
+    def count_p2l_source_boxes(self, use_global_idx=False):
+        trav = self.traversal
+        tree = trav.tree
+
+        p2l_nsource_boxes = (trav.from_sep_bigger_starts[1:]
+                             - trav.from_sep_bigger_starts[:-1])
+
+        if use_global_idx:
+            np2l = np.zeros((tree.nboxes,), dtype=np.intp)
+            np2l[trav.target_or_target_parent_boxes] = p2l_nsource_boxes
+            return np2l
+        else:
+            return p2l_nsource_boxes
 
     def count_eval_part(self, use_global_idx=False):
         trav = self.traversal
@@ -340,13 +360,17 @@ class PerformanceModel:
         counter = PerformanceCounter(traversal, wrangler, self.uses_pde_expansions)
 
         # Record useful metadata for assembling performance data
+        nm2p, nm2p_boxes = counter.count_m2p()
+
         timing_data = {
             "nterms_fmm_total": counter.count_nters_fmm_total(),
             "direct_workload": np.sum(counter.count_direct()),
             "direct_nsource_boxes": traversal.neighbor_source_boxes_starts[-1],
             "m2l_workload": np.sum(counter.count_m2l()),
-            "m2p_workload": np.sum(counter.count_m2p()),
+            "m2p_workload": np.sum(nm2p),
+            "m2p_nboxes": np.sum(nm2p_boxes),
             "p2l_workload": np.sum(counter.count_p2l()),
+            "p2l_nboxes": np.sum(counter.count_p2l_source_boxes()),
             "eval_part_workload": np.sum(counter.count_eval_part())
         }
 
@@ -382,13 +406,13 @@ class PerformanceModel:
 
     def eval_multipoles_model(self, wall_time=True):
         return self.linear_regression(
-            "eval_multipoles", ["m2p_workload"],
+            "eval_multipoles", ["m2p_workload", "m2p_nboxes"],
             wall_time=wall_time
         )
 
     def form_locals_model(self, wall_time=True):
         return self.linear_regression(
-            "form_locals", ["p2l_workload"],
+            "form_locals", ["p2l_workload", "p2l_nboxes"],
             wall_time=wall_time
         )
 
@@ -490,9 +514,14 @@ class PerformanceModel:
 
         param = self.eval_multipoles_model(wall_time=wall_time)
 
-        m2p_workload = np.sum(eval_counter.count_m2p())
+        nm2p, nm2p_boxes = eval_counter.count_m2p()
 
-        predict_timing["eval_multipoles"] = m2p_workload * param[0] + param[1]
+        m2p_workload = np.sum(nm2p)
+        m2p_boxes = np.sum(nm2p_boxes)
+
+        predict_timing["eval_multipoles"] = (
+            m2p_workload * param[0] + m2p_boxes * param[1] + param[2]
+        )
 
         # }}}
 
@@ -501,8 +530,11 @@ class PerformanceModel:
         param = self.form_locals_model(wall_time=wall_time)
 
         p2l_workload = np.sum(eval_counter.count_p2l())
+        p2l_nboxes = np.sum(eval_counter.count_p2l_source_boxes())
 
-        predict_timing["form_locals"] = p2l_workload * param[0] + param[1]
+        predict_timing["form_locals"] = (
+            p2l_workload * param[0] + p2l_nboxes * param[1] + param[2]
+        )
 
         # }}}
 

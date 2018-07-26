@@ -21,11 +21,19 @@ def fmm_level_to_nterms(tree, level):
 
 traversals = []
 
-for nsources, ntargets, dims in [(6000, 6000, 3),
-                                 (9000, 9000, 3),
-                                 (12000, 12000, 3),
-                                 (15000, 15000, 3),
-                                 (20000, 20000, 3)]:
+test_cases = [
+    (9000, 9000, 3),
+    (9000, 9000, 3),
+    (12000, 12000, 3),
+    (12000, 12000, 3),
+    (15000, 15000, 3),
+    (15000, 15000, 3),
+    (18000, 18000, 3),
+    (18000, 18000, 3),
+    (25000, 25000, 3)  # this last test case is for evaluation
+]
+
+for nsources, ntargets, dims in test_cases:
 
     from boxtree.distributed.perf_model import generate_random_traversal
     traversals.append(generate_random_traversal(
