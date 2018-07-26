@@ -46,7 +46,12 @@ def partition_work(perf_model, perf_counter, traversal, total_rank):
 
     param = perf_model.eval_direct_model()
     direct_workload = perf_counter.count_direct(use_global_idx=True)
-    time_increment += (direct_workload * param[0] + param[1])
+    ndirect_source_boxes = np.zeros((tree.nboxes,), dtype=np.intp)
+    ndirect_source_boxes[traversal.target_boxes] = (
+        traversal.neighbor_source_boxes_starts[1:]
+        - traversal.neighbor_source_boxes_starts[:-1]
+    )
+    time_increment += (direct_workload * param[0] + ndirect_source_boxes * param[1])
 
     param = perf_model.multipole_to_local_model()
     m2l_workload = perf_counter.count_m2l(use_global_idx=True)
@@ -89,8 +94,8 @@ def partition_work(perf_model, perf_counter, traversal, total_rank):
     for i in range(tree.nboxes):
         box_idx = dfs_order[i]
         workload_count += time_increment[box_idx]
-        if (workload_count > (rank + 1)*total_workload/total_rank or
-                i == tree.nboxes - 1):
+        if (workload_count > (rank + 1)*total_workload/total_rank
+                or i == tree.nboxes - 1):
             responsible_boxes_list[rank] = dfs_order[start:i+1]
             start = i + 1
             rank += 1
