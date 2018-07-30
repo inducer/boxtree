@@ -256,7 +256,9 @@ def communicate_mpoles(wrangler, comm, trav, mpole_exps, return_stats=False):
         comm_pattern.advance()
 
     stats["total_time"] = time() - t_start
-    logger.info("communicate multipoles: done in %.2f s" % stats["total_time"])
+    logger.info("Communicate multipoles: done in {0:.4f} sec.".format(
+        stats["total_time"]
+    ))
 
     if return_stats:
         return stats
@@ -281,6 +283,8 @@ def distribute_source_weights(source_weights, local_data, comm=MPI.COMM_WORLD):
     total_rank = comm.Get_size()
 
     if current_rank == 0:
+        start_time = time.time()
+
         weight_req = []
         local_src_weights = np.empty((total_rank,), dtype=object)
 
@@ -294,6 +298,10 @@ def distribute_source_weights(source_weights, local_data, comm=MPI.COMM_WORLD):
                 )
 
         MPI.Request.Waitall(weight_req)
+
+        logger.info("Distribute source weights in {0:.4f} sec.".format(
+            time.time() - start_time
+        ))
 
         local_src_weights = local_src_weights[0]
     else:
@@ -380,6 +388,8 @@ def calculate_pot(local_wrangler, global_wrangler, local_trav, source_weights,
         communicate_mpoles(local_wrangler, comm, local_trav, mpole_exps)
 
     # }}}
+
+    fmm_eval_start_time = time.time()
 
     # {{{ "Stage 3:" Direct evaluation from neighbor source boxes ("list 1")
 
@@ -477,6 +487,10 @@ def calculate_pot(local_wrangler, global_wrangler, local_trav, source_weights,
 
     # }}}
 
+    logger.info("FMM Evaluation finished on process {0} in {1:.4f} sec.".format(
+        current_rank, time.time() - fmm_eval_start_time
+    ))
+
     # {{{ Worker processes send calculated potentials to the root process
 
     potentials_mpi_type = dtype_to_mpi(potentials.dtype)
@@ -518,8 +532,8 @@ def calculate_pot(local_wrangler, global_wrangler, local_trav, source_weights,
 
     if current_rank == 0:
 
-        logger.info("Distributed FMM evaluation completes in {} sec.".format(
-            str(time.time() - start_time)
+        logger.info("Distributed FMM evaluation completes in {0:.4f} sec.".format(
+            time.time() - start_time
         ))
 
         return result
