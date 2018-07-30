@@ -496,6 +496,7 @@ def calculate_pot(local_wrangler, global_wrangler, local_trav, source_weights,
     potentials_mpi_type = dtype_to_mpi(potentials.dtype)
 
     if current_rank == 0:
+        receive_pot_start_time = time.time()
 
         potentials_all_ranks = np.empty((total_rank,), dtype=object)
         potentials_all_ranks[0] = potentials
@@ -506,6 +507,9 @@ def calculate_pot(local_wrangler, global_wrangler, local_trav, source_weights,
 
             comm.Recv([potentials_all_ranks[irank], potentials_mpi_type],
                       source=irank, tag=MPITags["GATHER_POTENTIALS"])
+
+        logger.info("Receive potentials from worker processes in {0:.4f} sec."
+                    .format(time.time() - receive_pot_start_time))
     else:
         comm.Send([potentials, potentials_mpi_type],
                   dest=0, tag=MPITags["GATHER_POTENTIALS"])
@@ -515,6 +519,7 @@ def calculate_pot(local_wrangler, global_wrangler, local_trav, source_weights,
     # {{{ Assemble potentials from worker processes together on the root process
 
     if current_rank == 0:
+        post_processing_start_time = time.time()
 
         potentials = np.empty((global_wrangler.tree.ntargets,),
                               dtype=potentials.dtype)
@@ -527,6 +532,10 @@ def calculate_pot(local_wrangler, global_wrangler, local_trav, source_weights,
 
         logger.debug("finalize potentials")
         result = global_wrangler.finalize_potentials(result)
+
+        logger.info("Post processing in {0:.4f} sec.".format(
+            time.time() - post_processing_start_time
+        ))
 
     # }}}
 
