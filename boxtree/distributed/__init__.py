@@ -97,10 +97,14 @@ class DistributedFMMInfo(object):
                 True, drive_fmm
             )
             if model_filename is not None:
-                model.load(model_filename)
+                model.loadjson(model_filename)
 
             if len(model.time_result) == 0:
-                model.time_random_traversals()
+                import os
+                current_dir = os.path.dirname(os.path.abspath(__file__))
+                default_perf_file_path = os.path.join(
+                    current_dir, 'default_perf_model.json')
+                model.loadjson(default_perf_file_path)
 
             counter = PerformanceCounter(global_trav, self.global_wrangler, True)
 
