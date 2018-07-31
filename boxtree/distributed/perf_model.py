@@ -28,6 +28,8 @@ import numpy as np
 from collections import namedtuple
 from pyopencl.clrandom import PhiloxGenerator
 import pickle
+from boxtree.fmm import TimingResult
+import json
 
 
 def generate_random_traversal(context, nsources, ntargets, dims, dtype):
@@ -126,7 +128,7 @@ class PerformanceCounter:
         """
         tree = self.traversal.tree
 
-        nsources_by_level = np.empty((tree.nlevels,), dtype=np.int32)
+        nsources_by_level = np.empty((tree.nlevels,), dtype=np.intp)
 
         for ilevel in range(tree.nlevels):
             start_ibox = tree.level_start_box_nrs[ilevel]
@@ -164,10 +166,10 @@ class PerformanceCounter:
         tree = traversal.tree
 
         if use_global_idx:
-            direct_workload = np.zeros((tree.nboxes,), dtype=np.int64)
+            direct_workload = np.zeros((tree.nboxes,), dtype=np.intp)
         else:
             ntarget_boxes = len(traversal.target_boxes)
-            direct_workload = np.zeros((ntarget_boxes,), dtype=np.int64)
+            direct_workload = np.zeros((ntarget_boxes,), dtype=np.intp)
 
         for itgt_box, tgt_ibox in enumerate(traversal.target_boxes):
             ntargets = tree.box_target_counts_nonchild[tgt_ibox]
@@ -571,3 +573,60 @@ class PerformanceModel:
             print("Cannot open file '" + filename + "'")
         except EOFError:
             print("Nothing to read from file.")
+
+    def loadjson(self, filename):
+        try:
+            with open(filename, 'r') as f:
+                loaded_results = json.load(f)
+                for current_result in loaded_results:
+                    converted_result = {}
+
+                    for field_name in current_result:
+                        entry = current_result[field_name]
+
+                        if isinstance(entry, (int, np.integer)):
+                            converted_result[field_name] = entry
+
+                        elif isinstance(entry, dict):
+                            converted_result[field_name] = TimingResult(
+                                entry['wall_elapsed'],
+                                entry['process_elapsed']
+                            )
+
+                        else:
+                            raise RuntimeError("Unknown type loaded")
+
+                    self.time_result.append(converted_result)
+
+        except IOError:
+            print("Cannot open file '" + filename + "'")
+        except EOFError:
+            print("Nothing to read from file.")
+
+    def savejson(self, filename):
+        output = []
+
+        for current_result in self.time_result:
+            current_output = {}
+
+            for field_name in current_result:
+                entry = current_result[field_name]
+
+                if isinstance(entry, (int, np.integer)):
+                    current_output[field_name] = int(entry)
+
+                elif isinstance(entry, TimingResult):
+                    current_output[field_name] = {
+                        'wall_elapsed': entry.wall_elapsed,
+                        'process_elapsed': entry.process_elapsed
+                    }
+
+                else:
+                    print(type(entry))
+                    raise RuntimeError("Unknown type in result")
+
+            output.append(current_output)
+
+        with open(filename, 'w') as f:
+            json.dump(output, f)
+            print("Save {} records to disk.".format(len(self.time_result)))
