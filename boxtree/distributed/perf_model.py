@@ -630,3 +630,9 @@ class PerformanceModel:
         with open(filename, 'w') as f:
             json.dump(output, f)
             print("Save {} records to disk.".format(len(self.time_result)))
+
+    def load_default_model(self):
+        import os
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        default_perf_file_path = os.path.join(current_dir, 'default_perf_model.json')
+        self.loadjson(default_perf_file_path)

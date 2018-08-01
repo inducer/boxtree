@@ -100,11 +100,7 @@ class DistributedFMMInfo(object):
                 model.loadjson(model_filename)
 
             if len(model.time_result) == 0:
-                import os
-                current_dir = os.path.dirname(os.path.abspath(__file__))
-                default_perf_file_path = os.path.join(
-                    current_dir, 'default_perf_model.json')
-                model.loadjson(default_perf_file_path)
+                model.load_default_model()
 
             counter = PerformanceCounter(global_trav, self.global_wrangler, True)
 
