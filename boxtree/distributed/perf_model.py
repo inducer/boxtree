@@ -203,6 +203,36 @@ class PerformanceCounter:
 
         return direct_workload
 
+    def count_direct_source_boxes(self):
+        """
+        Note: This method does not have a 'use_global_idx' argument because list 1
+        and list 3 near box list is indexed like 'target_boxes' while list 4 near box
+        list is indexed like 'target_or_target_parent_boxes'.
+        """
+        traversal = self.traversal
+        tree = traversal.tree
+
+        ndirect_src_boxes = np.zeros((tree.nboxes,), dtype=np.intp)
+
+        ndirect_src_boxes[traversal.target_boxes] += (
+            traversal.neighbor_source_boxes_starts[1:]
+            - traversal.neighbor_source_boxes_starts[:-1]
+        )
+
+        if traversal.from_sep_close_smaller_starts is not None:
+            ndirect_src_boxes[traversal.target_boxes] += (
+                traversal.from_sep_close_smaller_starts[1:]
+                - traversal.from_sep_close_smaller_starts[:-1]
+            )
+
+        if traversal.from_sep_close_bigger_starts is not None:
+            ndirect_src_boxes[traversal.target_or_target_parent_boxes] += (
+                traversal.from_sep_close_bigger_starts[1:]
+                - traversal.from_sep_close_bigger_starts[:-1]
+            )
+
+        return ndirect_src_boxes
+
     def count_m2l(self, use_global_idx=False):
         """
         :return: If *use_global_idx* is True, return a numpy array of shape
@@ -368,7 +398,7 @@ class PerformanceModel:
         timing_data = {
             "nterms_fmm_total": counter.count_nters_fmm_total(),
             "direct_workload": np.sum(counter.count_direct()),
-            "direct_nsource_boxes": traversal.neighbor_source_boxes_starts[-1],
+            "direct_nsource_boxes": np.sum(counter.count_direct_source_boxes()),
             "m2l_workload": np.sum(counter.count_m2l()),
             "m2p_workload": np.sum(nm2p),
             "m2p_nboxes": np.sum(nm2p_boxes),
@@ -493,7 +523,7 @@ class PerformanceModel:
         for trav in traversals:
             self.time_performance(trav)
 
-    def predict_time(self, eval_traversal, eval_counter, wall_time=True):
+    def predict_step_time(self, eval_counter, wall_time=True):
         predict_timing = {}
 
         # {{{ Predict eval_direct
@@ -501,7 +531,7 @@ class PerformanceModel:
         param = self.eval_direct_model(wall_time=wall_time)
 
         direct_workload = np.sum(eval_counter.count_direct())
-        direct_nsource_boxes = eval_traversal.neighbor_source_boxes_starts[-1]
+        direct_nsource_boxes = np.sum(eval_counter.count_direct_source_boxes())
 
         predict_timing["eval_direct"] = (
             direct_workload * param[0] + direct_nsource_boxes * param[1] + param[2])
@@ -578,6 +608,7 @@ class PerformanceModel:
         try:
             with open(filename, 'r') as f:
                 loaded_results = json.load(f)
+
                 for current_result in loaded_results:
                     converted_result = {}
 
@@ -597,6 +628,8 @@ class PerformanceModel:
                             raise RuntimeError("Unknown type loaded")
 
                     self.time_result.append(converted_result)
+
+                print("Load {} records from disk.".format(len(loaded_results)))
 
         except IOError:
             print("Cannot open file '" + filename + "'")

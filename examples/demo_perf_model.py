@@ -25,7 +25,7 @@ wrangler_factory = functools.partial(
 
 def train_model():
     model = PerformanceModel(context, wrangler_factory, True, drive_fmm)
-    model.load('model')
+    model.loadjson('model.json')
 
     test_cases = [
         (9000, 9000),
@@ -42,7 +42,7 @@ def train_model():
         trav = generate_random_traversal(context, nsources, ntargets, dims, dtype)
         model.time_performance(trav)
 
-    model.save('model')
+    model.savejson('model.json')
 
 
 def eval_model():
@@ -60,10 +60,9 @@ def eval_model():
     eval_counter = PerformanceCounter(eval_traversal, eval_wrangler, True)
 
     model = PerformanceModel(context, wrangler_factory, True, drive_fmm)
-    model.load('model')
+    model.loadjson('model.json')
 
-    predict_timing = model.predict_time(eval_traversal, eval_counter,
-                                        wall_time=wall_time)
+    predict_timing = model.predict_step_time(eval_counter, wall_time=wall_time)
 
     # }}}
 

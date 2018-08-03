@@ -96,6 +96,7 @@ class DistributedFMMInfo(object):
                 distributed_expansion_wrangler_factory,
                 True, drive_fmm
             )
+
             if model_filename is not None:
                 model.loadjson(model_filename)
 

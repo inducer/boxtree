@@ -46,10 +46,8 @@ def partition_work(perf_model, perf_counter, traversal, total_rank):
 
     param = perf_model.eval_direct_model()
     direct_workload = perf_counter.count_direct(use_global_idx=True)
-    ndirect_source_boxes = np.zeros((tree.nboxes,), dtype=np.intp)
-    ndirect_source_boxes[traversal.target_boxes] = (
-        traversal.neighbor_source_boxes_starts[1:]
-        - traversal.neighbor_source_boxes_starts[:-1]
+    ndirect_source_boxes = perf_counter.count_direct_source_boxes(
+        use_global_idx=True
     )
     time_increment += (direct_workload * param[0] + ndirect_source_boxes * param[1])
 
