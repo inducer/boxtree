@@ -29,12 +29,13 @@ from pyopencl.tools import dtype_to_ctype
 from mako.template import Template
 
 
-def partition_work(perf_model, perf_counter, traversal, total_rank):
+def partition_work(perf_model, traversal, total_rank):
     """ This function assigns responsible boxes of each process.
 
     Each process is responsible for calculating the multiple expansions as well as
     evaluating target potentials in *responsible_boxes*.
 
+    :arg perf_model: A boxtree.distributed.perf_model.PerformanceModel object.
     :arg traversal: The traversal object built on root containing all particles.
     :arg total_rank: The total number of processes.
     :return: A numpy array of shape (total_rank,), where the ith element is an numpy
@@ -42,35 +43,11 @@ def partition_work(perf_model, perf_counter, traversal, total_rank):
     """
     tree = traversal.tree
 
-    time_increment = np.zeros((tree.nboxes,), dtype=np.float64)
-
-    param = perf_model.eval_direct_model()
-    direct_workload = perf_counter.count_direct(use_global_idx=True)
-    ndirect_source_boxes = perf_counter.count_direct_source_boxes(
-        use_global_idx=True
-    )
-    time_increment += (direct_workload * param[0] + ndirect_source_boxes * param[1])
-
-    param = perf_model.multipole_to_local_model()
-    m2l_workload = perf_counter.count_m2l(use_global_idx=True)
-    time_increment += (m2l_workload * param[0])
-
-    param = perf_model.eval_multipoles_model()
-    m2p_workload, m2p_nboxes = perf_counter.count_m2p(use_global_idx=True)
-    time_increment += (m2p_workload * param[0] + m2p_nboxes * param[1])
-
-    param = perf_model.form_locals_model()
-    p2l_workload = perf_counter.count_p2l(use_global_idx=True)
-    p2l_nboxes = perf_counter.count_p2l_source_boxes(use_global_idx=True)
-    time_increment += (p2l_workload * param[0] + p2l_nboxes * param[1])
-
-    param = perf_model.eval_locals_model()
-    eval_part_workload = perf_counter.count_eval_part(use_global_idx=True)
-    time_increment += (eval_part_workload * param[0])
+    boxes_time = perf_model.predict_boxes_time(traversal)
 
     total_workload = 0
     for i in range(tree.nboxes):
-        total_workload += time_increment[i]
+        total_workload += boxes_time[i]
 
     # transform tree from level order to dfs order
     dfs_order = np.empty((tree.nboxes,), dtype=tree.box_id_dtype)
@@ -96,7 +73,7 @@ def partition_work(perf_model, perf_counter, traversal, total_rank):
             break
 
         box_idx = dfs_order[i]
-        workload_count += time_increment[box_idx]
+        workload_count += boxes_time[box_idx]
         if (workload_count > (rank + 1)*total_workload/total_rank
                 or i == tree.nboxes - 1):
             responsible_boxes_list[rank] = dfs_order[start:i+1]

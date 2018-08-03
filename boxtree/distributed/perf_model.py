@@ -588,6 +588,69 @@ class PerformanceModel:
 
         return predict_timing
 
+    def predict_boxes_time(self, traversal):
+        tree = traversal.tree
+        wrangler = self.wrangler_factory(tree)
+        counter = PerformanceCounter(traversal, wrangler, self.uses_pde_expansions)
+
+        boxes_time = np.zeros((tree.nboxes,), dtype=np.float64)
+
+        # {{{ eval_direct time
+
+        param = self.eval_direct_model()
+
+        direct_workload = counter.count_direct(use_global_idx=True)
+        ndirect_source_boxes = counter.count_direct_source_boxes()
+
+        boxes_time += (direct_workload * param[0]
+                       + ndirect_source_boxes * param[1]
+                       + param[2])
+
+        # }}}
+
+        # {{{ multipole_to_local time
+
+        param = self.multipole_to_local_model()
+
+        m2l_workload = counter.count_m2l(use_global_idx=True)
+
+        boxes_time += (m2l_workload * param[0] + param[1])
+
+        # }}}
+
+        # {{{ eval_multipoles time
+
+        param = self.eval_multipoles_model()
+
+        m2p_workload, m2p_nboxes = counter.count_m2p(use_global_idx=True)
+
+        boxes_time += (m2p_workload * param[0] + m2p_nboxes * param[1] + param[2])
+
+        # }}}
+
+        # {{{ form_locals time
+
+        param = self.form_locals_model()
+
+        p2l_workload = counter.count_p2l(use_global_idx=True)
+        p2l_nboxes = counter.count_p2l_source_boxes(use_global_idx=True)
+
+        boxes_time += (p2l_workload * param[0] + p2l_nboxes * param[1] + param[2])
+
+        # }}}
+
+        # {{{ eval_part time
+
+        param = self.eval_locals_model()
+
+        eval_part_workload = counter.count_eval_part(use_global_idx=True)
+
+        boxes_time += (eval_part_workload * param[0] + param[1])
+
+        # }}}
+
+        return boxes_time
+
     def save(self, filename):
         with open(filename, 'wb') as f:
             pickle.dump(self.time_result, f)

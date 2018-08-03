@@ -25,7 +25,7 @@ THE SOFTWARE.
 
 from mpi4py import MPI
 import numpy as np
-from boxtree.distributed.perf_model import PerformanceModel, PerformanceCounter
+from boxtree.distributed.perf_model import PerformanceModel
 
 MPITags = dict(
     DIST_TREE=0,
@@ -103,8 +103,6 @@ class DistributedFMMInfo(object):
             if len(model.time_result) == 0:
                 model.load_default_model()
 
-            counter = PerformanceCounter(global_trav, self.global_wrangler, True)
-
         # }}}
 
         # {{{ Partiton work
@@ -112,7 +110,7 @@ class DistributedFMMInfo(object):
         if current_rank == 0:
             from boxtree.distributed.partition import partition_work
             responsible_boxes_list = partition_work(
-                model, counter, global_trav, comm.Get_size()
+                model, global_trav, comm.Get_size()
             )
         else:
             responsible_boxes_list = None
