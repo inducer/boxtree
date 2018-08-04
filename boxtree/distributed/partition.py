@@ -29,21 +29,19 @@ from pyopencl.tools import dtype_to_ctype
 from mako.template import Template
 
 
-def partition_work(perf_model, traversal, total_rank):
+def partition_work(boxes_time, traversal, total_rank):
     """ This function assigns responsible boxes of each process.
 
     Each process is responsible for calculating the multiple expansions as well as
     evaluating target potentials in *responsible_boxes*.
 
-    :arg perf_model: A boxtree.distributed.perf_model.PerformanceModel object.
+    :arg boxes_time: The expected running time of each box.
     :arg traversal: The traversal object built on root containing all particles.
     :arg total_rank: The total number of processes.
     :return: A numpy array of shape (total_rank,), where the ith element is an numpy
         array containing the responsible boxes of process i.
     """
     tree = traversal.tree
-
-    boxes_time = perf_model.predict_boxes_time(traversal)
 
     total_workload = 0
     for i in range(tree.nboxes):

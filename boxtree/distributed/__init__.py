@@ -108,9 +108,11 @@ class DistributedFMMInfo(object):
         # {{{ Partiton work
 
         if current_rank == 0:
+            boxes_time = model.predict_boxes_time(global_trav)
+
             from boxtree.distributed.partition import partition_work
             responsible_boxes_list = partition_work(
-                model, global_trav, comm.Get_size()
+                boxes_time, global_trav, comm.Get_size()
             )
         else:
             responsible_boxes_list = None
