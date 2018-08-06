@@ -24,12 +24,17 @@ for instructions.
 User-visible Changes
 ====================
 
-Version 2018.1
+Version 2018.2
 --------------
 .. note::
 
     This version is currently under development. You can get snapshots from
     boxtree's `git repository <https://github.com/inducer/boxtree>`_
+
+* Changed index style of the *from_sep_close_bigger_starts* interaction list.
+
+Version 2018.1
+--------------
 
 * Added *timing_data* parameter to FMM driver.
 
