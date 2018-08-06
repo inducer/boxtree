@@ -1244,8 +1244,7 @@ class _ListMerger(object):
     @memoize_method
     def get_list_merger_kernel(self, nlists, write_counts):
         """
-        :arg input_index_style: A :class:`_IndexStyle`
-        :arg output_index_style: A :class:`_IndexStyle`
+        :arg nlists: Number of input lists
         :arg write_counts: A :class:`bool`, indicating whether to generate a
             kernel that produces box counts or box lists
         """
