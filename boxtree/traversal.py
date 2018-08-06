@@ -2265,8 +2265,6 @@ class FMMTraversalBuilder:
 
         # }}}
 
-        # }}}
-
         if self.well_sep_is_n_away == 1:
             colleagues_starts = same_level_non_well_sep_boxes.starts
             colleagues_lists = same_level_non_well_sep_boxes.lists
