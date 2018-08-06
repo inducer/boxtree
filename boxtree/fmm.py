@@ -150,7 +150,7 @@ def drive_fmm(traversal, expansion_wrangler, src_weights, timing_data=None):
 
     local_result, timing_future = wrangler.form_locals(
             traversal.level_start_target_or_target_parent_box_nrs,
-            traversal.target_or_target_parent_boxes,
+            traversal.target_boxes,
             traversal.from_sep_bigger_starts,
             traversal.from_sep_bigger_lists,
             src_weights)
