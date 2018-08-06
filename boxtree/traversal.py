@@ -1267,7 +1267,7 @@ class _ListMerger(object):
         """
         :arg input_starts: Starts arrays of input
         :arg input_lists: Lists arrays of input
-        :arg input_index_style: A tuple of :class:`_IndexStyle`
+        :arg input_index_style: A :class:`_IndexStyle`
         :arg output_index_style: A :class:`_IndexStyle`
         :returns: A pair *results_dict, event*, where *results_dict*
             contains entries *starts* and *lists*
