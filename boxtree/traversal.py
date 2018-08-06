@@ -1283,7 +1283,7 @@ class _ListMerger(object):
         ntarget_boxes = len(target_boxes)
         ntarget_or_ntarget_parent_boxes = len(target_or_target_parent_boxes)
 
-        output_size = (ntarget_boxes
+        noutput_boxes = (ntarget_boxes
                 if output_index_style == _IndexStyle.TARGET_BOXES
                 else ntarget_or_ntarget_parent_boxes)
 
@@ -1301,9 +1301,9 @@ class _ListMerger(object):
             output_to_input_box = target_or_target_parent_boxes_from_target_boxes
         else:
             output_to_input_box = cl.array.arange(
-                    queue, output_size, dtype=self.box_id_dtype)
+                    queue, noutput_boxes, dtype=self.box_id_dtype)
 
-        new_counts = cl.array.empty(queue, output_size+1, self.box_id_dtype)
+        new_counts = cl.array.empty(queue, noutput_boxes+1, self.box_id_dtype)
 
         assert len(input_starts) == len(input_lists)
         nlists = len(input_starts)
@@ -1314,7 +1314,7 @@ class _ListMerger(object):
                     + input_starts
                     # output:
                     + (new_counts,)),
-                    range=slice(output_size),
+                    range=slice(noutput_boxes),
                     queue=queue,
                     wait_for=wait_for)
 
@@ -1336,7 +1336,7 @@ class _ListMerger(object):
                     + (new_starts,)
                     # output:
                     + (new_lists,)),
-                    range=slice(output_size),
+                    range=slice(noutput_boxes),
                     queue=queue,
                     wait_for=[evt])
 
