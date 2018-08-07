@@ -376,11 +376,10 @@ class PerformanceCounter:
 
 class PerformanceModel:
 
-    def __init__(self, cl_context, wrangler_factory, uses_pde_expansions, drive_fmm):
+    def __init__(self, cl_context, wrangler_factory, uses_pde_expansions):
         self.cl_context = cl_context
         self.wrangler_factory = wrangler_factory
         self.uses_pde_expansions = uses_pde_expansions
-        self.drive_fmm = drive_fmm
 
         self.time_result = []
 
@@ -416,7 +415,8 @@ class PerformanceModel:
             ).get()
 
         # Time a FMM run
-        self.drive_fmm(traversal, wrangler, source_weights, timing_data=timing_data)
+        from boxtree.fmm import drive_fmm
+        drive_fmm(traversal, wrangler, source_weights, timing_data=timing_data)
 
         self.time_result.append(timing_data)
 
