@@ -645,7 +645,7 @@ class ConstantOneExpansionWrangler(object):
         for ibox in source_boxes:
             pslice = self._get_source_slice(ibox)
             mpoles[ibox] += np.sum(src_weights[pslice])
-            ops += (pslice.stop - pslice.start)
+            ops += src_weights[pslice].size
 
         return mpoles, self.timing_future(ops)
 
@@ -686,12 +686,12 @@ class ConstantOneExpansionWrangler(object):
             #print "DIR: %s <- %s" % (tgt_ibox, neighbor_sources_lists[start:end])
             for src_ibox in neighbor_sources_lists[start:end]:
                 src_pslice = self._get_source_slice(src_ibox)
-                nsrcs += src_pslice.stop - src_pslice.start
+                ops += src_weights[src_pslice].size
 
                 src_sum += np.sum(src_weights[src_pslice])
 
             pot[tgt_pslice] = src_sum
-            ops += (tgt_pslice.stop - tgt_pslice.start) * nsrcs
+            ops += pot[tgt_pslice].size * nsrcs
 
         return pot, self.timing_future(ops)
 
@@ -733,7 +733,7 @@ class ConstantOneExpansionWrangler(object):
                     contrib += mpole_exps[src_ibox]
 
                 pot[tgt_pslice] += contrib
-                ops += (tgt_pslice.stop - tgt_pslice.start) * (end - start)
+                ops += pot[tgt_pslice].size * (end - start)
 
         return pot, self.timing_future(ops)
 
@@ -751,7 +751,7 @@ class ConstantOneExpansionWrangler(object):
             nsrcs = 0
             for src_ibox in lists[start:end]:
                 src_pslice = self._get_source_slice(src_ibox)
-                nsrcs += src_pslice.stop - src_pslice.start
+                nsrcs += src_weights[src_pslice].size
 
                 contrib += np.sum(src_weights[src_pslice])
 
@@ -779,8 +779,8 @@ class ConstantOneExpansionWrangler(object):
 
         for ibox in target_boxes:
             tgt_pslice = self._get_target_slice(ibox)
-            ops += tgt_pslice.stop - tgt_pslice.start
             pot[tgt_pslice] += local_exps[ibox]
+            ops += pot[tgt_pslice].size
 
         return pot, self.timing_future(ops)
 
