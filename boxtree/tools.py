@@ -615,7 +615,7 @@ class ConstantOneExpansionWrangler(object):
 
     local_expansion_zeros = multipole_expansion_zeros
 
-    def potential_zeros(self):
+    def output_zeros(self):
         return np.zeros(self.tree.ntargets, dtype=np.float64)
 
     def _get_source_slice(self, ibox):
@@ -674,7 +674,7 @@ class ConstantOneExpansionWrangler(object):
 
     def eval_direct(self, target_boxes, neighbor_sources_starts,
             neighbor_sources_lists, src_weights):
-        pot = self.potential_zeros()
+        pot = self.output_zeros()
         ops = 0
 
         for itgt_box, tgt_ibox in enumerate(target_boxes):
@@ -686,7 +686,7 @@ class ConstantOneExpansionWrangler(object):
             #print "DIR: %s <- %s" % (tgt_ibox, neighbor_sources_lists[start:end])
             for src_ibox in neighbor_sources_lists[start:end]:
                 src_pslice = self._get_source_slice(src_ibox)
-                ops += src_weights[src_pslice].size
+                nsrcs += src_weights[src_pslice].size
 
                 src_sum += np.sum(src_weights[src_pslice])
 
@@ -718,7 +718,7 @@ class ConstantOneExpansionWrangler(object):
     def eval_multipoles(self,
             target_boxes_by_source_level, from_sep_smaller_nonsiblings_by_level,
             mpole_exps):
-        pot = self.potential_zeros()
+        pot = self.output_zeros()
         ops = 0
 
         for level, ssn in enumerate(from_sep_smaller_nonsiblings_by_level):
@@ -764,7 +764,7 @@ class ConstantOneExpansionWrangler(object):
             target_or_target_parent_boxes, local_exps):
         ops = 0
 
-        for target_lev in range(1, self.tree.nlevels):
+        for target_lev in range(self.tree.nlevels):
             start, stop = level_start_target_or_target_parent_box_nrs[
                     target_lev:target_lev+2]
             for ibox in target_or_target_parent_boxes[start:stop]:
@@ -774,7 +774,7 @@ class ConstantOneExpansionWrangler(object):
         return local_exps, self.timing_future(ops)
 
     def eval_locals(self, level_start_target_box_nrs, target_boxes, local_exps):
-        pot = self.potential_zeros()
+        pot = self.output_zeros()
         ops = 0
 
         for ibox in target_boxes:

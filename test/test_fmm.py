@@ -51,7 +51,7 @@ class ConstantOneExpansionWranglerWithFilteredTargetsInTreeOrder(
         ConstantOneExpansionWrangler.__init__(self, tree)
         self.filtered_targets = filtered_targets
 
-    def potential_zeros(self):
+    def output_zeros(self):
         return np.zeros(self.filtered_targets.nfiltered_targets, dtype=np.float64)
 
     def _get_target_slice(self, ibox):
