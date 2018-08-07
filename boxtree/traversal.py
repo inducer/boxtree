@@ -23,7 +23,7 @@ THE SOFTWARE.
 """
 
 import numpy as np
-from pytools import Record, memoize_method, memoize_in
+from pytools import Record, memoize_method
 import pyopencl as cl
 import pyopencl.array  # noqa
 import pyopencl.cltypes  # noqa
@@ -1163,6 +1163,187 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
 # }}}
 
 
+# {{{ list merger
+
+LIST_MERGER_TEMPLATE = ElementwiseTemplate(
+    arguments=r"""//CL:mako//
+    /* input: */
+
+    box_id_t *output_to_input_box,
+
+    %for ilist in range(nlists):
+        box_id_t *list${ilist}_starts,
+    %endfor
+
+    %if not write_counts:
+    %for ilist in range(nlists):
+        const box_id_t *list${ilist}_lists,
+    %endfor
+        const box_id_t *new_starts,
+    %endif
+
+    /* output: */
+
+    %if not write_counts:
+        box_id_t *new_lists,
+    %else:
+        box_id_t *new_counts,
+    %endif
+    """,
+
+    operation=r"""//CL:mako//
+        /* Compute output and input indices. */
+        const box_id_t ioutput_box = i;
+        const box_id_t ibox = output_to_input_box[ioutput_box];
+
+        /* Count the size of the input at the current index. */
+        %for ilist in range(nlists):
+            const box_id_t list${ilist}_start = list${ilist}_starts[ibox];
+            const box_id_t list${ilist}_count =
+                list${ilist}_starts[ibox + 1] - list${ilist}_start;
+        %endfor
+
+        /* Update the counts or copy the elements. */
+        %if write_counts:
+            if (ioutput_box == 0)
+                new_counts[0] = 0;
+
+            new_counts[ioutput_box + 1] =
+            %for ilist in range(nlists):
+                + list${ilist}_count
+            %endfor
+                ;
+        %else:
+            box_id_t cur_idx = new_starts[ioutput_box];
+
+            %for ilist in range(nlists):
+            for (box_id_t j = 0; j < list${ilist}_count; ++j)
+            {
+                new_lists[cur_idx++] =
+                    list${ilist}_lists[list${ilist}_start + j];
+            }
+            %endfor
+        %endif
+    """,
+
+    name="merge_lists")
+
+
+class _IndexStyle:
+    TARGET_BOXES = 0
+    TARGET_OR_TARGET_PARENT_BOXES = 1
+
+
+class _ListMerger(object):
+    """Utility class for combining box lists optionally changing indexing style."""
+
+    def __init__(self, context, box_id_dtype):
+        self.context = context
+        self.box_id_dtype = box_id_dtype
+
+    @memoize_method
+    def get_list_merger_kernel(self, nlists, write_counts):
+        """
+        :arg nlists: Number of input lists
+        :arg write_counts: A :class:`bool`, indicating whether to generate a
+            kernel that produces box counts or box lists
+        """
+        assert nlists >= 1
+
+        return LIST_MERGER_TEMPLATE.build(
+                self.context,
+                type_aliases=(
+                    ("box_id_t", self.box_id_dtype),
+                ),
+                var_values=(
+                    ("nlists", nlists),
+                    ("write_counts", write_counts),
+                ))
+
+    def __call__(self, queue, input_starts, input_lists, input_index_style,
+            output_index_style, target_boxes, target_or_target_parent_boxes,
+            nboxes, debug=False, wait_for=[]):
+        """
+        :arg input_starts: Starts arrays of input
+        :arg input_lists: Lists arrays of input
+        :arg input_index_style: A :class:`_IndexStyle`
+        :arg output_index_style: A :class:`_IndexStyle`
+        :returns: A pair *results_dict, event*, where *results_dict*
+            contains entries *starts* and *lists*
+        """
+
+        if (
+                output_index_style == _IndexStyle.TARGET_OR_TARGET_PARENT_BOXES
+                and input_index_style == _IndexStyle.TARGET_BOXES):
+            raise ValueError(
+                    "unsupported: merging a list indexed by target boxes "
+                    "into a list indexed by target or target parent boxes")
+
+        ntarget_boxes = len(target_boxes)
+        ntarget_or_ntarget_parent_boxes = len(target_or_target_parent_boxes)
+
+        noutput_boxes = (ntarget_boxes
+                if output_index_style == _IndexStyle.TARGET_BOXES
+                else ntarget_or_ntarget_parent_boxes)
+
+        if (
+                input_index_style == _IndexStyle.TARGET_OR_TARGET_PARENT_BOXES
+                and output_index_style == _IndexStyle.TARGET_BOXES):
+            from boxtree.tools import reverse_index_array
+            target_or_target_parent_boxes_from_all_boxes = reverse_index_array(
+                    target_or_target_parent_boxes, target_size=nboxes,
+                    queue=queue)
+            target_or_target_parent_boxes_from_target_boxes = cl.array.take(
+                    target_or_target_parent_boxes_from_all_boxes,
+                    target_boxes, queue=queue)
+
+            output_to_input_box = target_or_target_parent_boxes_from_target_boxes
+        else:
+            output_to_input_box = cl.array.arange(
+                    queue, noutput_boxes, dtype=self.box_id_dtype)
+
+        new_counts = cl.array.empty(queue, noutput_boxes+1, self.box_id_dtype)
+
+        assert len(input_starts) == len(input_lists)
+        nlists = len(input_starts)
+
+        evt = self.get_list_merger_kernel(nlists, True)(*(
+                    # input:
+                    (output_to_input_box,)
+                    + input_starts
+                    # output:
+                    + (new_counts,)),
+                    range=slice(noutput_boxes),
+                    queue=queue,
+                    wait_for=wait_for)
+
+        new_starts = cl.array.cumsum(new_counts)
+        del new_counts
+
+        new_lists = cl.array.empty(
+                queue,
+                int(new_starts[-1].get()),
+                self.box_id_dtype)
+
+        new_lists.fill(999999999)
+
+        evt = self.get_list_merger_kernel(nlists, False)(*(
+                    # input:
+                    (output_to_input_box,)
+                    + input_starts
+                    + input_lists
+                    + (new_starts,)
+                    # output:
+                    + (new_lists,)),
+                    range=slice(noutput_boxes),
+                    queue=queue,
+                    wait_for=[evt])
+
+        return dict(starts=new_starts, lists=new_lists), evt
+
+# }}}
+
+
 # {{{ traversal info (output)
 
 class FMMTraversalInfo(DeviceDataRecord):
@@ -1359,7 +1540,7 @@ class FMMTraversalInfo(DeviceDataRecord):
         which boxes are used with the interaction list entries of
         :attr:`from_sep_smaller_by_level`.
         ``target_boxes_sep_smaller_by_source_level[i]`` has length
-        ``from_sep_smaller_by_level[i].num_nonempty_lists`.
+        ``from_sep_smaller_by_level[i].num_nonempty_lists``.
 
 
     .. attribute:: from_sep_smaller_by_level
@@ -1403,7 +1584,10 @@ class FMMTraversalInfo(DeviceDataRecord):
     interactions between boxes that would ordinarily be handled through "List
     4", but must be evaluated specially/directly because of :ref:`extent`.
 
-    Indexed like :attr:`target_or_target_parent_boxes`. See :ref:`csr`.
+    *from_sep_bigger_starts* is indexed like
+    :attr:`target_or_target_parent_boxes`. Similar to the other "close" lists,
+    *from_sep_close_bigger_starts* is indexed like :attr:`target_boxes`. See
+    :ref:`csr`.
 
     .. attribute:: from_sep_bigger_starts
 
@@ -1415,11 +1599,17 @@ class FMMTraversalInfo(DeviceDataRecord):
 
     .. attribute:: from_sep_close_bigger_starts
 
-        ``box_id_t [ntarget_or_target_parent_boxes+1]`` (or *None*)
+        ``box_id_t [ntarget_boxes+1]`` (or *None*)
 
     .. attribute:: from_sep_close_bigger_lists
 
         ``box_id_t [*]`` (or *None*)
+
+    .. versionchanged:: 2018.2
+
+        Changed index style of *from_sep_close_bigger_starts* from
+        :attr:`target_or_target_parent_boxes` to :attr:`target_boxes`.
+
     """
 
     # {{{ "close" list merging -> "unified list 1"
@@ -1432,149 +1622,38 @@ class FMMTraversalInfo(DeviceDataRecord):
         *None*.
         """
 
-        from boxtree.tools import reverse_index_array
-        target_or_target_parent_boxes_from_all_boxes = reverse_index_array(
-                self.target_or_target_parent_boxes, target_size=self.tree.nboxes,
-                queue=queue)
-        target_or_target_parent_boxes_from_tgt_boxes = cl.array.take(
-                target_or_target_parent_boxes_from_all_boxes,
-                self.target_boxes, queue=queue)
+        list_merger = _ListMerger(queue.context, self.tree.box_id_dtype)
 
-        del target_or_target_parent_boxes_from_all_boxes
+        result, evt = (
+                list_merger(
+                    queue,
+                    # starts
+                    (self.neighbor_source_boxes_starts,
+                     self.from_sep_close_smaller_starts,
+                     self.from_sep_close_bigger_starts),
+                    # lists
+                    (self.neighbor_source_boxes_lists,
+                     self.from_sep_close_smaller_lists,
+                     self.from_sep_close_bigger_lists),
+                    # input index styles
+                    _IndexStyle.TARGET_BOXES,
+                    # output index style
+                    _IndexStyle.TARGET_BOXES,
+                    # box and tree data
+                    self.target_boxes,
+                    self.target_or_target_parent_boxes,
+                    self.tree.nboxes,
+                    debug))
 
-        @memoize_in(self, "merge_close_lists_kernel")
-        def get_new_nb_sources_knl(write_counts):
-            from pyopencl.elementwise import ElementwiseTemplate
-            return ElementwiseTemplate("""//CL:mako//
-                /* input: */
-                box_id_t *target_or_target_parent_boxes_from_tgt_boxes,
-                box_id_t *neighbor_source_boxes_starts,
-                box_id_t *from_sep_close_smaller_starts,
-                box_id_t *from_sep_close_bigger_starts,
-
-                %if not write_counts:
-                    box_id_t *neighbor_source_boxes_lists,
-                    box_id_t *from_sep_close_smaller_lists,
-                    box_id_t *from_sep_close_bigger_lists,
-
-                    box_id_t *new_neighbor_source_boxes_starts,
-                %endif
-
-                /* output: */
-
-                %if write_counts:
-                    box_id_t *new_neighbor_source_boxes_counts,
-                %else:
-                    box_id_t *new_neighbor_source_boxes_lists,
-                %endif
-                """,
-                """//CL:mako//
-                box_id_t itgt_box = i;
-                box_id_t itarget_or_target_parent_box =
-                    target_or_target_parent_boxes_from_tgt_boxes[itgt_box];
-
-                box_id_t neighbor_source_boxes_start =
-                    neighbor_source_boxes_starts[itgt_box];
-                box_id_t neighbor_source_boxes_count =
-                    neighbor_source_boxes_starts[itgt_box + 1]
-                    - neighbor_source_boxes_start;
-
-                box_id_t from_sep_close_smaller_start =
-                    from_sep_close_smaller_starts[itgt_box];
-                box_id_t from_sep_close_smaller_count =
-                    from_sep_close_smaller_starts[itgt_box + 1]
-                    - from_sep_close_smaller_start;
-
-                box_id_t from_sep_close_bigger_start =
-                    from_sep_close_bigger_starts[itarget_or_target_parent_box];
-                box_id_t from_sep_close_bigger_count =
-                    from_sep_close_bigger_starts[itarget_or_target_parent_box + 1]
-                    - from_sep_close_bigger_start;
-
-                %if write_counts:
-                    if (itgt_box == 0)
-                        new_neighbor_source_boxes_counts[0] = 0;
-
-                    new_neighbor_source_boxes_counts[itgt_box + 1] =
-                        neighbor_source_boxes_count
-                        + from_sep_close_smaller_count
-                        + from_sep_close_bigger_count
-                        ;
-                %else:
-
-                    box_id_t cur_idx = new_neighbor_source_boxes_starts[itgt_box];
-
-                    #define COPY_FROM(NAME) \
-                        for (box_id_t i = 0; i < NAME##_count; ++i) \
-                            new_neighbor_source_boxes_lists[cur_idx++] = \
-                                NAME##_lists[NAME##_start+i];
-
-                    COPY_FROM(neighbor_source_boxes)
-                    COPY_FROM(from_sep_close_smaller)
-                    COPY_FROM(from_sep_close_bigger)
-
-                %endif
-                """).build(
-                        queue.context,
-                        type_aliases=(
-                            ("box_id_t", self.tree.box_id_dtype),
-                            ),
-                        var_values=(
-                            ("write_counts", write_counts),
-                            )
-                        )
-
-        ntarget_boxes = len(self.target_boxes)
-        new_neighbor_source_boxes_counts = cl.array.empty(
-                queue, ntarget_boxes+1, self.tree.box_id_dtype)
-        get_new_nb_sources_knl(True)(
-            # input:
-            target_or_target_parent_boxes_from_tgt_boxes,
-            self.neighbor_source_boxes_starts,
-            self.from_sep_close_smaller_starts,
-            self.from_sep_close_bigger_starts,
-
-            # output:
-            new_neighbor_source_boxes_counts,
-            range=slice(ntarget_boxes),
-            queue=queue)
-
-        new_neighbor_source_boxes_starts = cl.array.cumsum(
-                new_neighbor_source_boxes_counts)
-        del new_neighbor_source_boxes_counts
-
-        new_neighbor_source_boxes_lists = cl.array.empty(
-                queue,
-                int(new_neighbor_source_boxes_starts[ntarget_boxes].get()),
-                self.tree.box_id_dtype)
-
-        new_neighbor_source_boxes_lists.fill(999999999)
-
-        get_new_nb_sources_knl(False)(
-            # input:
-            target_or_target_parent_boxes_from_tgt_boxes,
-
-            self.neighbor_source_boxes_starts,
-            self.from_sep_close_smaller_starts,
-            self.from_sep_close_bigger_starts,
-            self.neighbor_source_boxes_lists,
-            self.from_sep_close_smaller_lists,
-            self.from_sep_close_bigger_lists,
-
-            new_neighbor_source_boxes_starts,
-
-            # output:
-            new_neighbor_source_boxes_lists,
-            range=slice(ntarget_boxes),
-            queue=queue)
+        cl.wait_for_events([evt])
 
         return self.copy(
-            neighbor_source_boxes_starts=new_neighbor_source_boxes_starts,
-            neighbor_source_boxes_lists=new_neighbor_source_boxes_lists,
-            from_sep_close_smaller_starts=None,
-            from_sep_close_smaller_lists=None,
-            from_sep_close_bigger_starts=None,
-            from_sep_close_bigger_lists=None)
+                neighbor_source_boxes_starts=result["starts"],
+                neighbor_source_boxes_lists=result["lists"],
+                from_sep_close_smaller_starts=None,
+                from_sep_close_smaller_lists=None,
+                from_sep_close_bigger_starts=None,
+                from_sep_close_bigger_lists=None)
 
     # }}}
 
@@ -2149,8 +2228,36 @@ class FMMTraversalBuilder:
         from_sep_bigger = result["from_sep_bigger"]
 
         if with_extent:
-            from_sep_close_bigger_starts = result["from_sep_close_bigger"].starts
-            from_sep_close_bigger_lists = result["from_sep_close_bigger"].lists
+            # These are indexed by target_or_target_parent boxes; we rewrite
+            # them to be indexed by target_boxes.
+            from_sep_close_bigger_starts_raw = result["from_sep_close_bigger"].starts
+            from_sep_close_bigger_lists_raw = result["from_sep_close_bigger"].lists
+
+            list_merger = _ListMerger(queue.context, tree.box_id_dtype)
+            result, evt = list_merger(
+                    queue,
+                    # starts
+                    (from_sep_close_bigger_starts_raw,),
+                    # lists
+                    (from_sep_close_bigger_lists_raw,),
+                    # input index style
+                    _IndexStyle.TARGET_OR_TARGET_PARENT_BOXES,
+                    # output index style
+                    _IndexStyle.TARGET_BOXES,
+                    # box and tree data
+                    target_boxes,
+                    target_or_target_parent_boxes,
+                    tree.nboxes,
+                    debug,
+                    wait_for=wait_for)
+
+            wait_for = [evt]
+
+            del from_sep_close_bigger_starts_raw
+            del from_sep_close_bigger_lists_raw
+
+            from_sep_close_bigger_starts = result["starts"]
+            from_sep_close_bigger_lists = result["lists"]
         else:
             from_sep_close_bigger_starts = None
             from_sep_close_bigger_lists = None

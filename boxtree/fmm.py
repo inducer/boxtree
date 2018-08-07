@@ -161,7 +161,7 @@ def drive_fmm(traversal, expansion_wrangler, src_weights, timing_data=None):
 
     if traversal.from_sep_close_bigger_starts is not None:
         direct_result, timing_future = wrangler.eval_direct(
-                traversal.target_or_target_parent_boxes,
+                traversal.target_boxes,
                 traversal.from_sep_close_bigger_starts,
                 traversal.from_sep_close_bigger_lists,
                 src_weights)
