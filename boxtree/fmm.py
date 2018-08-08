@@ -368,6 +368,12 @@ class TimingResult(Record):
                 wall_elapsed=wall_elapsed,
                 process_elapsed=process_elapsed)
 
+    def __add__(self, other):
+        return TimingResult(
+            self.wall_elapsed + other.wall_elapsed,
+            self.process_elapsed + other.process_elapsed
+        )
+
 # }}}
 
 

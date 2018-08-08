@@ -713,10 +713,6 @@ class PerformanceModel:
                         'process_elapsed': entry.process_elapsed
                     }
 
-                else:
-                    print(type(entry))
-                    raise RuntimeError("Unknown type in result")
-
             output.append(current_output)
 
         with open(filename, 'w') as f:
