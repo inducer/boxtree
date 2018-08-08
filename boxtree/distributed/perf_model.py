@@ -376,9 +376,8 @@ class PerformanceCounter:
 
 class PerformanceModel:
 
-    def __init__(self, cl_context, wrangler_factory, uses_pde_expansions):
+    def __init__(self, cl_context, uses_pde_expansions):
         self.cl_context = cl_context
-        self.wrangler_factory = wrangler_factory
         self.uses_pde_expansions = uses_pde_expansions
 
         self.time_result = []
@@ -386,9 +385,7 @@ class PerformanceModel:
         from pyopencl.clrandom import PhiloxGenerator
         self.rng = PhiloxGenerator(cl_context)
 
-    def time_performance(self, traversal):
-        wrangler = self.wrangler_factory(tree=traversal.tree)
-
+    def time_performance(self, traversal, wrangler):
         counter = PerformanceCounter(traversal, wrangler, self.uses_pde_expansions)
 
         # Record useful metadata for assembling performance data
@@ -588,9 +585,8 @@ class PerformanceModel:
 
         return predict_timing
 
-    def predict_boxes_time(self, traversal):
+    def predict_boxes_time(self, traversal, wrangler):
         tree = traversal.tree
-        wrangler = self.wrangler_factory(tree)
         counter = PerformanceCounter(traversal, wrangler, self.uses_pde_expansions)
 
         boxes_time = np.zeros((tree.nboxes,), dtype=np.float64)

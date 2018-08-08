@@ -90,12 +90,7 @@ class DistributedFMMInfo(object):
         # {{{ Get performance model and counter
 
         if current_rank == 0:
-            from boxtree.fmm import drive_fmm
-            model = PerformanceModel(
-                queue.context,
-                distributed_expansion_wrangler_factory,
-                True, drive_fmm
-            )
+            model = PerformanceModel(queue.context, True)
 
             if model_filename is not None:
                 model.loadjson(model_filename)
@@ -108,7 +103,7 @@ class DistributedFMMInfo(object):
         # {{{ Partiton work
 
         if current_rank == 0:
-            boxes_time = model.predict_boxes_time(global_trav)
+            boxes_time = model.predict_boxes_time(global_trav, self.global_wrangler)
 
             from boxtree.distributed.partition import partition_work
             responsible_boxes_list = partition_work(
