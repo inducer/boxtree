@@ -154,7 +154,7 @@ class PerformanceCounter:
 
         return nterms_fmm_total
 
-    def count_direct(self, use_global_idx=False):
+    def count_direct(self, use_global_idx=False, box_target_counts_nonchild=None):
         """
         :return: If *use_global_idx* is True, return a numpy array of shape
             (tree.nboxes,) such that the ith entry represents the workload from
@@ -165,6 +165,9 @@ class PerformanceCounter:
         traversal = self.traversal
         tree = traversal.tree
 
+        if box_target_counts_nonchild is None:
+            box_target_counts_nonchild = tree.box_target_counts_nonchild
+
         if use_global_idx:
             direct_workload = np.zeros((tree.nboxes,), dtype=np.intp)
         else:
@@ -172,7 +175,7 @@ class PerformanceCounter:
             direct_workload = np.zeros((ntarget_boxes,), dtype=np.intp)
 
         for itgt_box, tgt_ibox in enumerate(traversal.target_boxes):
-            ntargets = tree.box_target_counts_nonchild[tgt_ibox]
+            ntargets = box_target_counts_nonchild[tgt_ibox]
             nsources = 0
 
             start, end = traversal.neighbor_source_boxes_starts[itgt_box:itgt_box+2]
@@ -277,7 +280,7 @@ class PerformanceCounter:
 
         return nm2l
 
-    def count_m2p(self, use_global_idx=False):
+    def count_m2p(self, use_global_idx=False, box_target_counts_nonchild=None):
         trav = self.traversal
         tree = trav.tree
 
@@ -288,12 +291,15 @@ class PerformanceCounter:
             nm2p = np.zeros((len(trav.target_boxes),), dtype=np.intp)
             nm2p_boxes = np.zeros((len(trav.target_boxes),), dtype=np.intp)
 
+        if box_target_counts_nonchild is None:
+            box_target_counts_nonchild = tree.box_target_counts_nonchild
+
         for ilevel, sep_smaller_list in enumerate(trav.from_sep_smaller_by_level):
             ncoeffs_fmm_cur_level = self.parameters.ncoeffs_fmm_by_level[ilevel]
             tgt_box_list = trav.target_boxes_sep_smaller_by_source_level[ilevel]
 
             for itgt_box, tgt_ibox in enumerate(tgt_box_list):
-                ntargets = tree.box_target_counts_nonchild[tgt_ibox]
+                ntargets = box_target_counts_nonchild[tgt_ibox]
 
                 start, end = sep_smaller_list.starts[itgt_box:itgt_box + 2]
 
@@ -351,7 +357,7 @@ class PerformanceCounter:
         else:
             return p2l_nsource_boxes
 
-    def count_eval_part(self, use_global_idx=False):
+    def count_eval_part(self, use_global_idx=False, box_target_counts_nonchild=None):
         trav = self.traversal
         tree = trav.tree
         parameters = self.parameters
@@ -361,8 +367,11 @@ class PerformanceCounter:
         else:
             neval_part = np.zeros(len(trav.target_boxes), dtype=np.intp)
 
+        if box_target_counts_nonchild is None:
+            box_target_counts_nonchild = tree.box_target_counts_nonchild
+
         for itgt_box, tgt_ibox in enumerate(trav.target_boxes):
-            ntargets = tree.box_target_counts_nonchild[tgt_ibox]
+            ntargets = box_target_counts_nonchild[tgt_ibox]
             tgt_box_level = trav.tree.box_levels[tgt_ibox]
             ncoeffs_fmm = parameters.ncoeffs_fmm_by_level[tgt_box_level]
 
