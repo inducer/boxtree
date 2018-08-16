@@ -609,6 +609,10 @@ class ConstantOneExpansionWrangler(object):
     """This implements the 'analytical routines' for a Green's function that is
     constant 1 everywhere. For 'charges' of 'ones', this should get every particle
     a copy of the particle count.
+
+    Timing results returned by this wrangler contain the field *ops_elapsed*,
+    which counts approximately the number of floating-point operations required
+    by the FMM.
     """
 
     def __init__(self, tree):
