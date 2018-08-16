@@ -517,14 +517,18 @@ class DummyTimingFuture(TimingFuture):
 
     @classmethod
     def from_timer(cls, timer):
-        return cls(timer.wall_elapsed, timer.process_elapsed)
+        return cls(wall_elapsed=timer.wall_elapsed,
+                   process_elapsed=timer.process_elapsed)
 
-    def __init__(self, wall_elapsed, process_elapsed):
-        self.wall_elapsed = wall_elapsed
-        self.process_elapsed = process_elapsed
+    @classmethod
+    def from_op_count(cls, op_count):
+        return cls(ops_elapsed=op_count)
+
+    def __init__(self, *args, **kwargs):
+        self._result = TimingResult(*args, **kwargs)
 
     def result(self):
-        return TimingResult(self.wall_elapsed, self.process_elapsed)
+        return self._result
 
     def done(self):
         return True
@@ -636,7 +640,7 @@ class ConstantOneExpansionWrangler(object):
 
     @staticmethod
     def timing_future(ops):
-        return DummyTimingFuture(ops, ops)
+        return DummyTimingFuture.from_op_count(ops)
 
     def form_multipoles(self, level_start_source_box_nrs, source_boxes, src_weights):
         mpoles = self.multipole_expansion_zeros()
