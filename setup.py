@@ -3,7 +3,7 @@
 
 
 def main():
-    from setuptools import setup
+    from setuptools import setup, find_packages
 
     version_dict = {}
     init_filename = "boxtree/version.py"
@@ -39,7 +39,7 @@ def main():
               'Topic :: Utilities',
               ],
 
-          packages=["boxtree"],
+          packages=find_packages(),
           install_requires=[
               "pytools>=2018.4",
               "pyopencl>=2013.1",
