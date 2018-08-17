@@ -41,6 +41,10 @@ __doc__ = """Integrates :mod:`boxtree` with
 class FMMLibExpansionWrangler(object):
     """Implements the :class:`boxtree.fmm.ExpansionWranglerInterface`
     by using pyfmmlib.
+
+    Timing results returned by this wrangler contains the values *wall_elapsed*
+    and (optionally, if supported) *process_elapsed*, which measure wall time
+    and process time in seconds, respectively.
     """
 
     # {{{ constructor

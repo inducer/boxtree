@@ -477,7 +477,7 @@ def calculate_pot(local_wrangler, global_wrangler, local_trav, source_weights,
                      "('list 4 close')")
 
         potentials = potentials + local_wrangler.eval_direct(
-                local_trav.target_or_target_parent_boxes,
+                local_trav.target_boxes,
                 local_trav.from_sep_close_bigger_starts,
                 local_trav.from_sep_close_bigger_lists,
                 local_src_weights)[0]

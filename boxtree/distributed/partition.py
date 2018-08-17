@@ -264,7 +264,7 @@ class ResponsibleBoxesQuery(object):
             # Add list 4 close of responsible boxes
             if self.traversal.from_sep_close_bigger_starts is not None:
                 self.add_interaction_list_boxes(
-                    self.target_or_target_parent_boxes_dev,
+                    self.target_boxes_dev,
                     responsible_boxes_mask | ancestor_boxes_mask,
                     self.from_sep_close_bigger_starts_dev,
                     self.from_sep_close_bigger_lists_dev,
