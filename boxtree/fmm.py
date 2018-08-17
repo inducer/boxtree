@@ -25,7 +25,16 @@ THE SOFTWARE.
 import logging
 logger = logging.getLogger(__name__)
 
-from pytools import ProcessLogger, Record
+
+try:
+    # Python 3
+    from collections.abc import Mapping
+except ImportError:
+    # Python 2
+    from collections import Mapping
+
+
+from pytools import ProcessLogger
 
 
 def drive_fmm(traversal, expansion_wrangler, src_weights, timing_data=None):
@@ -161,7 +170,7 @@ def drive_fmm(traversal, expansion_wrangler, src_weights, timing_data=None):
 
     if traversal.from_sep_close_bigger_starts is not None:
         direct_result, timing_future = wrangler.eval_direct(
-                traversal.target_or_target_parent_boxes,
+                traversal.target_boxes,
                 traversal.from_sep_close_bigger_starts,
                 traversal.from_sep_close_bigger_lists,
                 src_weights)
@@ -357,22 +366,44 @@ class ExpansionWranglerInterface:
 
 # {{{ timing result
 
-class TimingResult(Record):
-    """
-    .. attribute:: wall_elapsed
-    .. attribute:: process_elapsed
+class TimingResult(Mapping):
+    """Interface for returned timing data.
+
+    This supports accessing timing results via a mapping interface, along with
+    combining results via :meth:`merge`.
+
+    .. automethod:: merge
     """
 
-    def __init__(self, wall_elapsed, process_elapsed):
-        Record.__init__(self,
-                wall_elapsed=wall_elapsed,
-                process_elapsed=process_elapsed)
+    def __init__(self, *args, **kwargs):
+        """See constructor for :class:`dict`."""
+        self._mapping = dict(*args, **kwargs)
 
-    def __add__(self, other):
-        return TimingResult(
-            self.wall_elapsed + other.wall_elapsed,
-            self.process_elapsed + other.process_elapsed
-        )
+    def __getitem__(self, key):
+        return self._mapping[key]
+
+    def __iter__(self):
+        return iter(self._mapping)
+
+    def __len__(self):
+        return len(self._mapping)
+
+    def merge(self, other):
+        """Merge this result with another by adding together common fields."""
+        result = {}
+
+        for key in self:
+            val = self.get(key)
+            other_val = other.get(key)
+
+            if val is None or other_val is None:
+                continue
+
+            result[key] = val + other_val
+
+        return type(self)(result)
+
+    __add__ = merge
 
 # }}}
 
@@ -408,17 +439,6 @@ class TimingRecorder(object):
     def add(self, description, future):
         self.futures[description].append(future)
 
-    def merge(self, result1, result2):
-        wall_elapsed = None
-        process_elapsed = None
-
-        if None not in (result1.wall_elapsed, result2.wall_elapsed):
-            wall_elapsed = result1.wall_elapsed + result2.wall_elapsed
-        if None not in (result1.process_elapsed, result2.process_elapsed):
-            process_elapsed = result1.process_elapsed + result2.process_elapsed
-
-        return TimingResult(wall_elapsed, process_elapsed)
-
     def summarize(self):
         result = {}
 
@@ -427,7 +447,7 @@ class TimingRecorder(object):
 
             timing_result = next(futures).result()
             for future in futures:
-                timing_result = self.merge(timing_result, future.result())
+                timing_result = timing_result.merge(future.result())
 
             result[description] = timing_result
 

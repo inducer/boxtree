@@ -229,7 +229,7 @@ class PerformanceCounter:
             )
 
         if traversal.from_sep_close_bigger_starts is not None:
-            ndirect_src_boxes[traversal.target_or_target_parent_boxes] += (
+            ndirect_src_boxes[traversal.target_boxes] += (
                 traversal.from_sep_close_bigger_starts[1:]
                 - traversal.from_sep_close_bigger_starts[:-1]
             )
@@ -326,7 +326,7 @@ class PerformanceCounter:
         else:
             np2l = np.zeros(len(trav.target_or_target_parent_boxes), dtype=np.intp)
 
-        for itgt_box, tgt_ibox in enumerate(trav.target_or_target_parent_boxes):
+        for itgt_box, tgt_ibox in enumerate(trav.target_boxes):
             tgt_box_level = trav.tree.box_levels[tgt_ibox]
             ncoeffs = parameters.ncoeffs_fmm_by_level[tgt_box_level]
 
@@ -476,9 +476,9 @@ class PerformanceModel:
             result = self.time_result[0]
 
             if wall_time:
-                dependent_value = result[y_name].wall_elapsed
+                dependent_value = result[y_name]["wall_elapsed"]
             else:
-                dependent_value = result[y_name].process_elapsed
+                dependent_value = result[y_name]["process_elapsed"]
 
             independent_value = result[x_name[0]]
             coeff = dependent_value / independent_value
@@ -490,24 +490,29 @@ class PerformanceModel:
 
             for iresult, result in enumerate(self.time_result):
                 if wall_time:
-                    dependent_value[iresult] = result[y_name].wall_elapsed
+                    dependent_value[iresult] = result[y_name]["wall_elapsed"]
                 else:
-                    dependent_value[iresult] = result[y_name].process_elapsed
+                    dependent_value[iresult] = result[y_name]["process_elapsed"]
 
                 for icol, variable_name in enumerate(x_name):
                     coeff_matrix[iresult, icol] = result[variable_name]
 
             coeff_matrix[:, -1] = 1
 
-            """
-            from numpy.linalg import lstsq
-            coeff = lstsq(coeff_matrix, dependent_value, rcond=-1)[0]
-            """
-            import statsmodels.api as sm
-            rlm_model = sm.RLM(dependent_value, coeff_matrix)
-            rlm_result = rlm_model.fit()
+            try:
+                import statsmodels.api as sm
+                rlm_model = sm.RLM(dependent_value, coeff_matrix)
+                rlm_result = rlm_model.fit()
+                coeff = rlm_result.params
+            except ImportError:
+                import warnings
+                warnings.warn("Statsmodels package not found. Install to obtain more"
+                              "robust regression.")
 
-            return rlm_result.params
+                from numpy.linalg import lstsq
+                coeff = lstsq(coeff_matrix, dependent_value, rcond=-1)[0]
+
+            return coeff
 
     def time_random_traversals(self):
         context = self.cl_context
@@ -688,8 +693,8 @@ class PerformanceModel:
 
                         elif isinstance(entry, dict):
                             converted_result[field_name] = TimingResult(
-                                entry['wall_elapsed'],
-                                entry['process_elapsed']
+                                wall_elapsed=entry['wall_elapsed'],
+                                process_elapsed=entry['process_elapsed']
                             )
 
                         else:
@@ -718,8 +723,8 @@ class PerformanceModel:
 
                 elif isinstance(entry, TimingResult):
                     current_output[field_name] = {
-                        'wall_elapsed': entry.wall_elapsed,
-                        'process_elapsed': entry.process_elapsed
+                        'wall_elapsed': entry.get("wall_elapsed"),
+                        'process_elapsed': entry.get("process_elapsed")
                     }
 
             output.append(current_output)
