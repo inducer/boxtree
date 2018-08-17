@@ -1,7 +1,5 @@
 import numpy as np
 import pyopencl as cl
-from boxtree.distributed.calculation import DistributedFMMLibExpansionWrangler
-from boxtree.distributed import DistributedFMMInfo
 import numpy.linalg as la
 from boxtree.pyfmmlib_integration import FMMLibExpansionWrangler
 import logging
@@ -71,9 +69,12 @@ def _test_against_shared(dims, nsources, ntargets, dtype):
     # Compute FMM using distributed memory parallelism
 
     def distributed_expansion_wrangler_factory(tree):
+        from boxtree.distributed.calculation import DistributedFMMLibExpansionWrangler
+
         return DistributedFMMLibExpansionWrangler(
             queue, tree, helmholtz_k, fmm_level_to_nterms=fmm_level_to_nterms)
 
+    from boxtree.distributed import DistributedFMMInfo
     distribued_fmm_info = DistributedFMMInfo(
         queue, trav, distributed_expansion_wrangler_factory, comm=comm)
     pot_dfmm = distribued_fmm_info.drive_dfmm(sources_weights)
