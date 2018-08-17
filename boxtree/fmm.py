@@ -34,7 +34,7 @@ except ImportError:
     from collections import Mapping
 
 
-from pytools import ProcessLogger, Record
+from pytools import ProcessLogger
 
 
 def drive_fmm(traversal, expansion_wrangler, src_weights, timing_data=None):
@@ -393,8 +393,8 @@ class TimingResult(Mapping):
         result = {}
 
         for key in self:
-            val = self.get(val)
-            other_val = other.get(val)
+            val = self.get(key)
+            other_val = other.get(key)
 
             if val is None or other_val is None:
                 continue
