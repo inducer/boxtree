@@ -24,7 +24,6 @@ Python 3.5 K40:
     - nvidia-k40
     except:
     - tags
-    - distributed-fmm-global
   
 Python 2.7 POCL:
     script:
@@ -38,7 +37,6 @@ Python 2.7 POCL:
     - pocl
     except:
     - tags
-    - distributed-fmm-global
 
 Python 3.5 POCL:
     script:
@@ -52,7 +50,6 @@ Python 3.5 POCL:
     - pocl
     except:
     - tags
-    - distributed-fmm-global
 
 Python 3.6 POCL:
     script:
@@ -66,7 +63,20 @@ Python 3.6 POCL:
     - pocl
     except:
     - tags
-    - distributed-fmm-global
+
+Python 3.6 POCL MPI:
+    script:
+    - export PY_EXE=python3.6
+    - export PYOPENCL_TEST=portable
+    - export EXTRA_INSTALL="numpy mako mpi4py"
+    - export PYTEST_ADDOPTS="-k mpi"
+    - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project.sh
+    - ". ./build-and-test-py-project.sh"
+    tags:
+    - python3.6
+    - pocl
+    except:
+    - tags
 
 Documentation:
     script:
