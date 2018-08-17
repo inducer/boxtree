@@ -105,7 +105,8 @@ def test_against_shared(num_processes, dims, nsources, ntargets):
     subprocess.run([
         "mpiexec", "-np", str(num_processes),
         "-x", "PYTEST", "-x", "dims", "-x", "nsources", "-x", "ntargets",
-        sys.executable, __file__],
+        # https://mpi4py.readthedocs.io/en/stable/mpi4py.run.html
+        sys.executable, "-m", "mpi4py.run", __file__],
         env=newenv,
         check=True
     )
@@ -349,7 +350,8 @@ def test_constantone(num_processes, dims, nsources, ntargets):
     subprocess.run([
         "mpiexec", "-np", str(num_processes),
         "-x", "PYTEST", "-x", "dims", "-x", "nsources", "-x", "ntargets",
-        sys.executable, __file__],
+        # https://mpi4py.readthedocs.io/en/stable/mpi4py.run.html
+        sys.executable, "-m", "mpi4py.run", __file__],
         env=newenv,
         check=True
     )
