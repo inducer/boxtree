@@ -499,15 +499,19 @@ class PerformanceModel:
 
             coeff_matrix[:, -1] = 1
 
-            """
-            from numpy.linalg import lstsq
-            coeff = lstsq(coeff_matrix, dependent_value, rcond=-1)[0]
-            """
-            import statsmodels.api as sm
-            rlm_model = sm.RLM(dependent_value, coeff_matrix)
-            rlm_result = rlm_model.fit()
+            try:
+                import statsmodels.api as sm
+                rlm_model = sm.RLM(dependent_value, coeff_matrix)
+                rlm_result = rlm_model.fit()
+                coeff = rlm_result.params
+            except ImportError:
+                import warnings
+                warnings.warn("statsmodels package not installed")
 
-            return rlm_result.params
+                from numpy.linalg import lstsq
+                coeff = lstsq(coeff_matrix, dependent_value, rcond=-1)[0]
+
+            return coeff
 
     def time_random_traversals(self):
         context = self.cl_context
