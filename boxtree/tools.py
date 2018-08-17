@@ -982,7 +982,6 @@ class ConstantOneExpansionWrangler(object):
 
     def finalize_potentials(self, potentials):
         return potentials
->>>>>>> move-constant-one-wrangler-to-tools
 
 # }}}
 
