@@ -611,8 +611,7 @@ class ConstantOneExpansionWrangler(object):
     a copy of the particle count.
 
     Timing results returned by this wrangler contain the field *ops_elapsed*,
-    which counts approximately the number of floating-point operations required
-    by the FMM.
+    which counts approximately the number of floating-point operations required.
     """
 
     def __init__(self, tree):
