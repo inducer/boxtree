@@ -470,7 +470,7 @@ class PerformanceModel:
         nvariables = len(x_name)
 
         if nresult < 1:
-            raise RuntimeError("Please run FMM at lease once using time_performance"
+            raise RuntimeError("Please run FMM at least once using time_performance "
                                "before forming models.")
         elif nresult == 1:
             result = self.time_result[0]
