@@ -506,7 +506,8 @@ class PerformanceModel:
                 coeff = rlm_result.params
             except ImportError:
                 import warnings
-                warnings.warn("statsmodels package not installed")
+                warnings.warn("Statsmodels package not found. Install to obtain more"
+                              "robust regression.")
 
                 from numpy.linalg import lstsq
                 coeff = lstsq(coeff_matrix, dependent_value, rcond=-1)[0]
