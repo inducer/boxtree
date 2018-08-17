@@ -229,7 +229,7 @@ class PerformanceCounter:
             )
 
         if traversal.from_sep_close_bigger_starts is not None:
-            ndirect_src_boxes[traversal.target_or_target_parent_boxes] += (
+            ndirect_src_boxes[traversal.target_boxes] += (
                 traversal.from_sep_close_bigger_starts[1:]
                 - traversal.from_sep_close_bigger_starts[:-1]
             )
@@ -326,7 +326,7 @@ class PerformanceCounter:
         else:
             np2l = np.zeros(len(trav.target_or_target_parent_boxes), dtype=np.intp)
 
-        for itgt_box, tgt_ibox in enumerate(trav.target_or_target_parent_boxes):
+        for itgt_box, tgt_ibox in enumerate(trav.target_boxes):
             tgt_box_level = trav.tree.box_levels[tgt_ibox]
             ncoeffs = parameters.ncoeffs_fmm_by_level[tgt_box_level]
 
