@@ -69,7 +69,8 @@ def _test_against_shared(dims, nsources, ntargets, dtype):
     # Compute FMM using distributed memory parallelism
 
     def distributed_expansion_wrangler_factory(tree):
-        from boxtree.distributed.calculation import DistributedFMMLibExpansionWrangler
+        from boxtree.distributed.calculation import \
+                DistributedFMMLibExpansionWrangler
 
         return DistributedFMMLibExpansionWrangler(
             queue, tree, helmholtz_k, fmm_level_to_nterms=fmm_level_to_nterms)
