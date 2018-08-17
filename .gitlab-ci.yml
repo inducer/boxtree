@@ -69,7 +69,7 @@ Python 3.6 POCL MPI:
     - export PY_EXE=python3.6
     - export PYOPENCL_TEST=portable
     - export EXTRA_INSTALL="numpy mako mpi4py"
-    - export PYTEST_ADDOPTS="-k mpi"
+    - export PYTEST_ADDOPTS="-k mpi --capture=no"
     - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project.sh
     - ". ./build-and-test-py-project.sh"
     tags:
