@@ -1,5 +1,4 @@
 numpy
-mako
 git+https://github.com/inducer/pyopencl
 git+https://github.com/inducer/islpy
 git+https://github.com/inducer/loopy
