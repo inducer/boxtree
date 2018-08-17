@@ -15,7 +15,7 @@ logging.getLogger("boxtree.distributed").setLevel(logging.INFO)
 
 def _test_against_shared(dims, nsources, ntargets, dtype):
     from mpi4py import MPI
-    
+
     # Get the current rank
     comm = MPI.COMM_WORLD
     rank = comm.Get_rank()
@@ -274,6 +274,7 @@ class ConstantOneExpansionWrangler(object):
 
 
 def _test_constantone(dims, nsources, ntargets, dtype):
+    from mpi4py import MPI
 
     # Get the current rank
     comm = MPI.COMM_WORLD
