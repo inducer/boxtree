@@ -403,11 +403,7 @@ class TimingResult(Mapping):
 
         return type(self)(result)
 
-    def __add__(self, other):
-        return TimingResult(
-            self.wall_elapsed + other.wall_elapsed,
-            self.process_elapsed + other.process_elapsed
-        )
+    __add__ = merge
 
 # }}}
 
