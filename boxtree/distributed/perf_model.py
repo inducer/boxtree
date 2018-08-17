@@ -688,8 +688,8 @@ class PerformanceModel:
 
                         elif isinstance(entry, dict):
                             converted_result[field_name] = TimingResult(
-                                entry['wall_elapsed'],
-                                entry['process_elapsed']
+                                wall_elapsed=entry['wall_elapsed'],
+                                process_elapsed=entry['process_elapsed']
                             )
 
                         else:
