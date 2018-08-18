@@ -47,7 +47,12 @@ def main():
               "pytest>=2.3",
               "cgen>=2013.1.2",
               "six",
-              ])
+              ],
+          package_data={
+              "boxtree": [
+                  "distributed/default_perf_model.json"
+              ]
+          })
 
 
 if __name__ == '__main__':
