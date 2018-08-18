@@ -1,8 +1,5 @@
 import numpy as np
 import pyopencl as cl
-from mpi4py import MPI
-from boxtree.distributed.calculation import DistributedFMMLibExpansionWrangler
-from boxtree.distributed import DistributedFMMInfo
 import numpy.linalg as la
 from boxtree.pyfmmlib_integration import FMMLibExpansionWrangler
 from boxtree.tools import ConstantOneExpansionWrangler as \
@@ -17,6 +14,7 @@ logging.getLogger("boxtree.distributed").setLevel(logging.INFO)
 
 
 def _test_against_shared(dims, nsources, ntargets, dtype):
+    from mpi4py import MPI
 
     # Get the current rank
     comm = MPI.COMM_WORLD
@@ -73,9 +71,13 @@ def _test_against_shared(dims, nsources, ntargets, dtype):
     # Compute FMM using distributed memory parallelism
 
     def distributed_expansion_wrangler_factory(tree):
+        from boxtree.distributed.calculation import \
+                DistributedFMMLibExpansionWrangler
+
         return DistributedFMMLibExpansionWrangler(
             queue, tree, helmholtz_k, fmm_level_to_nterms=fmm_level_to_nterms)
 
+    from boxtree.distributed import DistributedFMMInfo
     distribued_fmm_info = DistributedFMMInfo(
         queue, trav, distributed_expansion_wrangler_factory, comm=comm)
     pot_dfmm = distribued_fmm_info.drive_dfmm(sources_weights)
@@ -99,13 +101,15 @@ def test_against_shared(num_processes, dims, nsources, ntargets):
     newenv["dims"] = str(dims)
     newenv["nsources"] = str(nsources)
     newenv["ntargets"] = str(ntargets)
+    newenv["OMP_NUM_THREADS"] = "1"
 
     import subprocess
     import sys
     subprocess.run([
         "mpiexec", "-np", str(num_processes),
         "-x", "PYTEST", "-x", "dims", "-x", "nsources", "-x", "ntargets",
-        sys.executable, __file__],
+        # https://mpi4py.readthedocs.io/en/stable/mpi4py.run.html
+        sys.executable, "-m", "mpi4py.run", __file__],
         env=newenv,
         check=True
     )
@@ -123,6 +127,7 @@ class ConstantOneExpansionWrangler(ConstantOneExpansionWranglerBase):
 
 
 def _test_constantone(dims, nsources, ntargets, dtype):
+    from mpi4py import MPI
 
     # Get the current rank
     comm = MPI.COMM_WORLD
@@ -136,7 +141,6 @@ def _test_constantone(dims, nsources, ntargets, dtype):
     import pyopencl as cl
     ctx = cl.create_some_context()
     queue = cl.CommandQueue(ctx)
-    print(queue.context.devices)
 
     if rank == 0:
 
@@ -189,13 +193,15 @@ def test_constantone(num_processes, dims, nsources, ntargets):
     newenv["dims"] = str(dims)
     newenv["nsources"] = str(nsources)
     newenv["ntargets"] = str(ntargets)
+    newenv["OMP_NUM_THREADS"] = "1"
 
     import subprocess
     import sys
     subprocess.run([
         "mpiexec", "-np", str(num_processes),
         "-x", "PYTEST", "-x", "dims", "-x", "nsources", "-x", "ntargets",
-        sys.executable, __file__],
+        # https://mpi4py.readthedocs.io/en/stable/mpi4py.run.html
+        sys.executable, "-m", "mpi4py.run", __file__],
         env=newenv,
         check=True
     )
