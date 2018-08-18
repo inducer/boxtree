@@ -101,6 +101,7 @@ def test_against_shared(num_processes, dims, nsources, ntargets):
     newenv["dims"] = str(dims)
     newenv["nsources"] = str(nsources)
     newenv["ntargets"] = str(ntargets)
+    newenv["OMP_NUM_THREADS"] = "1"
 
     import subprocess
     import sys
@@ -140,7 +141,6 @@ def _test_constantone(dims, nsources, ntargets, dtype):
     import pyopencl as cl
     ctx = cl.create_some_context()
     queue = cl.CommandQueue(ctx)
-    print(queue.context.devices)
 
     if rank == 0:
 
@@ -193,6 +193,7 @@ def test_constantone(num_processes, dims, nsources, ntargets):
     newenv["dims"] = str(dims)
     newenv["nsources"] = str(nsources)
     newenv["ntargets"] = str(ntargets)
+    newenv["OMP_NUM_THREADS"] = "1"
 
     import subprocess
     import sys
