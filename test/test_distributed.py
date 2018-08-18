@@ -8,6 +8,9 @@ import logging
 import os
 import pytest
 
+# Note: Do not import mpi4py.MPI object at the module level, because OpenMPI does not
+# support recursive invocations.
+
 # Configure logging
 logging.basicConfig(level=os.environ.get("LOGLEVEL", "WARNING"))
 logging.getLogger("boxtree.distributed").setLevel(logging.INFO)
