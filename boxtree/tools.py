@@ -771,7 +771,7 @@ class ConstantOneExpansionWrangler(object):
             target_or_target_parent_boxes, local_exps):
         ops = 0
 
-        for target_lev in range(self.tree.nlevels):
+        for target_lev in range(1, self.tree.nlevels):
             start, stop = level_start_target_or_target_parent_box_nrs[
                     target_lev:target_lev+2]
             for ibox in target_or_target_parent_boxes[start:stop]:
