@@ -1364,6 +1364,14 @@ class FMMTraversalInfo(DeviceDataRecord):
 
         An instance of :class:`boxtree.Tree`.
 
+    .. attribute:: nboxes
+
+        Number of boxe in the tree.
+
+    .. attribute:: nlevels
+
+        Number of levels in the tree.
+
     .. attribute:: well_sep_is_n_away
 
         The distance (measured in target box diameters in the :math:`l^\infty`
@@ -1387,6 +1395,10 @@ class FMMTraversalInfo(DeviceDataRecord):
         List of boxes having targets.
         If :attr:`boxtree.Tree.sources_are_targets`,
         then ``target_boxes is source_boxes``.
+
+    .. attribute:: ntarget_boxes
+
+        Number of :attr:`target_boxes`.
 
     .. attribute:: source_parent_boxes
 
@@ -1666,6 +1678,18 @@ class FMMTraversalInfo(DeviceDataRecord):
         return lists[start:stop]
 
     # }}}
+
+    @property
+    def nboxes(self):
+        return self.tree.nboxes
+
+    @property
+    def nlevels(self):
+        return self.tree.nlevels
+
+    @property
+    def ntarget_boxes(self):
+        return len(self.target_boxes)
 
     @property
     def ntarget_or_target_parent_boxes(self):
