@@ -1668,6 +1668,18 @@ class FMMTraversalInfo(DeviceDataRecord):
     # }}}
 
     @property
+    def nboxes(self):
+        return self.tree.nboxes
+
+    @property
+    def nlevels(self):
+        return self.tree.nlevels
+
+    @property
+    def ntarget_boxes(self):
+        return len(self.target_boxes)
+
+    @property
     def ntarget_or_target_parent_boxes(self):
         return len(self.target_or_target_parent_boxes)
 
