@@ -379,7 +379,7 @@ class TreeBuilder(object):
             bbox_auto = bbox_auto.get()
 
             # Convert unstructured numpy array to bbox_type
-            if isinstance(bbox, np.ndarrayJ):
+            if isinstance(bbox, np.ndarray):
                 if len(bbox) == dimensions:
                     bbox_bak = bbox.copy()
                     bbox = np.empty(1, bbox_auto.dtype)
