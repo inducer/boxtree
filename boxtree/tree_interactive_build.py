@@ -332,7 +332,6 @@ class BoxTree(DeviceDataRecord):
             for patch in nbpatch:
                 tmp = np.array(multiabox) + patch
                 if np.min(tmp) >= 0 and np.max(tmp) <= maxid:
-                    print(patch, tmp)
                     anb_pre[-1][nbid] = self.box_id_dtype(
                             nboxes - n_active_boxes +
                             np.sum(tmp * ind_bases))
