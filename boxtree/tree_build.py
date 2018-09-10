@@ -380,9 +380,10 @@ class TreeBuilder(object):
             if not isinstance(bbox, type(bbox_auto)):
                 if issinstance(bbox, np.ndarrayJ):
                     bbox_bak = bbox.copy()
+                    bbox = np.empty(1, bbox_auto.dtype)
                     for i, ax in enumeriate(axis_names):
-                        pass
-
+                        bbox['min_'+ax] = bbox_bak[i][0]
+                        bbox['max_'+ax] = bbox_bak[i][1]
                 else:
                     raise NotImplementedError("Unsupported bounding box type: "
                             + str(type(bbox)))
