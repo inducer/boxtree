@@ -125,6 +125,15 @@ class TreeBuilder(object):
             to which particle stick-out is measured. See :attr:`Tree.extent_norm`.
         :arg bbox: Bounding box of the same type as returned by
             *boxtree.bounding_box.make_bounding_box_dtype*.
+        :arg bbox: Bounding box of either type:
+            1. A dim-by-2 array, with each row to be [min, max] coordinates
+               in its corresponding axis direction.
+            2. (Internal use only) of the same type as returned by
+               *boxtree.bounding_box.make_bounding_box_dtype*.
+            When given, this bounding box is used for tree
+            building. Otherwise, the bounding box is determined from particles
+            in such a way that it is square and is slightly larger at the top (so
+            that scaled coordinates are always < 1).
             When given, this bounding box is used for tree
             building. Otherwise, the bounding box is determined from particles.
         :arg kwargs: Used internally for debugging.
@@ -369,6 +378,19 @@ class TreeBuilder(object):
                     srcntgts, srcntgt_radii, wait_for=wait_for)
             bbox_auto = bbox_auto.get()
 
+            # Convert numpy array to bbox_type
+            if not isinstance(bbox, type(bbox_auto)):
+                if issinstance(bbox, np.ndarrayJ):
+                    bbox_bak = bbox.copy()
+                    bbox = np.empty(1, bbox_auto.dtype)
+                    for i, ax in enumeriate(axis_names):
+                        bbox['min_'+ax] = bbox_bak[i][0]
+                        bbox['max_'+ax] = bbox_bak[i][1]
+                else:
+                    raise NotImplementedError("Unsupported bounding box type: "
+                            + str(type(bbox)))
+
+            # bbox must cover bbox_auto
             bbox_min = np.empty(dimensions, coord_dtype)
             bbox_max = np.empty(dimensions, coord_dtype)
 
