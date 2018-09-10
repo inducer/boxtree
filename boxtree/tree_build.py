@@ -378,17 +378,19 @@ class TreeBuilder(object):
                     srcntgts, srcntgt_radii, wait_for=wait_for)
             bbox_auto = bbox_auto.get()
 
-            # Convert numpy array to bbox_type
-            if not isinstance(bbox, type(bbox_auto)):
-                if issinstance(bbox, np.ndarrayJ):
+            # Convert unstructured numpy array to bbox_type
+            if issinstance(bbox, np.ndarrayJ):
+                if len(bbox) == dimensions:
                     bbox_bak = bbox.copy()
                     bbox = np.empty(1, bbox_auto.dtype)
                     for i, ax in enumeriate(axis_names):
                         bbox['min_'+ax] = bbox_bak[i][0]
                         bbox['max_'+ax] = bbox_bak[i][1]
                 else:
-                    raise NotImplementedError("Unsupported bounding box type: "
-                            + str(type(bbox)))
+                    assert len(bbox) == 1
+            else:
+                raise NotImplementedError("Unsupported bounding box type: "
+                        + str(type(bbox)))
 
             # bbox must cover bbox_auto
             bbox_min = np.empty(dimensions, coord_dtype)
