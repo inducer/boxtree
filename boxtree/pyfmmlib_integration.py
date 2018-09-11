@@ -396,6 +396,13 @@ class FMMLibExpansionWrangler(object):
     def _get_targets(self, pslice):
         return self._get_single_targets_array()[:, pslice]
 
+    @memoize_method
+    def _get_single_box_centers_array(self):
+        return np.array([
+            self.tree.box_centers[idim]
+            for idim in range(self.dim)
+            ], order="F")
+
     # }}}
 
     @log_process(logger)
@@ -406,23 +413,37 @@ class FMMLibExpansionWrangler(object):
     def reorder_potentials(self, potentials):
         return potentials[self.tree.sorted_target_ids]
 
-    def get_source_kwargs(self, src_weights, pslice):
+    def get_source_kwargs(self, src_weights, pslice, extra_kwargs=None):
+        if extra_kwargs is None:
+            extra_kwargs = {}
+
         if self.dipole_vec is None:
-            return {
+            result = {
                     "charge": src_weights[pslice],
                     }
+            for name, val in extra_kwargs.items():
+                result["charge_%s" % name] = val
+            return result
+
+        elif self.eqn_letter == "l" and self.dim == 2:
+            result = {
+                    "dipstr": -src_weights[pslice] * (
+                        self.dipole_vec[0, pslice]
+                        + 1j * self.dipole_vec[1, pslice])
+                    }
+            for name, val in extra_kwargs.items():
+                result["dipstr_%s" % name] = val
+            return result
+
         else:
-            if self.eqn_letter == "l" and self.dim == 2:
-                return {
-                        "dipstr": -src_weights[pslice] * (
-                            self.dipole_vec[0, pslice]
-                            + 1j * self.dipole_vec[1, pslice])
-                        }
-            else:
-                return {
-                        "dipstr": src_weights[pslice],
-                        "dipvec": self.dipole_vec[:, pslice],
-                        }
+            result = {
+                    "dipstr": src_weights[pslice],
+                    "dipvec": self.dipole_vec[:, pslice],
+                    }
+            for name, val in extra_kwargs.items():
+                result["dipstr_%s" % name] = val
+                result["dipvec_%s" % name] = val
+            return result
 
     @log_process(logger)
     @return_timing_data
@@ -534,7 +555,6 @@ class FMMLibExpansionWrangler(object):
             if tgt_pslice.stop - tgt_pslice.start == 0:
                 continue
 
-            #tgt_result = np.zeros(tgt_pslice.stop - tgt_pslice.start, self.dtype)
             tgt_pot_result = 0
             tgt_grad_result = 0
 
@@ -698,48 +718,70 @@ class FMMLibExpansionWrangler(object):
             target_or_target_parent_boxes, starts, lists, src_weights):
         local_exps = self.local_expansion_zeros()
 
-        formta = self.get_routine("%ddformta" + self.dp_suffix)
+        formta = self.get_routine("%ddformta" + self.dp_suffix, suffix="_imany")
+
+        sources = self._get_single_sources_array()
+        sources_offsets = self.tree.box_source_starts[lists]
+
+        nsources = self.tree.box_source_counts_nonchild
+        nsources_offsets = lists
+
+        centers = self._get_single_box_centers_array()
 
         for lev in range(self.tree.nlevels):
             lev_start, lev_stop = \
                     level_start_target_or_target_parent_box_nrs[lev:lev+2]
+
             if lev_start == lev_stop:
                 continue
 
-            target_level_start_ibox, target_local_exps_view = \
+            target_box_start, target_local_exps_view = \
                     self.local_expansions_view(local_exps, lev)
+
+            centers_offsets = target_or_target_parent_boxes[lev_start:lev_stop]
+
+            """
+            ier = np.zeros(lev_stop - lev_start, dtype=np.int)
+            expn = np.zeros(
+                    (lev_stop - lev_start,)
+                    + self.expansion_shape(self.level_nterms[lev]),
+                    dtype=self.dtype)
+            """
 
             rscale = self.level_to_rscale(lev)
 
-            for itgt_box, tgt_ibox in enumerate(
-                    target_or_target_parent_boxes[lev_start:lev_stop]):
-                start, end = starts[lev_start+itgt_box:lev_start+itgt_box+2]
+            sources_starts = starts[lev_start:1 + lev_stop]
+            nsources_starts = sources_starts
 
-                contrib = 0
+            kwargs = {}
+            kwargs.update(self.kernel_kwargs)
+            kwargs.update(
+                    self.get_source_kwargs(
+                        src_weights,
+                        slice(None),
+                        extra_kwargs={
+                            "starts": sources_starts,
+                            "offsets": sources_offsets}))
 
-                for src_ibox in lists[start:end]:
-                    src_pslice = self._get_source_slice(src_ibox)
-                    tgt_center = self.tree.box_centers[:, tgt_ibox]
+            ier, expn = formta(
+                    rscale=rscale,
+                    sources=sources,
+                    sources_offsets=sources_offsets,
+                    sources_starts=sources_starts,
+                    nsources=nsources,
+                    nsources_starts=nsources_starts,
+                    nsources_offsets=nsources_offsets,
+                    centers=centers,
+                    centers_offsets=centers_offsets,
+                    nterms=self.level_nterms[lev],
+                    **kwargs)
 
-                    if src_pslice.stop - src_pslice.start == 0:
-                        continue
+            if ier.any():
+                raise RuntimeError("formta failed")
 
-                    kwargs = {}
-                    kwargs.update(self.kernel_kwargs)
-                    kwargs.update(self.get_source_kwargs(src_weights, src_pslice))
-
-                    ier, mpole = formta(
-                            rscale=rscale,
-                            source=self._get_sources(src_pslice),
-                            center=tgt_center,
-                            nterms=self.level_nterms[lev],
-                            **kwargs)
-                    if ier:
-                        raise RuntimeError("formta failed")
-
-                    contrib = contrib + mpole.T
-
-                target_local_exps_view[tgt_ibox-target_level_start_ibox] = contrib
+            target_local_exps_view[
+                    target_or_target_parent_boxes[lev_start:lev_stop]
+                    - target_box_start] = expn.T
 
         return local_exps
 
