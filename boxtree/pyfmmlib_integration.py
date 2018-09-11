@@ -413,37 +413,23 @@ class FMMLibExpansionWrangler(object):
     def reorder_potentials(self, potentials):
         return potentials[self.tree.sorted_target_ids]
 
-    def get_source_kwargs(self, src_weights, pslice, extra_kwargs=None):
-        if extra_kwargs is None:
-            extra_kwargs = {}
-
+    def get_source_kwargs(self, src_weights, pslice):
         if self.dipole_vec is None:
-            result = {
+            return {
                     "charge": src_weights[pslice],
                     }
-            for name, val in extra_kwargs.items():
-                result["charge_%s" % name] = val
-            return result
-
-        elif self.eqn_letter == "l" and self.dim == 2:
-            result = {
-                    "dipstr": -src_weights[pslice] * (
-                        self.dipole_vec[0, pslice]
-                        + 1j * self.dipole_vec[1, pslice])
-                    }
-            for name, val in extra_kwargs.items():
-                result["dipstr_%s" % name] = val
-            return result
-
         else:
-            result = {
-                    "dipstr": src_weights[pslice],
-                    "dipvec": self.dipole_vec[:, pslice],
-                    }
-            for name, val in extra_kwargs.items():
-                result["dipstr_%s" % name] = val
-                result["dipvec_%s" % name] = val
-            return result
+            if self.eqn_letter == "l" and self.dim == 2:
+                return {
+                        "dipstr": -src_weights[pslice] * (
+                            self.dipole_vec[0, pslice]
+                            + 1j * self.dipole_vec[1, pslice])
+                        }
+            else:
+                return {
+                        "dipstr": src_weights[pslice],
+                        "dipvec": self.dipole_vec[:, pslice],
+                        }
 
     @log_process(logger)
     @return_timing_data
@@ -555,6 +541,7 @@ class FMMLibExpansionWrangler(object):
             if tgt_pslice.stop - tgt_pslice.start == 0:
                 continue
 
+            #tgt_result = np.zeros(tgt_pslice.stop - tgt_pslice.start, self.dtype)
             tgt_pot_result = 0
             tgt_grad_result = 0
 
@@ -721,12 +708,22 @@ class FMMLibExpansionWrangler(object):
         formta = self.get_routine("%ddformta" + self.dp_suffix, suffix="_imany")
 
         sources = self._get_single_sources_array()
+        # sources_starts / sources_lists is a CSR list mapping box centers to
+        # lists of starting indices into the sources array. To get the starting
+        # source indices we have to look at box_source_starts.
         sources_offsets = self.tree.box_source_starts[lists]
 
+        # nsources_starts / nsources_lists is a CSR list mapping box centers to
+        # lists of indices into nsources, each of which represents a source
+        # count.
         nsources = self.tree.box_source_counts_nonchild
         nsources_offsets = lists
 
+        # centers is indexed into by values of centers_offsets, which is a list
+        # mapping box indices to box center indices.
         centers = self._get_single_box_centers_array()
+
+        source_kwargs = self.get_source_kwargs(src_weights, slice(None))
 
         for lev in range(self.tree.nlevels):
             lev_start, lev_stop = \
@@ -740,14 +737,6 @@ class FMMLibExpansionWrangler(object):
 
             centers_offsets = target_or_target_parent_boxes[lev_start:lev_stop]
 
-            """
-            ier = np.zeros(lev_stop - lev_start, dtype=np.int)
-            expn = np.zeros(
-                    (lev_stop - lev_start,)
-                    + self.expansion_shape(self.level_nterms[lev]),
-                    dtype=self.dtype)
-            """
-
             rscale = self.level_to_rscale(lev)
 
             sources_starts = starts[lev_start:1 + lev_stop]
@@ -755,13 +744,15 @@ class FMMLibExpansionWrangler(object):
 
             kwargs = {}
             kwargs.update(self.kernel_kwargs)
-            kwargs.update(
-                    self.get_source_kwargs(
-                        src_weights,
-                        slice(None),
-                        extra_kwargs={
-                            "starts": sources_starts,
-                            "offsets": sources_offsets}))
+            for key, val in source_kwargs.items():
+                kwargs[key] = val
+                # Add CSR lists mapping box centers to lists of starting positions
+                # in the array of source strengths.
+                # Since the source strengths have the same order as the sources,
+                # these lists are the same as those for starting position in the
+                # sources array.
+                kwargs[key + "_starts"] = sources_starts
+                kwargs[key + "_offsets"] = sources_offsets
 
             ier, expn = formta(
                     rscale=rscale,
