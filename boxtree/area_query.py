@@ -661,7 +661,7 @@ class AreaQueryBuilder(object):
             debug=False,
             root_extent_stretch_factor=TreeBuilder.ROOT_EXTENT_STRETCH_FACTOR)
 
-        from pyopencl.tools import VectorArg, ScalarArg
+        from boxtree.tools import VectorArg, ScalarArg
         arg_decls = [
             VectorArg(coord_dtype, "box_centers"),
             ScalarArg(coord_dtype, "root_extent"),
@@ -1064,7 +1064,7 @@ class PeerListFinder(object):
             targets_have_extent=False,
             sources_have_extent=False)
 
-        from pyopencl.tools import VectorArg, ScalarArg
+        from boxtree.tools import VectorArg, ScalarArg
         arg_decls = [
             VectorArg(coord_dtype, "box_centers"),
             ScalarArg(coord_dtype, "root_extent"),

@@ -731,7 +731,8 @@ class ParticleListFilter(object):
     @memoize_method
     def get_filter_target_lists_in_user_order_kernel(self, particle_id_dtype,
             user_order_flags_dtype):
-        from pyopencl.tools import VectorArg, dtype_to_ctype
+        from boxtree.tools import VectorArg
+        from pyopencl.tools import dtype_to_ctype
         from pyopencl.algorithm import ListOfListsBuilder
         from mako.template import Template
 

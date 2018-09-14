@@ -27,10 +27,17 @@ import numpy as np
 from pytools import Record, memoize_method
 import pyopencl as cl
 import pyopencl.array  # noqa
-from pyopencl.tools import dtype_to_c_struct
+from pyopencl.tools import dtype_to_c_struct, VectorArg as _VectorArg
+from pyopencl.tools import ScalarArg  # noqa
 from mako.template import Template
 from pytools.obj_array import make_obj_array
 from boxtree.fmm import TimingFuture, TimingResult
+
+from functools import partial
+
+
+# Use offsets in VectorArg by default.
+VectorArg = partial(_VectorArg, with_offset=True)
 
 
 AXIS_NAMES = ("x", "y", "z", "w")
@@ -378,7 +385,7 @@ class GappyCopyAndMapKernel:
     @memoize_method
     def _get_kernel(self, dtype, src_index_dtype, dst_index_dtype,
                     have_src_indices, have_dst_indices, map_values):
-        from pyopencl.tools import VectorArg
+        from boxtree.tools import VectorArg
 
         args = [
                 VectorArg(dtype, "input_ary", with_offset=True),

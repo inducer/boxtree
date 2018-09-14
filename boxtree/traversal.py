@@ -1793,7 +1793,7 @@ class FMMTraversalBuilder:
                 from_sep_smaller_crit=from_sep_smaller_crit,
                 )
         from pyopencl.algorithm import ListOfListsBuilder
-        from pyopencl.tools import VectorArg, ScalarArg
+        from boxtree.tools import VectorArg, ScalarArg
 
         result = {}
 
