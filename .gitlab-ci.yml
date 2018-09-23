@@ -10,9 +10,9 @@ Python 2.7 POCL:
     - pocl
     except:
     - tags
-  artifacts:
-    reports:
-      junit: test/pytest.xml
+    artifacts:
+        reports:
+            junit: test/pytest.xml
 
 #Python 3.5 Titan X:
 #    script:
@@ -26,9 +26,9 @@ Python 2.7 POCL:
 #    - nvidia-titan-x
 #    except:
 #    - tags
-#  artifacts:
-#    reports:
-#      junit: test/pytest.xml
+#    artifacts:
+#        reports:
+#            junit: test/pytest.xml
 
 Python 3.5 K40:
     script:
@@ -43,9 +43,9 @@ Python 3.5 K40:
     - nvidia-k40
     except:
     - tags
-  artifacts:
-    reports:
-      junit: test/pytest.xml
+    artifacts:
+        reports:
+            junit: test/pytest.xml
   
 Python 3.5 POCL:
     script:
@@ -59,9 +59,9 @@ Python 3.5 POCL:
     - pocl
     except:
     - tags
-  artifacts:
-    reports:
-      junit: test/pytest.xml
+    artifacts:
+        reports:
+            junit: test/pytest.xml
 
 Python 3.6 POCL:
     script:
@@ -75,9 +75,9 @@ Python 3.6 POCL:
     - pocl
     except:
     - tags
-  artifacts:
-    reports:
-      junit: test/pytest.xml
+    artifacts:
+        reports:
+            junit: test/pytest.xml
 
 Documentation:
     script:
