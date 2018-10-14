@@ -43,6 +43,10 @@ def partition_work(boxes_time, traversal, total_rank):
     """
     tree = traversal.tree
 
+    if total_rank > tree.nboxes:
+        raise RuntimeError("Fail to partition work because the number of boxes is "
+                           "less than the number of processes.")
+
     total_workload = 0
     for i in range(tree.nboxes):
         total_workload += boxes_time[i]
