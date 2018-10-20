@@ -27,6 +27,7 @@ THE SOFTWARE.
 
 import numpy as np
 from pytools import memoize_method, log_process
+from boxtree.tools import return_timing_data
 
 import logging
 logger = logging.getLogger(__name__)
@@ -40,6 +41,10 @@ __doc__ = """Integrates :mod:`boxtree` with
 class FMMLibExpansionWrangler(object):
     """Implements the :class:`boxtree.fmm.ExpansionWranglerInterface`
     by using pyfmmlib.
+
+    Timing results returned by this wrangler contains the values *wall_elapsed*
+    and (optionally, if supported) *process_elapsed*, which measure wall time
+    and process time in seconds, respectively.
     """
 
     # {{{ constructor
@@ -391,6 +396,13 @@ class FMMLibExpansionWrangler(object):
     def _get_targets(self, pslice):
         return self._get_single_targets_array()[:, pslice]
 
+    @memoize_method
+    def _get_single_box_centers_array(self):
+        return np.array([
+            self.tree.box_centers[idim]
+            for idim in range(self.dim)
+            ], order="F")
+
     # }}}
 
     @log_process(logger)
@@ -420,6 +432,7 @@ class FMMLibExpansionWrangler(object):
                         }
 
     @log_process(logger)
+    @return_timing_data
     def form_multipoles(self, level_start_source_box_nrs, source_boxes, src_weights):
         formmp = self.get_routine("%ddformmp" + self.dp_suffix)
 
@@ -459,6 +472,7 @@ class FMMLibExpansionWrangler(object):
         return mpoles
 
     @log_process(logger)
+    @return_timing_data
     def coarsen_multipoles(self, level_start_source_parent_box_nrs,
             source_parent_boxes, mpoles):
         tree = self.tree
@@ -511,7 +525,10 @@ class FMMLibExpansionWrangler(object):
                         target_mpoles_view[
                                 ibox - target_level_start_ibox] += new_mp[..., 0].T
 
+        return mpoles
+
     @log_process(logger)
+    @return_timing_data
     def eval_direct(self, target_boxes, neighbor_sources_starts,
             neighbor_sources_lists, src_weights):
         output = self.output_zeros()
@@ -553,6 +570,7 @@ class FMMLibExpansionWrangler(object):
         return output
 
     @log_process(logger)
+    @return_timing_data
     def multipole_to_local(self,
             level_start_target_or_target_parent_box_nrs,
             target_or_target_parent_boxes,
@@ -638,6 +656,7 @@ class FMMLibExpansionWrangler(object):
         return local_exps
 
     @log_process(logger)
+    @return_timing_data
     def eval_multipoles(self,
             target_boxes_by_source_level, sep_smaller_nonsiblings_by_level,
             mpole_exps):
@@ -680,57 +699,85 @@ class FMMLibExpansionWrangler(object):
         return output
 
     @log_process(logger)
+    @return_timing_data
     def form_locals(self,
             level_start_target_or_target_parent_box_nrs,
             target_or_target_parent_boxes, starts, lists, src_weights):
         local_exps = self.local_expansion_zeros()
 
-        formta = self.get_routine("%ddformta" + self.dp_suffix)
+        formta = self.get_routine("%ddformta" + self.dp_suffix, suffix="_imany")
+
+        sources = self._get_single_sources_array()
+        # sources_starts / sources_lists is a CSR list mapping box centers to
+        # lists of starting indices into the sources array. To get the starting
+        # source indices we have to look at box_source_starts.
+        sources_offsets = self.tree.box_source_starts[lists]
+
+        # nsources_starts / nsources_lists is a CSR list mapping box centers to
+        # lists of indices into nsources, each of which represents a source
+        # count.
+        nsources = self.tree.box_source_counts_nonchild
+        nsources_offsets = lists
+
+        # centers is indexed into by values of centers_offsets, which is a list
+        # mapping box indices to box center indices.
+        centers = self._get_single_box_centers_array()
+
+        source_kwargs = self.get_source_kwargs(src_weights, slice(None))
 
         for lev in range(self.tree.nlevels):
             lev_start, lev_stop = \
                     level_start_target_or_target_parent_box_nrs[lev:lev+2]
+
             if lev_start == lev_stop:
                 continue
 
-            target_level_start_ibox, target_local_exps_view = \
+            target_box_start, target_local_exps_view = \
                     self.local_expansions_view(local_exps, lev)
+
+            centers_offsets = target_or_target_parent_boxes[lev_start:lev_stop]
 
             rscale = self.level_to_rscale(lev)
 
-            for itgt_box, tgt_ibox in enumerate(
-                    target_or_target_parent_boxes[lev_start:lev_stop]):
-                start, end = starts[lev_start+itgt_box:lev_start+itgt_box+2]
+            sources_starts = starts[lev_start:1 + lev_stop]
+            nsources_starts = sources_starts
 
-                contrib = 0
+            kwargs = {}
+            kwargs.update(self.kernel_kwargs)
+            for key, val in source_kwargs.items():
+                kwargs[key] = val
+                # Add CSR lists mapping box centers to lists of starting positions
+                # in the array of source strengths.
+                # Since the source strengths have the same order as the sources,
+                # these lists are the same as those for starting position in the
+                # sources array.
+                kwargs[key + "_starts"] = sources_starts
+                kwargs[key + "_offsets"] = sources_offsets
 
-                for src_ibox in lists[start:end]:
-                    src_pslice = self._get_source_slice(src_ibox)
-                    tgt_center = self.tree.box_centers[:, tgt_ibox]
+            ier, expn = formta(
+                    rscale=rscale,
+                    sources=sources,
+                    sources_offsets=sources_offsets,
+                    sources_starts=sources_starts,
+                    nsources=nsources,
+                    nsources_starts=nsources_starts,
+                    nsources_offsets=nsources_offsets,
+                    centers=centers,
+                    centers_offsets=centers_offsets,
+                    nterms=self.level_nterms[lev],
+                    **kwargs)
 
-                    if src_pslice.stop - src_pslice.start == 0:
-                        continue
+            if ier.any():
+                raise RuntimeError("formta failed")
 
-                    kwargs = {}
-                    kwargs.update(self.kernel_kwargs)
-                    kwargs.update(self.get_source_kwargs(src_weights, src_pslice))
-
-                    ier, mpole = formta(
-                            rscale=rscale,
-                            source=self._get_sources(src_pslice),
-                            center=tgt_center,
-                            nterms=self.level_nterms[lev],
-                            **kwargs)
-                    if ier:
-                        raise RuntimeError("formta failed")
-
-                    contrib = contrib + mpole.T
-
-                target_local_exps_view[tgt_ibox-target_level_start_ibox] = contrib
+            target_local_exps_view[
+                    target_or_target_parent_boxes[lev_start:lev_stop]
+                    - target_box_start] = expn.T
 
         return local_exps
 
     @log_process(logger)
+    @return_timing_data
     def refine_locals(self, level_start_target_or_target_parent_box_nrs,
             target_or_target_parent_boxes, local_exps):
 
@@ -777,6 +824,7 @@ class FMMLibExpansionWrangler(object):
         return local_exps
 
     @log_process(logger)
+    @return_timing_data
     def eval_locals(self, level_start_target_box_nrs, target_boxes, local_exps):
         output = self.output_zeros()
         taeval = self.get_expn_eval_routine("ta")

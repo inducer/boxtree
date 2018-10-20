@@ -362,7 +362,7 @@ def draw_box_lists(tree_plotter, traversal, ibox):
         _draw_box_list(tree_plotter, ibox,
                 traversal.from_sep_close_bigger_starts,
                 traversal.from_sep_close_bigger_lists,
-                key_to_box=traversal.target_or_target_parent_boxes,
+                key_to_box=traversal.target_boxes,
                 facecolor="purple", hatch=".")
 
 # }}}
