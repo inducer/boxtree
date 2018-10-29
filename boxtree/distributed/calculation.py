@@ -30,6 +30,7 @@ from mpi4py import MPI
 import time
 from boxtree.distributed import dtype_to_mpi
 from boxtree.pyfmmlib_integration import FMMLibExpansionWrangler
+from boxtree.distributed.util import TimeRecorder
 from pytools import memoize_method
 import loopy as lp
 from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_1  # noqa: F401
@@ -166,10 +167,8 @@ def communicate_mpoles(wrangler, comm, trav, mpole_exps, return_stats=False,
     stats = {}
 
     if record_timing:
-        comm.Barrier()
-        from time import time
-        t_start = time()
-        logger.debug("communicate multipoles: start")
+        time_recorder = TimeRecorder("Communicate multiploes", comm, logger)
+        t_start = time.time()
 
     # contributing_boxes:
     #
@@ -259,10 +258,8 @@ def communicate_mpoles(wrangler, comm, trav, mpole_exps, return_stats=False,
         comm_pattern.advance()
 
     if record_timing:
-        stats["total_time"] = time() - t_start
-        logger.info("Communicate multipoles: done in {0:.4f} sec.".format(
-            stats["total_time"]
-        ))
+        stats["total_time"] = time.time() - t_start
+        time_recorder.record()
     else:
         stats["total_time"] = None
 
@@ -289,10 +286,10 @@ def distribute_source_weights(source_weights, local_data, comm=MPI.COMM_WORLD,
     current_rank = comm.Get_rank()
     total_rank = comm.Get_size()
 
-    if current_rank == 0:
-        if record_timing:
-            start_time = time.time()
+    if record_timing:
+        time_recorder = TimeRecorder("Distribute source weights", comm, logger)
 
+    if current_rank == 0:
         weight_req = []
         local_src_weights = np.empty((total_rank,), dtype=object)
 
@@ -307,14 +304,12 @@ def distribute_source_weights(source_weights, local_data, comm=MPI.COMM_WORLD,
 
         MPI.Request.Waitall(weight_req)
 
-        if record_timing:
-            logger.info("Distribute source weights in {0:.4f} sec.".format(
-                time.time() - start_time
-            ))
-
         local_src_weights = local_src_weights[0]
     else:
         local_src_weights = comm.recv(source=0, tag=MPITags["DIST_WEIGHT"])
+
+    if record_timing:
+        time_recorder.record()
 
     return local_src_weights
 
