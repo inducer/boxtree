@@ -492,8 +492,7 @@ def test_pyfmmlib_fmm(ctx_getter, dims, use_dipoles, helmholtz_k):
 
         sumpy_rel_err = (
                 la.norm(pot - sumpy_ref_pot, np.inf)
-                /
-                la.norm(sumpy_ref_pot, np.inf))
+                / la.norm(sumpy_ref_pot, np.inf))
 
         logger.info("relative l2 error vs sumpy direct: %g" % sumpy_rel_err)
         assert sumpy_rel_err < 1e-5, sumpy_rel_err
