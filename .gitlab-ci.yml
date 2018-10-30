@@ -24,6 +24,7 @@ Python 3.7 Titan V:
     tags:
     - python3.7
     - nvidia-titan-v
+    allow_failure: true
     except:
     - tags
     artifacts:
