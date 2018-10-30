@@ -912,9 +912,9 @@ class TreeBuilder(object):
             logger.debug("LEVEL %d -> %d boxes" % (level, nboxes_new))
 
             assert (
-                level_start_box_nrs[-1] != nboxes_new or
-                srcntgts_have_extent or
-                final_level_restrict_iteration)
+                level_start_box_nrs[-1] != nboxes_new
+                or srcntgts_have_extent
+                or final_level_restrict_iteration)
 
             if level_start_box_nrs[-1] == nboxes_new:
                 # We haven't created new boxes in this level loop trip.
@@ -1153,9 +1153,8 @@ class TreeBuilder(object):
 
                     if (
                             h_box_srcntgt_counts_cumul[ibox]
-                            !=
-                            h_box_morton_bin_counts[ibox]["nonchild_srcntgts"]
-                            + kid_sum):
+                            != (h_box_morton_bin_counts[ibox]["nonchild_srcntgts"]
+                                + kid_sum)):
                         print("MISMATCH", level, ibox)
                         has_mismatch = True
 
@@ -1428,9 +1427,8 @@ class TreeBuilder(object):
                 if debug:
                     assert (
                             box_srcntgt_counts_nonchild.get()
-                            ==
-                            (box_source_counts_nonchild
-                            + box_target_counts_nonchild).get()).all()
+                            == (box_source_counts_nonchild
+                                + box_target_counts_nonchild).get()).all()
 
             if debug:
                 usi_host = user_source_ids.get()

@@ -371,8 +371,8 @@ class Tree(DeviceDataRecord):
         """
         crit = (
                 (self.box_target_starts <= itarget)
-                &
-                (itarget < self.box_target_starts + self.box_target_counts_nonchild))
+                & (itarget
+                    < self.box_target_starts + self.box_target_counts_nonchild))
 
         return int(np.where(crit)[0])
 
@@ -382,8 +382,8 @@ class Tree(DeviceDataRecord):
         """
         crit = (
                 (self.box_source_starts <= isource)
-                &
-                (isource < self.box_source_starts + self.box_source_counts_nonchild))
+                & (isource
+                    < self.box_source_starts + self.box_source_counts_nonchild))
 
         return int(np.where(crit)[0])
 
@@ -455,7 +455,7 @@ class TreeWithLinkedPointSources(Tree):
 
 def link_point_sources(queue, tree, point_source_starts, point_sources,
         debug=False):
-    """
+    r"""
     *Construction:* Requires that :attr:`Tree.sources_have_extent` is *True*
     on *tree*.
 
