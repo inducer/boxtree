@@ -3,8 +3,20 @@ import pyopencl as cl
 import pyopencl.array  # noqa: F401
 from pyopencl.elementwise import ElementwiseKernel
 from pyopencl.tools import dtype_to_ctype
-from abc import ABC, abstractmethod
 from mako.template import Template
+from functools import partial
+import sys
+
+if sys.version_info >= (3, 0):
+    Template = partial(Template, strict_undefined=True)
+else:
+    Template = partial(Template, strict_undefined=True, disable_unicode=True)
+
+if sys.version_info >= (3, 4):
+    from abc import ABC, abstractmethod
+else:
+    from abc import ABCMeta, abstractmethod
+    ABC = ABCMeta('ABC', (), {})
 
 
 class CostCounter(ABC):

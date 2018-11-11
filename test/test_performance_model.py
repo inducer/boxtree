@@ -6,6 +6,12 @@ import pytest
 from pyopencl.tools import (  # noqa
     pytest_generate_tests_for_pyopencl as pytest_generate_tests)
 
+import logging
+import os
+logging.basicConfig(level=os.environ.get("LOGLEVEL", "WARNING"))
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
 
 @pytest.mark.opencl
 @pytest.mark.parametrize(
@@ -55,12 +61,13 @@ def test_performance_counter(ctx_factory, nsources, ntargets, dims, dtype):
     cl_direct_interaction = cl_cost_counter.collect_direct_interaction_data(
         trav, trav.tree
     )
-    print("OpenCL time {0}".format(str(time.time() - start_time)))
+    logger.info("OpenCL time {0}".format(str(time.time() - start_time)))
+
     start_time = time.time()
     python_direct_interaction = python_cost_counter.collect_direct_interaction_data(
         trav, trav.tree
     )
-    print("Python time {0}".format(str(time.time() - start_time)))
+    logger.info("Python time {0}".format(str(time.time() - start_time)))
 
     for field in ["nlist1_srcs_by_itgt_box"]:
         assert np.equal(
