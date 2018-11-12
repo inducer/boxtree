@@ -61,15 +61,20 @@ def test_performance_counter(ctx_factory, nsources, ntargets, dims, dtype):
     cl_direct_interaction = cl_cost_counter.collect_direct_interaction_data(
         trav, trav.tree
     )
-    logger.info("OpenCL time {0}".format(str(time.time() - start_time)))
+    logger.info("OpenCL time for collect_direct_interaction_data: {0}".format(
+        str(time.time() - start_time))
+    )
 
     start_time = time.time()
     python_direct_interaction = python_cost_counter.collect_direct_interaction_data(
         trav, trav.tree
     )
-    logger.info("Python time {0}".format(str(time.time() - start_time)))
+    logger.info("Python time for collect_direct_interaction_data: {0}".format(
+        str(time.time() - start_time))
+    )
 
-    for field in ["nlist1_srcs_by_itgt_box"]:
+    for field in ["nlist1_srcs_by_itgt_box", "nlist3close_srcs_by_itgt_box",
+                  "nlist4close_srcs_by_itgt_box"]:
         assert np.equal(
             cl_direct_interaction[field],
             python_direct_interaction[field]

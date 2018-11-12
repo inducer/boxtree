@@ -60,7 +60,7 @@ class CLCostCounter(CostCounter):
                     nsources += box_source_counts_nonchild[cur_source_box];
                 }
 
-                srcs_by_itgt_box[i] = nsources
+                srcs_by_itgt_box[i] = nsources;
             """).render(
                 particle_id_t=dtype_to_ctype(particle_id_dtype),
                 box_id_t=dtype_to_ctype(box_id_dtype)
@@ -71,6 +71,7 @@ class CLCostCounter(CostCounter):
         box_source_counts_nonchild_dev = cl.array.to_device(
             self.queue, tree.box_source_counts_nonchild
         )
+        result = dict()
 
         # List 1
         nlist1_srcs_by_itgt_box_dev = cl.array.zeros(
@@ -82,6 +83,7 @@ class CLCostCounter(CostCounter):
         neighbor_source_boxes_lists_dev = cl.array.to_device(
             self.queue, traversal.neighbor_source_boxes_lists
         )
+
         count_direct_interaction_knl(
             nlist1_srcs_by_itgt_box_dev,
             neighbor_source_boxes_starts_dev,
@@ -89,8 +91,51 @@ class CLCostCounter(CostCounter):
             box_source_counts_nonchild_dev
         )
 
-        result = dict()
         result["nlist1_srcs_by_itgt_box"] = nlist1_srcs_by_itgt_box_dev.get()
+
+        # List 3 close
+        if traversal.from_sep_close_smaller_starts is not None:
+            nlist3close_srcs_by_itgt_box_dev = cl.array.zeros(
+                self.queue, (ntarget_boxes,), dtype=particle_id_dtype
+            )
+            from_sep_close_smaller_starts_dev = cl.array.to_device(
+                self.queue, traversal.from_sep_close_smaller_starts
+            )
+            from_sep_close_smaller_lists_dev = cl.array.to_device(
+                self.queue, traversal.from_sep_close_smaller_lists
+            )
+
+            count_direct_interaction_knl(
+                nlist3close_srcs_by_itgt_box_dev,
+                from_sep_close_smaller_starts_dev,
+                from_sep_close_smaller_lists_dev,
+                box_source_counts_nonchild_dev
+            )
+
+            result["nlist3close_srcs_by_itgt_box"] = \
+                nlist3close_srcs_by_itgt_box_dev.get()
+
+        # List 4 close
+        if traversal.from_sep_close_bigger_starts is not None:
+            nlist4close_srcs_by_itgt_box_dev = cl.array.zeros(
+                self.queue, (ntarget_boxes,), dtype=particle_id_dtype
+            )
+            from_sep_close_bigger_starts_dev = cl.array.to_device(
+                self.queue, traversal.from_sep_close_bigger_starts
+            )
+            from_sep_close_bigger_lists_dev = cl.array.to_device(
+                self.queue, traversal.from_sep_close_bigger_lists
+            )
+
+            count_direct_interaction_knl(
+                nlist4close_srcs_by_itgt_box_dev,
+                from_sep_close_bigger_starts_dev,
+                from_sep_close_bigger_lists_dev,
+                box_source_counts_nonchild_dev
+            )
+
+            result["nlist4close_srcs_by_itgt_box"] = \
+                nlist4close_srcs_by_itgt_box_dev.get()
 
         return result
 
