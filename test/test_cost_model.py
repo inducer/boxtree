@@ -19,7 +19,7 @@ logger.setLevel(logging.INFO)
         (5000, 5000, 3, np.float64)
     ]
 )
-def test_performance_counter(ctx_factory, nsources, ntargets, dims, dtype):
+def test_cost_counter(ctx_factory, nsources, ntargets, dims, dtype):
     ctx = ctx_factory()
     queue = cl.CommandQueue(ctx)
 
@@ -88,7 +88,7 @@ def main():
     dtype = np.float64
     ctx_factory = cl.create_some_context
 
-    test_performance_counter(ctx_factory, nsouces, ntargets, ndims, dtype)
+    test_cost_counter(ctx_factory, nsouces, ntargets, ndims, dtype)
 
 
 if __name__ == "__main__":
