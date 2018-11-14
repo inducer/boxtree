@@ -29,7 +29,7 @@ __all__ = [
     "Tree", "TreeWithLinkedPointSources",
     "TreeBuilder", "box_flags_enum"]
 
-__doc__ = """
+__doc__ = r"""
 :mod:`boxtree` can do three main things:
 
 * it can sort particles into an adaptively refined quad/octree,

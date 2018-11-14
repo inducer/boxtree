@@ -355,9 +355,9 @@ AREA_QUERY_TEMPLATE = (
 
     void generate(LIST_ARG_DECL USER_ARG_DECL ball_id_t i)
     {
-    """ +
-    AREA_QUERY_WALKER_BODY +
     """
+    + AREA_QUERY_WALKER_BODY
+    + """
     }
     """)
 
@@ -511,14 +511,16 @@ class AreaQueryElementwiseTemplate(object):
                     coord_t bbox_min_${ax},
                 %endfor
             """ + extra_args,
-            operation="//CL:mako//\n" +
-            wrap_in_macro("get_ball_center_and_radius(ball_center, ball_radius, i)",
-                          ball_center_and_radius_expr) +
-            wrap_in_macro("leaf_found_op(leaf_box_id, ball_center, ball_radius)",
-                          leaf_found_op) +
-            TRAVERSAL_PREAMBLE_MAKO_DEFS +
-            GUIDING_BOX_FINDER_MACRO +
-            AREA_QUERY_WALKER_BODY,
+            operation="//CL:mako//\n"
+            + wrap_in_macro(
+                "get_ball_center_and_radius(ball_center, ball_radius, i)",
+                ball_center_and_radius_expr)
+            + wrap_in_macro(
+                "leaf_found_op(leaf_box_id, ball_center, ball_radius)",
+                leaf_found_op)
+            + TRAVERSAL_PREAMBLE_MAKO_DEFS
+            + GUIDING_BOX_FINDER_MACRO
+            + AREA_QUERY_WALKER_BODY,
             name=name,
             preamble=preamble)
 
@@ -554,9 +556,9 @@ class AreaQueryElementwiseTemplate(object):
             """
             #pragma clang diagnostic push
             #pragma clang diagnostic ignored "-Wtypedef-redefinition"
-            """ +
-            TRAVERSAL_PREAMBLE_TYPEDEFS_AND_DEFINES +
             """
+            + TRAVERSAL_PREAMBLE_TYPEDEFS_AND_DEFINES
+            + """
             #pragma clang diagnostic pop
             """,
             strict_undefined=True).render(**dict(render_vars))
@@ -750,8 +752,8 @@ class AreaQueryBuilder(object):
                 tree.box_child_ids.data, tree.box_flags,
                 peer_lists.peer_list_starts,
                 peer_lists.peer_lists, ball_radii,
-                *(tuple(tree.bounding_box[0]) +
-                  tuple(bc for bc in ball_centers)),
+                *(tuple(tree.bounding_box[0])
+                    + tuple(bc for bc in ball_centers)),
                 wait_for=wait_for)
 
         aq_plog.done()

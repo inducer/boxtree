@@ -165,9 +165,7 @@ def run_build_test(builder, queue, dims, dtype, nparticles, do_plot,
                 start:start+tree.box_source_counts_cumul[ibox]]
         good = (
                 (box_particles < extent_high[:, np.newaxis] + scaled_tol)
-                &
-                (extent_low[:, np.newaxis] - scaled_tol <= box_particles)
-                )
+                & (extent_low[:, np.newaxis] - scaled_tol <= box_particles))
 
         all_good_here = good.all()
         if do_plot and not all_good_here and all_good_so_far:
@@ -381,10 +379,10 @@ def test_source_target_tree(ctx_factory, dims, do_plot=False):
     for ibox in range(tree.nboxes):
         extent_low, extent_high = tree.get_box_extent(ibox)
 
-        assert (extent_low >=
-                tree.bounding_box[0] - 1e-12*tree.root_extent).all(), ibox
-        assert (extent_high <=
-                tree.bounding_box[1] + 1e-12*tree.root_extent).all(), ibox
+        assert (extent_low
+                >= tree.bounding_box[0] - 1e-12*tree.root_extent).all(), ibox
+        assert (extent_high
+                <= tree.bounding_box[1] + 1e-12*tree.root_extent).all(), ibox
 
         src_start = tree.box_source_starts[ibox]
         tgt_start = tree.box_target_starts[ibox]
@@ -407,8 +405,7 @@ def test_source_target_tree(ctx_factory, dims, do_plot=False):
                 ]:
             good = (
                     (particles < extent_high[:, np.newaxis] + tol)
-                    &
-                    (extent_low[:, np.newaxis] - tol <= particles)
+                    & (extent_low[:, np.newaxis] - tol <= particles)
                     ).all(axis=0)
 
             all_good_here = good.all()
@@ -544,17 +541,17 @@ def test_extent_tree(ctx_factory, dims, extent_norm, do_plot=False):
                     if ichild_box != 0)
         assert (
                 tree.box_target_counts_cumul[ibox]
-                ==
-                tree.box_target_counts_nonchild[ibox]
-                + kid_sum), ibox
+                == (
+                    tree.box_target_counts_nonchild[ibox]
+                    + kid_sum)), ibox
 
     for ibox in range(tree.nboxes):
         extent_low, extent_high = tree.get_box_extent(ibox)
 
-        assert (extent_low >=
-                tree.bounding_box[0] - 1e-12*tree.root_extent).all(), ibox
-        assert (extent_high <=
-                tree.bounding_box[1] + 1e-12*tree.root_extent).all(), ibox
+        assert (extent_low
+                >= tree.bounding_box[0] - 1e-12*tree.root_extent).all(), ibox
+        assert (extent_high
+                <= tree.bounding_box[1] + 1e-12*tree.root_extent).all(), ibox
 
         box_children = tree.box_child_ids[:, ibox]
         existing_children = box_children[box_children != 0]
@@ -594,7 +591,7 @@ def test_extent_tree(ctx_factory, dims, extent_norm, do_plot=False):
                 good = (
                         (check_particles + check_radii
                             < extent_high[:, np.newaxis] + stick_out_dist)
-                        &
+                        &  # noqa: W504
                         (extent_low[:, np.newaxis] - stick_out_dist
                             <= check_particles - check_radii)
                         ).all(axis=0)

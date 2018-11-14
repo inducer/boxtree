@@ -190,8 +190,8 @@ typedef ${dtype_to_ctype(vec_types_dict[coord_dtype, dimensions])} coord_vec_t;
 
 
 TRAVERSAL_PREAMBLE_TEMPLATE = (
-    TRAVERSAL_PREAMBLE_MAKO_DEFS +
-    TRAVERSAL_PREAMBLE_TYPEDEFS_AND_DEFINES)
+    TRAVERSAL_PREAMBLE_MAKO_DEFS
+    + TRAVERSAL_PREAMBLE_TYPEDEFS_AND_DEFINES)
 
 # }}}
 

@@ -934,12 +934,12 @@ def build_level_restrict_kernel(context, preamble_with_dtype_decls,
             operation=LEVEL_RESTRICT_TPL.render(**render_vars),
             name="level_restrict",
             preamble=(
-                str(preamble_with_dtype_decls) +
-                Template(r"""
+                str(preamble_with_dtype_decls)
+                + Template(r"""
                     #define LEVEL_TO_RAD(level) \
                         (root_extent * 1 / (coord_t) (1 << (level + 1)))
-                    """ +
-                    HELPER_FUNCTION_TEMPLATE)
+                    """
+                    + HELPER_FUNCTION_TEMPLATE)
                 .render(**render_vars)))
 
 # }}}
