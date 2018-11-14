@@ -43,10 +43,10 @@ logger = logging.getLogger(__name__)
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])
 @pytest.mark.parametrize("dims", [2, 3])
 @pytest.mark.parametrize("nparticles", [9, 4096, 10**5])
-def test_bounding_box(ctx_getter, dtype, dims, nparticles):
+def test_bounding_box(ctx_factory, dtype, dims, nparticles):
     logging.basicConfig(level=logging.INFO)
 
-    ctx = ctx_getter()
+    ctx = ctx_factory()
     queue = cl.CommandQueue(ctx)
 
     from boxtree.tools import AXIS_NAMES
@@ -215,8 +215,8 @@ def particle_tree_test_decorator(f):
 
 
 @particle_tree_test_decorator
-def test_single_box_particle_tree(ctx_getter, dtype, dims, do_plot=False):
-    ctx = ctx_getter()
+def test_single_box_particle_tree(ctx_factory, dtype, dims, do_plot=False):
+    ctx = ctx_factory()
     queue = cl.CommandQueue(ctx)
 
     from boxtree import TreeBuilder
@@ -227,8 +227,8 @@ def test_single_box_particle_tree(ctx_getter, dtype, dims, do_plot=False):
 
 
 @particle_tree_test_decorator
-def test_two_level_particle_tree(ctx_getter, dtype, dims, do_plot=False):
-    ctx = ctx_getter()
+def test_two_level_particle_tree(ctx_factory, dtype, dims, do_plot=False):
+    ctx = ctx_factory()
     queue = cl.CommandQueue(ctx)
 
     from boxtree import TreeBuilder
@@ -239,8 +239,8 @@ def test_two_level_particle_tree(ctx_getter, dtype, dims, do_plot=False):
 
 
 @particle_tree_test_decorator
-def test_unpruned_particle_tree(ctx_getter, dtype, dims, do_plot=False):
-    ctx = ctx_getter()
+def test_unpruned_particle_tree(ctx_factory, dtype, dims, do_plot=False):
+    ctx = ctx_factory()
     queue = cl.CommandQueue(ctx)
 
     from boxtree import TreeBuilder
@@ -252,8 +252,8 @@ def test_unpruned_particle_tree(ctx_getter, dtype, dims, do_plot=False):
 
 
 @particle_tree_test_decorator
-def test_particle_tree_with_reallocations(ctx_getter, dtype, dims, do_plot=False):
-    ctx = ctx_getter()
+def test_particle_tree_with_reallocations(ctx_factory, dtype, dims, do_plot=False):
+    ctx = ctx_factory()
     queue = cl.CommandQueue(ctx)
 
     from boxtree import TreeBuilder
@@ -265,8 +265,8 @@ def test_particle_tree_with_reallocations(ctx_getter, dtype, dims, do_plot=False
 
 @particle_tree_test_decorator
 def test_particle_tree_with_many_empty_leaves(
-        ctx_getter, dtype, dims, do_plot=False):
-    ctx = ctx_getter()
+        ctx_factory, dtype, dims, do_plot=False):
+    ctx = ctx_factory()
     queue = cl.CommandQueue(ctx)
 
     from boxtree import TreeBuilder
@@ -277,8 +277,8 @@ def test_particle_tree_with_many_empty_leaves(
 
 
 @particle_tree_test_decorator
-def test_vanilla_particle_tree(ctx_getter, dtype, dims, do_plot=False):
-    ctx = ctx_getter()
+def test_vanilla_particle_tree(ctx_factory, dtype, dims, do_plot=False):
+    ctx = ctx_factory()
     queue = cl.CommandQueue(ctx)
 
     from boxtree import TreeBuilder
@@ -289,9 +289,9 @@ def test_vanilla_particle_tree(ctx_getter, dtype, dims, do_plot=False):
 
 
 @particle_tree_test_decorator
-def test_explicit_refine_weights_particle_tree(ctx_getter, dtype, dims,
+def test_explicit_refine_weights_particle_tree(ctx_factory, dtype, dims,
             do_plot=False):
-    ctx = ctx_getter()
+    ctx = ctx_factory()
     queue = cl.CommandQueue(ctx)
 
     from boxtree import TreeBuilder
@@ -309,8 +309,8 @@ def test_explicit_refine_weights_particle_tree(ctx_getter, dtype, dims,
 
 
 @particle_tree_test_decorator
-def test_non_adaptive_particle_tree(ctx_getter, dtype, dims, do_plot=False):
-    ctx = ctx_getter()
+def test_non_adaptive_particle_tree(ctx_factory, dtype, dims, do_plot=False):
+    ctx = ctx_factory()
     queue = cl.CommandQueue(ctx)
 
     from boxtree import TreeBuilder
@@ -326,10 +326,10 @@ def test_non_adaptive_particle_tree(ctx_getter, dtype, dims, do_plot=False):
 
 @pytest.mark.opencl
 @pytest.mark.parametrize("dims", [2, 3])
-def test_source_target_tree(ctx_getter, dims, do_plot=False):
+def test_source_target_tree(ctx_factory, dims, do_plot=False):
     logging.basicConfig(level=logging.INFO)
 
-    ctx = ctx_getter()
+    ctx = ctx_factory()
     queue = cl.CommandQueue(ctx)
 
     nsources = 2 * 10**5
@@ -439,10 +439,10 @@ def test_source_target_tree(ctx_getter, dims, do_plot=False):
 @pytest.mark.opencl
 @pytest.mark.parametrize("dims", [2, 3])
 @pytest.mark.parametrize("extent_norm", ["linf", "l2"])
-def test_extent_tree(ctx_getter, dims, extent_norm, do_plot=False):
+def test_extent_tree(ctx_factory, dims, extent_norm, do_plot=False):
     logging.basicConfig(level=logging.INFO)
 
-    ctx = ctx_getter()
+    ctx = ctx_factory()
     queue = cl.CommandQueue(ctx)
 
     nsources = 100000
@@ -662,10 +662,10 @@ def test_extent_tree(ctx_getter, dims, extent_norm, do_plot=False):
 @pytest.mark.opencl
 @pytest.mark.geo_lookup
 @pytest.mark.parametrize("dims", [2, 3])
-def test_leaves_to_balls_query(ctx_getter, dims, do_plot=False):
+def test_leaves_to_balls_query(ctx_factory, dims, do_plot=False):
     logging.basicConfig(level=logging.INFO)
 
-    ctx = ctx_getter()
+    ctx = ctx_factory()
     queue = cl.CommandQueue(ctx)
 
     nparticles = 10**5
@@ -766,8 +766,8 @@ def run_area_query_test(ctx, queue, tree, ball_centers, ball_radii):
 @pytest.mark.opencl
 @pytest.mark.area_query
 @pytest.mark.parametrize("dims", [2, 3])
-def test_area_query(ctx_getter, dims, do_plot=False):
-    ctx = ctx_getter()
+def test_area_query(ctx_factory, dims, do_plot=False):
+    ctx = ctx_factory()
     queue = cl.CommandQueue(ctx)
 
     nparticles = 10**5
@@ -795,12 +795,12 @@ def test_area_query(ctx_getter, dims, do_plot=False):
 @pytest.mark.opencl
 @pytest.mark.area_query
 @pytest.mark.parametrize("dims", [2, 3])
-def test_area_query_balls_outside_bbox(ctx_getter, dims, do_plot=False):
+def test_area_query_balls_outside_bbox(ctx_factory, dims, do_plot=False):
     """
     The input to the area query includes balls whose centers are not within
     the tree bounding box.
     """
-    ctx = ctx_getter()
+    ctx = ctx_factory()
     queue = cl.CommandQueue(ctx)
 
     nparticles = 10**4
@@ -835,8 +835,8 @@ def test_area_query_balls_outside_bbox(ctx_getter, dims, do_plot=False):
 @pytest.mark.opencl
 @pytest.mark.area_query
 @pytest.mark.parametrize("dims", [2, 3])
-def test_area_query_elwise(ctx_getter, dims, do_plot=False):
-    ctx = ctx_getter()
+def test_area_query_elwise(ctx_factory, dims, do_plot=False):
+    ctx = ctx_factory()
     queue = cl.CommandQueue(ctx)
 
     nparticles = 10**5
@@ -904,8 +904,8 @@ def test_area_query_elwise(ctx_getter, dims, do_plot=False):
 @pytest.mark.parametrize("lookbehind", [0, 1])
 @pytest.mark.parametrize("skip_prune", [True, False])
 @pytest.mark.parametrize("dims", [2, 3])
-def test_level_restriction(ctx_getter, dims, skip_prune, lookbehind, do_plot=False):
-    ctx = ctx_getter()
+def test_level_restriction(ctx_factory, dims, skip_prune, lookbehind, do_plot=False):
+    ctx = ctx_factory()
     queue = cl.CommandQueue(ctx)
 
     nparticles = 10**5
@@ -985,10 +985,10 @@ def test_level_restriction(ctx_getter, dims, skip_prune, lookbehind, do_plot=Fal
 @pytest.mark.geo_lookup
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])
 @pytest.mark.parametrize("dims", [2, 3])
-def test_space_invader_query(ctx_getter, dims, dtype, do_plot=False):
+def test_space_invader_query(ctx_factory, dims, dtype, do_plot=False):
     logging.basicConfig(level=logging.INFO)
 
-    ctx = ctx_getter()
+    ctx = ctx_factory()
     queue = cl.CommandQueue(ctx)
 
     dtype = np.dtype(dtype)

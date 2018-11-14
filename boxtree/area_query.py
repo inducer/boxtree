@@ -663,11 +663,11 @@ class AreaQueryBuilder(object):
 
         from boxtree.tools import VectorArg, ScalarArg
         arg_decls = [
-            VectorArg(coord_dtype, "box_centers"),
+            VectorArg(coord_dtype, "box_centers", with_offset=False),
             ScalarArg(coord_dtype, "root_extent"),
             VectorArg(np.uint8, "box_levels"),
             ScalarArg(box_id_dtype, "aligned_nboxes"),
-            VectorArg(box_id_dtype, "box_child_ids"),
+            VectorArg(box_id_dtype, "box_child_ids", with_offset=False),
             VectorArg(box_flags_enum.dtype, "box_flags"),
             VectorArg(peer_list_idx_dtype, "peer_list_starts"),
             VectorArg(box_id_dtype, "peer_lists"),
@@ -746,12 +746,12 @@ class AreaQueryBuilder(object):
         result, evt = area_query_kernel(
                 queue, len(ball_radii),
                 tree.box_centers.data, tree.root_extent,
-                tree.box_levels.data, tree.aligned_nboxes,
-                tree.box_child_ids.data, tree.box_flags.data,
-                peer_lists.peer_list_starts.data,
-                peer_lists.peer_lists.data, ball_radii.data,
+                tree.box_levels, tree.aligned_nboxes,
+                tree.box_child_ids.data, tree.box_flags,
+                peer_lists.peer_list_starts,
+                peer_lists.peer_lists, ball_radii,
                 *(tuple(tree.bounding_box[0]) +
-                  tuple(bc.data for bc in ball_centers)),
+                  tuple(bc for bc in ball_centers)),
                 wait_for=wait_for)
 
         aq_plog.done()
@@ -1066,11 +1066,11 @@ class PeerListFinder(object):
 
         from boxtree.tools import VectorArg, ScalarArg
         arg_decls = [
-            VectorArg(coord_dtype, "box_centers"),
+            VectorArg(coord_dtype, "box_centers", with_offset=False),
             ScalarArg(coord_dtype, "root_extent"),
             VectorArg(np.uint8, "box_levels"),
             ScalarArg(box_id_dtype, "aligned_nboxes"),
-            VectorArg(box_id_dtype, "box_child_ids"),
+            VectorArg(box_id_dtype, "box_child_ids", with_offset=False),
             VectorArg(box_flags_enum.dtype, "box_flags"),
         ]
 
@@ -1114,8 +1114,8 @@ class PeerListFinder(object):
         result, evt = peer_list_finder_kernel(
                 queue, tree.nboxes,
                 tree.box_centers.data, tree.root_extent,
-                tree.box_levels.data, tree.aligned_nboxes,
-                tree.box_child_ids.data, tree.box_flags.data,
+                tree.box_levels, tree.aligned_nboxes,
+                tree.box_child_ids.data, tree.box_flags,
                 wait_for=wait_for)
 
         pl_plog.done()

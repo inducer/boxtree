@@ -48,10 +48,10 @@ logger = logging.getLogger(__name__)
     (3, True),
     (3, False),
     ])
-def test_tree_connectivity(ctx_getter, dims, sources_are_targets):
+def test_tree_connectivity(ctx_factory, dims, sources_are_targets):
     logging.basicConfig(level=logging.INFO)
 
-    ctx = ctx_getter()
+    ctx = ctx_factory()
     queue = cl.CommandQueue(ctx)
 
     dtype = np.float64
@@ -292,8 +292,8 @@ def test_tree_connectivity(ctx_getter, dims, sources_are_targets):
 
 # {{{ visualization helper (not a test)
 
-def plot_traversal(ctx_getter, do_plot=False, well_sep_is_n_away=1):
-    ctx = ctx_getter()
+def plot_traversal(ctx_factory, do_plot=False, well_sep_is_n_away=1):
+    ctx = ctx_factory()
     queue = cl.CommandQueue(ctx)
 
     #for dims in [2, 3]:

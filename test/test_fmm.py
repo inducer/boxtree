@@ -106,7 +106,7 @@ class ConstantOneExpansionWranglerWithFilteredTargetsInUserOrder(
             (3, 5 * 10**5, 4*10**4, "t", p_normal, p_normal, None, "l2", "static_l2"),  # noqa: E501
 
             ])
-def test_fmm_completeness(ctx_getter, dims, nsources_req, ntargets_req,
+def test_fmm_completeness(ctx_factory, dims, nsources_req, ntargets_req,
          who_has_extent, source_gen, target_gen, filter_kind, well_sep_is_n_away,
          extent_norm, from_sep_smaller_crit):
     """Tests whether the built FMM traversal structures and driver completely
@@ -118,7 +118,7 @@ def test_fmm_completeness(ctx_getter, dims, nsources_req, ntargets_req,
 
     logging.basicConfig(level=logging.INFO)
 
-    ctx = ctx_getter()
+    ctx = ctx_factory()
     queue = cl.CommandQueue(ctx)
 
     dtype = np.float64
@@ -336,13 +336,13 @@ def test_fmm_completeness(ctx_getter, dims, nsources_req, ntargets_req,
 @pytest.mark.parametrize("dims", [2, 3])
 @pytest.mark.parametrize("use_dipoles", [True, False])
 @pytest.mark.parametrize("helmholtz_k", [0, 2])
-def test_pyfmmlib_fmm(ctx_getter, dims, use_dipoles, helmholtz_k):
+def test_pyfmmlib_fmm(ctx_factory, dims, use_dipoles, helmholtz_k):
     logging.basicConfig(level=logging.INFO)
 
     from pytest import importorskip
     importorskip("pyfmmlib")
 
-    ctx = ctx_getter()
+    ctx = ctx_factory()
     queue = cl.CommandQueue(ctx)
 
     nsources = 3000
@@ -506,8 +506,8 @@ def test_pyfmmlib_fmm(ctx_getter, dims, use_dipoles, helmholtz_k):
 # {{{ test particle count thresholding in traversal generation
 
 @pytest.mark.parametrize("enable_extents", [True, False])
-def test_interaction_list_particle_count_thresholding(ctx_getter, enable_extents):
-    ctx = ctx_getter()
+def test_interaction_list_particle_count_thresholding(ctx_factory, enable_extents):
+    ctx = ctx_factory()
     queue = cl.CommandQueue(ctx)
 
     logging.basicConfig(level=logging.INFO)
@@ -564,8 +564,8 @@ def test_interaction_list_particle_count_thresholding(ctx_getter, enable_extents
 # {{{ test fmm with float32 dtype
 
 @pytest.mark.parametrize("enable_extents", [True, False])
-def test_fmm_float32(ctx_getter, enable_extents):
-    ctx = ctx_getter()
+def test_fmm_float32(ctx_factory, enable_extents):
+    ctx = ctx_factory()
     queue = cl.CommandQueue(ctx)
 
     from pyopencl.characterize import has_struct_arg_count_bug
