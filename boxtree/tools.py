@@ -388,18 +388,18 @@ class GappyCopyAndMapKernel:
         from boxtree.tools import VectorArg
 
         args = [
-                VectorArg(dtype, "input_ary", with_offset=True),
-                VectorArg(dtype, "output_ary", with_offset=True),
+                VectorArg(dtype, "input_ary"),
+                VectorArg(dtype, "output_ary"),
                ]
 
         if have_src_indices:
-            args.append(VectorArg(src_index_dtype, "from_indices", with_offset=True))
+            args.append(VectorArg(src_index_dtype, "from_indices"))
 
         if have_dst_indices:
-            args.append(VectorArg(dst_index_dtype, "to_indices", with_offset=True))
+            args.append(VectorArg(dst_index_dtype, "to_indices"))
 
         if map_values:
-            args.append(VectorArg(dtype, "value_map", with_offset=True))
+            args.append(VectorArg(dtype, "value_map"))
 
         from pyopencl.tools import dtype_to_ctype
         src = GAPPY_COPY_TPL.render(
