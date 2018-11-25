@@ -21,15 +21,49 @@ else:
 
 class CostCounter(ABC):
     @abstractmethod
-    def collect_direct_interaction_data(self, traversal, tree):
+    def collect_direct_interaction_data(self, traversal):
+        """Count the number of sources in direct interaction boxes.
+
+        :arg traversal: a :class:`boxtree.traversal.FMMTraversalInfo` object.
+        :return: a :class:`dict` contains fields "nlist1_srcs_by_itgt_box",
+            "nlist3close_srcs_by_itgt_box", and "nlist4close_srcs_by_itgt_box". Each
+            of these fields is a :class:`numpy.ndarray` of shape
+            (traversal.ntarget_boxes,), documenting the number of sources in list 1,
+            list 3 close and list 4 close, respectively.
+        """
         pass
+
+    def count_direct(self, traversal):
+        """Count direct evaluations of each target box of *traversal*.
+
+        :arg traversal: a :class:`boxtree.traversal.FMMTraversalInfo` object.
+        :return: a :class:`numpy.ndarray` of shape (traversal.ntarget_boxes,).
+        """
+        tree = traversal.tree
+
+        direct_interaction_data = self.collect_direct_interaction_data(traversal)
+        nlist1_srcs_by_itgt_box = (
+                direct_interaction_data["nlist1_srcs_by_itgt_box"])
+        nlist3close_srcs_by_itgt_box = (
+                direct_interaction_data["nlist3close_srcs_by_itgt_box"])
+        nlist4close_srcs_by_itgt_box = (
+                direct_interaction_data["nlist4close_srcs_by_itgt_box"])
+
+        ntargets = tree.box_target_counts_nonchild[
+            traversal.target_boxes
+        ]
+
+        return ntargets * (nlist1_srcs_by_itgt_box
+                           + nlist3close_srcs_by_itgt_box
+                           + nlist4close_srcs_by_itgt_box)
 
 
 class CLCostCounter(CostCounter):
     def __init__(self, queue):
         self.queue = queue
 
-    def collect_direct_interaction_data(self, traversal, tree):
+    def collect_direct_interaction_data(self, traversal):
+        tree = traversal.tree
         ntarget_boxes = len(traversal.target_boxes)
         particle_id_dtype = tree.particle_id_dtype
         box_id_dtype = tree.box_id_dtype
@@ -141,7 +175,8 @@ class CLCostCounter(CostCounter):
 
 
 class PythonCostCounter(CostCounter):
-    def collect_direct_interaction_data(self, traversal, tree):
+    def collect_direct_interaction_data(self, traversal):
+        tree = traversal.tree
         ntarget_boxes = len(traversal.target_boxes)
 
         # target box index -> nsources

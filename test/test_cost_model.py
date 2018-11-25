@@ -57,21 +57,21 @@ def test_cost_counter(ctx_factory, nsources, ntargets, dims, dtype):
     cl_cost_counter = CLCostCounter(queue)
     python_cost_counter = PythonCostCounter()
 
-    start_time = time.time()
-    cl_direct_interaction = cl_cost_counter.collect_direct_interaction_data(
-        trav, trav.tree
-    )
-    logger.info("OpenCL time for collect_direct_interaction_data: {0}".format(
-        str(time.time() - start_time))
-    )
+    # {{{ Test collect_direct_interaction_data
 
     start_time = time.time()
-    python_direct_interaction = python_cost_counter.collect_direct_interaction_data(
-        trav, trav.tree
-    )
+    cl_direct_interaction = \
+        cl_cost_counter.collect_direct_interaction_data(trav)
+    logger.info("OpenCL time for collect_direct_interaction_data: {0}".format(
+        str(time.time() - start_time)
+    ))
+
+    start_time = time.time()
+    python_direct_interaction = \
+        python_cost_counter.collect_direct_interaction_data(trav)
     logger.info("Python time for collect_direct_interaction_data: {0}".format(
-        str(time.time() - start_time))
-    )
+        str(time.time() - start_time)
+    ))
 
     for field in ["nlist1_srcs_by_itgt_box", "nlist3close_srcs_by_itgt_box",
                   "nlist4close_srcs_by_itgt_box"]:
@@ -79,6 +79,26 @@ def test_cost_counter(ctx_factory, nsources, ntargets, dims, dtype):
             cl_direct_interaction[field],
             python_direct_interaction[field]
         ).all()
+
+    # }}}
+
+    # {{{ Test count_direct
+
+    start_time = time.time()
+    cl_count_direct = cl_cost_counter.count_direct(trav)
+    logger.info("OpenCL time for count_direct: {0}".format(
+        str(time.time() - start_time)
+    ))
+
+    start_time = time.time()
+    python_count_direct = python_cost_counter.count_direct(trav)
+    logger.info("Python time for count_direct: {0}".format(
+        str(time.time() - start_time)
+    ))
+
+    assert np.equal(cl_count_direct, python_count_direct).all()
+
+    # }}}
 
 
 def main():
