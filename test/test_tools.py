@@ -26,6 +26,17 @@ THE SOFTWARE.
 """
 
 
+import pytest
+from pyopencl.tools import (  # noqa
+        pytest_generate_tests_for_pyopencl as pytest_generate_tests)
+
+
+from boxtree.tools import (  # noqa: F401
+        make_normal_particle_array as p_normal,
+        make_surface_particle_array as p_surface,
+        make_uniform_particle_array as p_uniform)
+
+
 def test_device_record():
     from boxtree.tools import DeviceDataRecord
 
@@ -50,6 +61,17 @@ def test_device_record():
 
         for i in range(3):
             assert np.array_equal(record_host.obj_array[i], record.obj_array[i])
+
+
+@pytest.mark.parametrize("array_factory", (p_normal, p_surface, p_uniform))
+@pytest.mark.parametrize("dim", (2, 3))
+@pytest.mark.parametrize("dtype", (np.float32, np.float64))
+def test_particle_array(ctx_factory, array_factory, dim, dtype):
+    ctx = ctx_factory()
+    queue = cl.CommandQueue(ctx)
+    particles = array_factory(queue, 1000, dim, dtype)
+    assert len(particles) == dim
+    assert all(len(particles[0]) == len(axis) for axis in particles)
 
 
 # You can test individual routines by typing
