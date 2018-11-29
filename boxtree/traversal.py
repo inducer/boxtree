@@ -1869,7 +1869,8 @@ class FMMTraversalBuilder:
                 ("from_sep_siblings", FROM_SEP_SIBLINGS_TEMPLATE,
                         [
                             VectorArg(box_id_dtype, "target_or_target_parent_boxes"),
-                            VectorArg(box_id_dtype, "box_parent_ids", with_offset=False),
+                            VectorArg(box_id_dtype, "box_parent_ids",
+                                with_offset=False),
                             VectorArg(box_id_dtype,
                                 "same_level_non_well_sep_boxes_starts"),
                             VectorArg(box_id_dtype,
@@ -1899,7 +1900,8 @@ class FMMTraversalBuilder:
                         [
                             ScalarArg(coord_dtype, "stick_out_factor"),
                             VectorArg(box_id_dtype, "target_or_target_parent_boxes"),
-                            VectorArg(box_id_dtype, "box_parent_ids", with_offset=False),
+                            VectorArg(box_id_dtype, "box_parent_ids",
+                                with_offset=False),
                             VectorArg(box_id_dtype,
                                 "same_level_non_well_sep_boxes_starts"),
                             VectorArg(box_id_dtype,
