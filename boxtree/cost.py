@@ -1,3 +1,31 @@
+from __future__ import division, absolute_import
+
+__copyright__ = """
+Copyright (C) 2013 Andreas Kloeckner
+Copyright (C) 2018 Matt Wala
+Copyright (C) 2018 Hao Gao
+"""
+
+__license__ = """
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+"""
+
 import numpy as np
 import pyopencl as cl
 import pyopencl.array  # noqa: F401
@@ -5,6 +33,7 @@ from pyopencl.elementwise import ElementwiseKernel
 from pyopencl.tools import dtype_to_ctype
 from mako.template import Template
 from functools import partial
+from pymbolic import var
 import sys
 
 if sys.version_info >= (3, 0):
@@ -19,7 +48,111 @@ else:
     ABC = ABCMeta('ABC', (), {})
 
 
-class CostCounter(ABC):
+class TranslationCostModel:
+    """Provides modeled costs for individual translations or evaluations."""
+
+    def __init__(self, ncoeffs_fmm_by_level, uses_point_and_shoot):
+        self.ncoeffs_fmm_by_level = ncoeffs_fmm_by_level
+        self.uses_point_and_shoot = uses_point_and_shoot
+
+    @staticmethod
+    def direct():
+        return var("c_p2p")
+
+    def p2l(self, level):
+        return var("c_p2l") * self.ncoeffs_fmm_by_level[level]
+
+    def l2p(self, level):
+        return var("c_l2p") * self.ncoeffs_fmm_by_level[level]
+
+    def p2m(self, level):
+        return var("c_p2m") * self.ncoeffs_fmm_by_level[level]
+
+    def m2p(self, level):
+        return var("c_m2p") * self.ncoeffs_fmm_by_level[level]
+
+    def m2m(self, src_level, tgt_level):
+        return var("c_m2m") * self.e2e_cost(
+                self.ncoeffs_fmm_by_level[src_level],
+                self.ncoeffs_fmm_by_level[tgt_level])
+
+    def l2l(self, src_level, tgt_level):
+        return var("c_l2l") * self.e2e_cost(
+                self.ncoeffs_fmm_by_level[src_level],
+                self.ncoeffs_fmm_by_level[tgt_level])
+
+    def m2l(self, src_level, tgt_level):
+        return var("c_m2l") * self.e2e_cost(
+                self.ncoeffs_fmm_by_level[src_level],
+                self.ncoeffs_fmm_by_level[tgt_level])
+
+    def e2e_cost(self, nsource_coeffs, ntarget_coeffs):
+        if self.uses_point_and_shoot:
+            return (
+                    # Rotate the coordinate system to be z axis aligned.
+                    nsource_coeffs ** (3 / 2)
+                    # Translate the expansion along the z axis.
+                    + nsource_coeffs ** (1 / 2) * ntarget_coeffs
+                    # Rotate the coordinate system back.
+                    + ntarget_coeffs ** (3 / 2))
+
+        return nsource_coeffs * ntarget_coeffs
+
+
+# {{{ translation cost model factories
+
+def pde_aware_translation_cost_model(dim, nlevels):
+    """Create a cost model for FMM translation operators that make use of the
+    knowledge that the potential satisfies a PDE.
+    """
+    p_fmm = np.array([var("p_fmm_lev%d" % i) for i in range(nlevels)])
+    ncoeffs_fmm = (p_fmm + 1) ** (dim - 1)
+
+    if dim == 3:
+        uses_point_and_shoot = True
+    else:
+        uses_point_and_shoot = False
+
+    return TranslationCostModel(
+            ncoeffs_fmm_by_level=ncoeffs_fmm,
+            uses_point_and_shoot=uses_point_and_shoot
+    )
+
+
+def taylor_translation_cost_model(dim, nlevels):
+    """Create a cost model for FMM translation based on Taylor expansions
+    in Cartesian coordinates.
+    """
+    p_fmm = np.array([var("p_fmm_lev%d" % i) for i in range(nlevels)])
+    ncoeffs_fmm = (p_fmm + 1) ** dim
+
+    return TranslationCostModel(
+            ncoeffs_fmm_by_level=ncoeffs_fmm,
+            uses_point_and_shoot=False
+    )
+
+# }}}
+
+
+class CostModel(ABC):
+    def __init__(self, translation_cost_model_factory, calibration_params=None):
+        """
+        :arg translation_cost_model_factory: a function, which takes tree dimension
+            and the number of tree levels as arguments, returns an object of
+            :class:`TranslationCostModel`.
+        :arg calibration_params: TODO
+        """
+        self.translation_cost_model_factory = translation_cost_model_factory
+        if calibration_params is None:
+            calibration_params = dict()
+        self.calibration_params = calibration_params
+
+    def with_calibration_params(self, calibration_params):
+        """Return a copy of *self* with a new set of calibration parameters."""
+        return type(self)(
+                translation_cost_model_factory=self.translation_cost_model_factory,
+                calibration_params=calibration_params)
+
     @abstractmethod
     def collect_direct_interaction_data(self, traversal):
         """Count the number of sources in direct interaction boxes.
@@ -33,9 +166,11 @@ class CostCounter(ABC):
         """
         pass
 
-    def count_direct(self, traversal):
+    def count_direct(self, xlat_cost, traversal):
         """Count direct evaluations of each target box of *traversal*.
 
+        :arg xlat_cost: a :class:`TranslationCostModel` object which specifies the
+            translation cost.
         :arg traversal: a :class:`boxtree.traversal.FMMTraversalInfo` object.
         :return: a :class:`numpy.ndarray` of shape (traversal.ntarget_boxes,).
         """
@@ -53,14 +188,18 @@ class CostCounter(ABC):
             traversal.target_boxes
         ]
 
-        return ntargets * (nlist1_srcs_by_itgt_box
-                           + nlist3close_srcs_by_itgt_box
-                           + nlist4close_srcs_by_itgt_box)
+        return ntargets * (
+                nlist1_srcs_by_itgt_box
+                + nlist3close_srcs_by_itgt_box
+                + nlist4close_srcs_by_itgt_box
+                ) * xlat_cost.direct()
 
 
-class CLCostCounter(CostCounter):
-    def __init__(self, queue):
+class CLCostModel(CostModel):
+    def __init__(self, queue, translation_cost_model_factory,
+                 calibration_params=None):
         self.queue = queue
+        super().__init__(translation_cost_model_factory, calibration_params)
 
     def collect_direct_interaction_data(self, traversal):
         tree = traversal.tree
@@ -174,7 +313,7 @@ class CLCostCounter(CostCounter):
         return result
 
 
-class PythonCostCounter(CostCounter):
+class PythonCostModel(CostModel):
     def collect_direct_interaction_data(self, traversal):
         tree = traversal.tree
         ntarget_boxes = len(traversal.target_boxes)

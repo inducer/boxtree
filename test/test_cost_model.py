@@ -5,6 +5,7 @@ import time
 import pytest
 from pyopencl.tools import (  # noqa
     pytest_generate_tests_for_pyopencl as pytest_generate_tests)
+from pymbolic import evaluate
 
 import logging
 import os
@@ -43,7 +44,7 @@ def test_cost_counter(ctx_factory, nsources, ntargets, dims, dtype):
     tb = TreeBuilder(ctx)
     tree, _ = tb(
         queue, sources, targets=targets, target_radii=target_radii,
-        stick_out_factor=0.15, max_particles_in_box=60, debug=True
+        stick_out_factor=0.15, max_particles_in_box=30, debug=True
     )
 
     from boxtree.traversal import FMMTraversalBuilder
@@ -53,22 +54,40 @@ def test_cost_counter(ctx_factory, nsources, ntargets, dims, dtype):
 
     # }}}
 
-    from boxtree.cost import CLCostCounter, PythonCostCounter
-    cl_cost_counter = CLCostCounter(queue)
-    python_cost_counter = PythonCostCounter()
+    # {{{ Construct cost models
+
+    from boxtree.cost import CLCostModel, PythonCostModel
+    cl_cost_model = CLCostModel(queue, None)
+    python_cost_model = PythonCostModel(None)
+
+    CONSTANT_ONE_PARAMS = dict(
+        c_l2l=1,
+        c_l2p=1,
+        c_m2l=1,
+        c_m2m=1,
+        c_m2p=1,
+        c_p2l=1,
+        c_p2m=1,
+        c_p2p=1
+    )
+
+    from boxtree.cost import pde_aware_translation_cost_model
+    xlat_cost = pde_aware_translation_cost_model(dims, trav.tree.nlevels)
+
+    # }}}
 
     # {{{ Test collect_direct_interaction_data
 
     start_time = time.time()
     cl_direct_interaction = \
-        cl_cost_counter.collect_direct_interaction_data(trav)
+        cl_cost_model.collect_direct_interaction_data(trav)
     logger.info("OpenCL time for collect_direct_interaction_data: {0}".format(
         str(time.time() - start_time)
     ))
 
     start_time = time.time()
     python_direct_interaction = \
-        python_cost_counter.collect_direct_interaction_data(trav)
+        python_cost_model.collect_direct_interaction_data(trav)
     logger.info("Python time for collect_direct_interaction_data: {0}".format(
         str(time.time() - start_time)
     ))
@@ -85,13 +104,23 @@ def test_cost_counter(ctx_factory, nsources, ntargets, dims, dtype):
     # {{{ Test count_direct
 
     start_time = time.time()
-    cl_count_direct = cl_cost_counter.count_direct(trav)
+
+    cl_count_direct = evaluate(
+        cl_cost_model.count_direct(xlat_cost, trav),
+        context=CONSTANT_ONE_PARAMS
+    )
+
     logger.info("OpenCL time for count_direct: {0}".format(
         str(time.time() - start_time)
     ))
 
     start_time = time.time()
-    python_count_direct = python_cost_counter.count_direct(trav)
+
+    python_count_direct = evaluate(
+        python_cost_model.count_direct(xlat_cost, trav),
+        context=CONSTANT_ONE_PARAMS
+    )
+
     logger.info("Python time for count_direct: {0}".format(
         str(time.time() - start_time)
     ))
@@ -102,8 +131,8 @@ def test_cost_counter(ctx_factory, nsources, ntargets, dims, dtype):
 
 
 def main():
-    nsouces = 5000
-    ntargets = 5000
+    nsouces = 100000
+    ntargets = 100000
     ndims = 3
     dtype = np.float64
     ctx_factory = cl.create_some_context
