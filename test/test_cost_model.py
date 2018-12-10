@@ -60,7 +60,7 @@ def test_cost_counter(ctx_factory, nsources, ntargets, dims, dtype):
     cl_cost_model = CLCostModel(queue, None)
     python_cost_model = PythonCostModel(None)
 
-    CONSTANT_ONE_PARAMS = dict(
+    constant_one_params = dict(
         c_l2l=1,
         c_l2p=1,
         c_m2l=1,
@@ -107,7 +107,7 @@ def test_cost_counter(ctx_factory, nsources, ntargets, dims, dtype):
 
     cl_count_direct = evaluate(
         cl_cost_model.count_direct(xlat_cost, trav),
-        context=CONSTANT_ONE_PARAMS
+        context=constant_one_params
     )
 
     logger.info("OpenCL time for count_direct: {0}".format(
@@ -118,7 +118,7 @@ def test_cost_counter(ctx_factory, nsources, ntargets, dims, dtype):
 
     python_count_direct = evaluate(
         python_cost_model.count_direct(xlat_cost, trav),
-        context=CONSTANT_ONE_PARAMS
+        context=constant_one_params
     )
 
     logger.info("Python time for count_direct: {0}".format(

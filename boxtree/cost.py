@@ -199,7 +199,9 @@ class CLCostModel(CostModel):
     def __init__(self, queue, translation_cost_model_factory,
                  calibration_params=None):
         self.queue = queue
-        super().__init__(translation_cost_model_factory, calibration_params)
+        super(CLCostModel, self).__init__(
+            translation_cost_model_factory, calibration_params
+        )
 
     def collect_direct_interaction_data(self, traversal):
         tree = traversal.tree
