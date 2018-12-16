@@ -49,8 +49,8 @@ def test_cost_counter(ctx_factory, nsources, ntargets, dims, dtype):
 
     from boxtree.traversal import FMMTraversalBuilder
     tg = FMMTraversalBuilder(ctx, well_sep_is_n_away=2)
-    d_trav, _ = tg(queue, tree, debug=True)
-    trav = d_trav.get(queue=queue)
+    trav_dev, _ = tg(queue, tree, debug=True)
+    trav = trav_dev.get(queue=queue)
 
     # }}}
 
@@ -76,56 +76,60 @@ def test_cost_counter(ctx_factory, nsources, ntargets, dims, dtype):
 
     # }}}
 
-    # {{{ Test collect_direct_interaction_data
+    # {{{ Test process_direct
 
+    queue.finish()
     start_time = time.time()
-    cl_direct_interaction = \
-        cl_cost_model.collect_direct_interaction_data(trav)
+
+    cl_direct = cl_cost_model.process_direct(trav_dev, 5.0)
+
+    queue.finish()
     logger.info("OpenCL time for collect_direct_interaction_data: {0}".format(
         str(time.time() - start_time)
     ))
 
     start_time = time.time()
-    python_direct_interaction = \
-        python_cost_model.collect_direct_interaction_data(trav)
+
+    python_direct = python_cost_model.process_direct(trav, 5.0)
+
     logger.info("Python time for collect_direct_interaction_data: {0}".format(
         str(time.time() - start_time)
     ))
 
-    for field in ["nlist1_srcs_by_itgt_box", "nlist3close_srcs_by_itgt_box",
-                  "nlist4close_srcs_by_itgt_box"]:
-        assert np.equal(
-            cl_direct_interaction[field],
-            python_direct_interaction[field]
-        ).all()
+    assert np.equal(cl_direct.get(), python_direct).all()
 
     # }}}
 
-    # {{{ Test count_direct
+    # {{{ Test process_direct_aggregate
 
     start_time = time.time()
 
-    cl_count_direct = evaluate(
-        cl_cost_model.count_direct(xlat_cost, trav),
-        context=constant_one_params
-    )
+    cl_direct_aggregate = cl_cost_model.process_direct_aggregate(trav_dev, xlat_cost)
 
+    queue.finish()
     logger.info("OpenCL time for count_direct: {0}".format(
         str(time.time() - start_time)
     ))
 
+    cl_direct_aggregate_num = evaluate(
+        cl_direct_aggregate, context=constant_one_params
+    )
+
     start_time = time.time()
 
-    python_count_direct = evaluate(
-        python_cost_model.count_direct(xlat_cost, trav),
-        context=constant_one_params
+    python_direct_aggregate = python_cost_model.process_direct_aggregate(
+        trav, xlat_cost
     )
 
     logger.info("Python time for count_direct: {0}".format(
         str(time.time() - start_time)
     ))
 
-    assert np.equal(cl_count_direct, python_count_direct).all()
+    python_direct_aggregate_num = evaluate(
+        python_direct_aggregate, context=constant_one_params
+    )
+
+    assert cl_direct_aggregate_num == python_direct_aggregate_num
 
     # }}}
 

@@ -34,6 +34,7 @@ from pyopencl.tools import dtype_to_ctype
 from mako.template import Template
 from functools import partial
 from pymbolic import var
+from pytools import memoize_method
 import sys
 
 if sys.version_info >= (3, 0):
@@ -135,92 +136,67 @@ def taylor_translation_cost_model(dim, nlevels):
 
 
 class CostModel(ABC):
-    def __init__(self, translation_cost_model_factory, calibration_params=None):
+    def __init__(self, translation_cost_model_factory):
         """
         :arg translation_cost_model_factory: a function, which takes tree dimension
             and the number of tree levels as arguments, returns an object of
             :class:`TranslationCostModel`.
-        :arg calibration_params: TODO
         """
         self.translation_cost_model_factory = translation_cost_model_factory
-        if calibration_params is None:
-            calibration_params = dict()
-        self.calibration_params = calibration_params
-
-    def with_calibration_params(self, calibration_params):
-        """Return a copy of *self* with a new set of calibration parameters."""
-        return type(self)(
-                translation_cost_model_factory=self.translation_cost_model_factory,
-                calibration_params=calibration_params)
 
     @abstractmethod
-    def collect_direct_interaction_data(self, traversal):
+    def process_direct(self, traversal, c_p2p):
         """Count the number of sources in direct interaction boxes.
 
         :arg traversal: a :class:`boxtree.traversal.FMMTraversalInfo` object.
-        :return: a :class:`dict` contains fields "nlist1_srcs_by_itgt_box",
-            "nlist3close_srcs_by_itgt_box", and "nlist4close_srcs_by_itgt_box". Each
-            of these fields is a :class:`numpy.ndarray` of shape
-            (traversal.ntarget_boxes,), documenting the number of sources in list 1,
-            list 3 close and list 4 close, respectively.
+        :arg c_p2p: calibration constant.
+        :return: a :class:`numpy.ndarray` or :class:`pyopencl.array.Array` of shape
+            (traversal.ntarget_boxes,), with each entry represents the cost of the
+            box.
         """
         pass
 
-    def count_direct(self, xlat_cost, traversal):
+    @abstractmethod
+    def process_direct_aggregate(self, traversal, xlat_cost):
         """Count direct evaluations of each target box of *traversal*.
 
         :arg xlat_cost: a :class:`TranslationCostModel` object which specifies the
             translation cost.
         :arg traversal: a :class:`boxtree.traversal.FMMTraversalInfo` object.
-        :return: a :class:`numpy.ndarray` of shape (traversal.ntarget_boxes,).
+        :return: a :class:`pymbolic.primitives.Product` object representing the
+            aggregate cost of direct evaluations in all boxes.
         """
-        tree = traversal.tree
-
-        direct_interaction_data = self.collect_direct_interaction_data(traversal)
-        nlist1_srcs_by_itgt_box = (
-                direct_interaction_data["nlist1_srcs_by_itgt_box"])
-        nlist3close_srcs_by_itgt_box = (
-                direct_interaction_data["nlist3close_srcs_by_itgt_box"])
-        nlist4close_srcs_by_itgt_box = (
-                direct_interaction_data["nlist4close_srcs_by_itgt_box"])
-
-        ntargets = tree.box_target_counts_nonchild[
-            traversal.target_boxes
-        ]
-
-        return ntargets * (
-                nlist1_srcs_by_itgt_box
-                + nlist3close_srcs_by_itgt_box
-                + nlist4close_srcs_by_itgt_box
-                ) * xlat_cost.direct()
+        pass
 
 
 class CLCostModel(CostModel):
-    def __init__(self, queue, translation_cost_model_factory,
-                 calibration_params=None):
+    """
+    Note: For methods in this class, arguments like *traversal* should live on device
+        memory.
+    """
+    def __init__(self, queue, translation_cost_model_factory):
         self.queue = queue
         super(CLCostModel, self).__init__(
-            translation_cost_model_factory, calibration_params
+            translation_cost_model_factory
         )
 
-    def collect_direct_interaction_data(self, traversal):
-        tree = traversal.tree
-        ntarget_boxes = len(traversal.target_boxes)
-        particle_id_dtype = tree.particle_id_dtype
-        box_id_dtype = tree.box_id_dtype
-
-        count_direct_interaction_knl = ElementwiseKernel(
+    @memoize_method
+    def process_direct_knl(self, particle_id_dtype, box_id_dtype):
+        return ElementwiseKernel(
             self.queue.context,
             Template("""
-                ${particle_id_t} *srcs_by_itgt_box,
+                double *direct_by_itgt_box,
                 ${box_id_t} *source_boxes_starts,
                 ${box_id_t} *source_boxes_lists,
-                ${particle_id_t} *box_source_counts_nonchild
+                ${particle_id_t} *box_source_counts_nonchild,
+                ${particle_id_t} *box_target_counts_nonchild,
+                ${box_id_t} *target_boxes,
+                double c_p2p
             """).render(
                 particle_id_t=dtype_to_ctype(particle_id_dtype),
                 box_id_t=dtype_to_ctype(box_id_dtype)
             ),
-            Template("""
+            Template(r"""
                 ${particle_id_t} nsources = 0;
                 ${box_id_t} source_boxes_start_idx = source_boxes_starts[i];
                 ${box_id_t} source_boxes_end_idx = source_boxes_starts[i + 1];
@@ -235,127 +211,111 @@ class CLCostModel(CostModel):
                     nsources += box_source_counts_nonchild[cur_source_box];
                 }
 
-                srcs_by_itgt_box[i] = nsources;
+                ${particle_id_t} ntargets = box_target_counts_nonchild[
+                    target_boxes[i]
+                ];
+
+                direct_by_itgt_box[i] += (nsources * ntargets * c_p2p);
             """).render(
                 particle_id_t=dtype_to_ctype(particle_id_dtype),
                 box_id_t=dtype_to_ctype(box_id_dtype)
             ),
-            name="count_direct_interaction"
+            name="process_direct"
         )
 
-        box_source_counts_nonchild_dev = cl.array.to_device(
-            self.queue, tree.box_source_counts_nonchild
+    def process_direct(self, traversal, c_p2p):
+        tree = traversal.tree
+        ntarget_boxes = len(traversal.target_boxes)
+        particle_id_dtype = tree.particle_id_dtype
+        box_id_dtype = tree.box_id_dtype
+
+        count_direct_interaction_knl = self.process_direct_knl(
+            particle_id_dtype, box_id_dtype
         )
-        result = dict()
+
+        direct_by_itgt_box_dev = cl.array.zeros(
+            self.queue, (ntarget_boxes,), dtype=np.float64
+        )
 
         # List 1
-        nlist1_srcs_by_itgt_box_dev = cl.array.zeros(
-            self.queue, (ntarget_boxes,), dtype=particle_id_dtype
-        )
-        neighbor_source_boxes_starts_dev = cl.array.to_device(
-            self.queue, traversal.neighbor_source_boxes_starts
-        )
-        neighbor_source_boxes_lists_dev = cl.array.to_device(
-            self.queue, traversal.neighbor_source_boxes_lists
-        )
-
         count_direct_interaction_knl(
-            nlist1_srcs_by_itgt_box_dev,
-            neighbor_source_boxes_starts_dev,
-            neighbor_source_boxes_lists_dev,
-            box_source_counts_nonchild_dev
+            direct_by_itgt_box_dev,
+            traversal.neighbor_source_boxes_starts,
+            traversal.neighbor_source_boxes_lists,
+            traversal.tree.box_source_counts_nonchild,
+            traversal.tree.box_target_counts_nonchild,
+            traversal.target_boxes,
+            c_p2p
         )
-
-        result["nlist1_srcs_by_itgt_box"] = nlist1_srcs_by_itgt_box_dev.get()
 
         # List 3 close
         if traversal.from_sep_close_smaller_starts is not None:
-            nlist3close_srcs_by_itgt_box_dev = cl.array.zeros(
-                self.queue, (ntarget_boxes,), dtype=particle_id_dtype
-            )
-            from_sep_close_smaller_starts_dev = cl.array.to_device(
-                self.queue, traversal.from_sep_close_smaller_starts
-            )
-            from_sep_close_smaller_lists_dev = cl.array.to_device(
-                self.queue, traversal.from_sep_close_smaller_lists
-            )
-
             count_direct_interaction_knl(
-                nlist3close_srcs_by_itgt_box_dev,
-                from_sep_close_smaller_starts_dev,
-                from_sep_close_smaller_lists_dev,
-                box_source_counts_nonchild_dev
+                direct_by_itgt_box_dev,
+                traversal.from_sep_close_smaller_starts,
+                traversal.from_sep_close_smaller_lists,
+                traversal.tree.box_source_counts_nonchild,
+                traversal.tree.box_target_counts_nonchild,
+                traversal.target_boxes,
+                c_p2p
             )
-
-            result["nlist3close_srcs_by_itgt_box"] = \
-                nlist3close_srcs_by_itgt_box_dev.get()
 
         # List 4 close
         if traversal.from_sep_close_bigger_starts is not None:
-            nlist4close_srcs_by_itgt_box_dev = cl.array.zeros(
-                self.queue, (ntarget_boxes,), dtype=particle_id_dtype
-            )
-            from_sep_close_bigger_starts_dev = cl.array.to_device(
-                self.queue, traversal.from_sep_close_bigger_starts
-            )
-            from_sep_close_bigger_lists_dev = cl.array.to_device(
-                self.queue, traversal.from_sep_close_bigger_lists
-            )
-
             count_direct_interaction_knl(
-                nlist4close_srcs_by_itgt_box_dev,
-                from_sep_close_bigger_starts_dev,
-                from_sep_close_bigger_lists_dev,
-                box_source_counts_nonchild_dev
+                direct_by_itgt_box_dev,
+                traversal.from_sep_close_bigger_starts,
+                traversal.from_sep_close_bigger_lists,
+                traversal.tree.box_source_counts_nonchild,
+                traversal.tree.box_target_counts_nonchild,
+                traversal.target_boxes,
+                c_p2p
             )
 
-            result["nlist4close_srcs_by_itgt_box"] = \
-                nlist4close_srcs_by_itgt_box_dev.get()
+        return direct_by_itgt_box_dev
 
-        return result
+    def process_direct_aggregate(self, traversal, xlat_cost):
+        result_dev = cl.array.sum(self.process_direct(traversal, 1.0))
+        return result_dev.get().reshape(-1)[0] * xlat_cost.direct()
 
 
 class PythonCostModel(CostModel):
-    def collect_direct_interaction_data(self, traversal):
+    def process_direct(self, traversal, c_p2p):
         tree = traversal.tree
         ntarget_boxes = len(traversal.target_boxes)
 
         # target box index -> nsources
-        nlist1_srcs_by_itgt_box = np.zeros(ntarget_boxes, dtype=np.intp)
-        nlist3close_srcs_by_itgt_box = np.zeros(ntarget_boxes, dtype=np.intp)
-        nlist4close_srcs_by_itgt_box = np.zeros(ntarget_boxes, dtype=np.intp)
+        direct_by_itgt_box = np.zeros(ntarget_boxes, dtype=np.float64)
 
         for itgt_box in range(ntarget_boxes):
-            nlist1_srcs = 0
+            nsources = 0
+
             start, end = traversal.neighbor_source_boxes_starts[itgt_box:itgt_box+2]
             for src_ibox in traversal.neighbor_source_boxes_lists[start:end]:
-                nlist1_srcs += tree.box_source_counts_nonchild[src_ibox]
+                nsources += tree.box_source_counts_nonchild[src_ibox]
 
-            nlist1_srcs_by_itgt_box[itgt_box] = nlist1_srcs
-
-            nlist3close_srcs = 0
             # Could be None, if not using targets with extent.
             if traversal.from_sep_close_smaller_starts is not None:
                 start, end = (
-                        traversal.from_sep_close_smaller_starts[itgt_box:itgt_box+2])
+                    traversal.from_sep_close_smaller_starts[itgt_box:itgt_box+2]
+                )
                 for src_ibox in traversal.from_sep_close_smaller_lists[start:end]:
-                    nlist3close_srcs += tree.box_source_counts_nonchild[src_ibox]
+                    nsources += tree.box_source_counts_nonchild[src_ibox]
 
-            nlist3close_srcs_by_itgt_box[itgt_box] = nlist3close_srcs
-
-            nlist4close_srcs = 0
             # Could be None, if not using targets with extent.
             if traversal.from_sep_close_bigger_starts is not None:
                 start, end = (
-                        traversal.from_sep_close_bigger_starts[itgt_box:itgt_box+2])
+                    traversal.from_sep_close_bigger_starts[itgt_box:itgt_box+2]
+                )
                 for src_ibox in traversal.from_sep_close_bigger_lists[start:end]:
-                    nlist4close_srcs += tree.box_source_counts_nonchild[src_ibox]
+                    nsources += tree.box_source_counts_nonchild[src_ibox]
 
-            nlist4close_srcs_by_itgt_box[itgt_box] = nlist4close_srcs
+            ntargets = tree.box_target_counts_nonchild[
+                traversal.target_boxes[itgt_box]
+            ]
+            direct_by_itgt_box[itgt_box] += (nsources * ntargets * c_p2p)
 
-        result = dict()
-        result["nlist1_srcs_by_itgt_box"] = nlist1_srcs_by_itgt_box
-        result["nlist3close_srcs_by_itgt_box"] = nlist3close_srcs_by_itgt_box
-        result["nlist4close_srcs_by_itgt_box"] = nlist4close_srcs_by_itgt_box
+        return direct_by_itgt_box
 
-        return result
+    def process_direct_aggregate(self, traversal, xlat_cost):
+        return np.sum(self.process_direct(traversal, 1.0)) * xlat_cost.direct()
