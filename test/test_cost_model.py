@@ -70,6 +70,8 @@ def test_cost_counter(ctx_factory, nsources, ntargets, dims, dtype):
         c_p2m=1,
         c_p2p=1
     )
+    for ilevel in range(trav.tree.nlevels):
+        constant_one_params["p_fmm_lev%d" % ilevel] = 1
 
     from boxtree.cost import pde_aware_translation_cost_model
     xlat_cost = pde_aware_translation_cost_model(dims, trav.tree.nlevels)
@@ -84,7 +86,7 @@ def test_cost_counter(ctx_factory, nsources, ntargets, dims, dtype):
     cl_direct = cl_cost_model.process_direct(trav_dev, 5.0)
 
     queue.finish()
-    logger.info("OpenCL time for collect_direct_interaction_data: {0}".format(
+    logger.info("OpenCL time for process_direct: {0}".format(
         str(time.time() - start_time)
     ))
 
@@ -92,7 +94,7 @@ def test_cost_counter(ctx_factory, nsources, ntargets, dims, dtype):
 
     python_direct = python_cost_model.process_direct(trav, 5.0)
 
-    logger.info("Python time for collect_direct_interaction_data: {0}".format(
+    logger.info("Python time for process_direct: {0}".format(
         str(time.time() - start_time)
     ))
 
@@ -107,7 +109,7 @@ def test_cost_counter(ctx_factory, nsources, ntargets, dims, dtype):
     cl_direct_aggregate = cl_cost_model.process_direct_aggregate(trav_dev, xlat_cost)
 
     queue.finish()
-    logger.info("OpenCL time for count_direct: {0}".format(
+    logger.info("OpenCL time for process_direct_aggregate: {0}".format(
         str(time.time() - start_time)
     ))
 
@@ -121,7 +123,7 @@ def test_cost_counter(ctx_factory, nsources, ntargets, dims, dtype):
         trav, xlat_cost
     )
 
-    logger.info("Python time for count_direct: {0}".format(
+    logger.info("Python time for process_direct_aggregate: {0}".format(
         str(time.time() - start_time)
     ))
 
@@ -130,6 +132,37 @@ def test_cost_counter(ctx_factory, nsources, ntargets, dims, dtype):
     )
 
     assert cl_direct_aggregate_num == python_direct_aggregate_num
+
+    # }}}
+
+    # {{{ Test process_list2
+
+    nlevels = trav.tree.nlevels
+    m2l_cost = np.zeros(nlevels, dtype=np.float64)
+    for ilevel in range(nlevels):
+        m2l_cost[ilevel] = evaluate(
+            xlat_cost.m2l(ilevel, ilevel),
+            context=constant_one_params
+        )
+    m2l_cost_dev = cl.array.to_device(queue, m2l_cost)
+
+    queue.finish()
+    start_time = time.time()
+
+    cl_m2l_cost = cl_cost_model.process_list2(trav_dev, m2l_cost_dev)
+
+    queue.finish()
+    logger.info("OpenCL time for process_list2: {0}".format(
+        str(time.time() - start_time)
+    ))
+
+    start_time = time.time()
+    python_m2l_cost = python_cost_model.process_list2(trav, m2l_cost)
+    logger.info("Python time for process_list2: {0}".format(
+        str(time.time() - start_time)
+    ))
+
+    assert np.equal(cl_m2l_cost.get(), python_m2l_cost).all()
 
     # }}}
 

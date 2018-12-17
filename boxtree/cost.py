@@ -146,7 +146,7 @@ class CostModel(ABC):
 
     @abstractmethod
     def process_direct(self, traversal, c_p2p):
-        """Count the number of sources in direct interaction boxes.
+        """Direct evaluation cost of each target box of *traversal*.
 
         :arg traversal: a :class:`boxtree.traversal.FMMTraversalInfo` object.
         :arg c_p2p: calibration constant.
@@ -158,20 +158,32 @@ class CostModel(ABC):
 
     @abstractmethod
     def process_direct_aggregate(self, traversal, xlat_cost):
-        """Count direct evaluations of each target box of *traversal*.
+        """Direct evaluation cost of all boxes.
 
+        :arg traversal: a :class:`boxtree.traversal.FMMTraversalInfo` object.
         :arg xlat_cost: a :class:`TranslationCostModel` object which specifies the
             translation cost.
-        :arg traversal: a :class:`boxtree.traversal.FMMTraversalInfo` object.
         :return: a :class:`pymbolic.primitives.Product` object representing the
             aggregate cost of direct evaluations in all boxes.
+        """
+        pass
+
+    @abstractmethod
+    def process_list2(self, traversal, m2l_cost):
+        """
+        :param traversal: a :class:`boxtree.traversal.FMMTraversalInfo` object.
+        :param m2l_cost: a :class:`numpy.ndarray` or :class:`pyopencl.array.Array`
+            of shape (nlevels,) representing the translation cost of each level.
+        :return: a :class:`numpy.ndarray` or :class:`pyopencl.array.Array` of shape
+            (ntarget_or_target_parent_boxes,), with each entry represents the cost
+            of multipole-to-local translations to this box.
         """
         pass
 
 
 class CLCostModel(CostModel):
     """
-    Note: For methods in this class, arguments like *traversal* should live on device
+    Note: For methods in this class, argument *traversal* should live on device
         memory.
     """
     def __init__(self, queue, translation_cost_model_factory):
@@ -179,6 +191,8 @@ class CLCostModel(CostModel):
         super(CLCostModel, self).__init__(
             translation_cost_model_factory
         )
+
+    # {{{ direct evaluation to point targets (lists 1, 3 close, 4 close)
 
     @memoize_method
     def process_direct_knl(self, particle_id_dtype, box_id_dtype):
@@ -278,6 +292,59 @@ class CLCostModel(CostModel):
         result_dev = cl.array.sum(self.process_direct(traversal, 1.0))
         return result_dev.get().reshape(-1)[0] * xlat_cost.direct()
 
+    # }}}
+
+    # {{{ translate separated siblings' ("list 2") mpoles to local
+
+    @memoize_method
+    def process_list2_knl(self, box_id_dtype, box_level_dtype):
+        return ElementwiseKernel(
+            self.queue.context,
+            Template(r"""
+                double *nm2l,
+                ${box_id_t} *target_or_target_parent_boxes,
+                ${box_id_t} *from_sep_siblings_starts,
+                ${box_level_t} *box_levels,
+                double *m2l_cost
+            """).render(
+                box_id_t=dtype_to_ctype(box_id_dtype),
+                box_level_t=dtype_to_ctype(box_level_dtype)
+            ),
+            Template(r"""
+                ${box_id_t} start = from_sep_siblings_starts[i];
+                ${box_id_t} end = from_sep_siblings_starts[i+1];
+                ${box_level_t} ilevel = box_levels[target_or_target_parent_boxes[i]];
+
+                nm2l[i] += (end - start) * m2l_cost[ilevel];
+            """).render(
+                box_id_t=dtype_to_ctype(box_id_dtype),
+                box_level_t=dtype_to_ctype(box_level_dtype)
+            )
+        )
+
+    def process_list2(self, traversal, m2l_cost):
+        tree = traversal.tree
+        box_id_dtype = tree.box_id_dtype
+        box_level_dtype = tree.box_level_dtype
+
+        ntarget_or_target_parent_boxes = len(traversal.target_or_target_parent_boxes)
+        nm2l = cl.array.zeros(
+            self.queue, (ntarget_or_target_parent_boxes,), dtype=np.float64
+        )
+
+        process_list2_knl = self.process_list2_knl(box_id_dtype, box_level_dtype)
+        process_list2_knl(
+            nm2l,
+            traversal.target_or_target_parent_boxes,
+            traversal.from_sep_siblings_starts,
+            tree.box_levels,
+            m2l_cost
+        )
+
+        return nm2l
+
+    # }}}
+
 
 class PythonCostModel(CostModel):
     def process_direct(self, traversal, c_p2p):
@@ -319,3 +386,16 @@ class PythonCostModel(CostModel):
 
     def process_direct_aggregate(self, traversal, xlat_cost):
         return np.sum(self.process_direct(traversal, 1.0)) * xlat_cost.direct()
+
+    def process_list2(self, traversal, m2l_cost):
+        tree = traversal.tree
+        ntarget_or_target_parent_boxes = len(traversal.target_or_target_parent_boxes)
+        nm2l = np.zeros(ntarget_or_target_parent_boxes, dtype=np.float64)
+
+        for itgt_box, tgt_ibox in enumerate(traversal.target_or_target_parent_boxes):
+            start, end = traversal.from_sep_siblings_starts[itgt_box:itgt_box+2]
+
+            ilevel = tree.box_levels[tgt_ibox]
+            nm2l[itgt_box] += m2l_cost[ilevel] * (end - start)
+
+        return nm2l
