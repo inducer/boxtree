@@ -102,36 +102,26 @@ def test_cost_counter(ctx_factory, nsources, ntargets, dims, dtype):
 
     # }}}
 
-    # {{{ Test process_direct_aggregate
+    # {{{ Test aggregate
 
     start_time = time.time()
 
-    cl_direct_aggregate = cl_cost_model.process_direct_aggregate(trav_dev, xlat_cost)
+    cl_direct_aggregate = cl_cost_model.aggregate(cl_direct)
 
     queue.finish()
-    logger.info("OpenCL time for process_direct_aggregate: {0}".format(
+    logger.info("OpenCL time for aggregate: {0}".format(
         str(time.time() - start_time)
     ))
-
-    cl_direct_aggregate_num = evaluate(
-        cl_direct_aggregate, context=constant_one_params
-    )
 
     start_time = time.time()
 
-    python_direct_aggregate = python_cost_model.process_direct_aggregate(
-        trav, xlat_cost
-    )
+    python_direct_aggregate = python_cost_model.aggregate(python_direct)
 
-    logger.info("Python time for process_direct_aggregate: {0}".format(
+    logger.info("Python time for aggregate: {0}".format(
         str(time.time() - start_time)
     ))
 
-    python_direct_aggregate_num = evaluate(
-        python_direct_aggregate, context=constant_one_params
-    )
-
-    assert cl_direct_aggregate_num == python_direct_aggregate_num
+    assert cl_direct_aggregate == python_direct_aggregate
 
     # }}}
 

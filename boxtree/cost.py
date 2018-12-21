@@ -157,18 +157,6 @@ class CostModel(ABC):
         pass
 
     @abstractmethod
-    def process_direct_aggregate(self, traversal, xlat_cost):
-        """Direct evaluation cost of all boxes.
-
-        :arg traversal: a :class:`boxtree.traversal.FMMTraversalInfo` object.
-        :arg xlat_cost: a :class:`TranslationCostModel` object which specifies the
-            translation cost.
-        :return: a :class:`pymbolic.primitives.Product` object representing the
-            aggregate cost of direct evaluations in all boxes.
-        """
-        pass
-
-    @abstractmethod
     def process_list2(self, traversal, m2l_cost):
         """
         :param traversal: a :class:`boxtree.traversal.FMMTraversalInfo` object.
@@ -177,6 +165,17 @@ class CostModel(ABC):
         :return: a :class:`numpy.ndarray` or :class:`pyopencl.array.Array` of shape
             (ntarget_or_target_parent_boxes,), with each entry represents the cost
             of multipole-to-local translations to this box.
+        """
+        pass
+
+    @staticmethod
+    @abstractmethod
+    def aggregate(per_box_result):
+        """ Sum all entries of *per_box_result* into a number.
+
+        :param per_box_result: an object of :class:`numpy.ndarray` or
+            :class:`pyopencl.array.Array`, the result to be sumed.
+        :return: a :class:`float`, the result of the sum.
         """
         pass
 
@@ -288,10 +287,6 @@ class CLCostModel(CostModel):
 
         return direct_by_itgt_box_dev
 
-    def process_direct_aggregate(self, traversal, xlat_cost):
-        result_dev = cl.array.sum(self.process_direct(traversal, 1.0))
-        return result_dev.get().reshape(-1)[0] * xlat_cost.direct()
-
     # }}}
 
     # {{{ translate separated siblings' ("list 2") mpoles to local
@@ -319,7 +314,8 @@ class CLCostModel(CostModel):
             """).render(
                 box_id_t=dtype_to_ctype(box_id_dtype),
                 box_level_t=dtype_to_ctype(box_level_dtype)
-            )
+            ),
+            name="process_list2"
         )
 
     def process_list2(self, traversal, m2l_cost):
@@ -344,6 +340,10 @@ class CLCostModel(CostModel):
         return nm2l
 
     # }}}
+
+    @staticmethod
+    def aggregate(per_box_result):
+        return cl.array.sum(per_box_result).get().reshape(-1)[0]
 
 
 class PythonCostModel(CostModel):
@@ -384,9 +384,6 @@ class PythonCostModel(CostModel):
 
         return direct_by_itgt_box
 
-    def process_direct_aggregate(self, traversal, xlat_cost):
-        return np.sum(self.process_direct(traversal, 1.0)) * xlat_cost.direct()
-
     def process_list2(self, traversal, m2l_cost):
         tree = traversal.tree
         ntarget_or_target_parent_boxes = len(traversal.target_or_target_parent_boxes)
@@ -399,3 +396,7 @@ class PythonCostModel(CostModel):
             nm2l[itgt_box] += m2l_cost[ilevel] * (end - start)
 
         return nm2l
+
+    @staticmethod
+    def aggregate(per_box_result):
+        return np.sum(per_box_result)
