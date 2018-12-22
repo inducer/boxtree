@@ -163,8 +163,21 @@ class CostModel(ABC):
         :param m2l_cost: a :class:`numpy.ndarray` or :class:`pyopencl.array.Array`
             of shape (nlevels,) representing the translation cost of each level.
         :return: a :class:`numpy.ndarray` or :class:`pyopencl.array.Array` of shape
-            (ntarget_or_target_parent_boxes,), with each entry represents the cost
+            (ntarget_or_target_parent_boxes,), with each entry representing the cost
             of multipole-to-local translations to this box.
+        """
+        pass
+
+    @abstractmethod
+    def process_list3(self, traversal, m2p_cost):
+        """
+        :param traversal: a :class:`boxtree.traversal.FMMTraversalInfo` object.
+        :param m2p_cost: a :class:`numpy.ndarray` or :class:`pyopencl.array.Array`
+            of shape (nlevels,) where the ith entry represents the evaluation cost
+            from multipole expansion at level i to a point.
+        :return: a :class:`numpy.ndarray` or :class:`pyopencl.array.Array` of shape
+            (nboxes,), with each entry representing the cost of evaluating all
+            targets inside this box from multipole expansions of list-3 boxes.
         """
         pass
 
@@ -341,6 +354,61 @@ class CLCostModel(CostModel):
 
     # }}}
 
+    # {{{ evaluate sep. smaller mpoles ("list 3") at particles
+
+    @memoize_method
+    def process_list3_knl(self, box_id_dtype, particle_id_dtype):
+        return ElementwiseKernel(
+            self.queue.context,
+            Template(r"""
+                ${box_id_t} *target_boxes_sep_smaller,
+                ${box_id_t} *sep_smaller_start,
+                ${particle_id_t} *box_target_counts_nonchild,
+                double m2p_cost_current_level,
+                double *nm2p
+            """).render(
+                box_id_t=dtype_to_ctype(box_id_dtype),
+                particle_id_t=dtype_to_ctype(particle_id_dtype)
+            ),
+            Template(r"""
+                ${box_id_t} target_box = target_boxes_sep_smaller[i];
+                ${box_id_t} start = sep_smaller_start[i];
+                ${box_id_t} end = sep_smaller_start[i+1];
+                ${particle_id_t} ntargets = box_target_counts_nonchild[target_box];
+                nm2p[target_box] += (
+                    ntargets * (end - start) * m2p_cost_current_level
+                );
+            """).render(
+                box_id_t=dtype_to_ctype(box_id_dtype),
+                particle_id_t=dtype_to_ctype(particle_id_dtype)
+            ),
+            name="process_list3"
+        )
+
+    def process_list3(self, traversal, m2p_cost):
+        tree = traversal.tree
+        nm2p = cl.array.zeros(self.queue, tree.nboxes, dtype=np.float64)
+
+        process_list3_knl = self.process_list3_knl(
+            tree.box_id_dtype, tree.particle_id_dtype
+        )
+
+        for ilevel, sep_smaller_list in enumerate(
+                traversal.from_sep_smaller_by_level):
+            process_list3_knl(
+                traversal.target_boxes_sep_smaller_by_source_level[ilevel],
+                sep_smaller_list.starts,
+                tree.box_target_counts_nonchild,
+                m2p_cost[ilevel].get().reshape(-1)[0],
+                nm2p,
+                queue=self.queue
+            )
+            self.queue.finish()
+
+        return nm2p
+
+    # }}}
+
     @staticmethod
     def aggregate(per_box_result):
         return cl.array.sum(per_box_result).get().reshape(-1)[0]
@@ -396,6 +464,20 @@ class PythonCostModel(CostModel):
             nm2l[itgt_box] += m2l_cost[ilevel] * (end - start)
 
         return nm2l
+
+    def process_list3(self, traversal, m2p_cost):
+        tree = traversal.tree
+        nm2p = np.zeros(tree.nboxes, dtype=np.float64)
+
+        for ilevel, sep_smaller_list in enumerate(
+                traversal.from_sep_smaller_by_level):
+            for itgt_box, tgt_ibox in enumerate(
+                    traversal.target_boxes_sep_smaller_by_source_level[ilevel]):
+                ntargets = tree.box_target_counts_nonchild[tgt_ibox]
+                start, end = sep_smaller_list.starts[itgt_box:itgt_box + 2]
+                nm2p[tgt_ibox] += ntargets * (end - start) * m2p_cost[ilevel]
+
+        return nm2p
 
     @staticmethod
     def aggregate(per_box_result):
