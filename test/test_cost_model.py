@@ -186,6 +186,36 @@ def test_cost_counter(ctx_factory, nsources, ntargets, dims, dtype):
 
     # }}}
 
+    # {{{ Test process list 4
+
+    p2l_cost = np.zeros(nlevels, dtype=np.float64)
+    for ilevel in range(nlevels):
+        p2l_cost[ilevel] = evaluate(
+            xlat_cost.p2l(ilevel),
+            context=constant_one_params
+        )
+    p2l_cost_dev = cl.array.to_device(queue, p2l_cost)
+
+    queue.finish()
+    start_time = time.time()
+
+    cl_p2l_cost = cl_cost_model.process_list4(trav_dev, p2l_cost_dev)
+
+    queue.finish()
+    logger.info("OpenCL time for process_list4: {0}".format(
+        str(time.time() - start_time)
+    ))
+
+    start_time = time.time()
+    python_p2l_cost = python_cost_model.process_list4(trav, p2l_cost)
+    logger.info("Python time for process_list4: {0}".format(
+        str(time.time() - start_time)
+    ))
+
+    assert np.equal(cl_p2l_cost.get(), python_p2l_cost).all()
+
+    # }}}
+
 
 def main():
     nsouces = 100000

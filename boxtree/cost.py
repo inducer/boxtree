@@ -181,6 +181,19 @@ class CostModel(ABC):
         """
         pass
 
+    @abstractmethod
+    def process_list4(self, traversal, p2l_cost):
+        """
+        :param traversal: a :class:`boxtree.traversal.FMMTraversalInfo` object.
+        :param p2l_cost: a :class:`numpy.ndarray` or :class:`pyopencl.array.Array`
+            of shape (nlevels,) where the ith entry represents the translation cost
+            from a point to the local expansion at level i.
+        :return: a :class:`numpy.ndarray` or :class:`pyopencl.array.Array` of shape
+            (ntarget_or_target_parent_boxes,), with each entry representing the cost
+            of point-to-local translations to this box.
+        """
+        pass
+
     @staticmethod
     @abstractmethod
     def aggregate(per_box_result):
@@ -409,6 +422,65 @@ class CLCostModel(CostModel):
 
     # }}}
 
+    # {{{ form locals for separated bigger source boxes ("list 4")
+
+    @memoize_method
+    def process_list4_knl(self, box_id_dtype, particle_id_dtype, box_level_dtype):
+        return ElementwiseKernel(
+            self.queue.context,
+            Template(r"""
+                double *nm2p,
+                ${box_id_t} *from_sep_bigger_starts,
+                ${box_id_t} *from_sep_bigger_lists,
+                ${particle_id_t} *box_source_counts_nonchild,
+                ${box_level_t} *box_levels,
+                double *p2l_cost
+            """).render(
+                box_id_t=dtype_to_ctype(box_id_dtype),
+                particle_id_t=dtype_to_ctype(particle_id_dtype),
+                box_level_t=dtype_to_ctype(box_level_dtype)
+            ),
+            Template(r"""
+                ${box_id_t} start = from_sep_bigger_starts[i];
+                ${box_id_t} end = from_sep_bigger_starts[i+1];
+                for(${box_id_t} idx=start; idx < end; idx++) {
+                    ${box_id_t} src_ibox = from_sep_bigger_lists[idx];
+                    ${particle_id_t} nsources = box_source_counts_nonchild[src_ibox];
+                    ${box_level_t} ilevel = box_levels[src_ibox];
+                    nm2p[i] += nsources * p2l_cost[ilevel];
+                }
+            """).render(
+                box_id_t=dtype_to_ctype(box_id_dtype),
+                particle_id_t=dtype_to_ctype(particle_id_dtype),
+                box_level_t=dtype_to_ctype(box_level_dtype)
+            ),
+            name="process_list4"
+        )
+
+    def process_list4(self, traversal, p2l_cost):
+        tree = traversal.tree
+        target_or_target_parent_boxes = traversal.target_or_target_parent_boxes
+        nm2p = cl.array.zeros(
+            self.queue, len(target_or_target_parent_boxes), dtype=np.float64
+        )
+
+        process_list4_knl = self.process_list4_knl(
+            tree.box_id_dtype, tree.particle_id_dtype, tree.box_level_dtype
+        )
+
+        process_list4_knl(
+            nm2p,
+            traversal.from_sep_bigger_starts,
+            traversal.from_sep_bigger_lists,
+            tree.box_source_counts_nonchild,
+            tree.box_levels,
+            p2l_cost
+        )
+
+        return nm2p
+
+    # }}}
+
     @staticmethod
     def aggregate(per_box_result):
         return cl.array.sum(per_box_result).get().reshape(-1)[0]
@@ -476,6 +548,20 @@ class PythonCostModel(CostModel):
                 ntargets = tree.box_target_counts_nonchild[tgt_ibox]
                 start, end = sep_smaller_list.starts[itgt_box:itgt_box + 2]
                 nm2p[tgt_ibox] += ntargets * (end - start) * m2p_cost[ilevel]
+
+        return nm2p
+
+    def process_list4(self, traversal, p2l_cost):
+        tree = traversal.tree
+        target_or_target_parent_boxes = traversal.target_or_target_parent_boxes
+        nm2p = np.zeros(len(target_or_target_parent_boxes), dtype=np.float64)
+
+        for itgt_box in range(len(target_or_target_parent_boxes)):
+            start, end = traversal.from_sep_bigger_starts[itgt_box:itgt_box+2]
+            for src_ibox in traversal.from_sep_bigger_lists[start:end]:
+                nsources = tree.box_source_counts_nonchild[src_ibox]
+                ilevel = tree.box_levels[src_ibox]
+                nm2p[itgt_box] += nsources * p2l_cost[ilevel]
 
         return nm2p
 
