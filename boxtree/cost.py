@@ -151,8 +151,7 @@ class CostModel(ABC):
         :arg traversal: a :class:`boxtree.traversal.FMMTraversalInfo` object.
         :arg c_p2p: calibration constant.
         :return: a :class:`numpy.ndarray` or :class:`pyopencl.array.Array` of shape
-            (traversal.ntarget_boxes,), with each entry represents the cost of the
-            box.
+            (ntarget_boxes,), with each entry represents the cost of the box.
         """
         pass
 
@@ -191,6 +190,23 @@ class CostModel(ABC):
         :return: a :class:`numpy.ndarray` or :class:`pyopencl.array.Array` of shape
             (ntarget_or_target_parent_boxes,), with each entry representing the cost
             of point-to-local translations to this box.
+        """
+        pass
+
+    @abstractmethod
+    def process_eval_locals(self, traversal, l2p_cost,
+                            box_target_counts_nonchild=None):
+        """
+        :param traversal: a :class:`boxtree.traversal.FMMTraversalInfo` object.
+        :param l2p_cost: a :class:`numpy.ndarray` or :class:`pyopencl.array.Array`
+            of shape (nlevels,) where the ith entry represents the cost of evaluating
+            the potential of a target in a box of level i using the box's local
+            expansion.
+        :param box_target_counts_nonchild: if None, use
+            traversal.tree.box_target_counts_nonchild.
+        :return: a :class:`numpy.ndarray` or :class:`pyopencl.array.Array` of shape
+            (ntarget_boxes,), the cost of evaluating the potentials of all targets
+            inside this box from its local expansion.
         """
         pass
 
@@ -481,6 +497,61 @@ class CLCostModel(CostModel):
 
     # }}}
 
+    # {{{ evaluate local expansions at targets
+
+    @memoize_method
+    def process_eval_locals_knl(self, box_id_dtype, particle_id_dtype,
+                                box_level_dtype):
+        return ElementwiseKernel(
+            self.queue.context,
+            Template(r"""
+                double *neval_locals,
+                ${box_id_t} *target_boxes,
+                ${particle_id_t} *box_target_counts_nonchild,
+                ${box_level_t} *box_levels,
+                double *l2p_cost
+            """).render(
+                box_id_t=dtype_to_ctype(box_id_dtype),
+                particle_id_t=dtype_to_ctype(particle_id_dtype),
+                box_level_t=dtype_to_ctype(box_level_dtype)
+            ),
+            Template(r"""
+                ${box_id_t} box_idx = target_boxes[i];
+                ${particle_id_t} ntargets = box_target_counts_nonchild[box_idx];
+                ${box_level_t} ilevel = box_levels[box_idx];
+                neval_locals[i] += ntargets * l2p_cost[ilevel];
+            """).render(
+                box_id_t=dtype_to_ctype(box_id_dtype),
+                particle_id_t=dtype_to_ctype(particle_id_dtype),
+                box_level_t=dtype_to_ctype(box_level_dtype)
+            ),
+            name="process_eval_locals"
+        )
+
+    def process_eval_locals(self, traversal, l2p_cost,
+                            box_target_counts_nonchild=None):
+        tree = traversal.tree
+        ntarget_boxes = len(traversal.target_boxes)
+        neval_locals = cl.array.zeros(self.queue, ntarget_boxes, dtype=np.float64)
+        if box_target_counts_nonchild is None:
+            box_target_counts_nonchild = traversal.tree.box_target_counts_nonchild
+
+        process_eval_locals_knl = self.process_eval_locals_knl(
+            tree.box_id_dtype, tree.particle_id_dtype, tree.box_level_dtype
+        )
+
+        process_eval_locals_knl(
+            neval_locals,
+            traversal.target_boxes,
+            box_target_counts_nonchild,
+            tree.box_levels,
+            l2p_cost
+        )
+
+        return neval_locals
+
+    # }}}
+
     @staticmethod
     def aggregate(per_box_result):
         return cl.array.sum(per_box_result).get().reshape(-1)[0]
@@ -564,6 +635,24 @@ class PythonCostModel(CostModel):
                 nm2p[itgt_box] += nsources * p2l_cost[ilevel]
 
         return nm2p
+
+    def process_eval_locals(self, traversal, l2p_cost,
+                            box_target_counts_nonchild=None):
+        tree = traversal.tree
+        ntarget_boxes = len(traversal.target_boxes)
+        neval_locals = np.zeros(ntarget_boxes, dtype=np.float64)
+        if box_target_counts_nonchild is None:
+            box_target_counts_nonchild = tree.box_target_counts_nonchild
+
+        for target_lev in range(tree.nlevels):
+            start, stop = traversal.level_start_target_box_nrs[
+                    target_lev:target_lev+2]
+            for itgt_box, tgt_ibox in enumerate(
+                    traversal.target_boxes[start:stop], start):
+                neval_locals[itgt_box] += (box_target_counts_nonchild[tgt_ibox]
+                                           * l2p_cost[target_lev])
+
+        return neval_locals
 
     @staticmethod
     def aggregate(per_box_result):

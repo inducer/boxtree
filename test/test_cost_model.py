@@ -186,7 +186,7 @@ def test_cost_counter(ctx_factory, nsources, ntargets, dims, dtype):
 
     # }}}
 
-    # {{{ Test process list 4
+    # {{{ Test process_list4
 
     p2l_cost = np.zeros(nlevels, dtype=np.float64)
     for ilevel in range(nlevels):
@@ -213,6 +213,36 @@ def test_cost_counter(ctx_factory, nsources, ntargets, dims, dtype):
     ))
 
     assert np.equal(cl_p2l_cost.get(), python_p2l_cost).all()
+
+    # }}}
+
+    # {{{ Test process_eval_locals
+
+    l2p_cost = np.zeros(nlevels, dtype=np.float64)
+    for ilevel in range(nlevels):
+        l2p_cost[ilevel] = evaluate(
+            xlat_cost.l2p(ilevel),
+            context=constant_one_params
+        )
+    l2p_cost_dev = cl.array.to_device(queue, l2p_cost)
+
+    queue.finish()
+    start_time = time.time()
+
+    cl_l2p_const = cl_cost_model.process_eval_locals(trav_dev, l2p_cost_dev)
+
+    queue.finish()
+    logger.info("OpenCL time for process_eval_locals: {0}".format(
+        str(time.time() - start_time)
+    ))
+
+    start_time = time.time()
+    python_l2p_cost = python_cost_model.process_eval_locals(trav, l2p_cost)
+    logger.info("Python time for process_eval_locals: {0}".format(
+        str(time.time() - start_time)
+    ))
+
+    assert np.equal(cl_l2p_const.get(), python_l2p_cost).all()
 
     # }}}
 
