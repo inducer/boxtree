@@ -252,7 +252,7 @@ class CostModel(ABC):
         }
 
     def estimate_calibration_params(self, traversals, level_to_orders,
-                                    timing_results):
+                                    timing_results, wall_time=False):
         """
         :arg traversals: a :class:`list` of
             :class:`boxtree.traversal.FMMTraversalInfo` objects. Note each traversal
@@ -264,6 +264,7 @@ class CostModel(ABC):
         :arg timing_results: a :class:`list` of the same length as *traversals*.
             Each entry is a :class:`dict` filled with timing data returned by
             *boxtree.fmm.drive_fmm*
+        :arg wall_time: a :class:`bool`, whether to use wall time or processor time.
         :return: a :class:`dict` of calibration parameters.
         """
         nresults = len(traversals)
@@ -334,11 +335,16 @@ class CostModel(ABC):
                 self.process_eval_locals(traversal, translation_cost["l2p_cost"])
             )
 
+        if wall_time:
+            field = "wall_elapsed"
+        else:
+            field = "process_elapsed"
+
         for icase, timing_result in enumerate(timing_results):
             for param, time in timing_result.items():
                 calibration_param = (
                     _FMM_STAGE_TO_CALIBRATION_PARAMETER[param])
-                actual_times[calibration_param][icase] = time["process_elapsed"]
+                actual_times[calibration_param][icase] = time[field]
 
         result = {}
 

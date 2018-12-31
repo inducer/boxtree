@@ -8,6 +8,7 @@ from pyopencl.tools import (  # noqa
 from pymbolic import evaluate
 from boxtree.cost import CLCostModel, PythonCostModel
 from boxtree.cost import pde_aware_translation_cost_model
+import sys
 
 import logging
 import os
@@ -311,6 +312,11 @@ def test_estimate_calibration_params(ctx_factory):
 
         timing_results.append(timing_data)
 
+    if sys.version_info >= (3, 0):
+        wall_time = False
+    else:
+        wall_time = True
+
     def test_params_sanity(test_params):
         param_names = ["c_p2p", "c_m2l", "c_m2p", "c_p2l", "c_l2p"]
         for name in param_names:
@@ -323,17 +329,18 @@ def test_estimate_calibration_params(ctx_factory):
 
     python_cost_model = PythonCostModel(pde_aware_translation_cost_model)
     python_params = python_cost_model.estimate_calibration_params(
-        traversals, level_to_orders, timing_results
+        traversals, level_to_orders, timing_results, wall_time=wall_time
     )
     test_params_sanity(python_params)
 
     cl_cost_model = CLCostModel(queue, pde_aware_translation_cost_model)
     cl_params = cl_cost_model.estimate_calibration_params(
-        traversals_dev, level_to_orders, timing_results
+        traversals_dev, level_to_orders, timing_results, wall_time=wall_time
     )
     test_params_sanity(cl_params)
 
-    test_params_equal(cl_params, python_params)
+    if sys.version_info >= (3, 0):
+        test_params_equal(cl_params, python_params)
 
 
 def main():
@@ -348,7 +355,6 @@ def main():
 
 
 if __name__ == "__main__":
-    import sys
     if len(sys.argv) > 1:
         exec(sys.argv[1])
     else:
