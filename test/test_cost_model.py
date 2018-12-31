@@ -6,6 +6,8 @@ import pytest
 from pyopencl.tools import (  # noqa
     pytest_generate_tests_for_pyopencl as pytest_generate_tests)
 from pymbolic import evaluate
+from boxtree.cost import CLCostModel, PythonCostModel
+from boxtree.cost import pde_aware_translation_cost_model
 
 import logging
 import os
@@ -56,7 +58,6 @@ def test_cost_counter(ctx_factory, nsources, ntargets, dims, dtype):
 
     # {{{ Construct cost models
 
-    from boxtree.cost import CLCostModel, PythonCostModel
     cl_cost_model = CLCostModel(queue, None)
     python_cost_model = PythonCostModel(None)
 
@@ -71,9 +72,8 @@ def test_cost_counter(ctx_factory, nsources, ntargets, dims, dtype):
         c_p2p=1
     )
     for ilevel in range(trav.tree.nlevels):
-        constant_one_params["p_fmm_lev%d" % ilevel] = 1
+        constant_one_params["p_fmm_lev%d" % ilevel] = 10
 
-    from boxtree.cost import pde_aware_translation_cost_model
     xlat_cost = pde_aware_translation_cost_model(dims, trav.tree.nlevels)
 
     # }}}
@@ -229,7 +229,7 @@ def test_cost_counter(ctx_factory, nsources, ntargets, dims, dtype):
     queue.finish()
     start_time = time.time()
 
-    cl_l2p_const = cl_cost_model.process_eval_locals(trav_dev, l2p_cost_dev)
+    cl_l2p_cost = cl_cost_model.process_eval_locals(trav_dev, l2p_cost_dev)
 
     queue.finish()
     logger.info("OpenCL time for process_eval_locals: {0}".format(
@@ -242,9 +242,98 @@ def test_cost_counter(ctx_factory, nsources, ntargets, dims, dtype):
         str(time.time() - start_time)
     ))
 
-    assert np.equal(cl_l2p_const.get(), python_l2p_cost).all()
+    assert np.equal(cl_l2p_cost.get(), python_l2p_cost).all()
 
     # }}}
+
+
+@pytest.mark.opencl
+def test_estimate_calibration_params(ctx_factory):
+    from boxtree.pyfmmlib_integration import FMMLibExpansionWrangler
+
+    nsources_list = [1000, 2000, 3000, 4000]
+    ntargets_list = [1000, 2000, 3000, 4000]
+    dims = 3
+    dtype = np.float64
+
+    ctx = ctx_factory()
+    queue = cl.CommandQueue(ctx)
+
+    traversals = []
+    traversals_dev = []
+    level_to_orders = []
+    timing_results = []
+
+    def fmm_level_to_nterms(tree, ilevel):
+        return 10
+
+    for nsources, ntargets in zip(nsources_list, ntargets_list):
+        # {{{ Generate sources, targets and target_radii
+
+        from boxtree.tools import make_normal_particle_array as p_normal
+        sources = p_normal(queue, nsources, dims, dtype, seed=15)
+        targets = p_normal(queue, ntargets, dims, dtype, seed=18)
+
+        from pyopencl.clrandom import PhiloxGenerator
+        rng = PhiloxGenerator(queue.context, seed=22)
+        target_radii = rng.uniform(
+            queue, ntargets, a=0, b=0.05, dtype=dtype
+        ).get()
+
+        # }}}
+
+        # {{{ Generate tree and traversal
+
+        from boxtree import TreeBuilder
+        tb = TreeBuilder(ctx)
+        tree, _ = tb(
+            queue, sources, targets=targets, target_radii=target_radii,
+            stick_out_factor=0.15, max_particles_in_box=30, debug=True
+        )
+
+        from boxtree.traversal import FMMTraversalBuilder
+        tg = FMMTraversalBuilder(ctx, well_sep_is_n_away=2)
+        trav_dev, _ = tg(queue, tree, debug=True)
+        trav = trav_dev.get(queue=queue)
+
+        traversals.append(trav)
+        traversals_dev.append(trav_dev)
+
+        # }}}
+
+        wrangler = FMMLibExpansionWrangler(trav.tree, 0, fmm_level_to_nterms)
+        level_to_orders.append(wrangler.level_nterms)
+
+        timing_data = {}
+        from boxtree.fmm import drive_fmm
+        src_weights = np.random.rand(tree.nsources).astype(tree.coord_dtype)
+        drive_fmm(trav, wrangler, src_weights, timing_data=timing_data)
+
+        timing_results.append(timing_data)
+
+    def test_params_sanity(test_params):
+        param_names = ["c_p2p", "c_m2l", "c_m2p", "c_p2l", "c_l2p"]
+        for name in param_names:
+            assert isinstance(test_params[name], np.float64)
+
+    def test_params_equal(test_params1, test_params2):
+        param_names = ["c_p2p", "c_m2l", "c_m2p", "c_p2l", "c_l2p"]
+        for name in param_names:
+            assert test_params1[name] == test_params2[name]
+
+    python_cost_model = PythonCostModel(pde_aware_translation_cost_model)
+    python_params = python_cost_model.estimate_calibration_params(
+        traversals, level_to_orders, timing_results
+    )
+    test_params_sanity(python_params)
+
+    cl_cost_model = CLCostModel(queue, pde_aware_translation_cost_model)
+    cl_params = cl_cost_model.estimate_calibration_params(
+        traversals_dev, level_to_orders, timing_results
+    )
+    test_params_sanity(cl_params)
+
+    test_params_equal(cl_params, python_params)
 
 
 def main():
@@ -255,6 +344,7 @@ def main():
     ctx_factory = cl.create_some_context
 
     test_cost_counter(ctx_factory, nsouces, ntargets, ndims, dtype)
+    test_estimate_calibration_params(ctx_factory)
 
 
 if __name__ == "__main__":

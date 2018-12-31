@@ -33,7 +33,7 @@ from pyopencl.elementwise import ElementwiseKernel
 from pyopencl.tools import dtype_to_ctype
 from mako.template import Template
 from functools import partial
-from pymbolic import var
+from pymbolic import var, evaluate
 from pytools import memoize_method
 import sys
 
@@ -158,8 +158,8 @@ class CostModel(ABC):
     @abstractmethod
     def process_list2(self, traversal, m2l_cost):
         """
-        :param traversal: a :class:`boxtree.traversal.FMMTraversalInfo` object.
-        :param m2l_cost: a :class:`numpy.ndarray` or :class:`pyopencl.array.Array`
+        :arg traversal: a :class:`boxtree.traversal.FMMTraversalInfo` object.
+        :arg m2l_cost: a :class:`numpy.ndarray` or :class:`pyopencl.array.Array`
             of shape (nlevels,) representing the translation cost of each level.
         :return: a :class:`numpy.ndarray` or :class:`pyopencl.array.Array` of shape
             (ntarget_or_target_parent_boxes,), with each entry representing the cost
@@ -170,8 +170,8 @@ class CostModel(ABC):
     @abstractmethod
     def process_list3(self, traversal, m2p_cost):
         """
-        :param traversal: a :class:`boxtree.traversal.FMMTraversalInfo` object.
-        :param m2p_cost: a :class:`numpy.ndarray` or :class:`pyopencl.array.Array`
+        :arg traversal: a :class:`boxtree.traversal.FMMTraversalInfo` object.
+        :arg m2p_cost: a :class:`numpy.ndarray` or :class:`pyopencl.array.Array`
             of shape (nlevels,) where the ith entry represents the evaluation cost
             from multipole expansion at level i to a point.
         :return: a :class:`numpy.ndarray` or :class:`pyopencl.array.Array` of shape
@@ -183,8 +183,8 @@ class CostModel(ABC):
     @abstractmethod
     def process_list4(self, traversal, p2l_cost):
         """
-        :param traversal: a :class:`boxtree.traversal.FMMTraversalInfo` object.
-        :param p2l_cost: a :class:`numpy.ndarray` or :class:`pyopencl.array.Array`
+        :arg traversal: a :class:`boxtree.traversal.FMMTraversalInfo` object.
+        :arg p2l_cost: a :class:`numpy.ndarray` or :class:`pyopencl.array.Array`
             of shape (nlevels,) where the ith entry represents the translation cost
             from a point to the local expansion at level i.
         :return: a :class:`numpy.ndarray` or :class:`pyopencl.array.Array` of shape
@@ -197,12 +197,12 @@ class CostModel(ABC):
     def process_eval_locals(self, traversal, l2p_cost,
                             box_target_counts_nonchild=None):
         """
-        :param traversal: a :class:`boxtree.traversal.FMMTraversalInfo` object.
-        :param l2p_cost: a :class:`numpy.ndarray` or :class:`pyopencl.array.Array`
+        :arg traversal: a :class:`boxtree.traversal.FMMTraversalInfo` object.
+        :arg l2p_cost: a :class:`numpy.ndarray` or :class:`pyopencl.array.Array`
             of shape (nlevels,) where the ith entry represents the cost of evaluating
             the potential of a target in a box of level i using the box's local
             expansion.
-        :param box_target_counts_nonchild: if None, use
+        :arg box_target_counts_nonchild: if None, use
             traversal.tree.box_target_counts_nonchild.
         :return: a :class:`numpy.ndarray` or :class:`pyopencl.array.Array` of shape
             (ntarget_boxes,), the cost of evaluating the potentials of all targets
@@ -213,13 +213,147 @@ class CostModel(ABC):
     @staticmethod
     @abstractmethod
     def aggregate(per_box_result):
-        """ Sum all entries of *per_box_result* into a number.
+        """Sum all entries of *per_box_result* into a number.
 
-        :param per_box_result: an object of :class:`numpy.ndarray` or
+        :arg per_box_result: an object of :class:`numpy.ndarray` or
             :class:`pyopencl.array.Array`, the result to be sumed.
         :return: a :class:`float`, the result of the sum.
         """
         pass
+
+    def translation_cost_from_model(self, nlevels, xlat_cost, context):
+        """Evaluate translation cost from model. The result of this function can be
+        used for process_* methods in this class.
+
+        :arg nlevels: the number of tree levels.
+        :arg xlat_cost: a :class:`TranslationCostModel`.
+        :arg context: a :class:`dict` of parameters passed as context when
+            evaluating symbolic expressions in *xlat_cost*.
+        :return: a :class:`dict`, the translation cost of each step in FMM.
+        """
+        return {
+            "c_p2p": evaluate(xlat_cost.direct(), context=context),
+            "m2l_cost": np.array([
+                evaluate(xlat_cost.m2l(ilevel, ilevel), context=context)
+                for ilevel in range(nlevels)
+            ], dtype=np.float64),
+            "m2p_cost": np.array([
+                evaluate(xlat_cost.m2p(ilevel), context=context)
+                for ilevel in range(nlevels)
+            ], dtype=np.float64),
+            "p2l_cost": np.array([
+                evaluate(xlat_cost.p2l(ilevel), context=context)
+                for ilevel in range(nlevels)
+            ], dtype=np.float64),
+            "l2p_cost": np.array([
+                evaluate(xlat_cost.l2p(ilevel), context=context)
+                for ilevel in range(nlevels)
+            ], dtype=np.float64)
+        }
+
+    def estimate_calibration_params(self, traversals, level_to_orders,
+                                    timing_results):
+        """
+        :arg traversals: a :class:`list` of
+            :class:`boxtree.traversal.FMMTraversalInfo` objects. Note each traversal
+            object can reside on host or device depending on cost counting
+            implemenation instead of the expansion wrangler used for executing.
+        :arg level_to_orders: a :class:`list` of the same length as *traversals*.
+            Each entry is a :class:`numpy.ndarray` representing the expansion order
+            of different levels.
+        :arg timing_results: a :class:`list` of the same length as *traversals*.
+            Each entry is a :class:`dict` filled with timing data returned by
+            *boxtree.fmm.drive_fmm*
+        :return: a :class:`dict` of calibration parameters.
+        """
+        nresults = len(traversals)
+        assert len(level_to_orders) == nresults
+        assert len(timing_results) == nresults
+
+        _FMM_STAGE_TO_CALIBRATION_PARAMETER = {
+            "form_multipoles": "c_p2m",
+            "coarsen_multipoles": "c_m2m",
+            "eval_direct": "c_p2p",
+            "multipole_to_local": "c_m2l",
+            "eval_multipoles": "c_m2p",
+            "form_locals": "c_p2l",
+            "refine_locals": "c_l2l",
+            "eval_locals": "c_l2p"
+        }
+
+        params = set(_FMM_STAGE_TO_CALIBRATION_PARAMETER.values())
+
+        uncalibrated_times = {}
+        actual_times = {}
+
+        for param in params:
+            uncalibrated_times[param] = np.zeros(nresults)
+            actual_times[param] = np.zeros(nresults)
+
+        for icase, traversal in enumerate(traversals):
+            tree = traversal.tree
+
+            xlat_cost = self.translation_cost_model_factory(
+                tree.dimensions, tree.nlevels
+            )
+
+            training_ctx = dict(
+                c_l2l=1,
+                c_l2p=1,
+                c_m2l=1,
+                c_m2m=1,
+                c_m2p=1,
+                c_p2l=1,
+                c_p2m=1,
+                c_p2p=1
+            )
+            for ilevel in range(tree.nlevels):
+                training_ctx["p_fmm_lev%d" % ilevel] = level_to_orders[icase][ilevel]
+
+            translation_cost = self.translation_cost_from_model(
+                tree.nlevels, xlat_cost, training_ctx
+            )
+
+            uncalibrated_times["c_p2p"][icase] = self.aggregate(
+                self.process_direct(traversal, translation_cost["c_p2p"])
+            )
+
+            uncalibrated_times["c_m2l"][icase] = self.aggregate(
+                self.process_list2(traversal, translation_cost["m2l_cost"])
+            )
+
+            uncalibrated_times["c_m2p"][icase] = self.aggregate(
+                self.process_list3(traversal, translation_cost["m2p_cost"])
+            )
+
+            uncalibrated_times["c_p2l"][icase] = self.aggregate(
+                self.process_list4(traversal, translation_cost["p2l_cost"])
+            )
+
+            uncalibrated_times["c_l2p"][icase] = self.aggregate(
+                self.process_eval_locals(traversal, translation_cost["l2p_cost"])
+            )
+
+        for icase, timing_result in enumerate(timing_results):
+            for param, time in timing_result.items():
+                calibration_param = (
+                    _FMM_STAGE_TO_CALIBRATION_PARAMETER[param])
+                actual_times[calibration_param][icase] = time["process_elapsed"]
+
+        result = {}
+
+        for param in params:
+            uncalibrated = uncalibrated_times[param]
+            actual = actual_times[param]
+
+            if np.allclose(uncalibrated, 0):
+                result[param] = float("NaN")
+                continue
+
+            result[param] = (
+                    actual.dot(uncalibrated) / uncalibrated.dot(uncalibrated))
+
+        return result
 
 
 class CLCostModel(CostModel):
@@ -555,6 +689,20 @@ class CLCostModel(CostModel):
     @staticmethod
     def aggregate(per_box_result):
         return cl.array.sum(per_box_result).get().reshape(-1)[0]
+
+    def translation_cost_from_model(self, nlevels, xlat_cost, context):
+        translation_costs = super(CLCostModel, self).translation_cost_from_model(
+            nlevels, xlat_cost, context
+        )
+
+        for name in translation_costs:
+            if not isinstance(translation_costs[name], np.ndarray):
+                continue
+            translation_costs[name] = cl.array.to_device(
+                self.queue, translation_costs[name]
+            )
+
+        return translation_costs
 
 
 class PythonCostModel(CostModel):
