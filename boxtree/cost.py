@@ -145,6 +145,19 @@ class CostModel(ABC):
         self.translation_cost_model_factory = translation_cost_model_factory
 
     @abstractmethod
+    def process_form_multipoles(self, traversal, p2m_cost):
+        """Cost for forming multipole expansions of each box.
+
+        :arg traversal: a :class:`boxtree.traversal.FMMTraversalInfo` object.
+        :arg p2m_cost: a :class:`numpy.ndarray` or :class:`pyopencl.array.Array`
+            of shape (nlevels,) representing the cost of forming the multipole
+            expansion of one source at each level.
+        :return: a :class:`numpy.ndarray` or :class:`pyopencl.array.Array` of shape
+            (nsource_boxes,), with each entry represents the cost of the box.
+        """
+        pass
+
+    @abstractmethod
     def process_direct(self, traversal, c_p2p):
         """Direct evaluation cost of each target box of *traversal*.
 
@@ -372,6 +385,59 @@ class CLCostModel(CostModel):
         super(CLCostModel, self).__init__(
             translation_cost_model_factory
         )
+
+    # {{{ form multipoles
+
+    @memoize_method
+    def process_form_multipoles_knl(self, box_id_dtype, particle_id_dtype,
+                                    box_level_dtype):
+        return ElementwiseKernel(
+            self.queue.context,
+            Template(r"""
+                double *np2m,
+                ${box_id_t} *source_boxes,
+                ${particle_id_t} *box_source_counts_nonchild,
+                ${box_level_t} *box_levels,
+                double *p2m_cost
+            """).render(
+                box_id_t=dtype_to_ctype(box_id_dtype),
+                particle_id_t=dtype_to_ctype(particle_id_dtype),
+                box_level_t=dtype_to_ctype(box_level_dtype)
+            ),
+            Template(r"""
+                ${box_id_t} box_idx = source_boxes[i];
+                ${particle_id_t} nsources = box_source_counts_nonchild[box_idx];
+                ${box_level_t} ilevel = box_levels[box_idx];
+                np2m[i] = nsources * p2m_cost[ilevel];
+            """).render(
+                box_id_t=dtype_to_ctype(box_id_dtype),
+                particle_id_t=dtype_to_ctype(particle_id_dtype),
+                box_level_t=dtype_to_ctype(box_level_dtype)
+            ),
+            name="process_form_multipoles"
+        )
+
+    def process_form_multipoles(self, traversal, p2m_cost):
+        tree = traversal.tree
+        np2m = cl.array.zeros(
+            self.queue, len(traversal.source_boxes), dtype=np.float64
+        )
+
+        process_form_multipoles_knl = self.process_form_multipoles_knl(
+            tree.box_id_dtype, tree.particle_id_dtype, tree.box_level_dtype
+        )
+
+        process_form_multipoles_knl(
+            np2m,
+            traversal.source_boxes,
+            tree.box_source_counts_nonchild,
+            tree.box_levels,
+            p2m_cost
+        )
+
+        return np2m
+
+    # }}}
 
     # {{{ direct evaluation to point targets (lists 1, 3 close, 4 close)
 
@@ -712,6 +778,19 @@ class CLCostModel(CostModel):
 
 
 class PythonCostModel(CostModel):
+    def process_form_multipoles(self, traversal, p2m_cost):
+        tree = traversal.tree
+        np2m = np.zeros(len(traversal.source_boxes), dtype=np.float64)
+
+        for ilevel in range(tree.nlevels):
+            start, stop = traversal.level_start_source_box_nrs[ilevel:ilevel + 2]
+            for isrc_box, src_ibox in enumerate(
+                    traversal.source_boxes[start:stop], start):
+                nsources = tree.box_source_counts_nonchild[src_ibox]
+                np2m[isrc_box] = nsources * p2m_cost[ilevel]
+
+        return np2m
+
     def process_direct(self, traversal, c_p2p):
         tree = traversal.tree
         ntarget_boxes = len(traversal.target_boxes)

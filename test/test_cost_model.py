@@ -79,6 +79,43 @@ def test_cost_counter(ctx_factory, nsources, ntargets, dims, dtype):
 
     # }}}
 
+    # {{{ Test process_form_multipoles
+
+    nlevels = trav.tree.nlevels
+    p2m_cost = np.zeros(nlevels, dtype=np.float64)
+    for ilevel in range(nlevels):
+        p2m_cost[ilevel] = evaluate(
+            xlat_cost.p2m(ilevel),
+            context=constant_one_params
+        )
+    p2m_cost_dev = cl.array.to_device(queue, p2m_cost)
+
+    queue.finish()
+    start_time = time.time()
+
+    cl_form_multipoles = cl_cost_model.process_form_multipoles(
+        trav_dev, p2m_cost_dev
+    )
+
+    queue.finish()
+    logger.info("OpenCL time for process_form_multipoles: {0}".format(
+        str(time.time() - start_time)
+    ))
+
+    start_time = time.time()
+
+    python_form_multipoles = python_cost_model.process_form_multipoles(
+        trav, p2m_cost
+    )
+
+    logger.info("Python time for process_form_multipoles: {0}".format(
+        str(time.time() - start_time)
+    ))
+
+    assert np.equal(cl_form_multipoles.get(), python_form_multipoles).all()
+
+    # }}}
+
     # {{{ Test process_direct
 
     queue.finish()
