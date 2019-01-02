@@ -35,6 +35,7 @@ from mako.template import Template
 from functools import partial
 from pymbolic import var, evaluate
 from pytools import memoize_method
+from collections import OrderedDict
 import sys
 
 if sys.version_info >= (3, 0):
@@ -136,13 +137,18 @@ def taylor_translation_cost_model(dim, nlevels):
 
 
 class CostModel(ABC):
-    def __init__(self, translation_cost_model_factory):
+    def __init__(self,
+                 translation_cost_model_factory=pde_aware_translation_cost_model,
+                 calibration_params=None):
         """
         :arg translation_cost_model_factory: a function, which takes tree dimension
             and the number of tree levels as arguments, returns an object of
             :class:`TranslationCostModel`.
         """
         self.translation_cost_model_factory = translation_cost_model_factory
+        if calibration_params is None:
+            calibration_params = dict()
+        self.calibration_params = calibration_params
 
     @abstractmethod
     def process_form_multipoles(self, traversal, p2m_cost):
@@ -245,6 +251,10 @@ class CostModel(ABC):
         :return: a :class:`dict`, the translation cost of each step in FMM.
         """
         return {
+            "p2m_cost": np.array([
+                evaluate(xlat_cost.p2m(ilevel), context=context)
+                for ilevel in range(nlevels)
+            ], dtype=np.float64),
             "c_p2p": evaluate(xlat_cost.direct(), context=context),
             "m2l_cost": np.array([
                 evaluate(xlat_cost.m2l(ilevel, ilevel), context=context)
@@ -374,16 +384,69 @@ class CostModel(ABC):
 
         return result
 
+    def __call__(self, traversal, level_to_order, params):
+        """Predict cost of a new traversal object.
+
+        :arg traversal: a :class:`boxtree.traversal.FMMTraversalInfo` object.
+        :arg level_to_order: a :class:`numpy.ndarray` of shape
+            (traversal.tree.nlevels,) representing the expansion orders
+            of different levels.
+        :arg params: the calibration parameters returned by
+            *estimate_calibration_params*.
+        :return: a :class:`dict`, the cost of fmm stages.
+        """
+        tree = traversal.tree
+        result = OrderedDict()
+
+        for ilevel in range(tree.nlevels):
+            params["p_fmm_lev%d" % ilevel] = level_to_order[ilevel]
+
+        xlat_cost = self.translation_cost_model_factory(
+            tree.dimensions, tree.nlevels
+        )
+
+        translation_cost = self.translation_cost_from_model(
+            tree.nlevels, xlat_cost, params
+        )
+
+        result["form_multipoles"] = self.process_form_multipoles(
+            traversal, translation_cost["p2m_cost"]
+        )
+
+        result["eval_direct"] = self.process_direct(
+            traversal, translation_cost["c_p2p"]
+        )
+
+        result["multipole_to_local"] = self.process_list2(
+            traversal, translation_cost["m2l_cost"]
+        )
+
+        result["eval_multipoles"] = self.process_list3(
+            traversal, translation_cost["m2p_cost"]
+        )
+
+        result["form_locals"] = self.process_list4(
+            traversal, translation_cost["p2l_cost"]
+        )
+
+        result["eval_locals"] = self.process_eval_locals(
+            traversal, translation_cost["l2p_cost"]
+        )
+
+        return result
+
 
 class CLCostModel(CostModel):
     """
     Note: For methods in this class, argument *traversal* should live on device
         memory.
     """
-    def __init__(self, queue, translation_cost_model_factory):
+    def __init__(self, queue,
+                 translation_cost_model_factory=pde_aware_translation_cost_model,
+                 calibration_params=None):
         self.queue = queue
         super(CLCostModel, self).__init__(
-            translation_cost_model_factory
+            translation_cost_model_factory, calibration_params
         )
 
     # {{{ form multipoles

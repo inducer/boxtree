@@ -379,6 +379,19 @@ def test_estimate_calibration_params(ctx_factory):
     if sys.version_info >= (3, 0):
         test_params_equal(cl_params, python_params)
 
+    cl_predicted_time = cl_cost_model(
+        traversals_dev[2], level_to_orders[2], cl_params
+    )
+
+    for field in ["form_multipoles", "eval_direct", "multipole_to_local",
+                  "eval_multipoles", "form_locals", "eval_locals"]:
+        logger.info("predicted time for {0}: {1}".format(
+            field, str(cl_cost_model.aggregate(cl_predicted_time[field]))
+        ))
+        logger.info("actual time for {0}: {1}".format(
+            field, str(timing_results[2][field]["process_elapsed"])
+        ))
+
 
 def main():
     nsouces = 100000
