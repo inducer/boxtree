@@ -35,7 +35,6 @@ from mako.template import Template
 from functools import partial
 from pymbolic import var, evaluate
 from pytools import memoize_method
-from collections import OrderedDict
 import sys
 
 if sys.version_info >= (3, 0):
@@ -160,6 +159,20 @@ class CostModel(ABC):
             expansion of one source at each level.
         :return: a :class:`numpy.ndarray` or :class:`pyopencl.array.Array` of shape
             (nsource_boxes,), with each entry represents the cost of the box.
+        """
+        pass
+
+    @abstractmethod
+    def process_coarsen_multipoles(self, traversal, m2m_cost):
+        """Cost for upward propagation.
+
+        :param traversal: a :class:`boxtree.traversal.FMMTraversalInfo` object.
+        :param m2m_cost: a :class:`numpy.ndarray` or :class:`pyopencl.array.Array`
+            of shape (nlevels, nlevels), where the (i,j) entry represents the
+            multipole-to-multipole cost from source level i to target level j.
+        :return: a :class:`float`, the overall cost of upward propagation.
+
+        Note: This method returns a number instead of an array.
         """
         pass
 
@@ -396,7 +409,7 @@ class CostModel(ABC):
         :return: a :class:`dict`, the cost of fmm stages.
         """
         tree = traversal.tree
-        result = OrderedDict()
+        result = {}
 
         for ilevel in range(tree.nlevels):
             params["p_fmm_lev%d" % ilevel] = level_to_order[ilevel]
@@ -499,6 +512,77 @@ class CLCostModel(CostModel):
         )
 
         return np2m
+
+    # }}}
+
+    # {{{ propagate multipoles upward
+
+    def process_coarsen_multipoles_knl(self, ndimensions, box_id_dtype,
+                                       box_level_dtype, nlevels):
+        return ElementwiseKernel(
+            self.queue.context,
+            Template(r"""
+                ${box_id_t} *source_parent_boxes,
+                ${box_level_t} *box_levels,
+                double *m2m_cost,
+                double *nm2m,
+                % for i in range(2**ndimensions):
+                    % if i == 2**ndimensions - 1:
+                        ${box_id_t} *box_child_ids_${i}
+                    % else:
+                        ${box_id_t} *box_child_ids_${i},
+                    % endif
+                % endfor
+            """).render(
+                ndimensions=ndimensions,
+                box_id_t=dtype_to_ctype(box_id_dtype),
+                box_level_t=dtype_to_ctype(box_level_dtype)
+            ),
+            Template(r"""
+                ${box_id_t} box_idx = source_parent_boxes[i];
+                ${box_level_t} target_level = box_levels[box_idx];
+                if(target_level <= 1) {
+                    nm2m[i] = 0.0;
+                } else {
+                    ${box_level_t} source_level = target_level + 1;
+                    int nchild = 0;
+                    % for i in range(2**ndimensions):
+                        if(box_child_ids_${i}[box_idx])
+                            nchild += 1;
+                    % endfor
+                    nm2m[i] = nchild * m2m_cost[
+                        source_level * ${nlevels} + target_level
+                    ];
+                }
+            """).render(
+                ndimensions=ndimensions,
+                box_id_t=dtype_to_ctype(box_id_dtype),
+                box_level_t=dtype_to_ctype(box_level_dtype),
+                nlevels=nlevels
+            ),
+            name="process_coarsen_multipoles"
+        )
+
+    def process_coarsen_multipoles(self, traversal, m2m_cost):
+        tree = traversal.tree
+        nm2m = cl.array.zeros(
+            self.queue, len(traversal.source_parent_boxes), dtype=np.float64
+        )
+
+        process_coarsen_multipoles_knl = self.process_coarsen_multipoles_knl(
+            tree.dimensions, tree.box_id_dtype, tree.box_level_dtype, tree.nlevels
+        )
+
+        process_coarsen_multipoles_knl(
+            traversal.source_parent_boxes,
+            tree.box_levels,
+            m2m_cost,
+            nm2m,
+            *tree.box_child_ids,
+            queue=self.queue
+        )
+
+        return self.aggregate(nm2m)
 
     # }}}
 
@@ -949,6 +1033,32 @@ class PythonCostModel(CostModel):
                                            * l2p_cost[target_lev])
 
         return neval_locals
+
+    def process_coarsen_multipoles(self, traversal, m2m_cost):
+        tree = traversal.tree
+        result = 0.0
+
+        # nlevels-1 is the last valid level index
+        # nlevels-2 is the last valid level that could have children
+        #
+        # 3 is the last relevant source_level.
+        # 2 is the last relevant target_level.
+        # (because no level 1 box will be well-separated from another)
+        for source_level in range(tree.nlevels-1, 2, -1):
+            target_level = source_level - 1
+            cost = m2m_cost[source_level, target_level]
+
+            nmultipoles = 0
+            start, stop = traversal.level_start_source_parent_box_nrs[
+                            target_level:target_level+2]
+            for ibox in traversal.source_parent_boxes[start:stop]:
+                for child in tree.box_child_ids[:, ibox]:
+                    if child:
+                        nmultipoles += 1
+
+            result += cost * nmultipoles
+
+        return result
 
     @staticmethod
     def aggregate(per_box_result):

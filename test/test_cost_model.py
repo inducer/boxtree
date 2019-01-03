@@ -116,6 +116,42 @@ def test_cost_counter(ctx_factory, nsources, ntargets, dims, dtype):
 
     # }}}
 
+    # {{{ Test process_coarsen_multipoles
+
+    m2m_cost = np.zeros((nlevels, nlevels), dtype=np.float64)
+    for source_level in range(nlevels):
+        for target_level in range(nlevels):
+            m2m_cost[source_level, target_level] = evaluate(
+                xlat_cost.m2m(source_level, target_level),
+                context=constant_one_params
+            )
+    m2m_cost_dev = cl.array.to_device(queue, m2m_cost)
+
+    queue.finish()
+    start_time = time.time()
+    cl_coarsen_multipoles = cl_cost_model.process_coarsen_multipoles(
+        trav_dev, m2m_cost_dev
+    )
+
+    queue.finish()
+    logger.info("OpenCL time for coarsen_multipoles: {0}".format(
+        str(time.time() - start_time)
+    ))
+
+    start_time = time.time()
+
+    python_coarsen_multipoles = python_cost_model.process_coarsen_multipoles(
+        trav, m2m_cost
+    )
+
+    logger.info("Python time for coarsen_multipoles: {0}".format(
+        str(time.time() - start_time)
+    ))
+
+    assert cl_coarsen_multipoles == python_coarsen_multipoles
+
+    # }}}
+
     # {{{ Test process_direct
 
     queue.finish()
@@ -383,14 +419,15 @@ def test_estimate_calibration_params(ctx_factory):
         traversals_dev[2], level_to_orders[2], cl_params
     )
 
-    for field in ["form_multipoles", "eval_direct", "multipole_to_local",
-                  "eval_multipoles", "form_locals", "eval_locals"]:
-        logger.info("predicted time for {0}: {1}".format(
-            field, str(cl_cost_model.aggregate(cl_predicted_time[field]))
-        ))
-        logger.info("actual time for {0}: {1}".format(
-            field, str(timing_results[2][field]["process_elapsed"])
-        ))
+    if sys.version_info >= (3, 0):
+        for field in ["form_multipoles", "eval_direct", "multipole_to_local",
+                      "eval_multipoles", "form_locals", "eval_locals"]:
+            logger.info("predicted time for {0}: {1}".format(
+                field, str(cl_cost_model.aggregate(cl_predicted_time[field]))
+            ))
+            logger.info("actual time for {0}: {1}".format(
+                field, str(timing_results[2][field]["process_elapsed"])
+            ))
 
 
 def main():
