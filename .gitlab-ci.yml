@@ -63,22 +63,6 @@ Python 3.6 K40:
     artifacts:
         reports:
             junit: test/pytest.xml
-  
-Python 3.5 POCL:
-    script:
-    - export PY_EXE=python3.5
-    - export PYOPENCL_TEST=portable
-    - export EXTRA_INSTALL="pybind11 numpy mako"
-    - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project.sh
-    - ". ./build-and-test-py-project.sh"
-    tags:
-    - python3.5
-    - pocl
-    except:
-    - tags
-    artifacts:
-        reports:
-            junit: test/pytest.xml
 
 Python 3.6 POCL:
     script:
