@@ -166,8 +166,8 @@ class CostModel(ABC):
     def process_coarsen_multipoles(self, traversal, m2m_cost):
         """Cost for upward propagation.
 
-        :param traversal: a :class:`boxtree.traversal.FMMTraversalInfo` object.
-        :param m2m_cost: a :class:`numpy.ndarray` or :class:`pyopencl.array.Array`
+        :arg traversal: a :class:`boxtree.traversal.FMMTraversalInfo` object.
+        :arg m2m_cost: a :class:`numpy.ndarray` or :class:`pyopencl.array.Array`
             of shape (nlevels, nlevels), where the (i,j) entry represents the
             multipole-to-multipole cost from source level i to target level j.
         :return: a :class:`float`, the overall cost of upward propagation.
@@ -239,6 +239,20 @@ class CostModel(ABC):
         :return: a :class:`numpy.ndarray` or :class:`pyopencl.array.Array` of shape
             (ntarget_boxes,), the cost of evaluating the potentials of all targets
             inside this box from its local expansion.
+        """
+        pass
+
+    @abstractmethod
+    def process_refine_locals(self, traversal, l2l_cost):
+        """Cost of downward propagation.
+
+        :arg traversal: a :class:`boxtree.traversal.FMMTraversalInfo` object.
+        :arg l2l_cost: a :class:`numpy.ndarray` or :class:`pyopencl.array.Array`
+            of shape (nlevels-1,), where the ith entry represents the cost of
+            tranlating local expansion from level i to level i+1.
+        :return: a :class:`float`, the overall cost of downward propagation.
+
+        Note: this method returns a number instead of an array.
         """
         pass
 
@@ -905,6 +919,48 @@ class CLCostModel(CostModel):
 
     # }}}
 
+    # {{{ propogate locals downward
+
+    @memoize_method
+    def process_refine_locals_knl(self, box_id_dtype):
+        from pyopencl.reduction import ReductionKernel
+        return ReductionKernel(
+            self.queue.context,
+            np.float64,
+            neutral="0.0",
+            reduce_expr="a+b",
+            map_expr=r"""
+                (level_start_target_or_target_parent_box_nrs[i + 1]
+                 - level_start_target_or_target_parent_box_nrs[i])
+                 * l2l_cost[i - 1]
+            """,
+            arguments=Template(r"""
+                ${box_id_t} *level_start_target_or_target_parent_box_nrs,
+                double *l2l_cost
+            """).render(
+                box_id_t=dtype_to_ctype(box_id_dtype)
+            ),
+            name="process_refine_locals"
+        )
+
+    def process_refine_locals(self, traversal, l2l_cost):
+        tree = traversal.tree
+        process_refine_locals_knl = self.process_refine_locals_knl(tree.box_id_dtype)
+
+        level_start_target_or_target_parent_box_nrs = cl.array.to_device(
+            self.queue, traversal.level_start_target_or_target_parent_box_nrs
+        )
+
+        cost = process_refine_locals_knl(
+            level_start_target_or_target_parent_box_nrs,
+            l2l_cost,
+            range=range(1, tree.nlevels)
+        ).get()
+
+        return cost
+
+    # }}}
+
     @staticmethod
     def aggregate(per_box_result):
         return cl.array.sum(per_box_result).get().reshape(-1)[0]
@@ -1057,6 +1113,18 @@ class PythonCostModel(CostModel):
                         nmultipoles += 1
 
             result += cost * nmultipoles
+
+        return result
+
+    def process_refine_locals(self, traversal, l2l_cost):
+        tree = traversal.tree
+        result = 0.0
+
+        for target_lev in range(1, tree.nlevels):
+            start, stop = traversal.level_start_target_or_target_parent_box_nrs[
+                    target_lev:target_lev+2]
+            source_lev = target_lev - 1
+            result += (stop-start) * l2l_cost[source_lev]
 
         return result
 

@@ -290,6 +290,40 @@ def test_cost_counter(ctx_factory, nsources, ntargets, dims, dtype):
 
     # }}}
 
+    # {{{ Test process_refine_locals
+
+    l2l_cost = np.zeros(nlevels - 1, dtype=np.float64)
+    for ilevel in range(nlevels - 1):
+        l2l_cost[ilevel] = evaluate(
+            xlat_cost.l2l(ilevel, ilevel + 1),
+            context=constant_one_params
+        )
+    l2l_cost_dev = cl.array.to_device(queue, l2l_cost)
+
+    queue.finish()
+    start_time = time.time()
+
+    cl_refine_locals_cost = cl_cost_model.process_refine_locals(
+        trav_dev, l2l_cost_dev
+    )
+
+    queue.finish()
+    logger.info("OpenCL time for refine_locals: {0}".format(
+        str(time.time() - start_time)
+    ))
+
+    start_time = time.time()
+    python_refine_locals_cost = python_cost_model.process_refine_locals(
+        trav, l2l_cost
+    )
+    logger.info("Python time for refine_locals: {0}".format(
+        str(time.time() - start_time)
+    ))
+
+    assert cl_refine_locals_cost == python_refine_locals_cost
+
+    # }}}
+
     # {{{ Test process_eval_locals
 
     l2p_cost = np.zeros(nlevels, dtype=np.float64)
