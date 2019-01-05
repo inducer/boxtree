@@ -954,7 +954,7 @@ class CLCostModel(CostModel):
         cost = process_refine_locals_knl(
             level_start_target_or_target_parent_box_nrs,
             l2l_cost,
-            range=range(1, tree.nlevels)
+            range=slice(1, tree.nlevels)
         ).get()
 
         return cost
