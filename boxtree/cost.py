@@ -168,8 +168,8 @@ class CostModel(ABC):
 
         :arg traversal: a :class:`boxtree.traversal.FMMTraversalInfo` object.
         :arg m2m_cost: a :class:`numpy.ndarray` or :class:`pyopencl.array.Array`
-            of shape (nlevels, nlevels), where the (i,j) entry represents the
-            multipole-to-multipole cost from source level i to target level j.
+            of shape (nlevels-1,), where the ith entry represents the
+            multipole-to-multipole cost from source level i+1 to target level i.
         :return: a :class:`float`, the overall cost of upward propagation.
 
         Note: This method returns a number instead of an array.
@@ -282,6 +282,10 @@ class CostModel(ABC):
                 evaluate(xlat_cost.p2m(ilevel), context=context)
                 for ilevel in range(nlevels)
             ], dtype=np.float64),
+            "m2m_cost": np.array([
+                evaluate(xlat_cost.m2m(ilevel+1, ilevel), context=context)
+                for ilevel in range(nlevels-1)
+            ], dtype=np.float64),
             "c_p2p": evaluate(xlat_cost.direct(), context=context),
             "m2l_cost": np.array([
                 evaluate(xlat_cost.m2l(ilevel, ilevel), context=context)
@@ -294,6 +298,10 @@ class CostModel(ABC):
             "p2l_cost": np.array([
                 evaluate(xlat_cost.p2l(ilevel), context=context)
                 for ilevel in range(nlevels)
+            ], dtype=np.float64),
+            "l2l_cost": np.array([
+                evaluate(xlat_cost.l2l(ilevel, ilevel+1), context=context)
+                for ilevel in range(nlevels-1)
             ], dtype=np.float64),
             "l2p_cost": np.array([
                 evaluate(xlat_cost.l2p(ilevel), context=context)
@@ -365,6 +373,14 @@ class CostModel(ABC):
                 tree.nlevels, xlat_cost, training_ctx
             )
 
+            uncalibrated_times["c_p2m"][icase] = self.aggregate(
+                self.process_form_multipoles(traversal, translation_cost["p2m_cost"])
+            )
+
+            uncalibrated_times["c_m2m"][icase] = self.process_coarsen_multipoles(
+                traversal, translation_cost["m2m_cost"]
+            )
+
             uncalibrated_times["c_p2p"][icase] = self.aggregate(
                 self.process_direct(traversal, translation_cost["c_p2p"])
             )
@@ -379,6 +395,10 @@ class CostModel(ABC):
 
             uncalibrated_times["c_p2l"][icase] = self.aggregate(
                 self.process_list4(traversal, translation_cost["p2l_cost"])
+            )
+
+            uncalibrated_times["c_l2l"][icase] = self.process_refine_locals(
+                traversal, translation_cost["l2l_cost"]
             )
 
             uncalibrated_times["c_l2p"][icase] = self.aggregate(
@@ -440,6 +460,10 @@ class CostModel(ABC):
             traversal, translation_cost["p2m_cost"]
         )
 
+        result["coarsen_multipoles"] = self.process_coarsen_multipoles(
+            traversal, translation_cost["m2m_cost"]
+        )
+
         result["eval_direct"] = self.process_direct(
             traversal, translation_cost["c_p2p"]
         )
@@ -454,6 +478,10 @@ class CostModel(ABC):
 
         result["form_locals"] = self.process_list4(
             traversal, translation_cost["p2l_cost"]
+        )
+
+        result["refine_locals"] = self.process_refine_locals(
+            traversal, translation_cost["l2l_cost"]
         )
 
         result["eval_locals"] = self.process_eval_locals(
@@ -558,15 +586,12 @@ class CLCostModel(CostModel):
                 if(target_level <= 1) {
                     nm2m[i] = 0.0;
                 } else {
-                    ${box_level_t} source_level = target_level + 1;
                     int nchild = 0;
                     % for i in range(2**ndimensions):
                         if(box_child_ids_${i}[box_idx])
                             nchild += 1;
                     % endfor
-                    nm2m[i] = nchild * m2m_cost[
-                        source_level * ${nlevels} + target_level
-                    ];
+                    nm2m[i] = nchild * m2m_cost[target_level];
                 }
             """).render(
                 ndimensions=ndimensions,
@@ -1102,7 +1127,7 @@ class PythonCostModel(CostModel):
         # (because no level 1 box will be well-separated from another)
         for source_level in range(tree.nlevels-1, 2, -1):
             target_level = source_level - 1
-            cost = m2m_cost[source_level, target_level]
+            cost = m2m_cost[target_level]
 
             nmultipoles = 0
             start, stop = traversal.level_start_source_parent_box_nrs[

@@ -118,13 +118,12 @@ def test_cost_counter(ctx_factory, nsources, ntargets, dims, dtype):
 
     # {{{ Test process_coarsen_multipoles
 
-    m2m_cost = np.zeros((nlevels, nlevels), dtype=np.float64)
-    for source_level in range(nlevels):
-        for target_level in range(nlevels):
-            m2m_cost[source_level, target_level] = evaluate(
-                xlat_cost.m2m(source_level, target_level),
-                context=constant_one_params
-            )
+    m2m_cost = np.zeros(nlevels - 1, dtype=np.float64)
+    for target_level in range(nlevels - 1):
+        m2m_cost[target_level] = evaluate(
+            xlat_cost.m2m(target_level + 1, target_level),
+            context=constant_one_params
+        )
     m2m_cost_dev = cl.array.to_device(queue, m2m_cost)
 
     queue.finish()
@@ -458,6 +457,14 @@ def test_estimate_calibration_params(ctx_factory):
                       "eval_multipoles", "form_locals", "eval_locals"]:
             logger.info("predicted time for {0}: {1}".format(
                 field, str(cl_cost_model.aggregate(cl_predicted_time[field]))
+            ))
+            logger.info("actual time for {0}: {1}".format(
+                field, str(timing_results[2][field]["process_elapsed"])
+            ))
+
+        for field in ["coarsen_multipoles", "refine_locals"]:
+            logger.info("predicted time for {0}: {1}".format(
+                field, str(cl_predicted_time[field])
             ))
             logger.info("actual time for {0}: {1}".format(
                 field, str(timing_results[2][field]["process_elapsed"])
