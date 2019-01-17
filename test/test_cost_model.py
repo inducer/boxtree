@@ -20,7 +20,7 @@ logger.setLevel(logging.INFO)
 @pytest.mark.opencl
 @pytest.mark.parametrize(
     ("nsources", "ntargets", "dims", "dtype"), [
-        (5000, 5000, 3, np.float64)
+        (50000, 50000, 3, np.float64)
     ]
 )
 def test_cost_counter(ctx_factory, nsources, ntargets, dims, dtype):
@@ -358,8 +358,8 @@ def test_cost_counter(ctx_factory, nsources, ntargets, dims, dtype):
 def test_estimate_calibration_params(ctx_factory):
     from boxtree.pyfmmlib_integration import FMMLibExpansionWrangler
 
-    nsources_list = [1000, 2000, 3000, 4000]
-    ntargets_list = [1000, 2000, 3000, 4000]
+    nsources_list = [1000, 2000, 3000, 4000, 5000]
+    ntargets_list = [1000, 2000, 3000, 4000, 5000]
     dims = 3
     dtype = np.float64
 
@@ -435,13 +435,15 @@ def test_estimate_calibration_params(ctx_factory):
 
     python_cost_model = PythonCostModel(pde_aware_translation_cost_model)
     python_params = python_cost_model.estimate_calibration_params(
-        traversals, level_to_orders, timing_results, wall_time=wall_time
+        traversals[:-1], level_to_orders[:-1], timing_results[:-1],
+        wall_time=wall_time
     )
     test_params_sanity(python_params)
 
     cl_cost_model = CLCostModel(queue, pde_aware_translation_cost_model)
     cl_params = cl_cost_model.estimate_calibration_params(
-        traversals_dev, level_to_orders, timing_results, wall_time=wall_time
+        traversals_dev[:-1], level_to_orders[:-1], timing_results[:-1],
+        wall_time=wall_time
     )
     test_params_sanity(cl_params)
 
@@ -449,25 +451,18 @@ def test_estimate_calibration_params(ctx_factory):
         test_params_equal(cl_params, python_params)
 
     cl_predicted_time = cl_cost_model(
-        traversals_dev[2], level_to_orders[2], cl_params
+        traversals_dev[-1], level_to_orders[-1], cl_params
     )
 
     if sys.version_info >= (3, 0):
         for field in ["form_multipoles", "eval_direct", "multipole_to_local",
-                      "eval_multipoles", "form_locals", "eval_locals"]:
+                      "eval_multipoles", "form_locals", "eval_locals",
+                      "coarsen_multipoles", "refine_locals"]:
             logger.info("predicted time for {0}: {1}".format(
                 field, str(cl_cost_model.aggregate(cl_predicted_time[field]))
             ))
             logger.info("actual time for {0}: {1}".format(
-                field, str(timing_results[2][field]["process_elapsed"])
-            ))
-
-        for field in ["coarsen_multipoles", "refine_locals"]:
-            logger.info("predicted time for {0}: {1}".format(
-                field, str(cl_predicted_time[field])
-            ))
-            logger.info("actual time for {0}: {1}".format(
-                field, str(timing_results[2][field]["process_elapsed"])
+                field, str(timing_results[-1][field]["process_elapsed"])
             ))
 
 
