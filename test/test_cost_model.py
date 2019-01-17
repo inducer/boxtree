@@ -471,6 +471,101 @@ def test_estimate_calibration_params(ctx_factory):
             ))
 
 
+class OpCountingTranslationCostModel(object):
+    """A translation cost model which assigns at cost of 1 to each operation."""
+
+    def __init__(self, dim, nlevels):
+        pass
+
+    @staticmethod
+    def direct():
+        return 1
+
+    @staticmethod
+    def p2l(level):
+        return 1
+
+    l2p = p2l
+    p2m = p2l
+    m2p = p2l
+
+    @staticmethod
+    def m2m(src_level, tgt_level):
+        return 1
+
+    l2l = m2m
+    m2l = m2m
+
+
+@pytest.mark.opencl
+@pytest.mark.parametrize(
+    ("nsources", "ntargets", "dims", "dtype"), [
+        (5000, 5000, 3, np.float64)
+    ]
+)
+def test_cost_model_correctness(ctx_factory, nsources, ntargets, dims, dtype):
+    ctx = ctx_factory()
+    queue = cl.CommandQueue(ctx)
+
+    from boxtree.tools import make_normal_particle_array as p_normal
+    sources = p_normal(queue, nsources, dims, dtype, seed=16)
+    targets = p_normal(queue, ntargets, dims, dtype, seed=19)
+
+    from pyopencl.clrandom import PhiloxGenerator
+    rng = PhiloxGenerator(queue.context, seed=20)
+    target_radii = rng.uniform(
+        queue, ntargets, a=0, b=0.04, dtype=dtype
+    ).get()
+
+    from boxtree import TreeBuilder
+    tb = TreeBuilder(ctx)
+    tree, _ = tb(
+        queue, sources, targets=targets, target_radii=target_radii,
+        stick_out_factor=0.15, max_particles_in_box=30, debug=True
+    )
+
+    from boxtree.traversal import FMMTraversalBuilder
+    tg = FMMTraversalBuilder(ctx, well_sep_is_n_away=2)
+    trav_dev, _ = tg(queue, tree, debug=True)
+    trav = trav_dev.get(queue=queue)
+
+    from boxtree.tools import ConstantOneExpansionWrangler
+    wrangler = ConstantOneExpansionWrangler(trav.tree)
+
+    timing_data = {}
+    from boxtree.fmm import drive_fmm
+    src_weights = np.random.rand(tree.nsources).astype(tree.coord_dtype)
+    drive_fmm(trav, wrangler, src_weights, timing_data=timing_data)
+
+    cost_model = CLCostModel(
+        queue,
+        translation_cost_model_factory=OpCountingTranslationCostModel
+    )
+
+    params = {
+        "c_p2m": 1.0,
+        "c_m2m": 1.0,
+        "c_p2p": 1.0,
+        "c_m2l": 1.0,
+        "c_m2p": 1.0,
+        "c_p2l": 1.0,
+        "c_l2l": 1.0,
+        "c_l2p": 1.0
+    }
+
+    level_to_order = np.array([1 for _ in range(tree.nlevels)])
+    modeled_time = cost_model(trav_dev, level_to_order, params)
+
+    mismatches = []
+    for stage in timing_data:
+        if (timing_data[stage]["ops_elapsed"]
+                != cost_model.aggregate(modeled_time[stage])):
+            mismatches.append(
+                    (stage, timing_data[stage]["ops_elapsed"], modeled_time[stage]))
+
+    assert not mismatches, "\n".join(str(s) for s in mismatches)
+
+
 def main():
     nsouces = 100000
     ntargets = 100000
@@ -480,6 +575,7 @@ def main():
 
     test_cost_counter(ctx_factory, nsouces, ntargets, ndims, dtype)
     test_estimate_calibration_params(ctx_factory)
+    test_cost_model_correctness(ctx_factory, nsouces, ntargets, ndims, dtype)
 
 
 if __name__ == "__main__":

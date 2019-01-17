@@ -982,13 +982,16 @@ class CLCostModel(CostModel):
             range=slice(1, tree.nlevels)
         ).get()
 
-        return cost
+        return cost.reshape(-1)[0]
 
     # }}}
 
     @staticmethod
     def aggregate(per_box_result):
-        return cl.array.sum(per_box_result).get().reshape(-1)[0]
+        if isinstance(per_box_result, float):
+            return per_box_result
+        else:
+            return cl.array.sum(per_box_result).get().reshape(-1)[0]
 
     def translation_cost_from_model(self, nlevels, xlat_cost, context):
         translation_costs = super(CLCostModel, self).translation_cost_from_model(
@@ -1155,4 +1158,7 @@ class PythonCostModel(CostModel):
 
     @staticmethod
     def aggregate(per_box_result):
-        return np.sum(per_box_result)
+        if isinstance(per_box_result, float):
+            return per_box_result
+        else:
+            return np.sum(per_box_result)
