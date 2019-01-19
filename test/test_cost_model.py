@@ -6,7 +6,7 @@ import pytest
 from pyopencl.tools import (  # noqa
     pytest_generate_tests_for_pyopencl as pytest_generate_tests)
 from pymbolic import evaluate
-from boxtree.cost import CLCostModel, PythonCostModel
+from boxtree.cost import CLFMMCostModel, PythonFMMCostModel
 from boxtree.cost import pde_aware_translation_cost_model
 import sys
 
@@ -23,7 +23,7 @@ logger.setLevel(logging.INFO)
         (50000, 50000, 3, np.float64)
     ]
 )
-def test_cost_counter(ctx_factory, nsources, ntargets, dims, dtype):
+def test_compare_cl_and_py_cost_model(ctx_factory, nsources, ntargets, dims, dtype):
     ctx = ctx_factory()
     queue = cl.CommandQueue(ctx)
 
@@ -59,8 +59,8 @@ def test_cost_counter(ctx_factory, nsources, ntargets, dims, dtype):
 
     # {{{ Construct cost models
 
-    cl_cost_model = CLCostModel(queue, None)
-    python_cost_model = PythonCostModel(None)
+    cl_cost_model = CLFMMCostModel(queue, None)
+    python_cost_model = PythonFMMCostModel(None)
 
     constant_one_params = dict(
         c_l2l=1,
@@ -112,7 +112,7 @@ def test_cost_counter(ctx_factory, nsources, ntargets, dims, dtype):
         str(time.time() - start_time)
     ))
 
-    assert np.equal(cl_form_multipoles.get(), python_form_multipoles).all()
+    assert np.array_equal(cl_form_multipoles.get(), python_form_multipoles)
 
     # }}}
 
@@ -171,7 +171,7 @@ def test_cost_counter(ctx_factory, nsources, ntargets, dims, dtype):
         str(time.time() - start_time)
     ))
 
-    assert np.equal(cl_direct.get(), python_direct).all()
+    assert np.array_equal(cl_direct.get(), python_direct)
 
     # }}}
 
@@ -225,7 +225,7 @@ def test_cost_counter(ctx_factory, nsources, ntargets, dims, dtype):
         str(time.time() - start_time)
     ))
 
-    assert np.equal(cl_m2l_cost.get(), python_m2l_cost).all()
+    assert np.array_equal(cl_m2l_cost.get(), python_m2l_cost)
 
     # }}}
 
@@ -255,7 +255,7 @@ def test_cost_counter(ctx_factory, nsources, ntargets, dims, dtype):
         str(time.time() - start_time)
     ))
 
-    assert np.equal(cl_m2p_cost.get(), python_m2p_cost).all()
+    assert np.array_equal(cl_m2p_cost.get(), python_m2p_cost)
 
     # }}}
 
@@ -285,7 +285,7 @@ def test_cost_counter(ctx_factory, nsources, ntargets, dims, dtype):
         str(time.time() - start_time)
     ))
 
-    assert np.equal(cl_p2l_cost.get(), python_p2l_cost).all()
+    assert np.array_equal(cl_p2l_cost.get(), python_p2l_cost)
 
     # }}}
 
@@ -349,7 +349,7 @@ def test_cost_counter(ctx_factory, nsources, ntargets, dims, dtype):
         str(time.time() - start_time)
     ))
 
-    assert np.equal(cl_l2p_cost.get(), python_l2p_cost).all()
+    assert np.array_equal(cl_l2p_cost.get(), python_l2p_cost)
 
     # }}}
 
@@ -433,14 +433,14 @@ def test_estimate_calibration_params(ctx_factory):
         for name in param_names:
             assert test_params1[name] == test_params2[name]
 
-    python_cost_model = PythonCostModel(pde_aware_translation_cost_model)
+    python_cost_model = PythonFMMCostModel(pde_aware_translation_cost_model)
     python_params = python_cost_model.estimate_calibration_params(
         traversals[:-1], level_to_orders[:-1], timing_results[:-1],
         wall_time=wall_time
     )
     test_params_sanity(python_params)
 
-    cl_cost_model = CLCostModel(queue, pde_aware_translation_cost_model)
+    cl_cost_model = CLFMMCostModel(queue, pde_aware_translation_cost_model)
     cl_params = cl_cost_model.estimate_calibration_params(
         traversals_dev[:-1], level_to_orders[:-1], timing_results[:-1],
         wall_time=wall_time
@@ -498,7 +498,8 @@ class OpCountingTranslationCostModel(object):
         (5000, 5000, 3, np.float64)
     ]
 )
-def test_cost_model_correctness(ctx_factory, nsources, ntargets, dims, dtype):
+def test_cost_model_gives_correct_op_counts_with_constantone_wrangler(
+        ctx_factory, nsources, ntargets, dims, dtype):
     ctx = ctx_factory()
     queue = cl.CommandQueue(ctx)
 
@@ -532,7 +533,7 @@ def test_cost_model_correctness(ctx_factory, nsources, ntargets, dims, dtype):
     src_weights = np.random.rand(tree.nsources).astype(tree.coord_dtype)
     drive_fmm(trav, wrangler, src_weights, timing_data=timing_data)
 
-    cost_model = CLCostModel(
+    cost_model = CLFMMCostModel(
         queue,
         translation_cost_model_factory=OpCountingTranslationCostModel
     )
@@ -561,20 +562,12 @@ def test_cost_model_correctness(ctx_factory, nsources, ntargets, dims, dtype):
     assert not mismatches, "\n".join(str(s) for s in mismatches)
 
 
-def main():
-    nsouces = 100000
-    ntargets = 100000
-    ndims = 3
-    dtype = np.float64
-    ctx_factory = cl.create_some_context
-
-    test_cost_counter(ctx_factory, nsouces, ntargets, ndims, dtype)
-    test_estimate_calibration_params(ctx_factory)
-    test_cost_model_correctness(ctx_factory, nsouces, ntargets, ndims, dtype)
-
+# You can test individual routines by typing
+# $ python test_cost_model.py 'test_routine(cl.create_some_context)'
 
 if __name__ == "__main__":
     if len(sys.argv) > 1:
         exec(sys.argv[1])
     else:
-        main()
+        from pytest import main
+        main([__file__])

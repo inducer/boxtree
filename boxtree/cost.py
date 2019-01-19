@@ -1,3 +1,14 @@
+"""
+This module helps predict the running time of each step of FMM. There are two
+implementations of the interface :class`AbstractFMMCostModel`, namely
+:class:`CLFMMCostModel` using OpenCL and :class:`PythonFMMCostModel` using pure
+Python.
+
+An implementation of :class:`AbstractFMMCostModel` uses a
+:class:`TranslationCostModel` to assign translation costs to a
+:class:`FMMTraversalInfo` object.
+"""
+
 from __future__ import division, absolute_import
 
 __copyright__ = """
@@ -49,7 +60,7 @@ else:
     ABC = ABCMeta('ABC', (), {})
 
 
-class TranslationCostModel:
+class TranslationCostModel(object):
     """Provides modeled costs for individual translations or evaluations."""
 
     def __init__(self, ncoeffs_fmm_by_level, uses_point_and_shoot):
@@ -135,19 +146,15 @@ def taylor_translation_cost_model(dim, nlevels):
 # }}}
 
 
-class CostModel(ABC):
+class AbstractFMMCostModel(ABC):
     def __init__(self,
-                 translation_cost_model_factory=pde_aware_translation_cost_model,
-                 calibration_params=None):
+                 translation_cost_model_factory=pde_aware_translation_cost_model):
         """
         :arg translation_cost_model_factory: a function, which takes tree dimension
             and the number of tree levels as arguments, returns an object of
             :class:`TranslationCostModel`.
         """
         self.translation_cost_model_factory = translation_cost_model_factory
-        if calibration_params is None:
-            calibration_params = dict()
-        self.calibration_params = calibration_params
 
     @abstractmethod
     def process_form_multipoles(self, traversal, p2m_cost):
@@ -172,7 +179,9 @@ class CostModel(ABC):
             multipole-to-multipole cost from source level i+1 to target level i.
         :return: a :class:`float`, the overall cost of upward propagation.
 
-        Note: This method returns a number instead of an array.
+        .. note:: This method returns a number instead of an array, because it is not
+            immediate clear how per-box cost of upward propagation will be useful for
+            distributed load balancing.
         """
         pass
 
@@ -252,7 +261,9 @@ class CostModel(ABC):
             tranlating local expansion from level i to level i+1.
         :return: a :class:`float`, the overall cost of downward propagation.
 
-        Note: this method returns a number instead of an array.
+        .. note:: This method returns a number instead of an array, because it is not
+            immediate clear how per-box cost of downward propagation will be useful
+            for distributed load balancing.
         """
         pass
 
@@ -267,9 +278,9 @@ class CostModel(ABC):
         """
         pass
 
-    def translation_cost_from_model(self, nlevels, xlat_cost, context):
-        """Evaluate translation cost from model. The result of this function can be
-        used for process_* methods in this class.
+    def cost_factors_for_kernels_from_model(self, nlevels, xlat_cost, context):
+        """Evaluate translation cost factors from symbolic model. The result of this
+        function can be used for process_* methods in this class.
 
         :arg nlevels: the number of tree levels.
         :arg xlat_cost: a :class:`TranslationCostModel`.
@@ -369,7 +380,7 @@ class CostModel(ABC):
             for ilevel in range(tree.nlevels):
                 training_ctx["p_fmm_lev%d" % ilevel] = level_to_orders[icase][ilevel]
 
-            translation_cost = self.translation_cost_from_model(
+            translation_cost = self.cost_factors_for_kernels_from_model(
                 tree.nlevels, xlat_cost, training_ctx
             )
 
@@ -452,7 +463,7 @@ class CostModel(ABC):
             tree.dimensions, tree.nlevels
         )
 
-        translation_cost = self.translation_cost_from_model(
+        translation_cost = self.cost_factors_for_kernels_from_model(
             tree.nlevels, xlat_cost, params
         )
 
@@ -491,18 +502,15 @@ class CostModel(ABC):
         return result
 
 
-class CLCostModel(CostModel):
+class CLFMMCostModel(AbstractFMMCostModel):
     """
     Note: For methods in this class, argument *traversal* should live on device
         memory.
     """
     def __init__(self, queue,
-                 translation_cost_model_factory=pde_aware_translation_cost_model,
-                 calibration_params=None):
+                 translation_cost_model_factory=pde_aware_translation_cost_model):
         self.queue = queue
-        super(CLCostModel, self).__init__(
-            translation_cost_model_factory, calibration_params
-        )
+        super(CLFMMCostModel, self).__init__(translation_cost_model_factory)
 
     # {{{ form multipoles
 
@@ -559,6 +567,7 @@ class CLCostModel(CostModel):
 
     # {{{ propagate multipoles upward
 
+    @memoize_method
     def process_coarsen_multipoles_knl(self, ndimensions, box_id_dtype,
                                        box_level_dtype, nlevels):
         return ElementwiseKernel(
@@ -697,6 +706,7 @@ class CLCostModel(CostModel):
 
         # List 3 close
         if traversal.from_sep_close_smaller_starts is not None:
+            self.queue.finish()  # Avoid potential race condition
             count_direct_interaction_knl(
                 direct_by_itgt_box_dev,
                 traversal.from_sep_close_smaller_starts,
@@ -709,6 +719,7 @@ class CLCostModel(CostModel):
 
         # List 4 close
         if traversal.from_sep_close_bigger_starts is not None:
+            self.queue.finish()  # Avoid potential race condition
             count_direct_interaction_knl(
                 direct_by_itgt_box_dev,
                 traversal.from_sep_close_bigger_starts,
@@ -744,7 +755,7 @@ class CLCostModel(CostModel):
                 ${box_id_t} end = from_sep_siblings_starts[i+1];
                 ${box_level_t} ilevel = box_levels[target_or_target_parent_boxes[i]];
 
-                nm2l[i] += (end - start) * m2l_cost[ilevel];
+                nm2l[i] = (end - start) * m2l_cost[ilevel];
             """).render(
                 box_id_t=dtype_to_ctype(box_id_dtype),
                 box_level_t=dtype_to_ctype(box_level_dtype)
@@ -911,7 +922,7 @@ class CLCostModel(CostModel):
                 ${box_id_t} box_idx = target_boxes[i];
                 ${particle_id_t} ntargets = box_target_counts_nonchild[box_idx];
                 ${box_level_t} ilevel = box_levels[box_idx];
-                neval_locals[i] += ntargets * l2p_cost[ilevel];
+                neval_locals[i] = ntargets * l2p_cost[ilevel];
             """).render(
                 box_id_t=dtype_to_ctype(box_id_dtype),
                 particle_id_t=dtype_to_ctype(particle_id_dtype),
@@ -993,8 +1004,10 @@ class CLCostModel(CostModel):
         else:
             return cl.array.sum(per_box_result).get().reshape(-1)[0]
 
-    def translation_cost_from_model(self, nlevels, xlat_cost, context):
-        translation_costs = super(CLCostModel, self).translation_cost_from_model(
+    def cost_factors_for_kernels_from_model(self, nlevels, xlat_cost, context):
+        translation_costs = super(
+            CLFMMCostModel, self
+        ).cost_factors_for_kernels_from_model(
             nlevels, xlat_cost, context
         )
 
@@ -1008,7 +1021,7 @@ class CLCostModel(CostModel):
         return translation_costs
 
 
-class PythonCostModel(CostModel):
+class PythonFMMCostModel(AbstractFMMCostModel):
     def process_form_multipoles(self, traversal, p2m_cost):
         tree = traversal.tree
         np2m = np.zeros(len(traversal.source_boxes), dtype=np.float64)
