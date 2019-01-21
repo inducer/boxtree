@@ -80,6 +80,20 @@ Python 3.6 POCL:
         reports:
             junit: test/pytest.xml
 
+Python 3.6 POCL Examples:
+  script:
+  - export PY_EXE=python3.6
+  - export PYOPENCL_TEST=portable
+  - export EXTRA_INSTALL="pybind11 numpy mako matplotlib"
+  - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-py-project-and-run-examples.sh
+  - ". ./build-py-project-and-run-examples.sh"
+  tags:
+  - python3.6
+  - pocl
+  except:
+  - tags
+
+
 Documentation:
     script:
     - EXTRA_INSTALL="pybind11 numpy mako"

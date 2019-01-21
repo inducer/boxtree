@@ -358,8 +358,8 @@ def test_compare_cl_and_py_cost_model(ctx_factory, nsources, ntargets, dims, dty
 def test_estimate_calibration_params(ctx_factory):
     from boxtree.pyfmmlib_integration import FMMLibExpansionWrangler
 
-    nsources_list = [1000, 2000, 3000, 4000, 5000]
-    ntargets_list = [1000, 2000, 3000, 4000, 5000]
+    nsources_list = [1000, 2000, 3000, 4000]
+    ntargets_list = [1000, 2000, 3000, 4000]
     dims = 3
     dtype = np.float64
 
@@ -424,12 +424,14 @@ def test_estimate_calibration_params(ctx_factory):
         wall_time = True
 
     def test_params_sanity(test_params):
-        param_names = ["c_p2p", "c_m2l", "c_m2p", "c_p2l", "c_l2p"]
+        param_names = ["c_p2m", "c_m2m", "c_p2p", "c_m2l", "c_m2p", "c_p2l", "c_l2l",
+                       "c_l2p"]
         for name in param_names:
             assert isinstance(test_params[name], np.float64)
 
     def test_params_equal(test_params1, test_params2):
-        param_names = ["c_p2p", "c_m2l", "c_m2p", "c_p2l", "c_l2p"]
+        param_names = ["c_p2m", "c_m2m", "c_p2p", "c_m2l", "c_m2p", "c_p2l", "c_l2l",
+                       "c_l2p"]
         for name in param_names:
             assert test_params1[name] == test_params2[name]
 
@@ -449,21 +451,6 @@ def test_estimate_calibration_params(ctx_factory):
 
     if sys.version_info >= (3, 0):
         test_params_equal(cl_params, python_params)
-
-    cl_predicted_time = cl_cost_model(
-        traversals_dev[-1], level_to_orders[-1], cl_params
-    )
-
-    if sys.version_info >= (3, 0):
-        for field in ["form_multipoles", "eval_direct", "multipole_to_local",
-                      "eval_multipoles", "form_locals", "eval_locals",
-                      "coarsen_multipoles", "refine_locals"]:
-            logger.info("predicted time for {0}: {1}".format(
-                field, str(cl_cost_model.aggregate(cl_predicted_time[field]))
-            ))
-            logger.info("actual time for {0}: {1}".format(
-                field, str(timing_results[-1][field]["process_elapsed"])
-            ))
 
 
 class OpCountingTranslationCostModel(object):

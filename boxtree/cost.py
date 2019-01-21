@@ -504,7 +504,7 @@ class AbstractFMMCostModel(ABC):
 
 class CLFMMCostModel(AbstractFMMCostModel):
     """
-    Note: For methods in this class, argument *traversal* should live on device
+    .. note:: For methods in this class, argument *traversal* should live on device
         memory.
     """
     def __init__(self, queue,
