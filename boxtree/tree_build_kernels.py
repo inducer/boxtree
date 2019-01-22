@@ -892,7 +892,7 @@ LEVEL_RESTRICT_TPL = Template(
 def build_level_restrict_kernel(context, preamble_with_dtype_decls,
             dimensions, axis_names, box_id_dtype, coord_dtype,
             box_level_dtype, max_levels):
-    from pyopencl.tools import VectorArg, ScalarArg
+    from boxtree.tools import VectorArg, ScalarArg
 
     arguments = (
         [
@@ -1369,7 +1369,7 @@ def get_tree_build_kernel_info(context, dimensions, coord_dtype,
             + str(MORTON_NR_SCAN_PREAMBLE_TPL.render(**codegen_args))
             )
 
-    from pyopencl.tools import VectorArg, ScalarArg
+    from boxtree.tools import VectorArg, ScalarArg
     common_arguments = (
             [
                 # box-local morton bin counts for each particle at the current level
@@ -1496,8 +1496,8 @@ def get_tree_build_kernel_info(context, dimensions, coord_dtype,
             context,
             common_arguments
             + [
-                VectorArg(np.int32, "box_has_children", with_offset=True),
-                VectorArg(np.int32, "box_force_split", with_offset=True),
+                VectorArg(np.int32, "box_has_children"),
+                VectorArg(np.int32, "box_force_split"),
                 ScalarArg(coord_dtype, "root_extent"),
                 ]
             + [VectorArg(box_id_dtype, "box_child_ids_mnr_{mnr}".format(mnr=mnr))
@@ -1531,11 +1531,10 @@ def get_tree_build_kernel_info(context, dimensions, coord_dtype,
             context,
             common_arguments
             + [
-                VectorArg(np.int32, "box_has_children", with_offset=True),
-                VectorArg(np.int32, "box_force_split", with_offset=True),
-                VectorArg(particle_id_dtype, "new_user_srcntgt_ids",
-                    with_offset=True),
-                VectorArg(box_id_dtype, "new_srcntgt_box_ids", with_offset=True),
+                VectorArg(np.int32, "box_has_children"),
+                VectorArg(np.int32, "box_force_split"),
+                VectorArg(particle_id_dtype, "new_user_srcntgt_ids"),
+                VectorArg(box_id_dtype, "new_srcntgt_box_ids"),
                 ],
             str(particle_renumberer_kernel_source), name="renumber_particles",
             preamble=(
@@ -1582,7 +1581,7 @@ def get_tree_build_kernel_info(context, dimensions, coord_dtype,
 
     # FIXME: Turn me into a scan template
 
-    from pyopencl.tools import VectorArg
+    from boxtree.tools import VectorArg
     find_prune_indices_kernel = GenericScanKernel(
             context, box_id_dtype,
             arguments=[

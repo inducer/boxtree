@@ -731,7 +731,8 @@ class ParticleListFilter(object):
     @memoize_method
     def get_filter_target_lists_in_user_order_kernel(self, particle_id_dtype,
             user_order_flags_dtype):
-        from pyopencl.tools import VectorArg, dtype_to_ctype
+        from boxtree.tools import VectorArg
+        from pyopencl.tools import dtype_to_ctype
         from pyopencl.algorithm import ListOfListsBuilder
         from mako.template import Template
 
@@ -786,9 +787,10 @@ class ParticleListFilter(object):
                 tree.particle_id_dtype, user_order_flags.dtype)
 
         result, evt = kernel(queue, tree.nboxes,
-                user_order_flags.data,
-                user_target_ids.data,
-                tree.box_target_starts.data, tree.box_target_counts_nonchild.data)
+                user_order_flags,
+                user_target_ids,
+                tree.box_target_starts,
+                tree.box_target_counts_nonchild)
 
         return FilteredTargetListsInUserOrder(
                 nfiltered_targets=result["filt_tgt_list"].count,
