@@ -190,8 +190,8 @@ typedef ${dtype_to_ctype(vec_types_dict[coord_dtype, dimensions])} coord_vec_t;
 
 
 TRAVERSAL_PREAMBLE_TEMPLATE = (
-    TRAVERSAL_PREAMBLE_MAKO_DEFS +
-    TRAVERSAL_PREAMBLE_TYPEDEFS_AND_DEFINES)
+    TRAVERSAL_PREAMBLE_MAKO_DEFS
+    + TRAVERSAL_PREAMBLE_TYPEDEFS_AND_DEFINES)
 
 # }}}
 
@@ -1793,7 +1793,7 @@ class FMMTraversalBuilder:
                 from_sep_smaller_crit=from_sep_smaller_crit,
                 )
         from pyopencl.algorithm import ListOfListsBuilder
-        from pyopencl.tools import VectorArg, ScalarArg
+        from boxtree.tools import VectorArg, ScalarArg
 
         result = {}
 
@@ -1851,11 +1851,11 @@ class FMMTraversalBuilder:
         # {{{ build list N builders
 
         base_args = [
-                VectorArg(coord_dtype, "box_centers"),
+                VectorArg(coord_dtype, "box_centers", with_offset=False),
                 ScalarArg(coord_dtype, "root_extent"),
                 VectorArg(np.uint8, "box_levels"),
                 ScalarArg(box_id_dtype, "aligned_nboxes"),
-                VectorArg(box_id_dtype, "box_child_ids"),
+                VectorArg(box_id_dtype, "box_child_ids", with_offset=False),
                 VectorArg(box_flags_enum.dtype, "box_flags"),
                 ]
 
@@ -1869,7 +1869,8 @@ class FMMTraversalBuilder:
                 ("from_sep_siblings", FROM_SEP_SIBLINGS_TEMPLATE,
                         [
                             VectorArg(box_id_dtype, "target_or_target_parent_boxes"),
-                            VectorArg(box_id_dtype, "box_parent_ids"),
+                            VectorArg(box_id_dtype, "box_parent_ids",
+                                with_offset=False),
                             VectorArg(box_id_dtype,
                                 "same_level_non_well_sep_boxes_starts"),
                             VectorArg(box_id_dtype,
@@ -1883,8 +1884,10 @@ class FMMTraversalBuilder:
                                 "same_level_non_well_sep_boxes_starts"),
                             VectorArg(box_id_dtype,
                                 "same_level_non_well_sep_boxes_lists"),
-                            VectorArg(coord_dtype, "box_target_bounding_box_min"),
-                            VectorArg(coord_dtype, "box_target_bounding_box_max"),
+                            VectorArg(coord_dtype, "box_target_bounding_box_min",
+                                with_offset=False),
+                            VectorArg(coord_dtype, "box_target_bounding_box_max",
+                                with_offset=False),
                             VectorArg(particle_id_dtype, "box_source_counts_cumul"),
                             ScalarArg(particle_id_dtype,
                                 "from_sep_smaller_min_nsources_cumul"),
@@ -1897,7 +1900,8 @@ class FMMTraversalBuilder:
                         [
                             ScalarArg(coord_dtype, "stick_out_factor"),
                             VectorArg(box_id_dtype, "target_or_target_parent_boxes"),
-                            VectorArg(box_id_dtype, "box_parent_ids"),
+                            VectorArg(box_id_dtype, "box_parent_ids",
+                                with_offset=False),
                             VectorArg(box_id_dtype,
                                 "same_level_non_well_sep_boxes_starts"),
                             VectorArg(box_id_dtype,
@@ -1982,7 +1986,7 @@ class FMMTraversalBuilder:
         fin_debug("building list of source boxes, their parents, and target boxes")
 
         result, evt = knl_info.sources_parents_and_targets_builder(
-                queue, tree.nboxes, tree.box_flags.data, wait_for=wait_for)
+                queue, tree.nboxes, tree.box_flags, wait_for=wait_for)
         wait_for = [evt]
 
         source_parent_boxes = result["source_parent_boxes"].lists
@@ -2137,8 +2141,8 @@ class FMMTraversalBuilder:
 
         result, evt = knl_info.same_level_non_well_sep_boxes_builder(
                 queue, tree.nboxes,
-                tree.box_centers.data, tree.root_extent, tree.box_levels.data,
-                tree.aligned_nboxes, tree.box_child_ids.data, tree.box_flags.data,
+                tree.box_centers.data, tree.root_extent, tree.box_levels,
+                tree.aligned_nboxes, tree.box_child_ids.data, tree.box_flags,
                 wait_for=wait_for)
         wait_for = [evt]
         same_level_non_well_sep_boxes = result["same_level_non_well_sep_boxes"]
@@ -2151,9 +2155,9 @@ class FMMTraversalBuilder:
 
         result, evt = knl_info.neighbor_source_boxes_builder(
                 queue, len(target_boxes),
-                tree.box_centers.data, tree.root_extent, tree.box_levels.data,
-                tree.aligned_nboxes, tree.box_child_ids.data, tree.box_flags.data,
-                target_boxes.data, wait_for=wait_for)
+                tree.box_centers.data, tree.root_extent, tree.box_levels,
+                tree.aligned_nboxes, tree.box_child_ids.data, tree.box_flags,
+                target_boxes, wait_for=wait_for)
 
         wait_for = [evt]
         neighbor_source_boxes = result["neighbor_source_boxes"]
@@ -2166,11 +2170,11 @@ class FMMTraversalBuilder:
 
         result, evt = knl_info.from_sep_siblings_builder(
                 queue, len(target_or_target_parent_boxes),
-                tree.box_centers.data, tree.root_extent, tree.box_levels.data,
-                tree.aligned_nboxes, tree.box_child_ids.data, tree.box_flags.data,
-                target_or_target_parent_boxes.data, tree.box_parent_ids.data,
-                same_level_non_well_sep_boxes.starts.data,
-                same_level_non_well_sep_boxes.lists.data,
+                tree.box_centers.data, tree.root_extent, tree.box_levels,
+                tree.aligned_nboxes, tree.box_child_ids.data, tree.box_flags,
+                target_or_target_parent_boxes, tree.box_parent_ids.data,
+                same_level_non_well_sep_boxes.starts,
+                same_level_non_well_sep_boxes.lists,
                 wait_for=wait_for)
         wait_for = [evt]
         from_sep_siblings = result["from_sep_siblings"]
@@ -2185,14 +2189,14 @@ class FMMTraversalBuilder:
 
         from_sep_smaller_base_args = (
                 queue, len(target_boxes),
-                tree.box_centers.data, tree.root_extent, tree.box_levels.data,
-                tree.aligned_nboxes, tree.box_child_ids.data, tree.box_flags.data,
-                tree.stick_out_factor, target_boxes.data,
-                same_level_non_well_sep_boxes.starts.data,
-                same_level_non_well_sep_boxes.lists.data,
+                tree.box_centers.data, tree.root_extent, tree.box_levels,
+                tree.aligned_nboxes, tree.box_child_ids.data, tree.box_flags,
+                tree.stick_out_factor, target_boxes,
+                same_level_non_well_sep_boxes.starts,
+                same_level_non_well_sep_boxes.lists,
                 box_target_bounding_box_min.data,
                 box_target_bounding_box_max.data,
-                tree.box_source_counts_cumul.data,
+                tree.box_source_counts_cumul,
                 _from_sep_smaller_min_nsources_cumul,
                 )
 
@@ -2240,12 +2244,12 @@ class FMMTraversalBuilder:
 
         result, evt = knl_info.from_sep_bigger_builder(
                 queue, len(target_or_target_parent_boxes),
-                tree.box_centers.data, tree.root_extent, tree.box_levels.data,
-                tree.aligned_nboxes, tree.box_child_ids.data, tree.box_flags.data,
-                tree.stick_out_factor, target_or_target_parent_boxes.data,
+                tree.box_centers.data, tree.root_extent, tree.box_levels,
+                tree.aligned_nboxes, tree.box_child_ids.data, tree.box_flags,
+                tree.stick_out_factor, target_or_target_parent_boxes,
                 tree.box_parent_ids.data,
-                same_level_non_well_sep_boxes.starts.data,
-                same_level_non_well_sep_boxes.lists.data,
+                same_level_non_well_sep_boxes.starts,
+                same_level_non_well_sep_boxes.lists,
                 wait_for=wait_for)
 
         wait_for = [evt]

@@ -14,15 +14,32 @@ Python 2.7 POCL:
         reports:
             junit: test/pytest.xml
 
-#Python 3.5 Titan X:
+Python 3.7 Titan V:
+    script:
+    - py_version=3.7
+    - export PYOPENCL_TEST=nvi:titan
+    - EXTRA_INSTALL="pybind11 numpy mako"
+    - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project.sh
+    - ". ./build-and-test-py-project.sh"
+    tags:
+    - python3.7
+    - nvidia-titan-v
+    allow_failure: true
+    except:
+    - tags
+    artifacts:
+        reports:
+            junit: test/pytest.xml
+
+#Python 3.6 Titan X:
 #    script:
-#    - py_version=3.5
+#    - py_version=3.6
 #    - export PYOPENCL_TEST=nvi:titan
 #    - EXTRA_INSTALL="pybind11 numpy mako"
 #    - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project.sh
 #    - ". ./build-and-test-py-project.sh"
 #    tags:
-#    - python3.5
+#    - python3.6
 #    - nvidia-titan-x
 #    except:
 #    - tags
@@ -30,33 +47,17 @@ Python 2.7 POCL:
 #        reports:
 #            junit: test/pytest.xml
 
-Python 3.5 K40:
+Python 3.6 K40:
     script:
-    - export PY_EXE=python3.5
+    - export PY_EXE=python3.6
     - export PYOPENCL_TEST=nvi:k40
     - export EXTRA_INSTALL="pybind11 numpy mako"
     - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project.sh
     - ". ./build-and-test-py-project.sh"
     allow_failure: true
     tags:
-    - python3.5
+    - python3.6
     - nvidia-k40
-    except:
-    - tags
-    artifacts:
-        reports:
-            junit: test/pytest.xml
-  
-Python 3.5 POCL:
-    script:
-    - export PY_EXE=python3.5
-    - export PYOPENCL_TEST=portable
-    - export EXTRA_INSTALL="pybind11 numpy mako"
-    - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project.sh
-    - ". ./build-and-test-py-project.sh"
-    tags:
-    - python3.5
-    - pocl
     except:
     - tags
     artifacts:
