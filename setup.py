@@ -42,7 +42,7 @@ def main():
           packages=["boxtree"],
           install_requires=[
               "pytools>=2018.4",
-              "pyopencl>=2013.1",
+              "pyopencl>=2018.2.2",
               "Mako>=0.7.3",
               "pytest>=2.3",
               "cgen>=2013.1.2",
