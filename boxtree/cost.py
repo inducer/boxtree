@@ -60,7 +60,7 @@ else:
     ABC = ABCMeta('ABC', (), {})
 
 
-class TranslationCostModel(object):
+class FMMTranslationCostModel(object):
     """Provides modeled costs for individual translations or evaluations."""
 
     def __init__(self, ncoeffs_fmm_by_level, uses_point_and_shoot):
@@ -125,7 +125,7 @@ def pde_aware_translation_cost_model(dim, nlevels):
     else:
         uses_point_and_shoot = False
 
-    return TranslationCostModel(
+    return FMMTranslationCostModel(
             ncoeffs_fmm_by_level=ncoeffs_fmm,
             uses_point_and_shoot=uses_point_and_shoot
     )
@@ -138,7 +138,7 @@ def taylor_translation_cost_model(dim, nlevels):
     p_fmm = np.array([var("p_fmm_lev%d" % i) for i in range(nlevels)])
     ncoeffs_fmm = (p_fmm + 1) ** dim
 
-    return TranslationCostModel(
+    return FMMTranslationCostModel(
             ncoeffs_fmm_by_level=ncoeffs_fmm,
             uses_point_and_shoot=False
     )
