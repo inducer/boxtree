@@ -174,6 +174,7 @@ class TreePlotter:
 
 # {{{ box tree plotting
 
+
 class BoxTreePlotter(TreePlotter):
     """Assumes that the tree has data living on the host.
     See :meth:`boxtree.BoxTree.get`.
@@ -268,6 +269,7 @@ class BoxTreePlotter(TreePlotter):
 # }}}
 
 # {{{ traversal plotting
+
 
 def _draw_box_list(tree_plotter, ibox, starts, lists, key_to_box=None, **kwargs):
     default_facecolor = "blue"

@@ -26,7 +26,7 @@ from cgen import Enum
 from itertools import product
 
 import loopy as lp
-from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2
+from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2  # noqa
 import pyopencl as cl
 import pyopencl.array  # noqa
 from pytools.obj_array import make_obj_array
@@ -47,6 +47,7 @@ class adaptivity_flags_enum(Enum):  # noqa
 # }}}
 
 # {{{ Data structure for a tree of boxes
+
 
 class BoxTree(DeviceDataRecord):
     r"""A quad/oct-tree tree consisting of a hierarchy of boxes.
@@ -180,11 +181,11 @@ class BoxTree(DeviceDataRecord):
 
         # others
         kwargs.update({
-            "size_t":self.size_t,
-            "box_id_dtype":self.box_id_dtype,
-            "box_level_dtype":self.box_level_dtype,
-            "coord_dtype":self.coord_dtype,
-            "root_extent":self.root_extent,
+            "size_t": self.size_t,
+            "box_id_dtype": self.box_id_dtype,
+            "box_level_dtype": self.box_level_dtype,
+            "coord_dtype": self.coord_dtype,
+            "root_extent": self.root_extent,
             })
 
         return kwargs
@@ -212,7 +213,7 @@ class BoxTree(DeviceDataRecord):
                 np.array(
                     [1 << (dim * l) for l in range(nlevels)],
                     dtype=self.size_t))
-        self.register_fields({"nboxes_level":self.nboxes_level})
+        self.register_fields({"nboxes_level": self.nboxes_level})
 
         nboxes = self.size_t(cl.array.sum(self.nboxes_level).get())
 
@@ -220,9 +221,9 @@ class BoxTree(DeviceDataRecord):
         level_start = 0
         for l in range(nlevels):
             offset = self.size_t(self.nboxes_level[l].get())
-            self.box_levels[level_start:level_start + offset] = l
+            self.box_levels[level_start: level_start + offset] = l
             level_start += offset
-        self.register_fields({"box_levels":self.box_levels})
+        self.register_fields({"box_levels": self.box_levels})
 
         self.box_centers = cl.array.zeros(queue, (dim, nboxes), coord_dtype)
         ibox = 0
@@ -233,7 +234,7 @@ class BoxTree(DeviceDataRecord):
                     self.box_centers[d, ibox] = cid[d] * dx + (
                             dx / 2 + root_vertex[d])
                 ibox += 1
-        self.register_fields({"box_centers":self.box_centers})
+        self.register_fields({"box_centers": self.box_centers})
 
         n_active_boxes = self.size_t(self.nboxes_level[nlevels - 1].get())
         self.active_boxes = cl.array.to_device(queue,
@@ -241,7 +242,7 @@ class BoxTree(DeviceDataRecord):
                     range(nboxes - n_active_boxes, nboxes),
                     dtype=self.box_id_dtype))
         assert len(self.active_boxes) == 1 << ((nlevels - 1) * dim)
-        self.register_fields({"active_boxes":self.active_boxes})
+        self.register_fields({"active_boxes": self.active_boxes})
 
         # FIXME: map bool in pyopencl
         #   pyopencl/compyte/dtypes.py", line 107, in dtype_to_ctype
@@ -249,7 +250,7 @@ class BoxTree(DeviceDataRecord):
         #     ValueError: unable to map dtype 'bool'
         self.box_is_active = cl.array.zeros(queue, nboxes, np.int8)
         self.box_is_active[nboxes - n_active_boxes:] = 1
-        self.register_fields({"box_is_active":self.box_is_active})
+        self.register_fields({"box_is_active": self.box_is_active})
 
         self.level_boxes = make_obj_array([
             cl.array.zeros(queue, 1 << (dim * l), self.box_id_dtype)
@@ -259,13 +260,13 @@ class BoxTree(DeviceDataRecord):
             for b in range(len(self.level_boxes[l])):
                 self.level_boxes[l][b] = ibox
                 ibox += 1
-        self.register_fields({"level_boxes":self.level_boxes})
+        self.register_fields({"level_boxes": self.level_boxes})
 
         self.box_parent_ids = cl.array.zeros(queue, nboxes, self.box_id_dtype)
         self.box_child_ids = cl.array.zeros(queue, (1 << dim, nboxes),
                 self.box_id_dtype)
         for l in range(nlevels):
-            if l == 0:
+            if l == 0:  # noqa: E741
                 self.box_parent_ids[0] = 0
             else:
                 multi_index_bases = tuple(
@@ -289,8 +290,8 @@ class BoxTree(DeviceDataRecord):
                         self.level_boxes[l-1][parent_level_id].get())
                             ] = ibox
         self.register_fields({
-            "box_parent_ids":self.box_parent_ids,
-            "box_child_ids":self.box_child_ids})
+            "box_parent_ids": self.box_parent_ids,
+            "box_child_ids": self.box_child_ids})
 
         self.adaptivity_flags = cl.array.zeros(queue,
                 self.n_active_boxes,
@@ -306,15 +307,15 @@ class BoxTree(DeviceDataRecord):
         iabox = 0
         for multiabox in product(range(1 << (nlevels - 1)), repeat=dim):
             if (
-                    min(multiabox) > 0 and
-                    max(multiabox) < maxid
+                    min(multiabox) > 0
+                    and max(multiabox) < maxid
                     ):
                 n_active_neighbors_host[iabox] = 3 ** dim - 1
             else:
                 n_active_neighbors_host[iabox] = sum(1 for patch in nbpatch
                         if (
-                            np.min(np.array(multiabox) + patch) >= 0 and
-                            np.max(np.array(multiabox) + patch) <= maxid
+                            np.min(np.array(multiabox) + patch) >= 0
+                            and np.max(np.array(multiabox) + patch) <= maxid
                             ))
             iabox += 1
         self.n_active_neighbors = cl.array.to_device(queue,
@@ -333,8 +334,8 @@ class BoxTree(DeviceDataRecord):
                 tmp = np.array(multiabox) + patch
                 if np.min(tmp) >= 0 and np.max(tmp) <= maxid:
                     anb_pre[-1][nbid] = self.box_id_dtype(
-                            nboxes - n_active_boxes +
-                            np.sum(tmp * ind_bases))
+                            nboxes - n_active_boxes
+                            + np.sum(tmp * ind_bases))
                     nbid += 1
             iabox += 1
         self.active_neighboring_boxes = make_obj_array([
@@ -385,6 +386,7 @@ class BoxTree(DeviceDataRecord):
 # }}} End Data structure for a tree of boxes
 
 # {{{ Discretize a BoxTree using quadrature
+
 
 class QuadratureOnBoxTree(object):
     """Tensor-product quadrature rules applied to each active box.
@@ -498,10 +500,9 @@ class QuadratureOnBoxTree(object):
                 nboxes=self.boxtree.nboxes)
 
         assert len(result) == 1
-        # TODO: If the ordering is not the same as dealii, reverse the order of quad vars
+        # TODO: If the ordering is not the same as dealii,
+        #       reverse the order of quad vars
         return make_obj_array([cpnt.ravel() for cpnt in result[0]])
-
-        pass
 
     def get_q_weights(self, queue):
         """Return quadrature weights.
@@ -531,8 +532,7 @@ class QuadratureOnBoxTree(object):
                 """.replace("DIM", str(dim))
                 .replace("QUAD_VARS", ", ".join(quad_vars))
                 .replace("QUAD_WEIGHT", " * ".join(
-                    ["q_weights[" + qvar + "]" for qvar in quad_vars]))
-                ,
+                    ["q_weights[" + qvar + "]" for qvar in quad_vars])),
                 [
                     lp.GlobalArg("result", self.boxtree.coord_dtype,
                         shape=lp.auto),
@@ -565,14 +565,15 @@ class QuadratureOnBoxTree(object):
                 nboxes=self.boxtree.nboxes)
 
         assert len(result) == 1
-        # TODO: If the ordering is not the same as dealii, reverse the order of quad vars
+        # TODO: If the ordering is not the same as dealii,
+        #       reverse the order of quad vars
         return result[0].ravel()
 
     def get_cell_centers(self, queue):
         """Return centers of active boxes.
         """
         def get_knl():
-            knl = lp.make_kernel(
+            knl = lp.make_kernel(  # noqa: E131
                 "{[iabox, iaxis]: 0<=iabox<n_active_boxes and "
                                  "0<=iaxis<dims}",
                 """
