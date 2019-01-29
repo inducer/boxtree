@@ -186,10 +186,25 @@ class AbstractFMMCostModel(ABC):
         pass
 
     @abstractmethod
-    def process_direct(self, traversal, c_p2p):
+    def get_ndirect_sources_per_target_box(self, traversal):
+        """Collect the number of direct evaluation sources (list 1, list 3 close and
+        list 4 close) for each target box.
+
+        :arg traversal: a :class:`boxtree.traversal.FMMTraversalInfo` object.
+        :return: a :class:`numpy.ndarray` or :class:`pyopencl.array.Array` of shape
+            (ntarget_boxes,), with each entry representing the number of direct
+            evaluation sources for that target box.
+        """
+        pass
+
+    @abstractmethod
+    def process_direct(self, traversal, ndirect_sources_by_itgt_box, c_p2p):
         """Direct evaluation cost of each target box of *traversal*.
 
         :arg traversal: a :class:`boxtree.traversal.FMMTraversalInfo` object.
+        :arg ndirect_sources_by_itgt_box: a :class:`numpy.ndarray` or
+            :class:`pyopencl.array.Array` of shape (ntarget_boxes,), with each entry
+            representing the number of direct evaluation sources for that target box.
         :arg c_p2p: calibration constant.
         :return: a :class:`numpy.ndarray` or :class:`pyopencl.array.Array` of shape
             (ntarget_boxes,), with each entry represents the cost of the box.
@@ -392,8 +407,14 @@ class AbstractFMMCostModel(ABC):
                 traversal, translation_cost["m2m_cost"]
             )
 
+            ndirect_sources_per_target_box = \
+                self.get_ndirect_sources_per_target_box(traversal)
+
             uncalibrated_times["c_p2p"][icase] = self.aggregate(
-                self.process_direct(traversal, translation_cost["c_p2p"])
+                self.process_direct(
+                    traversal, ndirect_sources_per_target_box,
+                    translation_cost["c_p2p"]
+                )
             )
 
             uncalibrated_times["c_m2l"][icase] = self.aggregate(
@@ -475,8 +496,12 @@ class AbstractFMMCostModel(ABC):
             traversal, translation_cost["m2m_cost"]
         )
 
+        ndirect_sources_per_target_box = self.get_ndirect_sources_per_target_box(
+            traversal
+        )
+
         result["eval_direct"] = self.process_direct(
-            traversal, translation_cost["c_p2p"]
+            traversal, ndirect_sources_per_target_box, translation_cost["c_p2p"]
         )
 
         result["multipole_to_local"] = self.process_list2(
@@ -637,17 +662,14 @@ class CLFMMCostModel(AbstractFMMCostModel):
     # {{{ direct evaluation to point targets (lists 1, 3 close, 4 close)
 
     @memoize_method
-    def process_direct_knl(self, particle_id_dtype, box_id_dtype):
+    def _get_ndirect_sources_knl(self, particle_id_dtype, box_id_dtype):
         return ElementwiseKernel(
             self.queue.context,
             Template("""
-                double *direct_by_itgt_box,
+                ${particle_id_t} *ndirect_sources_by_itgt_box,
                 ${box_id_t} *source_boxes_starts,
                 ${box_id_t} *source_boxes_lists,
-                ${particle_id_t} *box_source_counts_nonchild,
-                ${particle_id_t} *box_target_counts_nonchild,
-                ${box_id_t} *target_boxes,
-                double c_p2p
+                ${particle_id_t} *box_source_counts_nonchild
             """).render(
                 particle_id_t=dtype_to_ctype(particle_id_dtype),
                 box_id_t=dtype_to_ctype(box_id_dtype)
@@ -667,70 +689,67 @@ class CLFMMCostModel(AbstractFMMCostModel):
                     nsources += box_source_counts_nonchild[cur_source_box];
                 }
 
-                ${particle_id_t} ntargets = box_target_counts_nonchild[
-                    target_boxes[i]
-                ];
-
-                direct_by_itgt_box[i] += (nsources * ntargets * c_p2p);
+                ndirect_sources_by_itgt_box[i] += nsources;
             """).render(
                 particle_id_t=dtype_to_ctype(particle_id_dtype),
                 box_id_t=dtype_to_ctype(box_id_dtype)
             ),
-            name="process_direct"
+            name="get_ndirect_sources"
         )
 
-    def process_direct(self, traversal, c_p2p):
+    def get_ndirect_sources_per_target_box(self, traversal):
         tree = traversal.tree
         ntarget_boxes = len(traversal.target_boxes)
         particle_id_dtype = tree.particle_id_dtype
         box_id_dtype = tree.box_id_dtype
 
-        count_direct_interaction_knl = self.process_direct_knl(
+        get_ndirect_sources_knl = self._get_ndirect_sources_knl(
             particle_id_dtype, box_id_dtype
         )
 
-        direct_by_itgt_box_dev = cl.array.zeros(
-            self.queue, (ntarget_boxes,), dtype=np.float64
+        ndirect_sources_by_itgt_box = cl.array.zeros(
+            self.queue, ntarget_boxes, dtype=particle_id_dtype
         )
 
         # List 1
-        count_direct_interaction_knl(
-            direct_by_itgt_box_dev,
+        get_ndirect_sources_knl(
+            ndirect_sources_by_itgt_box,
             traversal.neighbor_source_boxes_starts,
             traversal.neighbor_source_boxes_lists,
-            traversal.tree.box_source_counts_nonchild,
-            traversal.tree.box_target_counts_nonchild,
-            traversal.target_boxes,
-            c_p2p
+            tree.box_source_counts_nonchild
         )
 
         # List 3 close
         if traversal.from_sep_close_smaller_starts is not None:
-            self.queue.finish()  # Avoid potential race condition
-            count_direct_interaction_knl(
-                direct_by_itgt_box_dev,
+            self.queue.finish()
+            get_ndirect_sources_knl(
+                ndirect_sources_by_itgt_box,
                 traversal.from_sep_close_smaller_starts,
                 traversal.from_sep_close_smaller_lists,
-                traversal.tree.box_source_counts_nonchild,
-                traversal.tree.box_target_counts_nonchild,
-                traversal.target_boxes,
-                c_p2p
+                tree.box_source_counts_nonchild
             )
 
         # List 4 close
         if traversal.from_sep_close_bigger_starts is not None:
-            self.queue.finish()  # Avoid potential race condition
-            count_direct_interaction_knl(
-                direct_by_itgt_box_dev,
+            self.queue.finish()
+            get_ndirect_sources_knl(
+                ndirect_sources_by_itgt_box,
                 traversal.from_sep_close_bigger_starts,
                 traversal.from_sep_close_bigger_lists,
-                traversal.tree.box_source_counts_nonchild,
-                traversal.tree.box_target_counts_nonchild,
-                traversal.target_boxes,
-                c_p2p
+                tree.box_source_counts_nonchild
             )
 
-        return direct_by_itgt_box_dev
+        return ndirect_sources_by_itgt_box
+
+    def process_direct(self, traversal, ndirect_sources_by_itgt_box, c_p2p):
+        from pyopencl.array import take
+        ntargets_by_itgt_box = take(
+            traversal.tree.box_target_counts_nonchild,
+            traversal.target_boxes,
+            queue=self.queue
+        )
+
+        return ndirect_sources_by_itgt_box * ntargets_by_itgt_box * c_p2p
 
     # }}}
 
@@ -1035,12 +1054,12 @@ class PythonFMMCostModel(AbstractFMMCostModel):
 
         return np2m
 
-    def process_direct(self, traversal, c_p2p):
+    def get_ndirect_sources_per_target_box(self, traversal):
         tree = traversal.tree
         ntarget_boxes = len(traversal.target_boxes)
 
         # target box index -> nsources
-        direct_by_itgt_box = np.zeros(ntarget_boxes, dtype=np.float64)
+        ndirect_sources_by_itgt_box = np.zeros(ntarget_boxes, dtype=np.float64)
 
         for itgt_box in range(ntarget_boxes):
             nsources = 0
@@ -1065,12 +1084,16 @@ class PythonFMMCostModel(AbstractFMMCostModel):
                 for src_ibox in traversal.from_sep_close_bigger_lists[start:end]:
                     nsources += tree.box_source_counts_nonchild[src_ibox]
 
-            ntargets = tree.box_target_counts_nonchild[
-                traversal.target_boxes[itgt_box]
-            ]
-            direct_by_itgt_box[itgt_box] += (nsources * ntargets * c_p2p)
+            ndirect_sources_by_itgt_box[itgt_box] = nsources
 
-        return direct_by_itgt_box
+        return ndirect_sources_by_itgt_box
+
+    def process_direct(self, traversal, ndirect_sources_by_itgt_box, c_p2p):
+        ntargets_by_itgt_box = traversal.tree.box_target_counts_nonchild[
+            traversal.target_boxes
+        ]
+
+        return ntargets_by_itgt_box * ndirect_sources_by_itgt_box * c_p2p
 
     def process_list2(self, traversal, m2l_cost):
         tree = traversal.tree

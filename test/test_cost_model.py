@@ -156,7 +156,12 @@ def test_compare_cl_and_py_cost_model(ctx_factory, nsources, ntargets, dims, dty
     queue.finish()
     start_time = time.time()
 
-    cl_direct = cl_cost_model.process_direct(trav_dev, 5.0)
+    cl_ndirect_sources_per_target_box = \
+        cl_cost_model.get_ndirect_sources_per_target_box(trav_dev)
+
+    cl_direct = cl_cost_model.process_direct(
+        trav_dev, cl_ndirect_sources_per_target_box, 5.0
+    )
 
     queue.finish()
     logger.info("OpenCL time for process_direct: {0}".format(
@@ -165,7 +170,12 @@ def test_compare_cl_and_py_cost_model(ctx_factory, nsources, ntargets, dims, dty
 
     start_time = time.time()
 
-    python_direct = python_cost_model.process_direct(trav, 5.0)
+    python_ndirect_sources_per_target_box = \
+        python_cost_model.get_ndirect_sources_per_target_box(trav)
+
+    python_direct = python_cost_model.process_direct(
+        trav, python_ndirect_sources_per_target_box, 5.0
+    )
 
     logger.info("Python time for process_direct: {0}".format(
         str(time.time() - start_time)
