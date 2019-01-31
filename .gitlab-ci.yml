@@ -86,7 +86,7 @@ Documentation:
     - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-docs.sh
     - ". ./build-docs.sh"
     tags:
-    - python3.5
+    - python3
     only:
     - master
 
@@ -95,6 +95,6 @@ Flake8:
     - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/prepare-and-run-flake8.sh
     - ". ./prepare-and-run-flake8.sh boxtree test"
     tags:
-    - python3.5
+    - python3
     except:
     - tags
