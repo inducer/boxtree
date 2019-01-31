@@ -14,15 +14,15 @@ Python 2.7 POCL:
         reports:
             junit: test/pytest.xml
 
-Python 3.7 Titan V:
+Python 3 Titan V:
     script:
-    - py_version=3.7
+    - export PY_EXE=python3
     - export PYOPENCL_TEST=nvi:titan
     - EXTRA_INSTALL="pybind11 numpy mako"
     - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project.sh
     - ". ./build-and-test-py-project.sh"
     tags:
-    - python3.7
+    - python3
     - nvidia-titan-v
     allow_failure: true
     except:
@@ -31,15 +31,15 @@ Python 3.7 Titan V:
         reports:
             junit: test/pytest.xml
 
-#Python 3.6 Titan X:
+#Python 3 Titan X:
 #    script:
-#    - py_version=3.6
+#    - export PY_EXE=python3
 #    - export PYOPENCL_TEST=nvi:titan
 #    - EXTRA_INSTALL="pybind11 numpy mako"
 #    - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project.sh
 #    - ". ./build-and-test-py-project.sh"
 #    tags:
-#    - python3.6
+#    - python3
 #    - nvidia-titan-x
 #    except:
 #    - tags
@@ -47,16 +47,16 @@ Python 3.7 Titan V:
 #        reports:
 #            junit: test/pytest.xml
 
-Python 3.6 K40:
+Python 3 K40:
     script:
-    - export PY_EXE=python3.6
+    - export PY_EXE=python3
     - export PYOPENCL_TEST=nvi:k40
     - export EXTRA_INSTALL="pybind11 numpy mako"
     - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project.sh
     - ". ./build-and-test-py-project.sh"
     allow_failure: true
     tags:
-    - python3.6
+    - python3
     - nvidia-k40
     except:
     - tags
@@ -64,15 +64,15 @@ Python 3.6 K40:
         reports:
             junit: test/pytest.xml
 
-Python 3.6 POCL:
+Python 3 POCL:
     script:
-    - export PY_EXE=python3.6
+    - export PY_EXE=python3
     - export PYOPENCL_TEST=portable
     - export EXTRA_INSTALL="pybind11 numpy mako"
     - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project.sh
     - ". ./build-and-test-py-project.sh"
     tags:
-    - python3.6
+    - python3
     - pocl
     except:
     - tags
@@ -86,7 +86,7 @@ Documentation:
     - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-docs.sh
     - ". ./build-docs.sh"
     tags:
-    - python3.5
+    - python3
     only:
     - master
 
@@ -95,6 +95,6 @@ Flake8:
     - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/prepare-and-run-flake8.sh
     - ". ./prepare-and-run-flake8.sh boxtree test"
     tags:
-    - python3.5
+    - python3
     except:
     - tags
