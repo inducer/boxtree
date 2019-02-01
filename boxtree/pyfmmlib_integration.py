@@ -66,7 +66,8 @@ class FMMLibExpansionWrangler(object):
             warn("Passing nterms is deprecated. Pass fmm_level_to_nterms instead.",
                     DeprecationWarning, stacklevel=2)
 
-            fmm_level_to_nterms = lambda _, _: nterms
+            def fmm_level_to_nterms(tree, level):  # noqa pylint:disable=function-redefined
+                return nterms
 
         self.tree = tree
 
