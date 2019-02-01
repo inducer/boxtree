@@ -1,84 +1,84 @@
-# Python 2.7 POCL:
-#     script:
-#     - export PY_EXE=python2.7
-#     - export PYOPENCL_TEST=portable
-#     - export EXTRA_INSTALL="pybind11 numpy mako"
-#     - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project.sh
-#     - ". ./build-and-test-py-project.sh"
-#     tags:
-#     - python2.7
-#     - pocl
-#     except:
-#     - tags
-#     artifacts:
-#         reports:
-#             junit: test/pytest.xml
-# 
-# Python 3 Titan V:
-#     script:
-#     - export PY_EXE=python3
-#     - export PYOPENCL_TEST=nvi:titan
-#     - EXTRA_INSTALL="pybind11 numpy mako"
-#     - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project.sh
-#     - ". ./build-and-test-py-project.sh"
-#     tags:
-#     - python3
-#     - nvidia-titan-v
-#     allow_failure: true
-#     except:
-#     - tags
-#     artifacts:
-#         reports:
-#             junit: test/pytest.xml
-# 
-# #Python 3 Titan X:
-# #    script:
-# #    - export PY_EXE=python3
-# #    - export PYOPENCL_TEST=nvi:titan
-# #    - EXTRA_INSTALL="pybind11 numpy mako"
-# #    - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project.sh
-# #    - ". ./build-and-test-py-project.sh"
-# #    tags:
-# #    - python3
-# #    - nvidia-titan-x
-# #    except:
-# #    - tags
-# #    artifacts:
-# #        reports:
-# #            junit: test/pytest.xml
-# 
-# Python 3 K40:
-#     script:
-#     - export PY_EXE=python3
-#     - export PYOPENCL_TEST=nvi:k40
-#     - export EXTRA_INSTALL="pybind11 numpy mako"
-#     - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project.sh
-#     - ". ./build-and-test-py-project.sh"
-#     allow_failure: true
-#     tags:
-#     - python3
-#     - nvidia-k40
-#     except:
-#     - tags
-#     artifacts:
-#         reports:
-#             junit: test/pytest.xml
-# 
-# Python 3 POCL:
-#     script:
-#     - export PY_EXE=python3
-#     - export PYOPENCL_TEST=portable
-#     - export EXTRA_INSTALL="pybind11 numpy mako"
-#     - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project.sh
-#     - ". ./build-and-test-py-project.sh"
-#     tags:
-#     - python3
-#     - pocl
-#     except:
-#     - tags
-#     artifacts:
-#         reports:
-#             junit: test/pytest.xml
+Python 2.7 POCL:
+    script:
+    - export PY_EXE=python2.7
+    - export PYOPENCL_TEST=portable
+    - export EXTRA_INSTALL="pybind11 numpy mako"
+    - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project.sh
+    - ". ./build-and-test-py-project.sh"
+    tags:
+    - python2.7
+    - pocl
+    except:
+    - tags
+    artifacts:
+        reports:
+            junit: test/pytest.xml
+
+Python 3 Titan V:
+    script:
+    - export PY_EXE=python3
+    - export PYOPENCL_TEST=nvi:titan
+    - EXTRA_INSTALL="pybind11 numpy mako"
+    - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project.sh
+    - ". ./build-and-test-py-project.sh"
+    tags:
+    - python3
+    - nvidia-titan-v
+    allow_failure: true
+    except:
+    - tags
+    artifacts:
+        reports:
+            junit: test/pytest.xml
+
+#Python 3 Titan X:
+#    script:
+#    - export PY_EXE=python3
+#    - export PYOPENCL_TEST=nvi:titan
+#    - EXTRA_INSTALL="pybind11 numpy mako"
+#    - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project.sh
+#    - ". ./build-and-test-py-project.sh"
+#    tags:
+#    - python3
+#    - nvidia-titan-x
+#    except:
+#    - tags
+#    artifacts:
+#        reports:
+#            junit: test/pytest.xml
+
+Python 3 K40:
+    script:
+    - export PY_EXE=python3
+    - export PYOPENCL_TEST=nvi:k40
+    - export EXTRA_INSTALL="pybind11 numpy mako"
+    - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project.sh
+    - ". ./build-and-test-py-project.sh"
+    allow_failure: true
+    tags:
+    - python3
+    - nvidia-k40
+    except:
+    - tags
+    artifacts:
+        reports:
+            junit: test/pytest.xml
+
+Python 3 POCL:
+    script:
+    - export PY_EXE=python3
+    - export PYOPENCL_TEST=portable
+    - export EXTRA_INSTALL="pybind11 numpy mako"
+    - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project.sh
+    - ". ./build-and-test-py-project.sh"
+    tags:
+    - python3
+    - pocl
+    except:
+    - tags
+    artifacts:
+        reports:
+            junit: test/pytest.xml
 
 Pylint:
   script:
@@ -91,22 +91,21 @@ Pylint:
   except:
   - tags
 
-# Documentation:
-#     script:
-#     - EXTRA_INSTALL="pybind11 numpy mako"
-#     - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-docs.sh
-#     - ". ./build-docs.sh"
-#     tags:
-#     - python3
-#     only:
-#     - master
-# 
-# Flake8:
-#     script:
-#     - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/prepare-and-run-flake8.sh
-#     - ". ./prepare-and-run-flake8.sh boxtree test"
-#     tags:
-#     - python3
-#     except:
-#     - tags
-# 
+Documentation:
+    script:
+    - EXTRA_INSTALL="pybind11 numpy mako"
+    - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-docs.sh
+    - ". ./build-docs.sh"
+    tags:
+    - python3
+    only:
+    - master
+
+Flake8:
+    script:
+    - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/prepare-and-run-flake8.sh
+    - ". ./prepare-and-run-flake8.sh boxtree test"
+    tags:
+    - python3
+    except:
+    - tags
