@@ -160,7 +160,7 @@ def test_fmm_completeness(ctx_factory, dims, nsources_req, ntargets_req,
             source_radii=source_radii, target_radii=target_radii,
             debug=True, stick_out_factor=0.25, extent_norm=extent_norm)
     if 0:
-        tree.get().plot()
+        tree.get(queue).plot()
         import matplotlib.pyplot as pt
         pt.show()
 
@@ -433,7 +433,9 @@ def test_pyfmmlib_fmm(ctx_factory, dims, use_dipoles, helmholtz_k):
 
     if use_dipoles:
         if helmholtz_k == 0 and dims == 2:
-            kwargs["dipstr"] = -weights * (dipole_vec[0] + 1j * dipole_vec[1])
+            kwargs["dipstr"] = (
+                    -weights  # pylint:disable=invalid-unary-operand-type
+                    * (dipole_vec[0] + 1j * dipole_vec[1]))
         else:
             kwargs["dipstr"] = weights
             kwargs["dipvec"] = dipole_vec
