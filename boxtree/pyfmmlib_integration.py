@@ -66,8 +66,7 @@ class FMMLibExpansionWrangler(object):
             warn("Passing nterms is deprecated. Pass fmm_level_to_nterms instead.",
                     DeprecationWarning, stacklevel=2)
 
-            def fmm_level_to_nterms(tree, level):
-                return nterms
+            fmm_level_to_nterms = lambda _, _: nterms
 
         self.tree = tree
 
@@ -348,7 +347,7 @@ class FMMLibExpansionWrangler(object):
 
     def output_zeros(self):
         if self.ifgrad:
-            from pytools import make_obj_array
+            from pytools.obj_array import make_obj_array
             return make_obj_array([
                     np.zeros(self.tree.ntargets, self.dtype)
                     for i in range(1 + self.dim)])
