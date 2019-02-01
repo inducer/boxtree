@@ -469,9 +469,9 @@ def test_pyfmmlib_fmm(ctx_factory, dims, use_dipoles, helmholtz_k):
         have_sumpy = True
 
     if have_sumpy:
-        from sumpy.kernel import (
+        from sumpy.kernel import (  # pylint:disable=import-error
                 LaplaceKernel, HelmholtzKernel, DirectionalSourceDerivative)
-        from sumpy.p2p import P2P
+        from sumpy.p2p import P2P  # pylint:disable=import-error
 
         sumpy_extra_kwargs = {}
         if helmholtz_k:
