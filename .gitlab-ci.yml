@@ -80,11 +80,12 @@ Python 3 POCL:
         reports:
             junit: test/pytest.xml
 
-Python 3.6 POCL Examples:
+Python 3 POCL Examples:
   script:
-  - export PY_EXE=python3.6
+  - test -n "$SKIP_EXAMPLES" && exit
+  - export PY_EXE=python3
   - export PYOPENCL_TEST=portable
-  - export EXTRA_INSTALL="pybind11 numpy mako matplotlib"
+  - export EXTRA_INSTALL="pybind11 numpy mako pyvisfile matplotlib"
   - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-py-project-and-run-examples.sh
   - ". ./build-py-project-and-run-examples.sh"
   tags:
