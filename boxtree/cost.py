@@ -198,14 +198,15 @@ class AbstractFMMCostModel(ABC):
         pass
 
     @abstractmethod
-    def process_direct(self, traversal, ndirect_sources_by_itgt_box, c_p2p):
+    def process_direct(self, traversal, ndirect_sources_by_itgt_box, p2p_cost):
         """Direct evaluation cost of each target box of *traversal*.
 
         :arg traversal: a :class:`boxtree.traversal.FMMTraversalInfo` object.
         :arg ndirect_sources_by_itgt_box: a :class:`numpy.ndarray` or
             :class:`pyopencl.array.Array` of shape (ntarget_boxes,), with each entry
             representing the number of direct evaluation sources for that target box.
-        :arg c_p2p: calibration constant.
+        :arg p2p_cost: a constant representing the cost of one point-to-point
+            evaluation.
         :return: a :class:`numpy.ndarray` or :class:`pyopencl.array.Array` of shape
             (ntarget_boxes,), with each entry represents the cost of the box.
         """
@@ -741,7 +742,7 @@ class CLFMMCostModel(AbstractFMMCostModel):
 
         return ndirect_sources_by_itgt_box
 
-    def process_direct(self, traversal, ndirect_sources_by_itgt_box, c_p2p):
+    def process_direct(self, traversal, ndirect_sources_by_itgt_box, p2p_cost):
         from pyopencl.array import take
         ntargets_by_itgt_box = take(
             traversal.tree.box_target_counts_nonchild,
@@ -749,7 +750,7 @@ class CLFMMCostModel(AbstractFMMCostModel):
             queue=self.queue
         )
 
-        return ndirect_sources_by_itgt_box * ntargets_by_itgt_box * c_p2p
+        return ndirect_sources_by_itgt_box * ntargets_by_itgt_box * p2p_cost
 
     # }}}
 
@@ -1088,12 +1089,12 @@ class PythonFMMCostModel(AbstractFMMCostModel):
 
         return ndirect_sources_by_itgt_box
 
-    def process_direct(self, traversal, ndirect_sources_by_itgt_box, c_p2p):
+    def process_direct(self, traversal, ndirect_sources_by_itgt_box, p2p_cost):
         ntargets_by_itgt_box = traversal.tree.box_target_counts_nonchild[
             traversal.target_boxes
         ]
 
-        return ntargets_by_itgt_box * ndirect_sources_by_itgt_box * c_p2p
+        return ntargets_by_itgt_box * ndirect_sources_by_itgt_box * p2p_cost
 
     def process_list2(self, traversal, m2l_cost):
         tree = traversal.tree
