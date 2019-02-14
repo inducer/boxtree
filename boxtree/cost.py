@@ -299,7 +299,7 @@ class AbstractFMMCostModel(ABC):
         function can be used for process_* methods in this class.
 
         :arg nlevels: the number of tree levels.
-        :arg xlat_cost: a :class:`TranslationCostModel`.
+        :arg xlat_cost: a :class:`FMMTranslationCostModel`.
         :arg context: a :class:`dict` of parameters passed as context when
             evaluating symbolic expressions in *xlat_cost*.
         :return: a :class:`dict`, the translation cost of each step in FMM.
@@ -1024,13 +1024,10 @@ class CLFMMCostModel(AbstractFMMCostModel):
         else:
             return cl.array.sum(per_box_result).get().reshape(-1)[0]
 
-    def cost_factors_for_kernels_from_model(self, nlevels, xlat_cost, context):
-        translation_costs = super(
-            CLFMMCostModel, self
-        ).cost_factors_for_kernels_from_model(
-            nlevels, xlat_cost, context
-        )
-
+    def translation_costs_to_dev(self, translation_costs):
+        """This helper function transfers all :class:`numpy.ndarray` fields in
+        *translation_costs* to device memory as :class:`pyopencl.array.Array`.
+        """
         for name in translation_costs:
             if not isinstance(translation_costs[name], np.ndarray):
                 continue
@@ -1039,6 +1036,13 @@ class CLFMMCostModel(AbstractFMMCostModel):
             )
 
         return translation_costs
+
+    def cost_factors_for_kernels_from_model(self, nlevels, xlat_cost, context):
+        translation_costs = AbstractFMMCostModel.cost_factors_for_kernels_from_model(
+            self, nlevels, xlat_cost, context
+        )
+
+        return self.translation_costs_to_dev(translation_costs)
 
 
 class PythonFMMCostModel(AbstractFMMCostModel):
