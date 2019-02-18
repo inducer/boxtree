@@ -198,7 +198,8 @@ class AbstractFMMCostModel(ABC):
         pass
 
     @abstractmethod
-    def process_direct(self, traversal, ndirect_sources_by_itgt_box, p2p_cost):
+    def process_direct(self, traversal, ndirect_sources_by_itgt_box, p2p_cost,
+                       box_target_counts_nonchild=None):
         """Direct evaluation cost of each target box of *traversal*.
 
         :arg traversal: a :class:`boxtree.traversal.FMMTraversalInfo` object.
@@ -207,6 +208,11 @@ class AbstractFMMCostModel(ABC):
             representing the number of direct evaluation sources for that target box.
         :arg p2p_cost: a constant representing the cost of one point-to-point
             evaluation.
+        :arg box_target_counts_nonchild: a :class:`numpy.ndarray` or
+            :class:`pyopencl.array.Array` of shape (nboxes,), the number of targets
+            using direct evaluation in this box. For example, this is useful in QBX
+            by specifying the number of non-QBX targets. If None, all targets in
+            boxes are considered.
         :return: a :class:`numpy.ndarray` or :class:`pyopencl.array.Array` of shape
             (ntarget_boxes,), with each entry represents the cost of the box.
         """
@@ -225,12 +231,17 @@ class AbstractFMMCostModel(ABC):
         pass
 
     @abstractmethod
-    def process_list3(self, traversal, m2p_cost):
+    def process_list3(self, traversal, m2p_cost, box_target_counts_nonchild=None):
         """
         :arg traversal: a :class:`boxtree.traversal.FMMTraversalInfo` object.
         :arg m2p_cost: a :class:`numpy.ndarray` or :class:`pyopencl.array.Array`
             of shape (nlevels,) where the ith entry represents the evaluation cost
             from multipole expansion at level i to a point.
+        :arg box_target_counts_nonchild: a :class:`numpy.ndarray` or
+            :class:`pyopencl.array.Array` of shape (nboxes,), the number of targets
+            using multiple-to-point translations in this box. For example, this is
+            useful in QBX by specifying the number of non-QBX targets. If None, all
+            targets in boxes are considered.
         :return: a :class:`numpy.ndarray` or :class:`pyopencl.array.Array` of shape
             (nboxes,), with each entry representing the cost of evaluating all
             targets inside this box from multipole expansions of list-3 boxes.
@@ -259,7 +270,10 @@ class AbstractFMMCostModel(ABC):
             of shape (nlevels,) where the ith entry represents the cost of evaluating
             the potential of a target in a box of level i using the box's local
             expansion.
-        :arg box_target_counts_nonchild: if None, use
+        :arg box_target_counts_nonchild: a :class:`numpy.ndarray` or
+            :class:`pyopencl.array.Array` of shape (nboxes,), the number of targets
+            which need evaluation. For example, this is useful in QBX by specifying
+            the number of non-QBX targets. If None, use
             traversal.tree.box_target_counts_nonchild.
         :return: a :class:`numpy.ndarray` or :class:`pyopencl.array.Array` of shape
             (ntarget_boxes,), the cost of evaluating the potentials of all targets
@@ -464,7 +478,8 @@ class AbstractFMMCostModel(ABC):
 
         return result
 
-    def __call__(self, traversal, level_to_order, params):
+    def __call__(self, traversal, level_to_order, params,
+                 box_target_counts_nonchild=None):
         """Predict cost of a new traversal object.
 
         :arg traversal: a :class:`boxtree.traversal.FMMTraversalInfo` object.
@@ -473,6 +488,11 @@ class AbstractFMMCostModel(ABC):
             of different levels.
         :arg params: the calibration parameters returned by
             *estimate_calibration_params*.
+        :arg box_target_counts_nonchild: a :class:`numpy.ndarray` or
+            :class:`pyopencl.array.Array` of shape (nboxes,), the number of targets
+            which need evaluation. For example, this is useful in QBX by specifying
+            the number of non-QBX targets. If None, use all targets are considered,
+            namely traversal.tree.box_target_counts_nonchild.
         :return: a :class:`dict`, the cost of fmm stages.
         """
         tree = traversal.tree
@@ -489,6 +509,9 @@ class AbstractFMMCostModel(ABC):
             tree.nlevels, xlat_cost, params
         )
 
+        if box_target_counts_nonchild is None:
+            box_target_counts_nonchild = traversal.tree.box_target_counts_nonchild
+
         result["form_multipoles"] = self.process_form_multipoles(
             traversal, translation_cost["p2m_cost"]
         )
@@ -502,7 +525,8 @@ class AbstractFMMCostModel(ABC):
         )
 
         result["eval_direct"] = self.process_direct(
-            traversal, ndirect_sources_per_target_box, translation_cost["c_p2p"]
+            traversal, ndirect_sources_per_target_box, translation_cost["c_p2p"],
+            box_target_counts_nonchild=box_target_counts_nonchild
         )
 
         result["multipole_to_local"] = self.process_list2(
@@ -510,7 +534,8 @@ class AbstractFMMCostModel(ABC):
         )
 
         result["eval_multipoles"] = self.process_list3(
-            traversal, translation_cost["m2p_cost"]
+            traversal, translation_cost["m2p_cost"],
+            box_target_counts_nonchild=box_target_counts_nonchild
         )
 
         result["form_locals"] = self.process_list4(
@@ -522,7 +547,8 @@ class AbstractFMMCostModel(ABC):
         )
 
         result["eval_locals"] = self.process_eval_locals(
-            traversal, translation_cost["l2p_cost"]
+            traversal, translation_cost["l2p_cost"],
+            box_target_counts_nonchild=box_target_counts_nonchild
         )
 
         return result
@@ -742,10 +768,14 @@ class CLFMMCostModel(AbstractFMMCostModel):
 
         return ndirect_sources_by_itgt_box
 
-    def process_direct(self, traversal, ndirect_sources_by_itgt_box, p2p_cost):
+    def process_direct(self, traversal, ndirect_sources_by_itgt_box, p2p_cost,
+                       box_target_counts_nonchild=None):
+        if box_target_counts_nonchild is None:
+            box_target_counts_nonchild = traversal.tree.box_target_counts_nonchild
+
         from pyopencl.array import take
         ntargets_by_itgt_box = take(
-            traversal.tree.box_target_counts_nonchild,
+            box_target_counts_nonchild,
             traversal.target_boxes,
             queue=self.queue
         )
@@ -837,9 +867,12 @@ class CLFMMCostModel(AbstractFMMCostModel):
             name="process_list3"
         )
 
-    def process_list3(self, traversal, m2p_cost):
+    def process_list3(self, traversal, m2p_cost, box_target_counts_nonchild=None):
         tree = traversal.tree
         nm2p = cl.array.zeros(self.queue, tree.nboxes, dtype=np.float64)
+
+        if box_target_counts_nonchild is None:
+            box_target_counts_nonchild = tree.box_target_counts_nonchild
 
         process_list3_knl = self.process_list3_knl(
             tree.box_id_dtype, tree.particle_id_dtype
@@ -850,7 +883,7 @@ class CLFMMCostModel(AbstractFMMCostModel):
             process_list3_knl(
                 traversal.target_boxes_sep_smaller_by_source_level[ilevel],
                 sep_smaller_list.starts,
-                tree.box_target_counts_nonchild,
+                box_target_counts_nonchild,
                 m2p_cost[ilevel].get().reshape(-1)[0],
                 nm2p,
                 queue=self.queue
@@ -956,6 +989,7 @@ class CLFMMCostModel(AbstractFMMCostModel):
         tree = traversal.tree
         ntarget_boxes = len(traversal.target_boxes)
         neval_locals = cl.array.zeros(self.queue, ntarget_boxes, dtype=np.float64)
+
         if box_target_counts_nonchild is None:
             box_target_counts_nonchild = traversal.tree.box_target_counts_nonchild
 
@@ -1093,10 +1127,12 @@ class PythonFMMCostModel(AbstractFMMCostModel):
 
         return ndirect_sources_by_itgt_box
 
-    def process_direct(self, traversal, ndirect_sources_by_itgt_box, p2p_cost):
-        ntargets_by_itgt_box = traversal.tree.box_target_counts_nonchild[
-            traversal.target_boxes
-        ]
+    def process_direct(self, traversal, ndirect_sources_by_itgt_box, p2p_cost,
+                       box_target_counts_nonchild=None):
+        if box_target_counts_nonchild is None:
+            box_target_counts_nonchild = traversal.tree.box_target_counts_nonchild
+
+        ntargets_by_itgt_box = box_target_counts_nonchild[traversal.target_boxes]
 
         return ntargets_by_itgt_box * ndirect_sources_by_itgt_box * p2p_cost
 
@@ -1113,15 +1149,18 @@ class PythonFMMCostModel(AbstractFMMCostModel):
 
         return nm2l
 
-    def process_list3(self, traversal, m2p_cost):
+    def process_list3(self, traversal, m2p_cost, box_target_counts_nonchild=None):
         tree = traversal.tree
         nm2p = np.zeros(tree.nboxes, dtype=np.float64)
+
+        if box_target_counts_nonchild is None:
+            box_target_counts_nonchild = tree.box_target_counts_nonchild
 
         for ilevel, sep_smaller_list in enumerate(
                 traversal.from_sep_smaller_by_level):
             for itgt_box, tgt_ibox in enumerate(
                     traversal.target_boxes_sep_smaller_by_source_level[ilevel]):
-                ntargets = tree.box_target_counts_nonchild[tgt_ibox]
+                ntargets = box_target_counts_nonchild[tgt_ibox]
                 start, end = sep_smaller_list.starts[itgt_box:itgt_box + 2]
                 nm2p[tgt_ibox] += ntargets * (end - start) * m2p_cost[ilevel]
 
