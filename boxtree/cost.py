@@ -446,7 +446,8 @@ class AbstractFMMCostModel(ABC):
         return self.get_fmm_modeled_cost(*args, **kwargs)
 
     def estimate_calibration_params(self, model_results, timing_results,
-                                    wall_time=False):
+                                    wall_time=False,
+                                    additional_stage_to_param_names=()):
         """
         :arg model_results: a :class:`list` of the modeled cost for each step of FMM,
             returned by :func:`get_fmm_modeled_cost`.
@@ -454,6 +455,9 @@ class AbstractFMMCostModel(ABC):
             Each entry is a :class:`dict` filled with timing data returned by
             *boxtree.fmm.drive_fmm*
         :arg wall_time: a :class:`bool`, whether to use wall time or processor time.
+        :arg additional_stage_to_param_names: a :class:`dict` for mapping stage names
+            to parameter names. This is useful for supplying additional stages of
+            QBX.
         :return: a :class:`dict` of calibration parameters.
         """
         nresults = len(model_results)
@@ -470,7 +474,10 @@ class AbstractFMMCostModel(ABC):
             "eval_locals": "c_l2p"
         }
 
-        params = set(_FMM_STAGE_TO_CALIBRATION_PARAMETER.values())
+        stage_to_param_names = _FMM_STAGE_TO_CALIBRATION_PARAMETER.copy()
+        stage_to_param_names.update(additional_stage_to_param_names)
+
+        params = set(stage_to_param_names.values())
 
         uncalibrated_times = {}
         actual_times = {}
@@ -480,8 +487,7 @@ class AbstractFMMCostModel(ABC):
             actual_times[param] = np.zeros(nresults)
 
         for icase, model_result in enumerate(model_results):
-            for stage_name, param_name in \
-                    _FMM_STAGE_TO_CALIBRATION_PARAMETER.items():
+            for stage_name, param_name in stage_to_param_names.items():
                 uncalibrated_times[param_name][icase] = \
                     self.aggregate(model_result[stage_name])
 
@@ -492,8 +498,7 @@ class AbstractFMMCostModel(ABC):
 
         for icase, timing_result in enumerate(timing_results):
             for stage_name, time in timing_result.items():
-                param_name = (
-                    _FMM_STAGE_TO_CALIBRATION_PARAMETER[stage_name])
+                param_name = stage_to_param_names[stage_name]
                 actual_times[param_name][icase] = time[field]
 
         result = {}
