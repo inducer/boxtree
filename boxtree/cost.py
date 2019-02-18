@@ -489,6 +489,11 @@ class AbstractFMMCostModel(ABC):
             of different levels.
         :arg params: the calibration parameters returned by
             *estimate_calibration_params*.
+        :arg ndirect_sources_per_target_box: a :class:`numpy.ndarray` or
+            :class:`pyopencl.array.Array` of shape (ntarget_boxes,), the number of
+            direct evaluation sources (list 1, list 3 close, list 4 close) for each
+            target box. You may find :func:`get_ndirect_sources_per_target_box`
+            helpful.
         :arg box_target_counts_nonchild: a :class:`numpy.ndarray` or
             :class:`pyopencl.array.Array` of shape (nboxes,), the number of targets
             which need evaluation. For example, this is useful in QBX by specifying
