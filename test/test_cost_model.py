@@ -547,7 +547,14 @@ def test_cost_model_gives_correct_op_counts_with_constantone_wrangler(
     }
 
     level_to_order = np.array([1 for _ in range(tree.nlevels)])
-    modeled_time = cost_model(trav_dev, level_to_order, params)
+
+    ndirect_sources_per_target_box = cost_model.get_ndirect_sources_per_target_box(
+        trav_dev
+    )
+
+    modeled_time = cost_model(
+        trav_dev, level_to_order, params, ndirect_sources_per_target_box
+    )
 
     mismatches = []
     for stage in timing_data:

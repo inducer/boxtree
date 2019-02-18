@@ -479,6 +479,7 @@ class AbstractFMMCostModel(ABC):
         return result
 
     def __call__(self, traversal, level_to_order, params,
+                 ndirect_sources_per_target_box,
                  box_target_counts_nonchild=None):
         """Predict cost of a new traversal object.
 
@@ -518,10 +519,6 @@ class AbstractFMMCostModel(ABC):
 
         result["coarsen_multipoles"] = self.process_coarsen_multipoles(
             traversal, translation_cost["m2m_cost"]
-        )
-
-        ndirect_sources_per_target_box = self.get_ndirect_sources_per_target_box(
-            traversal
         )
 
         result["eval_direct"] = self.process_direct(
