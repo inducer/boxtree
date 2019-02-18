@@ -83,8 +83,12 @@ def demo_cost_model():
         wall_time=wall_time
     )
 
+    ndirect_sources_per_target_box = \
+        cl_cost_model.get_ndirect_sources_per_target_box(traversals_dev[-1])
+
     cl_predicted_time = cl_cost_model(
-        traversals_dev[-1], level_to_orders[-1], cl_params
+        traversals_dev[-1], level_to_orders[-1], cl_params,
+        ndirect_sources_per_target_box
     )
 
     for field in ["form_multipoles", "eval_direct", "multipole_to_local",
