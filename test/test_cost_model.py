@@ -446,16 +446,43 @@ def test_estimate_calibration_params(ctx_factory):
             assert test_params1[name] == test_params2[name]
 
     python_cost_model = PythonFMMCostModel(pde_aware_translation_cost_model)
+
+    python_model_results = []
+
+    for icase in range(len(traversals)-1):
+        traversal = traversals[icase]
+        level_to_order = level_to_orders[icase]
+
+        ndirect_sources_per_target_box = (
+            python_cost_model.get_ndirect_sources_per_target_box(traversal))
+
+        python_model_results.append(python_cost_model.get_fmm_modeled_cost(
+            traversal, level_to_order, None, ndirect_sources_per_target_box
+        ))
+
     python_params = python_cost_model.estimate_calibration_params(
-        traversals[:-1], level_to_orders[:-1], timing_results[:-1],
-        wall_time=wall_time
+        python_model_results, timing_results[:-1], wall_time=wall_time
     )
+
     test_params_sanity(python_params)
 
     cl_cost_model = CLFMMCostModel(queue, pde_aware_translation_cost_model)
+
+    cl_model_results = []
+
+    for icase in range(len(traversals_dev)-1):
+        traversal = traversals_dev[icase]
+        level_to_order = level_to_orders[icase]
+
+        ndirect_sources_per_target_box = (
+            cl_cost_model.get_ndirect_sources_per_target_box(traversal))
+
+        cl_model_results.append(cl_cost_model.get_fmm_modeled_cost(
+            traversal, level_to_order, None, ndirect_sources_per_target_box
+        ))
+
     cl_params = cl_cost_model.estimate_calibration_params(
-        traversals_dev[:-1], level_to_orders[:-1], timing_results[:-1],
-        wall_time=wall_time
+        cl_model_results, timing_results[:-1], wall_time=wall_time
     )
     test_params_sanity(cl_params)
 

@@ -77,17 +77,29 @@ def demo_cost_model():
 
     from boxtree.cost import CLFMMCostModel
     from boxtree.cost import pde_aware_translation_cost_model
-    cl_cost_model = CLFMMCostModel(queue, pde_aware_translation_cost_model)
-    cl_params = cl_cost_model.estimate_calibration_params(
-        traversals_dev[:-1], level_to_orders[:-1], timing_results[:-1],
-        wall_time=wall_time
+    cost_model = CLFMMCostModel(queue, pde_aware_translation_cost_model)
+
+    model_results = []
+    for icase in range(len(traversals)-1):
+        traversal = traversals_dev[icase]
+
+        ndirect_sources_per_target_box = (
+            cost_model.get_ndirect_sources_per_target_box(traversal))
+
+        model_results.append(cost_model.get_fmm_modeled_cost(
+            traversals_dev[icase], level_to_orders[icase], None,
+            ndirect_sources_per_target_box)
+        )
+
+    params = cost_model.estimate_calibration_params(
+        model_results, timing_results[:-1], wall_time=wall_time
     )
 
-    ndirect_sources_per_target_box = \
-        cl_cost_model.get_ndirect_sources_per_target_box(traversals_dev[-1])
+    ndirect_sources_per_target_box = (
+        cost_model.get_ndirect_sources_per_target_box(traversals_dev[-1]))
 
-    cl_predicted_time = cl_cost_model(
-        traversals_dev[-1], level_to_orders[-1], cl_params,
+    predicted_time = cost_model(
+        traversals_dev[-1], level_to_orders[-1], params,
         ndirect_sources_per_target_box
     )
 
@@ -95,7 +107,7 @@ def demo_cost_model():
                   "eval_multipoles", "form_locals", "eval_locals",
                   "coarsen_multipoles", "refine_locals"]:
         logger.info("predicted time for {0}: {1}".format(
-            field, str(cl_cost_model.aggregate(cl_predicted_time[field]))
+            field, str(cost_model.aggregate(predicted_time[field]))
         ))
         logger.info("actual time for {0}: {1}".format(
             field, str(timing_results[-1][field]["process_elapsed"])

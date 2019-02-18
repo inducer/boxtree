@@ -350,145 +350,18 @@ class AbstractFMMCostModel(ABC):
             ], dtype=np.float64)
         }
 
-    def estimate_calibration_params(self, traversals, level_to_orders,
-                                    timing_results, wall_time=False):
-        """
-        :arg traversals: a :class:`list` of
-            :class:`boxtree.traversal.FMMTraversalInfo` objects. Note each traversal
-            object can reside on host or device depending on cost counting
-            implemenation instead of the expansion wrangler used for executing.
-        :arg level_to_orders: a :class:`list` of the same length as *traversals*.
-            Each entry is a :class:`numpy.ndarray` representing the expansion order
-            of different levels.
-        :arg timing_results: a :class:`list` of the same length as *traversals*.
-            Each entry is a :class:`dict` filled with timing data returned by
-            *boxtree.fmm.drive_fmm*
-        :arg wall_time: a :class:`bool`, whether to use wall time or processor time.
-        :return: a :class:`dict` of calibration parameters.
-        """
-        nresults = len(traversals)
-        assert len(level_to_orders) == nresults
-        assert len(timing_results) == nresults
-
-        _FMM_STAGE_TO_CALIBRATION_PARAMETER = {
-            "form_multipoles": "c_p2m",
-            "coarsen_multipoles": "c_m2m",
-            "eval_direct": "c_p2p",
-            "multipole_to_local": "c_m2l",
-            "eval_multipoles": "c_m2p",
-            "form_locals": "c_p2l",
-            "refine_locals": "c_l2l",
-            "eval_locals": "c_l2p"
-        }
-
-        params = set(_FMM_STAGE_TO_CALIBRATION_PARAMETER.values())
-
-        uncalibrated_times = {}
-        actual_times = {}
-
-        for param in params:
-            uncalibrated_times[param] = np.zeros(nresults)
-            actual_times[param] = np.zeros(nresults)
-
-        for icase, traversal in enumerate(traversals):
-            tree = traversal.tree
-
-            xlat_cost = self.translation_cost_model_factory(
-                tree.dimensions, tree.nlevels
-            )
-
-            training_ctx = dict(
-                c_l2l=1,
-                c_l2p=1,
-                c_m2l=1,
-                c_m2m=1,
-                c_m2p=1,
-                c_p2l=1,
-                c_p2m=1,
-                c_p2p=1
-            )
-            for ilevel in range(tree.nlevels):
-                training_ctx["p_fmm_lev%d" % ilevel] = level_to_orders[icase][ilevel]
-
-            translation_cost = self.cost_factors_for_kernels_from_model(
-                tree.nlevels, xlat_cost, training_ctx
-            )
-
-            uncalibrated_times["c_p2m"][icase] = self.aggregate(
-                self.process_form_multipoles(traversal, translation_cost["p2m_cost"])
-            )
-
-            uncalibrated_times["c_m2m"][icase] = self.process_coarsen_multipoles(
-                traversal, translation_cost["m2m_cost"]
-            )
-
-            ndirect_sources_per_target_box = \
-                self.get_ndirect_sources_per_target_box(traversal)
-
-            uncalibrated_times["c_p2p"][icase] = self.aggregate(
-                self.process_direct(
-                    traversal, ndirect_sources_per_target_box,
-                    translation_cost["c_p2p"]
-                )
-            )
-
-            uncalibrated_times["c_m2l"][icase] = self.aggregate(
-                self.process_list2(traversal, translation_cost["m2l_cost"])
-            )
-
-            uncalibrated_times["c_m2p"][icase] = self.aggregate(
-                self.process_list3(traversal, translation_cost["m2p_cost"])
-            )
-
-            uncalibrated_times["c_p2l"][icase] = self.aggregate(
-                self.process_list4(traversal, translation_cost["p2l_cost"])
-            )
-
-            uncalibrated_times["c_l2l"][icase] = self.process_refine_locals(
-                traversal, translation_cost["l2l_cost"]
-            )
-
-            uncalibrated_times["c_l2p"][icase] = self.aggregate(
-                self.process_eval_locals(traversal, translation_cost["l2p_cost"])
-            )
-
-        if wall_time:
-            field = "wall_elapsed"
-        else:
-            field = "process_elapsed"
-
-        for icase, timing_result in enumerate(timing_results):
-            for param, time in timing_result.items():
-                calibration_param = (
-                    _FMM_STAGE_TO_CALIBRATION_PARAMETER[param])
-                actual_times[calibration_param][icase] = time[field]
-
-        result = {}
-
-        for param in params:
-            uncalibrated = uncalibrated_times[param]
-            actual = actual_times[param]
-
-            if np.allclose(uncalibrated, 0):
-                result[param] = float("NaN")
-                continue
-
-            result[param] = (
-                    actual.dot(uncalibrated) / uncalibrated.dot(uncalibrated))
-
-        return result
-
-    def __call__(self, traversal, level_to_order, params,
-                 ndirect_sources_per_target_box,
-                 box_target_counts_nonchild=None):
+    def get_fmm_modeled_cost(self, traversal, level_to_order, params,
+                             ndirect_sources_per_target_box,
+                             box_target_counts_nonchild=None):
         """Predict cost of a new traversal object.
 
         :arg traversal: a :class:`boxtree.traversal.FMMTraversalInfo` object.
         :arg level_to_order: a :class:`numpy.ndarray` of shape
             (traversal.tree.nlevels,) representing the expansion orders
             of different levels.
-        :arg params: the calibration parameters returned by
-            *estimate_calibration_params*.
+        :arg params: the calibration parameters. For evaluation, use parameters
+            returned by *estimate_calibration_params*. For training, specify None
+            will make all cost modifier 1.
         :arg ndirect_sources_per_target_box: a :class:`numpy.ndarray` or
             :class:`pyopencl.array.Array` of shape (ntarget_boxes,), the number of
             direct evaluation sources (list 1, list 3 close, list 4 close) for each
@@ -503,6 +376,18 @@ class AbstractFMMCostModel(ABC):
         """
         tree = traversal.tree
         result = {}
+
+        if params is None:
+            params = dict(
+                c_l2l=1.0,
+                c_l2p=1.0,
+                c_m2l=1.0,
+                c_m2m=1.0,
+                c_m2p=1.0,
+                c_p2l=1.0,
+                c_p2m=1.0,
+                c_p2p=1.0,
+            )
 
         for ilevel in range(tree.nlevels):
             params["p_fmm_lev%d" % ilevel] = level_to_order[ilevel]
@@ -552,6 +437,77 @@ class AbstractFMMCostModel(ABC):
             traversal, translation_cost["l2p_cost"],
             box_target_counts_nonchild=box_target_counts_nonchild
         )
+
+        return result
+
+    def __call__(self, *args, **kwargs):
+        """Shortcut for :func:`get_fmm_modeled_cost`.
+        """
+        return self.get_fmm_modeled_cost(*args, **kwargs)
+
+    def estimate_calibration_params(self, model_results, timing_results,
+                                    wall_time=False):
+        """
+        :arg model_results: a :class:`list` of the modeled cost for each step of FMM,
+            returned by :func:`get_fmm_modeled_cost`.
+        :arg timing_results: a :class:`list` of the same length as *model_results*.
+            Each entry is a :class:`dict` filled with timing data returned by
+            *boxtree.fmm.drive_fmm*
+        :arg wall_time: a :class:`bool`, whether to use wall time or processor time.
+        :return: a :class:`dict` of calibration parameters.
+        """
+        nresults = len(model_results)
+        assert len(timing_results) == nresults
+
+        _FMM_STAGE_TO_CALIBRATION_PARAMETER = {
+            "form_multipoles": "c_p2m",
+            "coarsen_multipoles": "c_m2m",
+            "eval_direct": "c_p2p",
+            "multipole_to_local": "c_m2l",
+            "eval_multipoles": "c_m2p",
+            "form_locals": "c_p2l",
+            "refine_locals": "c_l2l",
+            "eval_locals": "c_l2p"
+        }
+
+        params = set(_FMM_STAGE_TO_CALIBRATION_PARAMETER.values())
+
+        uncalibrated_times = {}
+        actual_times = {}
+
+        for param in params:
+            uncalibrated_times[param] = np.zeros(nresults)
+            actual_times[param] = np.zeros(nresults)
+
+        for icase, model_result in enumerate(model_results):
+            for stage_name, param_name in \
+                    _FMM_STAGE_TO_CALIBRATION_PARAMETER.items():
+                uncalibrated_times[param_name][icase] = \
+                    self.aggregate(model_result[stage_name])
+
+        if wall_time:
+            field = "wall_elapsed"
+        else:
+            field = "process_elapsed"
+
+        for icase, timing_result in enumerate(timing_results):
+            for stage_name, time in timing_result.items():
+                param_name = (
+                    _FMM_STAGE_TO_CALIBRATION_PARAMETER[stage_name])
+                actual_times[param_name][icase] = time[field]
+
+        result = {}
+
+        for param in params:
+            uncalibrated = uncalibrated_times[param]
+            actual = actual_times[param]
+
+            if np.allclose(uncalibrated, 0):
+                result[param] = float("NaN")
+                continue
+
+            result[param] = (
+                    actual.dot(uncalibrated) / uncalibrated.dot(uncalibrated))
 
         return result
 
