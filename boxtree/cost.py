@@ -61,7 +61,13 @@ else:
 
 
 class FMMTranslationCostModel(object):
-    """Provides modeled costs for individual translations or evaluations."""
+    """Provides modeled costs for individual translations or evaluations.
+
+    .. note:: Current implementation assumes the calibration parameters are linear
+        in the modeled cost. For example,
+        `var("c_p2l") * self.ncoeffs_fmm_by_level[level]` is valid, but
+        `var("c_p2l") ** 2 * self.ncoeffs_fmm_by_level[level]` is not.
+    """
 
     def __init__(self, ncoeffs_fmm_by_level, uses_point_and_shoot):
         self.ncoeffs_fmm_by_level = ncoeffs_fmm_by_level
@@ -148,13 +154,26 @@ def taylor_translation_cost_model(dim, nlevels):
 
 class AbstractFMMCostModel(ABC):
     def __init__(self,
+                 calibration_params,
                  translation_cost_model_factory=pde_aware_translation_cost_model):
         """
+        :arg calibration_params: the calibration parameters. For evaluation, use
+            parameters returned by :func:`estimate_calibration_params`. For training,
+            use :func:`get_constantone_calibration_params` to make all cost modifiers
+            1.
         :arg translation_cost_model_factory: a function, which takes tree dimension
             and the number of tree levels as arguments, returns an object of
             :class:`TranslationCostModel`.
         """
+        self.calibration_params = calibration_params
         self.translation_cost_model_factory = translation_cost_model_factory
+
+    def with_calibration_params(self, calibration_params):
+        """Return a copy of *self* with a new set of calibration parameters."""
+        return type(self)(
+            calibration_params,
+            translation_cost_model_factory=self.translation_cost_model_factory
+        )
 
     @abstractmethod
     def process_form_multipoles(self, traversal, p2m_cost):
@@ -350,7 +369,7 @@ class AbstractFMMCostModel(ABC):
             ], dtype=np.float64)
         }
 
-    def get_fmm_modeled_cost(self, traversal, level_to_order, params,
+    def get_fmm_modeled_cost(self, traversal, level_to_order,
                              ndirect_sources_per_target_box,
                              box_target_counts_nonchild=None):
         """Predict cost of a new traversal object.
@@ -359,9 +378,6 @@ class AbstractFMMCostModel(ABC):
         :arg level_to_order: a :class:`numpy.ndarray` of shape
             (traversal.tree.nlevels,) representing the expansion orders
             of different levels.
-        :arg params: the calibration parameters. For evaluation, use parameters
-            returned by *estimate_calibration_params*. For training, specify None
-            will make all cost modifier 1.
         :arg ndirect_sources_per_target_box: a :class:`numpy.ndarray` or
             :class:`pyopencl.array.Array` of shape (ntarget_boxes,), the number of
             direct evaluation sources (list 1, list 3 close, list 4 close) for each
@@ -375,19 +391,8 @@ class AbstractFMMCostModel(ABC):
         :return: a :class:`dict`, the cost of fmm stages.
         """
         tree = traversal.tree
+        params = self.calibration_params.copy()
         result = {}
-
-        if params is None:
-            params = dict(
-                c_l2l=1.0,
-                c_l2p=1.0,
-                c_m2l=1.0,
-                c_m2m=1.0,
-                c_m2p=1.0,
-                c_p2l=1.0,
-                c_p2m=1.0,
-                c_p2p=1.0,
-            )
 
         for ilevel in range(tree.nlevels):
             params["p_fmm_lev%d" % ilevel] = level_to_order[ilevel]
@@ -445,6 +450,19 @@ class AbstractFMMCostModel(ABC):
         """
         return self.get_fmm_modeled_cost(*args, **kwargs)
 
+    @staticmethod
+    def get_constantone_calibration_params():
+        return dict(
+            c_l2l=1.0,
+            c_l2p=1.0,
+            c_m2l=1.0,
+            c_m2m=1.0,
+            c_m2p=1.0,
+            c_p2l=1.0,
+            c_p2m=1.0,
+            c_p2p=1.0,
+        )
+
     def estimate_calibration_params(self, model_results, timing_results,
                                     wall_time=False,
                                     additional_stage_to_param_names=()):
@@ -458,7 +476,9 @@ class AbstractFMMCostModel(ABC):
         :arg additional_stage_to_param_names: a :class:`dict` for mapping stage names
             to parameter names. This is useful for supplying additional stages of
             QBX.
-        :return: a :class:`dict` of calibration parameters.
+        :return: a :class:`dict` of calibration parameters. If there is no model
+            result for a particular stage, the estimated calibration parameter for
+            that stage is NaN.
         """
         nresults = len(model_results)
         assert len(timing_results) == nresults
@@ -488,8 +508,9 @@ class AbstractFMMCostModel(ABC):
 
         for icase, model_result in enumerate(model_results):
             for stage_name, param_name in stage_to_param_names.items():
-                uncalibrated_times[param_name][icase] = \
-                    self.aggregate(model_result[stage_name])
+                if stage_name in model_result:
+                    uncalibrated_times[param_name][icase] = (
+                        self.aggregate(model_result[stage_name]))
 
         if wall_time:
             field = "wall_elapsed"
@@ -523,9 +544,19 @@ class CLFMMCostModel(AbstractFMMCostModel):
         memory.
     """
     def __init__(self, queue,
+                 calibration_params,
                  translation_cost_model_factory=pde_aware_translation_cost_model):
         self.queue = queue
-        super(CLFMMCostModel, self).__init__(translation_cost_model_factory)
+        AbstractFMMCostModel.__init__(
+            self, calibration_params, translation_cost_model_factory
+        )
+
+    def with_calibration_params(self, calibration_params):
+        """Return a copy of *self* with a new set of calibration parameters."""
+        return type(self)(
+            self.queue, calibration_params,
+            translation_cost_model_factory=self.translation_cost_model_factory
+        )
 
     # {{{ form multipoles
 

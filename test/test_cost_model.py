@@ -59,19 +59,10 @@ def test_compare_cl_and_py_cost_model(ctx_factory, nsources, ntargets, dims, dty
 
     # {{{ Construct cost models
 
-    cl_cost_model = CLFMMCostModel(queue, None)
-    python_cost_model = PythonFMMCostModel(None)
+    cl_cost_model = CLFMMCostModel(queue, None, None)
+    python_cost_model = PythonFMMCostModel(None, None)
 
-    constant_one_params = dict(
-        c_l2l=1,
-        c_l2p=1,
-        c_m2l=1,
-        c_m2m=1,
-        c_m2p=1,
-        c_p2l=1,
-        c_p2m=1,
-        c_p2p=1
-    )
+    constant_one_params = cl_cost_model.get_constantone_calibration_params().copy()
     for ilevel in range(trav.tree.nlevels):
         constant_one_params["p_fmm_lev%d" % ilevel] = 10
 
@@ -445,7 +436,10 @@ def test_estimate_calibration_params(ctx_factory):
         for name in param_names:
             assert test_params1[name] == test_params2[name]
 
-    python_cost_model = PythonFMMCostModel(pde_aware_translation_cost_model)
+    python_cost_model = PythonFMMCostModel(
+        PythonFMMCostModel.get_constantone_calibration_params(),
+        pde_aware_translation_cost_model
+    )
 
     python_model_results = []
 
@@ -457,7 +451,7 @@ def test_estimate_calibration_params(ctx_factory):
             python_cost_model.get_ndirect_sources_per_target_box(traversal))
 
         python_model_results.append(python_cost_model.get_fmm_modeled_cost(
-            traversal, level_to_order, None, ndirect_sources_per_target_box
+            traversal, level_to_order, ndirect_sources_per_target_box
         ))
 
     python_params = python_cost_model.estimate_calibration_params(
@@ -466,7 +460,10 @@ def test_estimate_calibration_params(ctx_factory):
 
     test_params_sanity(python_params)
 
-    cl_cost_model = CLFMMCostModel(queue, pde_aware_translation_cost_model)
+    cl_cost_model = CLFMMCostModel(
+        queue, CLFMMCostModel.get_constantone_calibration_params(),
+        pde_aware_translation_cost_model
+    )
 
     cl_model_results = []
 
@@ -478,7 +475,7 @@ def test_estimate_calibration_params(ctx_factory):
             cl_cost_model.get_ndirect_sources_per_target_box(traversal))
 
         cl_model_results.append(cl_cost_model.get_fmm_modeled_cost(
-            traversal, level_to_order, None, ndirect_sources_per_target_box
+            traversal, level_to_order, ndirect_sources_per_target_box
         ))
 
     cl_params = cl_cost_model.estimate_calibration_params(
@@ -558,20 +555,9 @@ def test_cost_model_gives_correct_op_counts_with_constantone_wrangler(
     drive_fmm(trav, wrangler, src_weights, timing_data=timing_data)
 
     cost_model = CLFMMCostModel(
-        queue,
+        queue, CLFMMCostModel.get_constantone_calibration_params(),
         translation_cost_model_factory=OpCountingTranslationCostModel
     )
-
-    params = {
-        "c_p2m": 1.0,
-        "c_m2m": 1.0,
-        "c_p2p": 1.0,
-        "c_m2l": 1.0,
-        "c_m2p": 1.0,
-        "c_p2l": 1.0,
-        "c_l2l": 1.0,
-        "c_l2p": 1.0
-    }
 
     level_to_order = np.array([1 for _ in range(tree.nlevels)])
 
@@ -580,7 +566,7 @@ def test_cost_model_gives_correct_op_counts_with_constantone_wrangler(
     )
 
     modeled_time = cost_model(
-        trav_dev, level_to_order, params, ndirect_sources_per_target_box
+        trav_dev, level_to_order, ndirect_sources_per_target_box
     )
 
     mismatches = []
