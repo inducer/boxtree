@@ -86,8 +86,8 @@ def _test_against_shared(dims, nsources, ntargets, dtype):
     pot_dfmm = distribued_fmm_info.drive_dfmm(sources_weights)
 
     if rank == 0:
-        error = (la.norm(pot_fmm - pot_dfmm * 2 * np.pi, ord=np.inf) /
-                 la.norm(pot_fmm, ord=np.inf))
+        error = (la.norm(pot_fmm - pot_dfmm * 2 * np.pi, ord=np.inf)
+                 / la.norm(pot_fmm, ord=np.inf))
         print(error)
         assert error < 1e-14
 
@@ -150,8 +150,8 @@ def _test_constantone(dims, nsources, ntargets, dtype):
         # Generate random particles
         from boxtree.tools import make_normal_particle_array as p_normal
         sources = p_normal(queue, nsources, dims, dtype, seed=15)
-        targets = (p_normal(queue, ntargets, dims, dtype, seed=18) +
-                   np.array([2, 0, 0])[:dims])
+        targets = (p_normal(queue, ntargets, dims, dtype, seed=18)
+                   + np.array([2, 0, 0])[:dims])
 
         # Constant one source weights
         sources_weights = np.ones((nsources,), dtype=dtype)

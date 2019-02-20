@@ -84,7 +84,7 @@ Python 3 POCL MPI:
     script:
     - export PY_EXE=python3
     - export PYOPENCL_TEST=portable
-    - export EXTRA_INSTALL="numpy mako mpi4py"
+    - export EXTRA_INSTALL="numpy mako mpi4py pybind11"
     - export PYTEST_ADDOPTS="-k mpi --capture=no"
     - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project.sh
     - ". ./build-and-test-py-project.sh"
@@ -94,10 +94,28 @@ Python 3 POCL MPI:
     except:
     - tags
 
+Python 3 POCL Examples:
+  script:
+  - test -n "$SKIP_EXAMPLES" && exit
+  - export PY_EXE=python3
+  - export PYOPENCL_TEST=portable
+  - export EXTRA_INSTALL="pybind11 numpy mako pyvisfile matplotlib"
+  - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-py-project-and-run-examples.sh
+  - ". ./build-py-project-and-run-examples.sh"
+  tags:
+  - python3
+  - pocl
+  except:
+  - tags
+  artifacts:
+    reports:
+      junit: test/pytest.xml
+
+
 Pylint:
   script:
   - export PY_EXE=python3
-  - EXTRA_INSTALL="pybind11 numpy mako matplotlib"
+  - EXTRA_INSTALL="pybind11 numpy mako matplotlib mpi4py"
   - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/prepare-and-run-pylint.sh
   - ". ./prepare-and-run-pylint.sh boxtree test/test_*.py"
   tags:

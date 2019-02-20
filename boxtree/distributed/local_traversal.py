@@ -50,18 +50,24 @@ def generate_local_travs(
             __global ${particle_id_t} *box_target_counts_nonchild,
             __global ${particle_id_t} *box_target_counts_cumul,
             __global ${box_flag_t} *box_flags
-        """).render(particle_id_t=dtype_to_ctype(local_tree.particle_id_dtype),
-                    box_flag_t=box_flag_t),
+        """).render(
+            particle_id_t=dtype_to_ctype(local_tree.particle_id_dtype),
+            box_flag_t=box_flag_t
+        ),
         Template("""
             box_flags[i] &= (~${HAS_OWN_TARGETS});
             box_flags[i] &= (~${HAS_CHILD_TARGETS});
             if(box_target_counts_nonchild[i]) box_flags[i] |= ${HAS_OWN_TARGETS};
             if(box_target_counts_nonchild[i] < box_target_counts_cumul[i])
                 box_flags[i] |= ${HAS_CHILD_TARGETS};
-        """).render(HAS_OWN_TARGETS=("(" + box_flag_t + ") " +
-                                     str(box_flags_enum.HAS_OWN_TARGETS)),
-                    HAS_CHILD_TARGETS=("(" + box_flag_t + ") " +
-                                       str(box_flags_enum.HAS_CHILD_TARGETS)))
+        """).render(
+            HAS_OWN_TARGETS=(
+                "(" + box_flag_t + ") " + str(box_flags_enum.HAS_OWN_TARGETS)
+            ),
+            HAS_CHILD_TARGETS=(
+                "(" + box_flag_t + ") " + str(box_flags_enum.HAS_CHILD_TARGETS)
+            )
+        )
     )
 
     modify_target_flags_knl(d_tree.box_target_counts_nonchild,
@@ -72,15 +78,19 @@ def generate_local_travs(
     local_box_flags = d_tree.box_flags & 250
     modify_own_sources_knl = cl.elementwise.ElementwiseKernel(
         queue.context,
-        Template("""
+        Template(r"""
             __global ${box_id_t} *responsible_box_list,
             __global ${box_flag_t} *box_flags
-        """).render(box_id_t=dtype_to_ctype(local_tree.box_id_dtype),
-                    box_flag_t=box_flag_t),
+        """).render(
+            box_id_t=dtype_to_ctype(local_tree.box_id_dtype),
+            box_flag_t=box_flag_t
+        ),
         Template(r"""
             box_flags[responsible_box_list[i]] |= ${HAS_OWN_SOURCES};
-        """).render(HAS_OWN_SOURCES=("(" + box_flag_t + ") " +
-                                     str(box_flags_enum.HAS_OWN_SOURCES)))
+        """).render(
+            HAS_OWN_SOURCES=(
+                "(" + box_flag_t + ") " + str(box_flags_enum.HAS_OWN_SOURCES))
+            )
         )
 
     modify_child_sources_knl = cl.elementwise.ElementwiseKernel(
@@ -88,11 +98,16 @@ def generate_local_travs(
         Template("""
             __global char *ancestor_box_mask,
             __global ${box_flag_t} *box_flags
-        """).render(box_flag_t=box_flag_t),
+        """).render(
+            box_flag_t=box_flag_t
+        ),
         Template("""
             if(ancestor_box_mask[i]) box_flags[i] |= ${HAS_CHILD_SOURCES};
-        """).render(HAS_CHILD_SOURCES=("(" + box_flag_t + ") " +
-                                       str(box_flags_enum.HAS_CHILD_SOURCES)))
+        """).render(
+            HAS_CHILD_SOURCES=(
+                "(" + box_flag_t + ") " + str(box_flags_enum.HAS_CHILD_SOURCES)
+            )
+        )
     )
 
     modify_own_sources_knl(d_tree.responsible_boxes_list, local_box_flags)
