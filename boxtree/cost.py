@@ -450,6 +450,21 @@ class AbstractFMMCostModel(ABC):
         """
         return self.get_fmm_modeled_cost(*args, **kwargs)
 
+    @abstractmethod
+    def aggregate_stage_costs_per_box(self, traversal, cost_result):
+        """Given per-stage costs, this method calculates the sum of costs from all
+        stages for each box. This is used for load balancing in distributed
+        implementation.
+
+        :arg traversal: a :class:`boxtree.traversal.FMMTraversalInfo` object.
+        :arg cost_result: modeled cost of each stage by
+            :func:`get_fmm_modeled_cost`.
+        :return: a :class:`numpy.ndarray` or :class:`pyopencl.array.Array` of shape
+            (nboxes,), where the ith entry represents the cost of all stages for box
+            i.
+        """
+        pass
+
     @staticmethod
     def get_constantone_calibration_params():
         return dict(
@@ -1074,6 +1089,25 @@ class CLFMMCostModel(AbstractFMMCostModel):
 
         return self.translation_costs_to_dev(translation_costs)
 
+    def aggregate_stage_costs_per_box(self, traversal, cost_result):
+        tree = traversal.tree
+        nboxes = tree.nboxes
+        source_boxes = traversal.source_boxes
+        target_boxes = traversal.target_boxes
+        target_or_target_parent_boxes = traversal.target_or_target_parent_boxes
+
+        cost_per_box = cl.array.zeros(self.queue, (nboxes,), dtype=np.float64)
+
+        cost_per_box[source_boxes] += cost_result["form_multipoles"]
+        cost_per_box[target_boxes] += cost_result["eval_direct"]
+        cost_per_box[target_or_target_parent_boxes] += \
+            cost_result["multipole_to_local"]
+        cost_per_box += cost_result["eval_multipoles"]
+        cost_per_box[target_or_target_parent_boxes] += cost_result["form_locals"]
+        cost_per_box[target_boxes] += cost_result["eval_locals"]
+
+        return cost_per_box
+
 
 class PythonFMMCostModel(AbstractFMMCostModel):
     def process_form_multipoles(self, traversal, p2m_cost):
@@ -1238,3 +1272,22 @@ class PythonFMMCostModel(AbstractFMMCostModel):
             return per_box_result
         else:
             return np.sum(per_box_result)
+
+    def aggregate_stage_costs_per_box(self, traversal, cost_result):
+        tree = traversal.tree
+        nboxes = tree.nboxes
+        source_boxes = traversal.source_boxes
+        target_boxes = traversal.target_boxes
+        target_or_target_parent_boxes = traversal.target_or_target_parent_boxes
+
+        cost_per_box = np.zeros(nboxes, dtype=np.float64)
+
+        cost_per_box[source_boxes] += cost_result["form_multipoles"]
+        cost_per_box[target_boxes] += cost_result["eval_direct"]
+        cost_per_box[target_or_target_parent_boxes] += \
+            cost_result["multipole_to_local"]
+        cost_per_box += cost_result["eval_multipoles"]
+        cost_per_box[target_or_target_parent_boxes] += cost_result["form_locals"]
+        cost_per_box[target_boxes] += cost_result["eval_locals"]
+
+        return cost_per_box

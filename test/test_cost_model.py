@@ -578,6 +578,22 @@ def test_cost_model_gives_correct_op_counts_with_constantone_wrangler(
 
     assert not mismatches, "\n".join(str(s) for s in mismatches)
 
+    # {{{ Test aggregate_stage_costs_per_box
+
+    total_cost = 0.0
+    for stage in timing_data:
+        total_cost += timing_data[stage]["ops_elapsed"]
+
+    per_box_cost = cost_model.aggregate_stage_costs_per_box(trav_dev, modeled_time)
+    total_aggregate_cost = cost_model.aggregate(per_box_cost)
+    assert total_cost == (
+            total_aggregate_cost
+            + modeled_time["coarsen_multipoles"]
+            + modeled_time["refine_locals"]
+    )
+
+    # }}}
+
 
 # You can test individual routines by typing
 # $ python test_cost_model.py 'test_routine(cl.create_some_context)'
