@@ -27,7 +27,7 @@ import numpy as np
 from pytools import Record, memoize_method
 import pyopencl as cl
 import pyopencl.array  # noqa
-from pyopencl.tools import dtype_to_c_struct, ScalarArg, VectorArg as _VectorArg
+from pyopencl.tools import dtype_to_c_struct, VectorArg as _VectorArg
 from mako.template import Template
 from pytools.obj_array import make_obj_array
 from boxtree.fmm import TimingFuture, TimingResult
@@ -666,6 +666,7 @@ class MaskCompressorKernel(object):
     @memoize_method
     def get_matrix_compressor_kernel(self, mask_dtype, list_dtype):
         from pyopencl.algorithm import ListOfListsBuilder
+        from pyopencl.tools import VectorArg, ScalarArg
 
         return ListOfListsBuilder(
                 self.context,

@@ -514,26 +514,6 @@ class PerformanceModel:
 
             return coeff
 
-    def time_random_traversals(self):
-        context = self.cl_context
-        dtype = np.float64
-
-        traversals = []
-
-        for nsources, ntargets, dims in [(9000, 9000, 3),
-                                         (12000, 12000, 3),
-                                         (15000, 15000, 3),
-                                         (18000, 18000, 3),
-                                         (21000, 21000, 3)]:
-            generated_traversal = generate_random_traversal(
-                context, nsources, ntargets, dims, dtype
-            )
-
-            traversals.append(generated_traversal)
-
-        for trav in traversals:
-            self.time_performance(trav)
-
     def predict_step_time(self, eval_counter, wall_time=True):
         predict_timing = {}
 
