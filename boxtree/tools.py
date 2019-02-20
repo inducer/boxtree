@@ -27,10 +27,20 @@ import numpy as np
 from pytools import Record, memoize_method
 import pyopencl as cl
 import pyopencl.array  # noqa
-from pyopencl.tools import dtype_to_c_struct
+from pyopencl.tools import dtype_to_c_struct, VectorArg as _VectorArg
+from pyopencl.tools import ScalarArg  # noqa
 from mako.template import Template
 from pytools.obj_array import make_obj_array
 from boxtree.fmm import TimingFuture, TimingResult
+import loopy as lp
+
+from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2  # noqa
+
+from functools import partial
+
+
+# Use offsets in VectorArg by default.
+VectorArg = partial(_VectorArg, with_offset=True)
 
 
 AXIS_NAMES = ("x", "y", "z", "w")
@@ -100,16 +110,16 @@ def make_normal_particle_array(queue, nparticles, dims, dtype, seed=15):
 
 
 def make_surface_particle_array(queue, nparticles, dims, dtype, seed=15):
-    import loopy as lp
-
     if dims == 2:
         def get_2d_knl(dtype):
             knl = lp.make_kernel(
                 "{[i]: 0<=i<n}",
                 """
-                    <> phi = 2*M_PI/n * i
-                    x[i] = 0.5* (3*cos(phi) + 2*sin(3*phi))
-                    y[i] = 0.5* (1*sin(phi) + 1.5*sin(2*phi))
+                    for i
+                        <> phi = 2*M_PI/n * i
+                        x[i] = 0.5* (3*cos(phi) + 2*sin(3*phi))
+                        y[i] = 0.5* (1*sin(phi) + 1.5*sin(2*phi))
+                    end
                     """,
                 [
                     lp.GlobalArg("x,y", dtype, shape=lp.auto),
@@ -133,11 +143,13 @@ def make_surface_particle_array(queue, nparticles, dims, dtype, seed=15):
             knl = lp.make_kernel(
                 "{[i,j]: 0<=i,j<n}",
                 """
-                    <> phi = 2*M_PI/n * i
-                    <> theta = 2*M_PI/n * j
-                    x[i,j] = 5*cos(phi) * (3 + cos(theta))
-                    y[i,j] = 5*sin(phi) * (3 + cos(theta))
-                    z[i,j] = 5*sin(theta)
+                    for i,j
+                        <> phi = 2*M_PI/n * i
+                        <> theta = 2*M_PI/n * j
+                        x[i,j] = 5*cos(phi) * (3 + cos(theta))
+                        y[i,j] = 5*sin(phi) * (3 + cos(theta))
+                        z[i,j] = 5*sin(theta)
+                    end
                     """,
                 [
                     lp.GlobalArg("x,y,z,", dtype, shape=lp.auto),
@@ -159,8 +171,6 @@ def make_surface_particle_array(queue, nparticles, dims, dtype, seed=15):
 
 
 def make_uniform_particle_array(queue, nparticles, dims, dtype, seed=15):
-    import loopy as lp
-
     if dims == 2:
         n = int(nparticles**0.5)
 
@@ -168,13 +178,15 @@ def make_uniform_particle_array(queue, nparticles, dims, dtype, seed=15):
             knl = lp.make_kernel(
                 "{[i,j]: 0<=i,j<n}",
                 """
-                    <> xx = 4*i/(n-1)
-                    <> yy = 4*j/(n-1)
-                    <float64> angle = 0.3
-                    <> s = sin(angle)
-                    <> c = cos(angle)
-                    x[i,j] = c*xx + s*yy - 2
-                    y[i,j] = -s*xx + c*yy - 2
+                    for i,j
+                        <> xx = 4*i/(n-1)
+                        <> yy = 4*j/(n-1)
+                        <float64> angle = 0.3
+                        <> s = sin(angle)
+                        <> c = cos(angle)
+                        x[i,j] = c*xx + s*yy - 2
+                        y[i,j] = -s*xx + c*yy - 2
+                    end
                     """,
                 [
                     lp.GlobalArg("x,y", dtype, shape=lp.auto),
@@ -198,25 +210,27 @@ def make_uniform_particle_array(queue, nparticles, dims, dtype, seed=15):
             knl = lp.make_kernel(
                 "{[i,j,k]: 0<=i,j,k<n}",
                 """
-                    <> xx = i/(n-1)
-                    <> yy = j/(n-1)
-                    <> zz = k/(n-1)
+                    for i,j,k
+                        <> xx = i/(n-1)
+                        <> yy = j/(n-1)
+                        <> zz = k/(n-1)
 
-                    <float64> phi = 0.3
-                    <> s1 = sin(phi)
-                    <> c1 = cos(phi)
+                        <float64> phi = 0.3
+                        <> s1 = sin(phi)
+                        <> c1 = cos(phi)
 
-                    <> xxx = c1*xx + s1*yy
-                    <> yyy = -s1*xx + c1*yy
-                    <> zzz = zz
+                        <> xxx = c1*xx + s1*yy
+                        <> yyy = -s1*xx + c1*yy
+                        <> zzz = zz
 
-                    <float64> theta = 0.7
-                    <> s2 = sin(theta)
-                    <> c2 = cos(theta)
+                        <float64> theta = 0.7
+                        <> s2 = sin(theta)
+                        <> c2 = cos(theta)
 
-                    x[i,j,k] = 4 * (c2*xxx + s2*zzz) - 2
-                    y[i,j,k] = 4 * yyy - 2
-                    z[i,j,k] = 4 * (-s2*xxx + c2*zzz) - 2
+                        x[i,j,k] = 4 * (c2*xxx + s2*zzz) - 2
+                        y[i,j,k] = 4 * yyy - 2
+                        z[i,j,k] = 4 * (-s2*xxx + c2*zzz) - 2
+                    end
                     """,
                 [
                     lp.GlobalArg("x,y,z", dtype, shape=lp.auto),
@@ -378,21 +392,21 @@ class GappyCopyAndMapKernel:
     @memoize_method
     def _get_kernel(self, dtype, src_index_dtype, dst_index_dtype,
                     have_src_indices, have_dst_indices, map_values):
-        from pyopencl.tools import VectorArg
+        from boxtree.tools import VectorArg
 
         args = [
-                VectorArg(dtype, "input_ary", with_offset=True),
-                VectorArg(dtype, "output_ary", with_offset=True),
+                VectorArg(dtype, "input_ary"),
+                VectorArg(dtype, "output_ary"),
                ]
 
         if have_src_indices:
-            args.append(VectorArg(src_index_dtype, "from_indices", with_offset=True))
+            args.append(VectorArg(src_index_dtype, "from_indices"))
 
         if have_dst_indices:
-            args.append(VectorArg(dst_index_dtype, "to_indices", with_offset=True))
+            args.append(VectorArg(dst_index_dtype, "to_indices"))
 
         if map_values:
-            args.append(VectorArg(dtype, "value_map", with_offset=True))
+            args.append(VectorArg(dtype, "value_map"))
 
         from pyopencl.tools import dtype_to_ctype
         src = GAPPY_COPY_TPL.render(
