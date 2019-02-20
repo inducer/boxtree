@@ -327,7 +327,7 @@ class AbstractFMMCostModel(ABC):
         """
         pass
 
-    def cost_factors_for_kernels_from_model(self, nlevels, xlat_cost, context):
+    def fmm_cost_factors_for_kernels_from_model(self, nlevels, xlat_cost, context):
         """Evaluate translation cost factors from symbolic model. The result of this
         function can be used for process_* methods in this class.
 
@@ -401,7 +401,7 @@ class AbstractFMMCostModel(ABC):
             tree.dimensions, tree.nlevels
         )
 
-        translation_cost = self.cost_factors_for_kernels_from_model(
+        translation_cost = self.fmm_cost_factors_for_kernels_from_model(
             tree.nlevels, xlat_cost, params
         )
 
@@ -1065,9 +1065,11 @@ class CLFMMCostModel(AbstractFMMCostModel):
 
         return translation_costs
 
-    def cost_factors_for_kernels_from_model(self, nlevels, xlat_cost, context):
-        translation_costs = AbstractFMMCostModel.cost_factors_for_kernels_from_model(
-            self, nlevels, xlat_cost, context
+    def fmm_cost_factors_for_kernels_from_model(self, nlevels, xlat_cost, context):
+        translation_costs = (
+            AbstractFMMCostModel.fmm_cost_factors_for_kernels_from_model(
+                self, nlevels, xlat_cost, context
+            )
         )
 
         return self.translation_costs_to_dev(translation_costs)
