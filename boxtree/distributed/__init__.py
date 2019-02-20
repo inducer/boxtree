@@ -25,7 +25,7 @@ THE SOFTWARE.
 
 from mpi4py import MPI
 import numpy as np
-from boxtree.distributed.perf_model import PerformanceModel
+from boxtree.cost import CLFMMCostModel
 
 MPITags = dict(
     DIST_TREE=0,
@@ -55,15 +55,22 @@ def dtype_to_mpi(dtype):
 
 class DistributedFMMInfo(object):
 
-    def __init__(self, queue, global_trav, distributed_expansion_wrangler_factory,
-                 model_filename=None, comm=MPI.COMM_WORLD):
+    def __init__(self, queue, global_trav_dev,
+                 distributed_expansion_wrangler_factory,
+                 cost_model=None, comm=MPI.COMM_WORLD):
 
-        self.global_trav = global_trav
-        self.distributed_expansion_wrangler_factory = \
-            distributed_expansion_wrangler_factory
+        # TODO: Support box_target_counts_nonchild?
 
         self.comm = comm
         current_rank = comm.Get_rank()
+
+        if current_rank == 0:
+            self.global_trav = global_trav_dev.get(queue=queue)
+        else:
+            self.global_trav = None
+
+        self.distributed_expansion_wrangler_factory = \
+            distributed_expansion_wrangler_factory
 
         # {{{ Get global wrangler
 
@@ -79,7 +86,7 @@ class DistributedFMMInfo(object):
         # {{{ Broadcast well_sep_is_n_away
 
         if current_rank == 0:
-            well_sep_is_n_away = global_trav.well_sep_is_n_away
+            well_sep_is_n_away = self.global_trav.well_sep_is_n_away
         else:
             well_sep_is_n_away = None
 
@@ -87,27 +94,32 @@ class DistributedFMMInfo(object):
 
         # }}}
 
-        # {{{ Get performance model and counter
-
-        if current_rank == 0:
-            model = PerformanceModel(queue.context, True)
-
-            if model_filename is not None:
-                model.loadjson(model_filename)
-
-            if len(model.time_result) == 0:
-                model.load_default_model()
-
-        # }}}
-
         # {{{ Partiton work
 
         if current_rank == 0:
-            boxes_time = model.predict_boxes_time(global_trav, self.global_wrangler)
+            # Construct default cost model if not supplied
+            if cost_model is None:
+                # TODO: should replace the calibration params with a reasonable
+                #       deafult one
+                cost_model = CLFMMCostModel(
+                    queue, CLFMMCostModel.get_constantone_calibration_params()
+                )
+
+            ndirect_sources_per_target_box = (
+                cost_model.get_ndirect_sources_per_target_box(global_trav_dev)
+            )
+
+            boxes_time = cost_model.aggregate_stage_costs_per_box(
+                global_trav_dev,
+                cost_model.get_fmm_modeled_cost(
+                    global_trav_dev, self.global_wrangler.level_nterms,
+                    ndirect_sources_per_target_box
+                )
+            ).get()
 
             from boxtree.distributed.partition import partition_work
             responsible_boxes_list = partition_work(
-                boxes_time, global_trav, comm.Get_size()
+                boxes_time, self.global_trav, comm.Get_size()
             )
         else:
             responsible_boxes_list = None
@@ -118,7 +130,7 @@ class DistributedFMMInfo(object):
 
         if current_rank == 0:
             from boxtree.distributed.partition import ResponsibleBoxesQuery
-            responsible_box_query = ResponsibleBoxesQuery(queue, global_trav)
+            responsible_box_query = ResponsibleBoxesQuery(queue, self.global_trav)
         else:
             responsible_box_query = None
 

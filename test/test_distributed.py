@@ -24,7 +24,7 @@ def _test_against_shared(dims, nsources, ntargets, dtype):
     rank = comm.Get_rank()
 
     # Initialize arguments for worker processes
-    trav = None
+    d_trav = None
     sources_weights = None
     helmholtz_k = 0
 
@@ -82,7 +82,7 @@ def _test_against_shared(dims, nsources, ntargets, dtype):
 
     from boxtree.distributed import DistributedFMMInfo
     distribued_fmm_info = DistributedFMMInfo(
-        queue, trav, distributed_expansion_wrangler_factory, comm=comm)
+        queue, d_trav, distributed_expansion_wrangler_factory, comm=comm)
     pot_dfmm = distribued_fmm_info.drive_dfmm(sources_weights)
 
     if rank == 0:
@@ -137,7 +137,7 @@ def _test_constantone(dims, nsources, ntargets, dtype):
     rank = comm.Get_rank()
 
     # Initialization
-    trav = None
+    d_trav = None
     sources_weights = None
 
     # Configure PyOpenCL
@@ -166,14 +166,13 @@ def _test_constantone(dims, nsources, ntargets, dtype):
         from boxtree.traversal import FMMTraversalBuilder
         tg = FMMTraversalBuilder(ctx)
         d_trav, _ = tg(queue, tree, debug=True)
-        trav = d_trav.get(queue=queue)
 
     def constantone_expansion_wrangler_factory(tree):
         return ConstantOneExpansionWrangler(tree)
 
     from boxtree.distributed import DistributedFMMInfo
     distributed_fmm_info = DistributedFMMInfo(
-        queue, trav, constantone_expansion_wrangler_factory, comm=MPI.COMM_WORLD
+        queue, d_trav, constantone_expansion_wrangler_factory, comm=MPI.COMM_WORLD
     )
 
     pot_dfmm = distributed_fmm_info.drive_dfmm(
