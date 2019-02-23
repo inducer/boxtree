@@ -23,6 +23,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+import mpi4py
+mpi4py.rc.recv_mprobe = False
+
 import numpy as np
 import pyopencl as cl
 from boxtree.distributed import MPITags

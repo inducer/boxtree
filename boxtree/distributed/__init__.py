@@ -23,9 +23,13 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+import mpi4py
+mpi4py.rc.recv_mprobe = False
+
 from mpi4py import MPI
 import numpy as np
 from boxtree.cost import CLFMMCostModel
+
 
 MPITags = dict(
     DIST_TREE=0,
