@@ -153,21 +153,6 @@ def taylor_translation_cost_model(dim, nlevels):
 
 
 class AbstractFMMCostModel(ABC):
-    def __init__(self,
-                 calibration_params,
-                 translation_cost_model_factory=pde_aware_translation_cost_model):
-        """
-        :arg calibration_params: the calibration parameters. For evaluation, use
-            parameters returned by :func:`estimate_calibration_params`. For training,
-            use :func:`get_constantone_calibration_params` to make all cost modifiers
-            1.
-        :arg translation_cost_model_factory: a function, which takes tree dimension
-            and the number of tree levels as arguments, returns an object of
-            :class:`TranslationCostModel`.
-        """
-        self.calibration_params = calibration_params
-        self.translation_cost_model_factory = translation_cost_model_factory
-
     def with_calibration_params(self, calibration_params):
         """Return a copy of *self* with a new set of calibration parameters."""
         return type(self)(
@@ -561,10 +546,20 @@ class CLFMMCostModel(AbstractFMMCostModel):
     def __init__(self, queue,
                  calibration_params,
                  translation_cost_model_factory=pde_aware_translation_cost_model):
+        """
+        :arg queue: a :class:`pyopencl.CommandQueue` object on which the execution
+            of this object runs.
+        :arg calibration_params: the calibration parameters. For evaluation, use
+            parameters returned by :func:`estimate_calibration_params`. For training,
+            use :func:`get_constantone_calibration_params` to make all cost modifiers
+            1.
+        :arg translation_cost_model_factory: a function, which takes tree dimension
+            and the number of tree levels as arguments, returns an object of
+            :class:`TranslationCostModel`.
+        """
         self.queue = queue
-        AbstractFMMCostModel.__init__(
-            self, calibration_params, translation_cost_model_factory
-        )
+        self.calibration_params = calibration_params
+        self.translation_cost_model_factory = translation_cost_model_factory
 
     def with_calibration_params(self, calibration_params):
         """Return a copy of *self* with a new set of calibration parameters."""
@@ -1110,6 +1105,21 @@ class CLFMMCostModel(AbstractFMMCostModel):
 
 
 class PythonFMMCostModel(AbstractFMMCostModel):
+    def __init__(self,
+                 calibration_params,
+                 translation_cost_model_factory=pde_aware_translation_cost_model):
+        """
+        :arg calibration_params: the calibration parameters. For evaluation, use
+            parameters returned by :func:`estimate_calibration_params`. For training,
+            use :func:`get_constantone_calibration_params` to make all cost modifiers
+            1.
+        :arg translation_cost_model_factory: a function, which takes tree dimension
+            and the number of tree levels as arguments, returns an object of
+            :class:`TranslationCostModel`.
+        """
+        self.calibration_params = calibration_params
+        self.translation_cost_model_factory = translation_cost_model_factory
+
     def process_form_multipoles(self, traversal, p2m_cost):
         tree = traversal.tree
         np2m = np.zeros(len(traversal.source_boxes), dtype=np.float64)
