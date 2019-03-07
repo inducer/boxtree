@@ -1,12 +1,12 @@
 """
 This module helps predict the running time of each step of FMM. There are two
-implementations of the interface :class`AbstractFMMCostModel`, namely
+implementations of the interface :class:`AbstractFMMCostModel`, namely
 :class:`CLFMMCostModel` using OpenCL and :class:`PythonFMMCostModel` using pure
 Python.
 
 An implementation of :class:`AbstractFMMCostModel` uses a
-:class:`TranslationCostModel` to assign translation costs to a
-:class:`FMMTraversalInfo` object.
+:class:`FMMTranslationCostModel` to assign translation costs to a
+:class:`boxtree.traversal.FMMTraversalInfo` object.
 """
 
 from __future__ import division, absolute_import
