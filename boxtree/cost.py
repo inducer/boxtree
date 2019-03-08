@@ -301,9 +301,8 @@ class AbstractFMMCostModel(ABC):
         """
         pass
 
-    @staticmethod
     @abstractmethod
-    def aggregate(per_box_result):
+    def aggregate(self, per_box_result):
         """Sum all entries of *per_box_result* into a number.
 
         :arg per_box_result: an object of :class:`numpy.ndarray` or
@@ -1051,8 +1050,7 @@ class CLFMMCostModel(AbstractFMMCostModel):
 
     # }}}
 
-    @staticmethod
-    def aggregate(per_box_result):
+    def aggregate(self, per_box_result):
         if isinstance(per_box_result, float):
             return per_box_result
         else:
@@ -1272,8 +1270,7 @@ class PythonFMMCostModel(AbstractFMMCostModel):
 
         return result
 
-    @staticmethod
-    def aggregate(per_box_result):
+    def aggregate(self, per_box_result):
         if isinstance(per_box_result, float):
             return per_box_result
         else:
