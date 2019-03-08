@@ -73,7 +73,7 @@ def demo_cost_model():
         timing_results.append(timing_data)
 
     assert sys.version_info >= (3, 0)
-    wall_time = False
+    time_field_name = "process_elapsed"
 
     from boxtree.cost import CLFMMCostModel
     from boxtree.cost import pde_aware_translation_cost_model
@@ -95,7 +95,7 @@ def demo_cost_model():
         )
 
     params = cost_model.estimate_calibration_params(
-        model_results, timing_results[:-1], wall_time=wall_time
+        model_results, timing_results[:-1], time_field_name=time_field_name
     )
 
     cost_model = cost_model.with_calibration_params(params)

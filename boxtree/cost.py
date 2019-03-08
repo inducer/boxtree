@@ -464,7 +464,7 @@ class AbstractFMMCostModel(ABC):
         )
 
     def estimate_calibration_params(self, model_results, timing_results,
-                                    wall_time=False,
+                                    time_field_name="wall_elapsed",
                                     additional_stage_to_param_names=()):
         """
         :arg model_results: a :class:`list` of the modeled cost for each step of FMM,
@@ -472,7 +472,8 @@ class AbstractFMMCostModel(ABC):
         :arg timing_results: a :class:`list` of the same length as *model_results*.
             Each entry is a :class:`dict` filled with timing data returned by
             *boxtree.fmm.drive_fmm*
-        :arg wall_time: a :class:`bool`, whether to use wall time or processor time.
+        :arg time_field_name: a :class:`str`, the field name from the timing result.
+            Usually this can be "wall_elapsed" or "process_elapsed".
         :arg additional_stage_to_param_names: a :class:`dict` for mapping stage names
             to parameter names. This is useful for supplying additional stages of
             QBX.
@@ -512,15 +513,10 @@ class AbstractFMMCostModel(ABC):
                     uncalibrated_times[param_name][icase] = (
                         self.aggregate(model_result[stage_name]))
 
-        if wall_time:
-            field = "wall_elapsed"
-        else:
-            field = "process_elapsed"
-
         for icase, timing_result in enumerate(timing_results):
             for stage_name, time in timing_result.items():
                 param_name = stage_to_param_names[stage_name]
-                actual_times[param_name][icase] = time[field]
+                actual_times[param_name][icase] = time[time_field_name]
 
         result = {}
 

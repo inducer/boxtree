@@ -420,9 +420,9 @@ def test_estimate_calibration_params(ctx_factory):
         timing_results.append(timing_data)
 
     if sys.version_info >= (3, 0):
-        wall_time = False
+        time_field_name = "process_elapsed"
     else:
-        wall_time = True
+        time_field_name = "wall_elapsed"
 
     def test_params_sanity(test_params):
         param_names = ["c_p2m", "c_m2m", "c_p2p", "c_m2l", "c_m2p", "c_p2l", "c_l2l",
@@ -455,7 +455,7 @@ def test_estimate_calibration_params(ctx_factory):
         ))
 
     python_params = python_cost_model.estimate_calibration_params(
-        python_model_results, timing_results[:-1], wall_time=wall_time
+        python_model_results, timing_results[:-1], time_field_name=time_field_name
     )
 
     test_params_sanity(python_params)
@@ -479,7 +479,7 @@ def test_estimate_calibration_params(ctx_factory):
         ))
 
     cl_params = cl_cost_model.estimate_calibration_params(
-        cl_model_results, timing_results[:-1], wall_time=wall_time
+        cl_model_results, timing_results[:-1], time_field_name=time_field_name
     )
     test_params_sanity(cl_params)
 
