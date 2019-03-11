@@ -16,6 +16,8 @@ logging.basicConfig(level=os.environ.get("LOGLEVEL", "WARNING"))
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
+SUPPORTS_PROCESS_TIME = (sys.version_info >= (3, 3))
+
 
 @pytest.mark.opencl
 @pytest.mark.parametrize(
@@ -419,7 +421,7 @@ def test_estimate_calibration_params(ctx_factory):
 
         timing_results.append(timing_data)
 
-    if sys.version_info >= (3, 0):
+    if SUPPORTS_PROCESS_TIME:
         time_field_name = "process_elapsed"
     else:
         time_field_name = "wall_elapsed"
@@ -483,7 +485,7 @@ def test_estimate_calibration_params(ctx_factory):
     )
     test_params_sanity(cl_params)
 
-    if sys.version_info >= (3, 0):
+    if SUPPORTS_PROCESS_TIME:
         test_params_equal(cl_params, python_params)
 
 

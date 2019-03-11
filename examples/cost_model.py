@@ -8,8 +8,15 @@ logging.basicConfig(level=os.environ.get("LOGLEVEL", "WARNING"))
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
+SUPPORTS_PROCESS_TIME = (sys.version_info >= (3, 3))
+
 
 def demo_cost_model():
+    if not SUPPORTS_PROCESS_TIME:
+        raise NotImplementedError(
+            "Currently this script use process time which only works on Python>=3.3"
+        )
+
     from boxtree.pyfmmlib_integration import FMMLibExpansionWrangler
 
     nsources_list = [1000, 2000, 3000, 4000, 5000]
@@ -72,7 +79,6 @@ def demo_cost_model():
 
         timing_results.append(timing_data)
 
-    assert sys.version_info >= (3, 0)
     time_field_name = "process_elapsed"
 
     from boxtree.cost import CLFMMCostModel
