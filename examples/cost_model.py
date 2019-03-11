@@ -14,7 +14,7 @@ SUPPORTS_PROCESS_TIME = (sys.version_info >= (3, 3))
 def demo_cost_model():
     if not SUPPORTS_PROCESS_TIME:
         raise NotImplementedError(
-            "Currently this script use process time which only works on Python>=3.3"
+            "Currently this script uses process time which only works on Python>=3.3"
         )
 
     from boxtree.pyfmmlib_integration import FMMLibExpansionWrangler
@@ -91,14 +91,7 @@ def demo_cost_model():
     model_results = []
     for icase in range(len(traversals)-1):
         traversal = traversals_dev[icase]
-
-        ndirect_sources_per_target_box = (
-            cost_model.get_ndirect_sources_per_target_box(traversal))
-
-        model_results.append(cost_model.get_fmm_modeled_cost(
-            traversals_dev[icase], level_to_orders[icase],
-            ndirect_sources_per_target_box)
-        )
+        model_results.append(cost_model(traversal, level_to_orders[icase]))
 
     params = cost_model.estimate_calibration_params(
         model_results, timing_results[:-1], time_field_name=time_field_name
@@ -106,12 +99,7 @@ def demo_cost_model():
 
     cost_model = cost_model.with_calibration_params(params)
 
-    ndirect_sources_per_target_box = (
-        cost_model.get_ndirect_sources_per_target_box(traversals_dev[-1]))
-
-    predicted_time = cost_model(
-        traversals_dev[-1], level_to_orders[-1], ndirect_sources_per_target_box
-    )
+    predicted_time = cost_model(traversals_dev[-1], level_to_orders[-1])
 
     for field in ["form_multipoles", "eval_direct", "multipole_to_local",
                   "eval_multipoles", "form_locals", "eval_locals",

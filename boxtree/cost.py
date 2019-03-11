@@ -429,10 +429,23 @@ class AbstractFMMCostModel(ABC):
 
         return result
 
-    def __call__(self, *args, **kwargs):
+    def __call__(self, traversal, level_to_order):
         """Shortcut for :func:`get_fmm_modeled_cost`.
+
+        :arg traversal: a :class:`boxtree.traversal.FMMTraversalInfo` object.
+        :arg level_to_order: a :class:`numpy.ndarray` of shape
+            (traversal.tree.nlevels,) representing the expansion orders
+            of different levels.
+
+        :return: a :class:`dict`, the cost of fmm stages.
         """
-        return self.get_fmm_modeled_cost(*args, **kwargs)
+        ndirect_sources_per_target_box = (
+            self.get_ndirect_sources_per_target_box(traversal)
+        )
+
+        return self.get_fmm_modeled_cost(
+            traversal, level_to_order, ndirect_sources_per_target_box
+        )
 
     @abstractmethod
     def aggregate_stage_costs_per_box(self, traversal, cost_result):

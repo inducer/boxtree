@@ -449,12 +449,7 @@ def test_estimate_calibration_params(ctx_factory):
         traversal = traversals[icase]
         level_to_order = level_to_orders[icase]
 
-        ndirect_sources_per_target_box = (
-            python_cost_model.get_ndirect_sources_per_target_box(traversal))
-
-        python_model_results.append(python_cost_model.get_fmm_modeled_cost(
-            traversal, level_to_order, ndirect_sources_per_target_box
-        ))
+        python_model_results.append(python_cost_model(traversal, level_to_order))
 
     python_params = python_cost_model.estimate_calibration_params(
         python_model_results, timing_results[:-1], time_field_name=time_field_name
@@ -473,12 +468,7 @@ def test_estimate_calibration_params(ctx_factory):
         traversal = traversals_dev[icase]
         level_to_order = level_to_orders[icase]
 
-        ndirect_sources_per_target_box = (
-            cl_cost_model.get_ndirect_sources_per_target_box(traversal))
-
-        cl_model_results.append(cl_cost_model.get_fmm_modeled_cost(
-            traversal, level_to_order, ndirect_sources_per_target_box
-        ))
+        cl_model_results.append(cl_cost_model(traversal, level_to_order))
 
     cl_params = cl_cost_model.estimate_calibration_params(
         cl_model_results, timing_results[:-1], time_field_name=time_field_name
@@ -563,13 +553,7 @@ def test_cost_model_gives_correct_op_counts_with_constantone_wrangler(
 
     level_to_order = np.array([1 for _ in range(tree.nlevels)])
 
-    ndirect_sources_per_target_box = cost_model.get_ndirect_sources_per_target_box(
-        trav_dev
-    )
-
-    modeled_time = cost_model(
-        trav_dev, level_to_order, ndirect_sources_per_target_box
-    )
+    modeled_time = cost_model(trav_dev, level_to_order)
 
     mismatches = []
     for stage in timing_data:
