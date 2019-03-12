@@ -5,12 +5,13 @@ import sys
 import logging
 import os
 
-# Set the root logger level to WARNING
+# Configure the root logger
 logging.basicConfig(level=os.environ.get("LOGLEVEL", "WARNING"))
 
 logger = logging.getLogger(__name__)
 
-# Set the logger level of this module to INFO
+# Set the logger level of this module to INFO so that logging outputs of this module
+# are shown
 logger.setLevel(logging.INFO)
 
 # `process_elapsed` in `ProcessTimer` is only supported for Python >= 3.3
