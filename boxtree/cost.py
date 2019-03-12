@@ -430,7 +430,9 @@ class AbstractFMMCostModel(ABC):
         return result
 
     def __call__(self, traversal, level_to_order):
-        """Shortcut for :func:`get_fmm_modeled_cost`.
+        """Top-level entry point for predicting cost of a new traversal object.
+
+        Also see :func:`get_fmm_modeled_cost` for more customization.
 
         :arg traversal: a :class:`boxtree.traversal.FMMTraversalInfo` object.
         :arg level_to_order: a :class:`numpy.ndarray` of shape
