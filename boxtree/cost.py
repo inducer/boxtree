@@ -1,12 +1,12 @@
 """
 This module helps predict the running time of each step of FMM. There are two
-implementations of the interface :class`AbstractFMMCostModel`, namely
+implementations of the interface :class:`AbstractFMMCostModel`, namely
 :class:`CLFMMCostModel` using OpenCL and :class:`PythonFMMCostModel` using pure
 Python.
 
 An implementation of :class:`AbstractFMMCostModel` uses a
-:class:`TranslationCostModel` to assign translation costs to a
-:class:`FMMTraversalInfo` object.
+:class:`FMMTranslationCostModel` to assign translation costs to a
+:class:`boxtree.traversal.FMMTraversalInfo` object.
 """
 
 from __future__ import division, absolute_import
@@ -122,6 +122,9 @@ class FMMTranslationCostModel(object):
 def pde_aware_translation_cost_model(dim, nlevels):
     """Create a cost model for FMM translation operators that make use of the
     knowledge that the potential satisfies a PDE.
+
+    For example, this factory is used for complex Taylor and Fourier-Bessel
+    expansions in 2D, and spherical harmonics (with point-and-shoot) in 3D.
     """
     p_fmm = np.array([var("p_fmm_lev%d" % i) for i in range(nlevels)])
     ncoeffs_fmm = (p_fmm + 1) ** (dim - 1)
@@ -153,21 +156,6 @@ def taylor_translation_cost_model(dim, nlevels):
 
 
 class AbstractFMMCostModel(ABC):
-    def __init__(self,
-                 calibration_params,
-                 translation_cost_model_factory=pde_aware_translation_cost_model):
-        """
-        :arg calibration_params: the calibration parameters. For evaluation, use
-            parameters returned by :func:`estimate_calibration_params`. For training,
-            use :func:`get_constantone_calibration_params` to make all cost modifiers
-            1.
-        :arg translation_cost_model_factory: a function, which takes tree dimension
-            and the number of tree levels as arguments, returns an object of
-            :class:`TranslationCostModel`.
-        """
-        self.calibration_params = calibration_params
-        self.translation_cost_model_factory = translation_cost_model_factory
-
     def with_calibration_params(self, calibration_params):
         """Return a copy of *self* with a new set of calibration parameters."""
         return type(self)(
@@ -316,9 +304,8 @@ class AbstractFMMCostModel(ABC):
         """
         pass
 
-    @staticmethod
     @abstractmethod
-    def aggregate(per_box_result):
+    def aggregate(self, per_box_result):
         """Sum all entries of *per_box_result* into a number.
 
         :arg per_box_result: an object of :class:`numpy.ndarray` or
@@ -445,10 +432,25 @@ class AbstractFMMCostModel(ABC):
 
         return result
 
-    def __call__(self, *args, **kwargs):
-        """Shortcut for :func:`get_fmm_modeled_cost`.
+    def __call__(self, traversal, level_to_order):
+        """Top-level entry point for predicting cost of a new traversal object.
+
+        Also see :func:`get_fmm_modeled_cost` for more customization.
+
+        :arg traversal: a :class:`boxtree.traversal.FMMTraversalInfo` object.
+        :arg level_to_order: a :class:`numpy.ndarray` of shape
+            (traversal.tree.nlevels,) representing the expansion orders
+            of different levels.
+
+        :return: a :class:`dict`, the cost of fmm stages.
         """
-        return self.get_fmm_modeled_cost(*args, **kwargs)
+        ndirect_sources_per_target_box = (
+            self.get_ndirect_sources_per_target_box(traversal)
+        )
+
+        return self.get_fmm_modeled_cost(
+            traversal, level_to_order, ndirect_sources_per_target_box
+        )
 
     @abstractmethod
     def aggregate_stage_costs_per_box(self, traversal, cost_result):
@@ -479,7 +481,7 @@ class AbstractFMMCostModel(ABC):
         )
 
     def estimate_calibration_params(self, model_results, timing_results,
-                                    wall_time=False,
+                                    time_field_name="wall_elapsed",
                                     additional_stage_to_param_names=()):
         """
         :arg model_results: a :class:`list` of the modeled cost for each step of FMM,
@@ -487,7 +489,8 @@ class AbstractFMMCostModel(ABC):
         :arg timing_results: a :class:`list` of the same length as *model_results*.
             Each entry is a :class:`dict` filled with timing data returned by
             *boxtree.fmm.drive_fmm*
-        :arg wall_time: a :class:`bool`, whether to use wall time or processor time.
+        :arg time_field_name: a :class:`str`, the field name from the timing result.
+            Usually this can be "wall_elapsed" or "process_elapsed".
         :arg additional_stage_to_param_names: a :class:`dict` for mapping stage names
             to parameter names. This is useful for supplying additional stages of
             QBX.
@@ -527,15 +530,10 @@ class AbstractFMMCostModel(ABC):
                     uncalibrated_times[param_name][icase] = (
                         self.aggregate(model_result[stage_name]))
 
-        if wall_time:
-            field = "wall_elapsed"
-        else:
-            field = "process_elapsed"
-
         for icase, timing_result in enumerate(timing_results):
             for stage_name, time in timing_result.items():
                 param_name = stage_to_param_names[stage_name]
-                actual_times[param_name][icase] = time[field]
+                actual_times[param_name][icase] = time[time_field_name]
 
         result = {}
 
@@ -561,10 +559,20 @@ class CLFMMCostModel(AbstractFMMCostModel):
     def __init__(self, queue,
                  calibration_params,
                  translation_cost_model_factory=pde_aware_translation_cost_model):
+        """
+        :arg queue: a :class:`pyopencl.CommandQueue` object on which the execution
+            of this object runs.
+        :arg calibration_params: the calibration parameters. For evaluation, use
+            parameters returned by :func:`estimate_calibration_params`. For training,
+            use :func:`get_constantone_calibration_params` to make all cost modifiers
+            1.
+        :arg translation_cost_model_factory: a function, which takes tree dimension
+            and the number of tree levels as arguments, returns an object of
+            :class:`TranslationCostModel`.
+        """
         self.queue = queue
-        AbstractFMMCostModel.__init__(
-            self, calibration_params, translation_cost_model_factory
-        )
+        self.calibration_params = calibration_params
+        self.translation_cost_model_factory = translation_cost_model_factory
 
     def with_calibration_params(self, calibration_params):
         """Return a copy of *self* with a new set of calibration parameters."""
@@ -1060,8 +1068,7 @@ class CLFMMCostModel(AbstractFMMCostModel):
 
     # }}}
 
-    @staticmethod
-    def aggregate(per_box_result):
+    def aggregate(self, per_box_result):
         if isinstance(per_box_result, float):
             return per_box_result
         else:
@@ -1110,6 +1117,21 @@ class CLFMMCostModel(AbstractFMMCostModel):
 
 
 class PythonFMMCostModel(AbstractFMMCostModel):
+    def __init__(self,
+                 calibration_params,
+                 translation_cost_model_factory=pde_aware_translation_cost_model):
+        """
+        :arg calibration_params: the calibration parameters. For evaluation, use
+            parameters returned by :func:`estimate_calibration_params`. For training,
+            use :func:`get_constantone_calibration_params` to make all cost modifiers
+            1.
+        :arg translation_cost_model_factory: a function, which takes tree dimension
+            and the number of tree levels as arguments, returns an object of
+            :class:`TranslationCostModel`.
+        """
+        self.calibration_params = calibration_params
+        self.translation_cost_model_factory = translation_cost_model_factory
+
     def process_form_multipoles(self, traversal, p2m_cost):
         tree = traversal.tree
         np2m = np.zeros(len(traversal.source_boxes), dtype=np.float64)
@@ -1266,8 +1288,7 @@ class PythonFMMCostModel(AbstractFMMCostModel):
 
         return result
 
-    @staticmethod
-    def aggregate(per_box_result):
+    def aggregate(self, per_box_result):
         if isinstance(per_box_result, float):
             return per_box_result
         else:

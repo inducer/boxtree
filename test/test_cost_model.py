@@ -16,6 +16,8 @@ logging.basicConfig(level=os.environ.get("LOGLEVEL", "WARNING"))
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
+SUPPORTS_PROCESS_TIME = (sys.version_info >= (3, 3))
+
 
 @pytest.mark.opencl
 @pytest.mark.parametrize(
@@ -419,10 +421,10 @@ def test_estimate_calibration_params(ctx_factory):
 
         timing_results.append(timing_data)
 
-    if sys.version_info >= (3, 0):
-        wall_time = False
+    if SUPPORTS_PROCESS_TIME:
+        time_field_name = "process_elapsed"
     else:
-        wall_time = True
+        time_field_name = "wall_elapsed"
 
     def test_params_sanity(test_params):
         param_names = ["c_p2m", "c_m2m", "c_p2p", "c_m2l", "c_m2p", "c_p2l", "c_l2l",
@@ -447,15 +449,10 @@ def test_estimate_calibration_params(ctx_factory):
         traversal = traversals[icase]
         level_to_order = level_to_orders[icase]
 
-        ndirect_sources_per_target_box = (
-            python_cost_model.get_ndirect_sources_per_target_box(traversal))
-
-        python_model_results.append(python_cost_model.get_fmm_modeled_cost(
-            traversal, level_to_order, ndirect_sources_per_target_box
-        ))
+        python_model_results.append(python_cost_model(traversal, level_to_order))
 
     python_params = python_cost_model.estimate_calibration_params(
-        python_model_results, timing_results[:-1], wall_time=wall_time
+        python_model_results, timing_results[:-1], time_field_name=time_field_name
     )
 
     test_params_sanity(python_params)
@@ -471,19 +468,14 @@ def test_estimate_calibration_params(ctx_factory):
         traversal = traversals_dev[icase]
         level_to_order = level_to_orders[icase]
 
-        ndirect_sources_per_target_box = (
-            cl_cost_model.get_ndirect_sources_per_target_box(traversal))
-
-        cl_model_results.append(cl_cost_model.get_fmm_modeled_cost(
-            traversal, level_to_order, ndirect_sources_per_target_box
-        ))
+        cl_model_results.append(cl_cost_model(traversal, level_to_order))
 
     cl_params = cl_cost_model.estimate_calibration_params(
-        cl_model_results, timing_results[:-1], wall_time=wall_time
+        cl_model_results, timing_results[:-1], time_field_name=time_field_name
     )
     test_params_sanity(cl_params)
 
-    if sys.version_info >= (3, 0):
+    if SUPPORTS_PROCESS_TIME:
         test_params_equal(cl_params, python_params)
 
 
@@ -561,13 +553,7 @@ def test_cost_model_gives_correct_op_counts_with_constantone_wrangler(
 
     level_to_order = np.array([1 for _ in range(tree.nlevels)])
 
-    ndirect_sources_per_target_box = cost_model.get_ndirect_sources_per_target_box(
-        trav_dev
-    )
-
-    modeled_time = cost_model(
-        trav_dev, level_to_order, ndirect_sources_per_target_box
-    )
+    modeled_time = cost_model(trav_dev, level_to_order)
 
     mismatches = []
     for stage in timing_data:
