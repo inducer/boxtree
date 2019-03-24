@@ -122,6 +122,9 @@ class FMMTranslationCostModel(object):
 def pde_aware_translation_cost_model(dim, nlevels):
     """Create a cost model for FMM translation operators that make use of the
     knowledge that the potential satisfies a PDE.
+
+    For example, this factory is used for complex Taylor and Fourier-Bessel
+    expansions in 2D, and spherical harmonics (with point-and-shoot) in 3D.
     """
     p_fmm = np.array([var("p_fmm_lev%d" % i) for i in range(nlevels)])
     ncoeffs_fmm = (p_fmm + 1) ** (dim - 1)
