@@ -105,16 +105,9 @@ class DistributedFMMInfo(object):
                     queue, CLFMMCostModel.get_constantone_calibration_params()
                 )
 
-            ndirect_sources_per_target_box = (
-                cost_model.get_ndirect_sources_per_target_box(global_trav_dev)
-            )
-
             boxes_time = cost_model.aggregate_stage_costs_per_box(
                 global_trav_dev,
-                cost_model.get_fmm_modeled_cost(
-                    global_trav_dev, self.global_wrangler.level_nterms,
-                    ndirect_sources_per_target_box
-                )
+                cost_model(global_trav_dev, self.global_wrangler.level_nterms)
             ).get()
 
             from boxtree.distributed.partition import partition_work
