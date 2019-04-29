@@ -158,12 +158,10 @@ class DistributedFMMInfo(object):
 
         # }}}
 
-    def drive_dfmm(self, source_weights, _communicate_mpoles_via_allreduce=False,
-                   record_timing=False):
+    def drive_dfmm(self, source_weights, _communicate_mpoles_via_allreduce=False):
         from boxtree.distributed.calculation import calculate_pot
         return calculate_pot(
             self.local_wrangler, self.global_wrangler, self.local_trav,
             source_weights, self.local_data,
-            _communicate_mpoles_via_allreduce=_communicate_mpoles_via_allreduce,
-            record_timing=record_timing
+            _communicate_mpoles_via_allreduce=_communicate_mpoles_via_allreduce
         )

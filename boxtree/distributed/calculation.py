@@ -27,10 +27,8 @@ import numpy as np
 import pyopencl as cl
 from boxtree.distributed import MPITags
 from mpi4py import MPI
-import time
 from boxtree.distributed import dtype_to_mpi
 from boxtree.pyfmmlib_integration import FMMLibExpansionWrangler
-from boxtree.distributed.util import TimeRecorder
 from pytools import memoize_method
 import loopy as lp
 from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_1  # noqa: F401
@@ -145,8 +143,7 @@ class DistributedFMMLibExpansionWrangler(FMMLibExpansionWrangler):
 
 # {{{ Communicate mpoles
 
-def communicate_mpoles(wrangler, comm, trav, mpole_exps, return_stats=False,
-                       record_timing=False):
+def communicate_mpoles(wrangler, comm, trav, mpole_exps, return_stats=False):
     """Based on Algorithm 3: Reduce and Scatter in [1].
 
     The main idea is to mimic a allreduce as done on a hypercube network, but to
@@ -165,10 +162,6 @@ def communicate_mpoles(wrangler, comm, trav, mpole_exps, return_stats=False,
     nprocs = comm.Get_size()
 
     stats = {}
-
-    if record_timing:
-        time_recorder = TimeRecorder("Communicate multiploes", comm, logger)
-        t_start = time.time()
 
     # contributing_boxes:
     #
@@ -257,12 +250,6 @@ def communicate_mpoles(wrangler, comm, trav, mpole_exps, return_stats=False,
 
         comm_pattern.advance()
 
-    if record_timing:
-        stats["total_time"] = time.time() - t_start
-        time_recorder.record()
-    else:
-        stats["total_time"] = None
-
     if return_stats:
         return stats
 
@@ -271,8 +258,7 @@ def communicate_mpoles(wrangler, comm, trav, mpole_exps, return_stats=False,
 
 # {{{ Distribute source weights
 
-def distribute_source_weights(source_weights, local_data, comm=MPI.COMM_WORLD,
-                              record_timing=False):
+def distribute_source_weights(source_weights, local_data, comm=MPI.COMM_WORLD):
     """ This function transfers needed source_weights from root process to each
     worker process in communicator :arg comm.
 
@@ -285,9 +271,6 @@ def distribute_source_weights(source_weights, local_data, comm=MPI.COMM_WORLD,
     """
     current_rank = comm.Get_rank()
     total_rank = comm.Get_size()
-
-    if record_timing:
-        time_recorder = TimeRecorder("Distribute source weights", comm, logger)
 
     if current_rank == 0:
         weight_req = []
@@ -308,9 +291,6 @@ def distribute_source_weights(source_weights, local_data, comm=MPI.COMM_WORLD,
     else:
         local_src_weights = comm.recv(source=0, tag=MPITags["DIST_WEIGHT"])
 
-    if record_timing:
-        time_recorder.record()
-
     return local_src_weights
 
 # }}}
@@ -320,8 +300,7 @@ def distribute_source_weights(source_weights, local_data, comm=MPI.COMM_WORLD,
 
 def calculate_pot(local_wrangler, global_wrangler, local_trav, source_weights,
                   local_data, comm=MPI.COMM_WORLD,
-                  _communicate_mpoles_via_allreduce=False,
-                  record_timing=False):
+                  _communicate_mpoles_via_allreduce=False):
     """ Calculate potentials for targets on distributed memory machines.
 
     This function needs to be called collectively by all process in :arg comm.
@@ -338,9 +317,6 @@ def calculate_pot(local_wrangler, global_wrangler, local_trav, source_weights,
     :param _communicate_mpoles_via_allreduce: Use MPI allreduce for communicating
         multipole expressions. Using MPI allreduce is slower but might be helpful for
         debugging purpose.
-    :param record_timing: This argument controls whether to log various timing data.
-        Note setting this option to true will incur minor performance degradation due
-        to the usage of barriers.
     :return: On the root process, this function returns calculated potentials. On
         worker processes, this function returns None.
     """
@@ -349,11 +325,6 @@ def calculate_pot(local_wrangler, global_wrangler, local_trav, source_weights,
     current_rank = comm.Get_rank()
     total_rank = comm.Get_size()
 
-    if record_timing:
-        comm.Barrier()
-        if current_rank == 0:
-            start_time = time.time()
-
     # {{{ Distribute source weights
 
     if current_rank == 0:
@@ -361,7 +332,7 @@ def calculate_pot(local_wrangler, global_wrangler, local_trav, source_weights,
         source_weights = source_weights[global_wrangler.tree.user_source_ids]
 
     local_src_weights = distribute_source_weights(
-        source_weights, local_data, comm=comm, record_timing=record_timing
+        source_weights, local_data, comm=comm
     )
 
     # }}}
@@ -395,14 +366,9 @@ def calculate_pot(local_wrangler, global_wrangler, local_trav, source_weights,
         comm.Allreduce(mpole_exps, mpole_exps_all)
         mpole_exps = mpole_exps_all
     else:
-        communicate_mpoles(local_wrangler, comm, local_trav, mpole_exps,
-                           record_timing=record_timing)
+        communicate_mpoles(local_wrangler, comm, local_trav, mpole_exps)
 
     # }}}
-
-    if record_timing:
-        comm.Barrier()
-        fmm_eval_start_time = time.time()
 
     # {{{ "Stage 3:" Direct evaluation from neighbor source boxes ("list 1")
 
@@ -500,22 +466,11 @@ def calculate_pot(local_wrangler, global_wrangler, local_trav, source_weights,
 
     # }}}
 
-    if record_timing:
-        logger.info("FMM Evaluation finished on process {0} in {1:.4f} sec.".format(
-            current_rank, time.time() - fmm_eval_start_time
-        ))
-
     # {{{ Worker processes send calculated potentials to the root process
 
     potentials_mpi_type = dtype_to_mpi(potentials.dtype)
 
-    if record_timing:
-        comm.Barrier()
-
     if current_rank == 0:
-        if record_timing:
-            receive_pot_start_time = time.time()
-
         potentials_all_ranks = np.empty((total_rank,), dtype=object)
         potentials_all_ranks[0] = potentials
 
@@ -525,10 +480,6 @@ def calculate_pot(local_wrangler, global_wrangler, local_trav, source_weights,
 
             comm.Recv([potentials_all_ranks[irank], potentials_mpi_type],
                       source=irank, tag=MPITags["GATHER_POTENTIALS"])
-
-        if record_timing:
-            logger.info("Receive potentials from worker processes in {0:.4f} sec."
-                        .format(time.time() - receive_pot_start_time))
     else:
         comm.Send([potentials, potentials_mpi_type],
                   dest=0, tag=MPITags["GATHER_POTENTIALS"])
@@ -538,9 +489,6 @@ def calculate_pot(local_wrangler, global_wrangler, local_trav, source_weights,
     # {{{ Assemble potentials from worker processes together on the root process
 
     if current_rank == 0:
-        if record_timing:
-            post_processing_start_time = time.time()
-
         potentials = np.empty((global_wrangler.tree.ntargets,),
                               dtype=potentials.dtype)
 
@@ -553,19 +501,9 @@ def calculate_pot(local_wrangler, global_wrangler, local_trav, source_weights,
         logger.debug("finalize potentials")
         result = global_wrangler.finalize_potentials(result)
 
-        if record_timing:
-            logger.info("Post processing in {0:.4f} sec.".format(
-                time.time() - post_processing_start_time
-            ))
-
     # }}}
 
     if current_rank == 0:
-
-        if record_timing:
-            logger.info("Distributed FMM evaluation completes in {0:.4f} sec."
-                        .format(time.time() - start_time))
-
         return result
 
 # }}}
