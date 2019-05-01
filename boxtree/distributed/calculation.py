@@ -102,18 +102,19 @@ class DistributedFMMLibExpansionWrangler(FMMLibExpansionWrangler):
     def find_boxes_used_by_subrange_kernel(self):
         knl = lp.make_kernel(
             [
-                "{[ibox]: 0 <= ibox < nboxes}",
+                "{[icontrib_box]: 0 <= icontrib_box < ncontrib_boxes}",
                 "{[iuser]: iuser_start <= iuser < iuser_end}",
             ],
             """
-            for ibox
+            for icontrib_box
+                <> ibox = contributing_boxes_list[icontrib_box]
                 <> iuser_start = box_to_user_starts[ibox]
                 <> iuser_end = box_to_user_starts[ibox + 1]
                 for iuser
                     <> useri = box_to_user_lists[iuser]
                     <> in_subrange = subrange_start <= useri and useri < subrange_end
                     if in_subrange
-                        box_in_subrange[ibox] = 1
+                        box_in_subrange[icontrib_box] = 1
                     end
                 end
             end
@@ -123,18 +124,25 @@ class DistributedFMMLibExpansionWrangler(FMMLibExpansionWrangler):
                 lp.GlobalArg("box_to_user_lists", shape=None),
                 "..."
             ])
-        knl = lp.split_iname(knl, "ibox", 16, outer_tag="g.0", inner_tag="l.0")
+        knl = lp.split_iname(
+            knl, "icontrib_box", 16, outer_tag="g.0", inner_tag="l.0"
+        )
         return knl
 
     def find_boxes_used_by_subrange(self, box_in_subrange, subrange,
-                                    box_to_user_starts, box_to_user_lists):
+                                    box_to_user_starts, box_to_user_lists,
+                                    contributing_boxes_list):
         knl = self.find_boxes_used_by_subrange_kernel()
-        knl(self.queue,
+
+        knl(
+            self.queue,
             subrange_start=subrange[0],
             subrange_end=subrange[1],
             box_to_user_starts=box_to_user_starts,
             box_to_user_lists=box_to_user_lists,
-            box_in_subrange=box_in_subrange)
+            box_in_subrange=box_in_subrange,
+            contributing_boxes_list=contributing_boxes_list
+        )
 
         box_in_subrange.finish()
 
@@ -185,9 +193,6 @@ def communicate_mpoles(wrangler, comm, trav, mpole_exps, return_stats=False):
     mpole_exps_buf = np.empty(mpole_exps.shape, dtype=mpole_exps.dtype)
     boxes_list_buf = np.empty(trav.tree.nboxes, dtype=trav.tree.box_id_dtype)
 
-    # Temporary buffer for holding the mask
-    box_in_subrange = wrangler.empty_box_in_subrange_mask()
-
     stats["bytes_sent_by_stage"] = []
     stats["bytes_recvd_by_stage"] = []
 
@@ -199,25 +204,31 @@ def communicate_mpoles(wrangler, comm, trav, mpole_exps, return_stats=False):
             # Compute the subset of boxes to be sent.
             message_subrange = comm_pattern.messages()
 
-            box_in_subrange.fill(0)
+            contributing_boxes_list = np.nonzero(contributing_boxes)[0]
+
+            contributing_boxes_list_dev = cl.array.to_device(
+                wrangler.queue, contributing_boxes_list
+            )
+
+            box_in_subrange = cl.array.zeros(
+                wrangler.queue, contributing_boxes_list.shape[0], dtype=np.int8
+            )
 
             wrangler.find_boxes_used_by_subrange(
                 box_in_subrange, message_subrange,
-                trav.tree.box_to_user_starts, trav.tree.box_to_user_lists)
+                trav.tree.box_to_user_starts, trav.tree.box_to_user_lists,
+                contributing_boxes_list_dev
+            )
 
-            box_in_subrange_host = (
-                box_in_subrange.map_to_host(flags=cl.map_flags.READ))
+            box_in_subrange_host = box_in_subrange.get().astype(bool)
 
-            with box_in_subrange_host.data:
-                relevant_boxes_list = (
-                    np.nonzero(box_in_subrange_host & contributing_boxes)
-                    [0]
-                    .astype(trav.tree.box_id_dtype))
+            relevant_boxes_list = contributing_boxes_list[
+                box_in_subrange_host
+            ].astype(trav.tree.box_id_dtype)
 
-            del box_in_subrange_host
-
-            relevant_mpole_exps = wrangler.slice_mpoles(mpole_exps,
-                relevant_boxes_list)
+            relevant_mpole_exps = wrangler.slice_mpoles(
+                mpole_exps, relevant_boxes_list
+            )
 
             # Send the box subset to the other processors.
             for sink in comm_pattern.sinks():
