@@ -30,8 +30,9 @@ from mpi4py import MPI
 from boxtree.distributed import dtype_to_mpi
 from boxtree.pyfmmlib_integration import FMMLibExpansionWrangler
 from pytools import memoize_method
-import loopy as lp
-from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_1  # noqa: F401
+from pyopencl.tools import dtype_to_ctype
+from pyopencl.elementwise import ElementwiseKernel
+from mako.template import Template
 
 import logging
 logger = logging.getLogger(__name__)
@@ -100,34 +101,33 @@ class DistributedFMMLibExpansionWrangler(FMMLibExpansionWrangler):
 
     @memoize_method
     def find_boxes_used_by_subrange_kernel(self):
-        knl = lp.make_kernel(
-            [
-                "{[icontrib_box]: 0 <= icontrib_box < ncontrib_boxes}",
-                "{[iuser]: iuser_start <= iuser < iuser_end}",
-            ],
-            """
-            for icontrib_box
-                <> ibox = contributing_boxes_list[icontrib_box]
-                <> iuser_start = box_to_user_starts[ibox]
-                <> iuser_end = box_to_user_starts[ibox + 1]
-                for iuser
-                    <> useri = box_to_user_lists[iuser]
-                    <> in_subrange = subrange_start <= useri and useri < subrange_end
-                    if in_subrange
-                        box_in_subrange[icontrib_box] = 1
-                    end
-                end
-            end
-            """,
-            [
-                lp.ValueArg("subrange_start, subrange_end", np.int32),
-                lp.GlobalArg("box_to_user_lists", shape=None),
-                "..."
-            ])
-        knl = lp.split_iname(
-            knl, "icontrib_box", 16, outer_tag="g.0", inner_tag="l.0"
+        return ElementwiseKernel(
+            self.queue.context,
+            Template(r"""
+                ${box_id_t} *contributing_boxes_list,
+                int subrange_start,
+                int subrange_end,
+                ${box_id_t} *box_to_user_starts,
+                int *box_to_user_lists,
+                char *box_in_subrange
+            """).render(
+                box_id_t=dtype_to_ctype(self.tree.box_id_dtype),
+            ),
+            Template(r"""
+                ${box_id_t} ibox = contributing_boxes_list[i];
+                ${box_id_t} iuser_start = box_to_user_starts[ibox];
+                ${box_id_t} iuser_end = box_to_user_starts[ibox + 1];
+                for(${box_id_t} iuser = iuser_start; iuser < iuser_end; iuser++) {
+                    int useri = box_to_user_lists[iuser];
+                    if(subrange_start <= useri && useri < subrange_end) {
+                        box_in_subrange[i] = 1;
+                    }
+                }
+            """).render(
+                box_id_t=dtype_to_ctype(self.tree.box_id_dtype)
+            ),
+            "find_boxes_used_by_subrange"
         )
-        return knl
 
     def find_boxes_used_by_subrange(self, box_in_subrange, subrange,
                                     box_to_user_starts, box_to_user_lists,
@@ -135,16 +135,13 @@ class DistributedFMMLibExpansionWrangler(FMMLibExpansionWrangler):
         knl = self.find_boxes_used_by_subrange_kernel()
 
         knl(
-            self.queue,
-            subrange_start=subrange[0],
-            subrange_end=subrange[1],
-            box_to_user_starts=box_to_user_starts,
-            box_to_user_lists=box_to_user_lists,
-            box_in_subrange=box_in_subrange,
-            contributing_boxes_list=contributing_boxes_list
+            contributing_boxes_list,
+            subrange[0],
+            subrange[1],
+            box_to_user_starts,
+            box_to_user_lists,
+            box_in_subrange
         )
-
-        box_in_subrange.finish()
 
 # }}}
 
@@ -196,6 +193,14 @@ def communicate_mpoles(wrangler, comm, trav, mpole_exps, return_stats=False):
     stats["bytes_sent_by_stage"] = []
     stats["bytes_recvd_by_stage"] = []
 
+    box_to_user_starts_dev = cl.array.to_device(
+        wrangler.queue, trav.tree.box_to_user_starts
+    )
+
+    box_to_user_lists_dev = cl.array.to_device(
+        wrangler.queue, trav.tree.box_to_user_lists
+    )
+
     while not comm_pattern.done():
         send_requests = []
 
@@ -204,7 +209,9 @@ def communicate_mpoles(wrangler, comm, trav, mpole_exps, return_stats=False):
             # Compute the subset of boxes to be sent.
             message_subrange = comm_pattern.messages()
 
-            contributing_boxes_list = np.nonzero(contributing_boxes)[0]
+            contributing_boxes_list = np.nonzero(contributing_boxes)[0].astype(
+                trav.tree.box_id_dtype
+            )
 
             contributing_boxes_list_dev = cl.array.to_device(
                 wrangler.queue, contributing_boxes_list
@@ -216,7 +223,7 @@ def communicate_mpoles(wrangler, comm, trav, mpole_exps, return_stats=False):
 
             wrangler.find_boxes_used_by_subrange(
                 box_in_subrange, message_subrange,
-                trav.tree.box_to_user_starts, trav.tree.box_to_user_lists,
+                box_to_user_starts_dev, box_to_user_lists_dev,
                 contributing_boxes_list_dev
             )
 
