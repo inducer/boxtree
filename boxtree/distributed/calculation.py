@@ -193,6 +193,7 @@ def communicate_mpoles(wrangler, comm, trav, mpole_exps, return_stats=False):
     stats["bytes_sent_by_stage"] = []
     stats["bytes_recvd_by_stage"] = []
 
+    """
     box_to_user_starts_dev = cl.array.to_device(
         wrangler.queue, trav.tree.box_to_user_starts
     )
@@ -200,6 +201,7 @@ def communicate_mpoles(wrangler, comm, trav, mpole_exps, return_stats=False):
     box_to_user_lists_dev = cl.array.to_device(
         wrangler.queue, trav.tree.box_to_user_lists
     )
+    """
 
     while not comm_pattern.done():
         send_requests = []
@@ -213,6 +215,9 @@ def communicate_mpoles(wrangler, comm, trav, mpole_exps, return_stats=False):
                 trav.tree.box_id_dtype
             )
 
+            subrange_start, subrange_end = message_subrange
+
+            """
             contributing_boxes_list_dev = cl.array.to_device(
                 wrangler.queue, contributing_boxes_list
             )
@@ -232,6 +237,21 @@ def communicate_mpoles(wrangler, comm, trav, mpole_exps, return_stats=False):
             relevant_boxes_list = contributing_boxes_list[
                 box_in_subrange_host
             ].astype(trav.tree.box_id_dtype)
+            """
+
+            relevant_boxes_list = []
+            for contrib_box in contributing_boxes_list:
+                iuser_start, iuser_end = trav.tree.box_to_user_starts[
+                    contrib_box:contrib_box + 2
+                ]
+                for user_box in trav.tree.box_to_user_lists[iuser_start:iuser_end]:
+                    if subrange_start <= user_box < subrange_end:
+                        relevant_boxes_list.append(contrib_box)
+                        break
+
+            relevant_boxes_list = np.array(
+                relevant_boxes_list, dtype=trav.tree.box_id_dtype
+            )
 
             relevant_mpole_exps = wrangler.slice_mpoles(
                 mpole_exps, relevant_boxes_list
