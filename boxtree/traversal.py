@@ -1534,6 +1534,17 @@ class FMMTraversalInfo(DeviceDataRecord):
 
         ``box_id_t [*]``
 
+    To facilitate rotation-based translations ("point and shoot"), the following
+    lists record the angle between box translation pairs and the z-axis.
+
+    .. attributes:: from_sep_siblings_rotation_classes
+
+        ``int32 [*]``
+
+    .. attributes:: from_sep_siblings_rotation_class_to_angle
+
+        ``double [nfrom_sep_siblings_rotation_classes]``
+
     .. ------------------------------------------------------------------------
     .. rubric:: Separated Smaller Boxes ("List 3")
     .. ------------------------------------------------------------------------
@@ -1694,6 +1705,10 @@ class FMMTraversalInfo(DeviceDataRecord):
     @property
     def ntarget_or_target_parent_boxes(self):
         return len(self.target_or_target_parent_boxes)
+
+    @property
+    def nfrom_sep_siblings_rotation_classes(self):
+        return len(self.from_sep_siblings_rotation_class_to_angle)
 
 # }}}
 
@@ -2179,6 +2194,11 @@ class FMMTraversalBuilder:
         wait_for = [evt]
         from_sep_siblings = result["from_sep_siblings"]
 
+        from_sep_siblings_rotation_classes = (
+                cl.array.zeros(queue, len(from_sep_siblings.lists), np.int32))
+        from_sep_siblings_rotation_class_to_angle = (
+                cl.array.zeros(queue, 1, np.float64))
+
         # }}}
 
         with_extent = tree.sources_have_extent or tree.targets_have_extent
@@ -2340,6 +2360,10 @@ class FMMTraversalBuilder:
 
                 from_sep_siblings_starts=from_sep_siblings.starts,
                 from_sep_siblings_lists=from_sep_siblings.lists,
+                from_sep_siblings_rotation_classes=(
+                    from_sep_siblings_rotation_classes),
+                from_sep_siblings_rotation_class_to_angle=(
+                    from_sep_siblings_rotation_class_to_angle),
 
                 from_sep_smaller_by_level=from_sep_smaller_by_level,
                 target_boxes_sep_smaller_by_source_level=(
