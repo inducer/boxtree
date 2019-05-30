@@ -116,7 +116,7 @@ def drive_fmm(traversal, expansion_wrangler, src_weights, timing_data=None):
             traversal.from_sep_siblings_starts,
             traversal.from_sep_siblings_lists,
             mpole_exps)
-
+    
     recorder.add("multipole_to_local", timing_future)
 
     # local_exps represents both Gamma and Delta in [1]
