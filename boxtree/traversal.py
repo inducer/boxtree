@@ -1409,12 +1409,15 @@ ROTATION_ANGLE_FINDER_TEMPLATE = ElementwiseTemplate(
 
     operation=r"""//CL:mako//
     /*
-     * Normalize the translation vector (by dividing by its GCD).
+     * Normalize the translation vector (by dividing by its absolute GCD).
      *
      * We need this, because generally in in floating point arithmetic,
-     * if k is a scalar and v is a vector, we can't assume
+     * if k is a positive scalar and v is a vector, we can't assume
      *
-     *   kv[-1] / sqrt(|kv|^2) == v[-1] / sqrt(|v|^2)
+     *   kv[-1] / sqrt(|kv|^2) == v[-1] / sqrt(|v|^2).
+     *
+     * Normalizing ensures vectors that are positive integer multiples of each
+     * other get classified into the same equivalence class of rotations.
      */
     int_coord_vec_t vec = gcd_normalize(translation_vectors[i]);
 
