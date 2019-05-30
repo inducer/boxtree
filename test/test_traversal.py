@@ -404,7 +404,7 @@ def test_from_sep_siblings_rotation_classes(ctx_factory, well_sep_is_n_away):
                 translation_vecs[:, dims - 1]
                 / la.norm(translation_vecs, axis=1))
         rot_angles = trav.from_sep_siblings_rotation_class_to_angle[rot_classes]
-        assert np.allclose(np.arccos(cos_theta), rot_angles, atol=1e-3)
+        assert np.allclose(np.arccos(cos_theta), rot_angles, atol=1e-13)
 
 # }}}
 
