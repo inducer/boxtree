@@ -72,7 +72,7 @@ def test_list_renumberer(ctx_factory):
     arr = cl.array.to_device(queue, np.array([9, 4, 1, 4, 5, 6, 9]))
     lr = ListRenumberer(ctx, np.int)
 
-    (renumbered_arr, new_to_old), _ = lr(arr)
+    renumbered_arr, new_to_old, _ = lr(arr)
 
     assert (renumbered_arr.get() == np.array([4, 1, 0, 1, 2, 3, 4])).all()
     assert (new_to_old.get() == np.array([1, 4, 5, 6, 9])).all()
