@@ -2037,7 +2037,6 @@ class FMMTraversalBuilder:
 
         int_coord_vec_dtype = cl.cltypes.vec_types[np.dtype(np.int32), dimensions]
 
-        # extra_lists is
         for list_name, template, extra_args, extra_lists, eliminate_empty_list in [
                 ("same_level_non_well_sep_boxes",
                     SAME_LEVEL_NON_WELL_SEP_BOXES_TEMPLATE, [], [], []),
