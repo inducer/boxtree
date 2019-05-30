@@ -1369,7 +1369,7 @@ class _ListMerger(object):
 
 # {{{ rotation classes finder
 
-ROTATION_ANGLE_FINDER_PREAMBLE_TEMPLATE = Template(r"""//CL:mako//
+ROTATION_COSINE_FINDER_PREAMBLE_TEMPLATE = Template(r"""//CL:mako//
     inline int gcd(int a, int b)
     {
         while (b)
@@ -1398,13 +1398,13 @@ ROTATION_ANGLE_FINDER_PREAMBLE_TEMPLATE = Template(r"""//CL:mako//
     strict_undefined=True)
 
 
-ROTATION_ANGLE_FINDER_TEMPLATE = ElementwiseTemplate(
+ROTATION_COSINE_FINDER_TEMPLATE = ElementwiseTemplate(
     arguments=r"""//CL:mako//
     /* input: */
     int_coord_vec_t *translation_vectors,
 
     /* output: */
-    coord_t *rotation_angles,
+    coord_t *rotation_cosines,
     """,
 
     operation=r"""//CL:mako//
@@ -1430,7 +1430,7 @@ ROTATION_ANGLE_FINDER_TEMPLATE = ElementwiseTemplate(
 
     denom = sqrt(denom);
 
-    rotation_angles[i] = acos(num / denom);
+    rotation_cosines[i] = num / denom;
     """)
 
 
@@ -1441,17 +1441,17 @@ class _RotationClassesFinder(object):
             int_coord_vec_dtype, coord_dtype):
 
         if coord_dtype.itemsize == 4:
-            self.equiv_int_dtype_for_coord_dtype = np.int32
+            self.equiv_int_dtype_for_coord_dtype = np.uint32
         elif coord_dtype.itemsize == 8:
-            self.equiv_int_dtype_for_coord_dtype = np.int64
+            self.equiv_int_dtype_for_coord_dtype = np.uint64
         else:
             raise ValueError("unexpected coord_dtype")
 
-        preamble = ROTATION_ANGLE_FINDER_PREAMBLE_TEMPLATE.render(
+        preamble = ROTATION_COSINE_FINDER_PREAMBLE_TEMPLATE.render(
                 dimensions=dimensions)
 
-        self.rotation_angle_finder = (
-                ROTATION_ANGLE_FINDER_TEMPLATE.build(
+        self.rotation_cosine_finder = (
+                ROTATION_COSINE_FINDER_TEMPLATE.build(
                     context,
                     type_aliases=(
                         ("int_coord_vec_t", int_coord_vec_dtype),
@@ -1476,24 +1476,36 @@ class _RotationClassesFinder(object):
     def __call__(self, queue, translation_vectors, wait_for=None):
         nvectors = len(translation_vectors)
 
-        rotation_angles = cl.array.empty(queue, nvectors, dtype=self.coord_dtype)
+        # This computes the cosine of the rotation angles using the formula
+        #
+        #     cos(theta) = a . b / (|a| * |b|).
+        #
+        # acos() is not supported universally in double precision on GPUs, so we
+        # don't invert the cosines to get the rotation angles on the device.
+        rotation_cosines = cl.array.empty(queue, nvectors, dtype=self.coord_dtype)
 
-        evt = self.rotation_angle_finder(
-                translation_vectors, rotation_angles,
+        evt = self.rotation_cosine_finder(
+                translation_vectors,
+                rotation_cosines,
                 queue=queue, wait_for=wait_for)
 
-        rotation_classes, rotation_class_to_angle, evt = (
+        rotation_classes, rotation_class_to_cosine, evt = (
                 self.list_renumberer(
-                    rotation_angles.view(self.equiv_int_dtype_for_coord_dtype),
+                    rotation_cosines.view(self.equiv_int_dtype_for_coord_dtype),
                     queue=queue,
                     wait_for=[evt]))
+
+        # Compute the rotation angles.
+        rotation_class_to_cosine = (
+                rotation_class_to_cosine.view(self.coord_dtype).get())
+        rotation_class_to_angle = np.arccos(rotation_class_to_cosine)
+        rotation_class_to_angle = cl.array.to_device(queue, rotation_class_to_angle)
 
         # Sanity check.  There should be no more than 2^(d-1) * (2n+1)^d distinct
         # rotation classes, since that is an upper bound on the number of
         # distinct list 2 boxes.
         d = self.dimensions
         n = self.well_sep_is_n_away
-        rotation_class_to_angle = rotation_class_to_angle.view(self.coord_dtype)
         assert len(rotation_class_to_angle) <= 2 ** (d - 1) * (2 * n + 1) ** d
 
         result = {}

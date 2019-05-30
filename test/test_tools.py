@@ -73,9 +73,9 @@ def test_list_renumberer(ctx_factory):
             queue,
             np.array([9., 4., 1., 4., 5., 6., 9.], dtype=np.float64))
     
-    lr = ListRenumberer(ctx, np.int64, np.int)
+    lr = ListRenumberer(ctx, np.uint64, np.int)
 
-    renumbered_arr, new_to_old, _ = lr(arr.view(np.int64))
+    renumbered_arr, new_to_old, _ = lr(arr.view(np.uint64))
     assert (renumbered_arr.get() == np.array([4, 1, 0, 1, 2, 3, 4])).all()
     assert (new_to_old.view(np.float).get() == np.array([1., 4., 5., 6., 9.])).all()
 

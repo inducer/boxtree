@@ -699,6 +699,7 @@ class ListRenumberer(object):
         (sorted_items,), evt = self.sort(items, queue=queue, wait_for=wait_for)
 
         new_to_old, uniq_count, evt = self.uniq(sorted_items, wait_for=[evt])
+
         uniq_count = uniq_count.get()
 
         renumbered_items = cl.array.empty(
