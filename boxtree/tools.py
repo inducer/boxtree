@@ -675,7 +675,8 @@ class ListRenumberer(object):
                 context,
                 [VectorArg(from_element_dtype, "arr")],
                 "arr[i]",
-                ["arr"])
+                ["arr"],
+                key_dtype=from_element_dtype)
 
         self.uniq = unique
 

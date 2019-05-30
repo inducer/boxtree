@@ -399,12 +399,12 @@ def test_from_sep_siblings_rotation_classes(ctx_factory, well_sep_is_n_away):
         rot_classes = trav.from_sep_siblings_rotation_classes[start:end]
 
         center = centers[tgt_ibox]
-        for box, rot_class in zip(seps, rot_classes):
-            translation_vec = centers[box] - center
-            cos_theta = translation_vec[2] / la.norm(translation_vec)
-            assert np.isclose(
-                cos_theta,
-                np.cos(trav.from_sep_siblings_rotation_class_to_angle[rot_class]))
+        translation_vecs = centers[seps] - center
+        cos_theta = (
+                translation_vecs[:, dims - 1]
+                / la.norm(translation_vecs, axis=1))
+        rot_angles = trav.from_sep_siblings_rotation_class_to_angle[rot_classes]
+        assert np.allclose(cos_theta, np.cos(rot_angles))
 
 # }}}
 

@@ -171,6 +171,8 @@ typedef ${dtype_to_ctype(box_id_dtype)} box_id_t;
 <% vec_types_dict = dict(vec_types) %>
 typedef ${dtype_to_ctype(coord_dtype)} coord_t;
 typedef ${dtype_to_ctype(vec_types_dict[coord_dtype, dimensions])} coord_vec_t;
+typedef ${dtype_to_ctype(
+    vec_types_dict[np.dtype(np.int32), dimensions])} int_coord_vec_t;
 
 #define COORD_T_MACH_EPS ((coord_t) ${ repr(np.finfo(coord_dtype).eps) })
 
@@ -580,6 +582,24 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
 # {{{ from well-separated siblings ("list 2")
 
 FROM_SEP_SIBLINGS_TEMPLATE = r"""//CL//
+/*
+ * Return an integer vector indicating the translation direction as a multiple
+ * of the box radius.
+ */
+inline int_coord_vec_t get_translation_vector(
+    coord_t root_extent,
+    int level,
+    coord_vec_t source_center,
+    coord_vec_t target_center)
+{
+    int_coord_vec_t result = (int_coord_vec_t) 0;
+    %for i in range(dimensions):
+        result.s${i} = rint(
+           (target_center.s${i} - source_center.s${i})
+           / LEVEL_TO_RAD(level));
+    %endfor
+    return result;
+}
 
 void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
 {
@@ -619,7 +639,10 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
 
             if (sep)
             {
+                int_coord_vec_t vec = get_translation_vector(
+                    root_extent, level, center, sib_center);
                 APPEND_from_sep_siblings(sib_box_id);
+                APPEND_translation_vectors(vec);
             }
         }
     }
@@ -1344,6 +1367,141 @@ class _ListMerger(object):
 # }}}
 
 
+# {{{ rotation classes finder
+
+ROTATION_ANGLE_FINDER_PREAMBLE_TEMPLATE = Template(r"""//CL:mako//
+    inline int gcd(int a, int b)
+    {
+        while (b)
+        {
+            int tmp = a;
+            a = b;
+            b = tmp % b;
+        }
+        return a;
+    }
+
+    /*
+     * Normalizes a integer vector by dividing it by its (absolute) GCD.
+     */
+    inline int_coord_vec_t gcd_normalize(int_coord_vec_t vec)
+    {
+        int vec_gcd = abs(vec.s0);
+
+        %for i in range(1, dimensions):
+            vec_gcd = gcd(vec_gcd, abs(vec.s${i}));
+        %endfor
+
+        return vec / vec_gcd;
+    }
+    """,
+    strict_undefined=True)
+
+
+ROTATION_ANGLE_FINDER_TEMPLATE = ElementwiseTemplate(
+    arguments=r"""//CL:mako//
+    /* input: */
+    int_coord_vec_t *translation_vectors,
+
+    /* output: */
+    coord_t *rotation_angles,
+    """,
+
+    operation=r"""//CL:mako//
+    /*
+     * Normalize the translation vector (by dividing by its GCD).
+     *
+     * We need this, because generally in in floating point arithmetic,
+     * if k is a scalar and v is a vector, we can't assume
+     *
+     *   kv[-1] / sqrt(|kv|^2) == v[-1] / sqrt(|v|^2)
+     */
+    int_coord_vec_t vec = gcd_normalize(translation_vectors[i]);
+
+    coord_t num = vec.s${dimensions-1};
+    coord_t denom = 0;
+
+    %for i in range(dimensions):
+        denom += vec.s${i} * vec.s${i};
+    %endfor
+
+    denom = sqrt(denom);
+
+    rotation_angles[i] = acos(num / denom);
+    """)
+
+
+class _RotationClassesFinder(object):
+
+    def __init__(
+            self, context, well_sep_is_n_away, dimensions,
+            int_coord_vec_dtype, coord_dtype):
+
+        if coord_dtype.itemsize == 4:
+            self.equiv_int_dtype_for_coord_dtype = np.int32
+        elif coord_dtype.itemsize == 8:
+            self.equiv_int_dtype_for_coord_dtype = np.int64
+        else:
+            raise ValueError("unexpected coord_dtype")
+
+        preamble = ROTATION_ANGLE_FINDER_PREAMBLE_TEMPLATE.render(
+                dimensions=dimensions)
+
+        self.rotation_angle_finder = (
+                ROTATION_ANGLE_FINDER_TEMPLATE.build(
+                    context,
+                    type_aliases=(
+                        ("int_coord_vec_t", int_coord_vec_dtype),
+                        ("coord_t", coord_dtype),
+                    ),
+                    var_values=(
+                        ("dimensions", dimensions),
+                    ),
+                    more_preamble=preamble))
+
+        from boxtree.tools import ListRenumberer
+
+        self.list_renumberer = ListRenumberer(
+                context,
+                from_element_dtype=self.equiv_int_dtype_for_coord_dtype,
+                to_element_dtype=np.int32)
+
+        self.well_sep_is_n_away = well_sep_is_n_away
+        self.dimensions = dimensions
+        self.coord_dtype = coord_dtype
+
+    def __call__(self, queue, translation_vectors, wait_for=None):
+        nvectors = len(translation_vectors)
+
+        rotation_angles = cl.array.empty(queue, nvectors, dtype=self.coord_dtype)
+
+        evt = self.rotation_angle_finder(
+                translation_vectors, rotation_angles,
+                queue=queue, wait_for=wait_for)
+
+        rotation_classes, rotation_class_to_angle, evt = (
+                self.list_renumberer(
+                    rotation_angles.view(self.equiv_int_dtype_for_coord_dtype),
+                    queue=queue,
+                    wait_for=[evt]))
+
+        # Sanity check.  There should be no more than 2^(d-1) * (2n+1)^d distinct
+        # rotation classes, since that is an upper bound on the number of
+        # distinct list 2 boxes.
+        d = self.dimensions
+        n = self.well_sep_is_n_away
+        rotation_class_to_angle = rotation_class_to_angle.view(self.coord_dtype)
+        assert len(rotation_class_to_angle) <= 2 ** (d - 1) * (2 * n + 1) ** d
+
+        result = {}
+        result["rotation_classes"] = rotation_classes
+        result["rotation_class_to_angle"] = rotation_class_to_angle
+
+        return result, evt
+
+# }}}
+
+
 # {{{ traversal info (output)
 
 class FMMTraversalInfo(DeviceDataRecord):
@@ -1874,6 +2032,9 @@ class FMMTraversalBuilder:
                 VectorArg(box_flags_enum.dtype, "box_flags"),
                 ]
 
+        int_coord_vec_dtype = cl.cltypes.vec_types[np.dtype(np.int32), dimensions]
+
+        # extra_lists is
         for list_name, template, extra_args, extra_lists, eliminate_empty_list in [
                 ("same_level_non_well_sep_boxes",
                     SAME_LEVEL_NON_WELL_SEP_BOXES_TEMPLATE, [], [], []),
@@ -1890,7 +2051,7 @@ class FMMTraversalBuilder:
                                 "same_level_non_well_sep_boxes_starts"),
                             VectorArg(box_id_dtype,
                                 "same_level_non_well_sep_boxes_lists"),
-                            ], [], []),
+                            ], [("translation_vectors", int_coord_vec_dtype)], []),
                 ("from_sep_smaller", FROM_SEP_SMALLER_TEMPLATE,
                         [
                             ScalarArg(coord_dtype, "stick_out_factor"),
@@ -1908,7 +2069,7 @@ class FMMTraversalBuilder:
                                 "from_sep_smaller_min_nsources_cumul"),
                             ScalarArg(box_id_dtype, "from_sep_smaller_source_level"),
                             ],
-                            ["from_sep_close_smaller"]
+                            [("from_sep_close_smaller", box_id_dtype)]
                             if sources_have_extent or targets_have_extent
                             else [], ["from_sep_smaller"]),
                 ("from_sep_bigger", FROM_SEP_BIGGER_TEMPLATE,
@@ -1922,10 +2083,11 @@ class FMMTraversalBuilder:
                             VectorArg(box_id_dtype,
                                 "same_level_non_well_sep_boxes_lists"),
                             ],
-                            ["from_sep_close_bigger"]
+                            [("from_sep_close_bigger", box_id_dtype)]
                             if sources_have_extent or targets_have_extent
                             else [], []),
                 ]:
+
             src = Template(
                     TRAVERSAL_PREAMBLE_TEMPLATE
                     + HELPER_FUNCTION_TEMPLATE
@@ -1933,14 +2095,24 @@ class FMMTraversalBuilder:
                     strict_undefined=True).render(**render_vars)
 
             result[list_name+"_builder"] = ListOfListsBuilder(self.context,
-                    [(list_name, box_id_dtype)]
-                    + [(extra_list_name, box_id_dtype)
-                        for extra_list_name in extra_lists],
+                    [(list_name, box_id_dtype)] + extra_lists,
                     str(src),
                     arg_decls=base_args + extra_args,
                     debug=debug, name_prefix=list_name,
                     complex_kernel=True,
                     eliminate_empty_output_lists=eliminate_empty_list)
+
+        # }}}
+
+        # {{{ rotation classes finder
+
+        result["from_sep_siblings_rotation_classes_finder"] = (
+                _RotationClassesFinder(
+                    self.context,
+                    self.well_sep_is_n_away,
+                    dimensions,
+                    int_coord_vec_dtype,
+                    coord_dtype))
 
         # }}}
 
@@ -2194,10 +2366,13 @@ class FMMTraversalBuilder:
         wait_for = [evt]
         from_sep_siblings = result["from_sep_siblings"]
 
-        from_sep_siblings_rotation_classes = (
-                cl.array.zeros(queue, len(from_sep_siblings.lists), np.int32))
+        result, evt = knl_info.from_sep_siblings_rotation_classes_finder(
+                queue, result["translation_vectors"].lists, wait_for=wait_for)
+        wait_for = [evt]
+
+        from_sep_siblings_rotation_classes = result["rotation_classes"]
         from_sep_siblings_rotation_class_to_angle = (
-                cl.array.zeros(queue, 1, np.float64))
+                result["rotation_class_to_angle"])
 
         # }}}
 
