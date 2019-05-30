@@ -580,25 +580,38 @@ from mako.template import Template
 
 
 BINARY_SEARCH_TEMPLATE = Template("""
-inline size_t bsearch(__global ${idx_t} *starts, size_t len, ${idx_t} val)
+/*
+ * Returns the smallest value of i such that val <= arr[i].
+ * If no such value exists, returns (size_t) -1.
+ */
+inline size_t bsearch(
+    __global const ${elem_t} *arr,
+    size_t len,
+    const ${elem_t} val)
 {
-    size_t l_idx = 0, r_idx = len - 1, my_idx;
-    for (;;)
+    if (arr[len - 1] < val)
     {
-        my_idx = (l_idx + r_idx) / 2;
+        return -1;
+    }
 
-        if (starts[my_idx] <= val && val < starts[my_idx + 1])
+    size_t l = 0, r = len, i;
+
+    while (1)
+    {
+        i = l + (r - l) / 2;
+
+        if (val <= arr[i] && (i == 0 || arr[i - 1] < val))
         {
-            return my_idx;
+            return i;
         }
 
-        if (starts[my_idx] > val)
+        if (arr[i] < val)
         {
-            r_idx = my_idx - 1;
+            l = i;
         }
         else
         {
-            l_idx = my_idx + 1;
+            r = i;
         }
     }
 }
@@ -607,12 +620,97 @@ inline size_t bsearch(__global ${idx_t} *starts, size_t len, ${idx_t} val)
 
 class InlineBinarySearch(object):
 
-    def __init__(self, idx_t):
-        self.idx_t = idx_t
+    def __init__(self, elem_type_name):
+        self.render_vars = {"elem_t": elem_type_name}
 
     @memoize_method
     def __str__(self):
-        return BINARY_SEARCH_TEMPLATE.render(idx_t=self.idx_t)
+        return BINARY_SEARCH_TEMPLATE.render(**self.render_vars)
+
+# }}}
+
+
+# {{{ list renumberer
+
+LIST_RENUMBERER_TEMPLATE = ElementwiseTemplate(
+    arguments=r"""
+        elem_t *orig,
+        elem_t *sorted,
+        renumbered_t *renumbered_orig,
+        unsigned int len,
+    """,
+    operation=r"""//CL//
+        renumbered_orig[i] = bsearch(sorted, len, orig[i]);
+    """,
+    name="list_renumberer")
+
+
+class ListRenumberer(object):
+    """Renumber a list (with repetition) of N values to the range [0,1,...,N).
+
+    Useful e.g. for compacting lists into a dense range.
+
+    Returns a tuple (*renumbered*, *new_to_old*, *evt*), where *renumbered* is
+    the renumbered list and *new_to_old* maps renumbered values to new ones.
+
+    Example::
+
+        >>> arr = cl.array.to_device(queue, np.array([1, 6, 6, 4, 3]))
+        >>> lr = ListRenumberer(ctx, np.int)
+        >>> renumbered, new_to_old, evt = lr(arr)
+        >>> renumbered
+        array([0, 3, 3, 2, 1])
+        >>> new_to_old
+        array([1, 3, 4, 6])
+
+    """
+
+    def __init__(self, context, from_element_dtype, to_element_dtype=None):
+        from pyopencl.algorithm import RadixSort, unique
+
+        if to_element_dtype is None:
+            to_element_dtype = from_element_dtype
+
+        self.sort = RadixSort(
+                context,
+                [VectorArg(from_element_dtype, "arr")],
+                "arr[i]",
+                ["arr"])
+
+        self.uniq = unique
+
+        self.list_renumberer = (
+                LIST_RENUMBERER_TEMPLATE.build(
+                    context,
+                    type_aliases=(
+                        ("elem_t", from_element_dtype),
+                        ("renumbered_t", to_element_dtype),
+                        ),
+                    var_values=(),
+                    more_preamble=str(InlineBinarySearch("elem_t"))))
+
+        self.to_element_dtype = to_element_dtype
+
+    def __call__(self, items, queue=None, wait_for=None):
+        if queue is None:
+            queue = items.queue
+
+        (sorted_items,), evt = self.sort(items, queue=queue, wait_for=wait_for)
+
+        new_to_old, uniq_count, evt = self.uniq(sorted_items, wait_for=[evt])
+        uniq_count = uniq_count.get()
+
+        renumbered_items = cl.array.empty(
+                queue, len(items), dtype=self.to_element_dtype)
+
+        new_to_old = new_to_old[:uniq_count]
+
+        evt = self.list_renumberer(
+                items, new_to_old, renumbered_items, len(new_to_old),
+                queue=queue,
+                wait_for=[evt] + renumbered_items.events + new_to_old.events)
+
+        return renumbered_items, new_to_old, evt
 
 # }}}
 
