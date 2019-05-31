@@ -639,7 +639,7 @@ class FMMLibExpansionWrangler(object):
                     ier, rotmatf = rotmat_builder(order, self.m2l_rotation_angles)
                     assert (0 == ier).all()
 
-                    ier, rotmatb = rotmat_builder(order, -self.m2l_rotation_angles)
+                    ier, rotmatb = rotmat_builder(order, -self.m2l_rotation_angles)  # noqa pylint:disable=invalid-unary-operand-type
                     assert (0 == ier).all()
 
                     kwargs["ldm"] = order
