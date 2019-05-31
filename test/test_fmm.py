@@ -634,8 +634,8 @@ def test_fmm_with_optimized_3d_m2l(ctx_factory, helmholtz_k, well_sep_is_n_away)
     ctx = ctx_factory()
     queue = cl.CommandQueue(ctx)
 
-    nsources = 10000
-    ntargets = 10000
+    nsources = 5000
+    ntargets = 5000
     dtype = np.float64
 
     sources = p_normal(queue, nsources, dims, dtype, seed=15)
