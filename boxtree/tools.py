@@ -581,15 +581,22 @@ from mako.template import Template
 
 BINARY_SEARCH_TEMPLATE = Template("""
 /*
- * Returns the smallest value of i such that val <= arr[i].
- * If no such value exists, returns (size_t) -1.
+ * If "bias" = "left", returns the smallest value of i such that
+ * val <= arr[i], or (size_t) -1 if val is greater than all values.
+ *
+ * If "bias" = "right", returns the largest value of i such that
+ * arr[i] <= val, or (size_t) -1 if val is less than all values.
  */
 inline size_t bsearch(
     __global const ${elem_t} *arr,
     size_t len,
     const ${elem_t} val)
 {
+%if bias == "left":
     if (arr[len - 1] < val)
+%elif bias == "right":
+    if (val < arr[0])
+%endif
     {
         return -1;
     }
@@ -600,12 +607,20 @@ inline size_t bsearch(
     {
         i = l + (r - l) / 2;
 
+    %if bias == "left":
         if (val <= arr[i] && (i == 0 || arr[i - 1] < val))
+    %elif bias == "right":
+        if (arr[i] <= val && (i == len - 1 || val < arr[i + 1]))
+    %endif
         {
             return i;
         }
 
+    %if bias == "left":
         if (arr[i] < val)
+    %elif bias == "right":
+        if (arr[i] <= val)
+    %endif
         {
             l = i;
         }
@@ -620,8 +635,8 @@ inline size_t bsearch(
 
 class InlineBinarySearch(object):
 
-    def __init__(self, elem_type_name):
-        self.render_vars = {"elem_t": elem_type_name}
+    def __init__(self, bias, elem_type_name):
+        self.render_vars = {"bias": bias, "elem_t": elem_type_name}
 
     @memoize_method
     def __str__(self):
@@ -688,7 +703,7 @@ class ListRenumberer(object):
                         ("renumbered_t", to_element_dtype),
                         ),
                     var_values=(),
-                    more_preamble=str(InlineBinarySearch("elem_t"))))
+                    more_preamble=str(InlineBinarySearch("left", "elem_t"))))
 
         self.to_element_dtype = to_element_dtype
 

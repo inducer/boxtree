@@ -461,7 +461,7 @@ STARTS_EXPANDER_TEMPLATE = ElementwiseTemplate(
     dst[i] = bsearch(starts, starts_len, i);
     """,
     name="starts_expander",
-    preamble=str(InlineBinarySearch("idx_t")))
+    preamble=str(InlineBinarySearch("right", "idx_t")))
 
 # }}}
 
