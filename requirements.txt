@@ -2,7 +2,7 @@ numpy
 git+https://github.com/inducer/pyopencl
 git+https://github.com/inducer/islpy
 git+https://github.com/inducer/loopy
-git+https://gitlab.tiker.net/inducer/pyfmmlib@wrap-rotations
+git+https://gitlab.tiker.net/inducer/pyfmmlib
 
 # only for reference values for the fmmlib test
 # (unable to use--circular dep)
