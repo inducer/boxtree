@@ -619,6 +619,93 @@ def test_fmm_float32(ctx_factory, enable_extents):
 # }}}
 
 
+# {{{ test with fmm optimized 3d m2l
+
+@pytest.mark.parametrize("well_sep_is_n_away", (1, 2))
+@pytest.mark.parametrize("helmholtz_k", (0, 2))
+def test_fmm_with_optimized_3d_m2l(ctx_factory, helmholtz_k, well_sep_is_n_away):
+    logging.basicConfig(level=logging.INFO)
+
+    from pytest import importorskip
+    importorskip("pyfmmlib")
+
+    dims = 3
+
+    ctx = ctx_factory()
+    queue = cl.CommandQueue(ctx)
+
+    nsources = 10000
+    ntargets = 10000
+    dtype = np.float64
+
+    sources = p_normal(queue, nsources, dims, dtype, seed=15)
+    targets = (
+            p_normal(queue, ntargets, dims, dtype, seed=18)
+            + np.array([2, 0, 0])[:dims])
+
+    from boxtree import TreeBuilder
+    tb = TreeBuilder(ctx)
+
+    tree, _ = tb(queue, sources, targets=targets,
+            max_particles_in_box=30, debug=True)
+
+    from boxtree.traversal import FMMTraversalBuilder
+    tbuild = FMMTraversalBuilder(ctx)
+    trav, _ = tbuild(queue, tree, debug=True)
+
+    trav = trav.get(queue=queue)
+
+    from pyopencl.clrandom import PhiloxGenerator
+    rng = PhiloxGenerator(queue.context, seed=20)
+
+    weights = rng.uniform(queue, nsources, dtype=np.float64).get()
+
+    base_nterms = 10
+
+    def fmm_level_to_nterms(tree, lev):
+        result = base_nterms
+
+        if lev < 3 and helmholtz_k:
+            # exercise order-varies-by-level capability
+            result += 5
+
+        return result
+
+    from boxtree.pyfmmlib_integration import FMMLibExpansionWrangler
+
+    baseline_wrangler = FMMLibExpansionWrangler(
+            trav.tree, helmholtz_k,
+            fmm_level_to_nterms=fmm_level_to_nterms)
+
+    optimized_wrangler = FMMLibExpansionWrangler(
+            trav.tree, helmholtz_k,
+            fmm_level_to_nterms=fmm_level_to_nterms,
+            m2l_rotation_lists=trav.from_sep_siblings_rotation_classes,
+            m2l_rotation_angles=trav.from_sep_siblings_rotation_class_to_angle)
+
+    from boxtree.fmm import drive_fmm
+
+    baseline_timing_data = {}
+    baseline_pot = drive_fmm(
+            trav, baseline_wrangler, weights, timing_data=baseline_timing_data)
+
+    optimized_timing_data = {}
+    optimized_pot = drive_fmm(
+            trav, optimized_wrangler, weights, timing_data=optimized_timing_data)
+
+    print("Baseline M2L time : %.4g s" %
+              baseline_timing_data["multipole_to_local"]
+              .get("process_elapsed", -1))
+
+    print("Optimized M2L time: %.4g s" %
+              optimized_timing_data["multipole_to_local"]
+              .get("process_elapsed", -1))
+
+    assert np.allclose(baseline_pot, optimized_pot, atol=1e-13, rtol=1e-13)
+
+# }}}
+
+
 # You can test individual routines by typing
 # $ python test_fmm.py 'test_routine(cl.create_some_context)'
 

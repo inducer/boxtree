@@ -37,11 +37,14 @@ __doc__ = """Integrates :mod:`boxtree` with
 `pyfmmlib <http://pypi.python.org/pypi/pyfmmlib>`_.
 """
 
+# {{{ constants
 
-# Only use rotation matrix translations when the total size of the precomputation
-# is below a certain amount of bytes.
+# Only use M2L translations with precomputed rotation matrices ("optimized M2L")
+# when the total size of the precomputation is below a certain amount of bytes.
 
-_ROTMAT_MEM_CUTOFF = 10**8
+_ROTMAT_PRECOMPUTATION_CUTOFF_BYTES = 10**8
+
+# }}}
 
 
 class FMMLibExpansionWrangler(object):
@@ -57,12 +60,19 @@ class FMMLibExpansionWrangler(object):
 
     def __init__(self, tree, helmholtz_k, fmm_level_to_nterms=None, ifgrad=False,
             dipole_vec=None, dipoles_already_reordered=False, nterms=None,
-            from_sep_siblings_rotation_angles=None,
-            from_sep_siblings_rotation_classes=None):
+            m2l_rotation_lists=None, m2l_rotation_angles=None):
         """
         :arg fmm_level_to_nterms: a callable that, upon being passed the tree
             and the tree level as an integer, returns the value of *nterms* for the
             multipole and local expansions on that level.
+
+        :arg m2l_rotation_lists: corresponds to the
+            *from_sep_siblings_rotation_classes* attribute of the traversal
+            object
+
+        :arg m2l_rotation_angles:corresponds to the
+            *from_sep_siblings_rotation_class_to_angle* attribute of the traversal
+            object
         """
 
         if nterms is not None and fmm_level_to_nterms is not None:
@@ -114,12 +124,13 @@ class FMMLibExpansionWrangler(object):
             self.dipole_vec = None
             self.dp_suffix = ""
 
-        self.supports_rotmat_precomputation = (
-                from_sep_siblings_rotation_classes is not None
-                and from_sep_siblings_rotation_angles is not None)
+        self.supports_optimized_m2l = (
+                tree.dimensions == 3
+                and m2l_rotation_lists is not None
+                and m2l_rotation_angles is not None)
 
-        self.rotation_classes = from_sep_siblings_rotation_classes
-        self.rotation_angles = from_sep_siblings_rotation_angles
+        self.m2l_rotation_lists = m2l_rotation_lists
+        self.m2l_rotation_angles = m2l_rotation_angles
 
     # }}}
 
@@ -594,10 +605,6 @@ class FMMLibExpansionWrangler(object):
         tree = self.tree
         local_exps = self.local_expansion_zeros()
 
-        #mpole_exps = 0 * mpole_exps
-
-        use_rotmat = True
-
         for lev in range(self.tree.nlevels):
             lstart, lstop = level_start_target_or_target_parent_box_nrs[lev:lev+2]
             if lstart == lstop:
@@ -609,34 +616,31 @@ class FMMLibExpansionWrangler(object):
 
             kwargs = {}
 
-            # {{{ precompute rotation matrices, if applicable
+            # {{{ precompute rotation matrices for optimized m2l, if applicable
 
-            if self.supports_rotmat_precomputation:
+            if self.supports_optimized_m2l:
                 order = self.level_nterms[lev]
 
-                forward_rotation_angles = self.rotation_angles
-
                 # Rotation matrix precomputation can use a large amount of memory.
-                # Only use it when the estimated size is below _ROTMAT_MEM_CUTOFF.
+                # Only use it when the estimated size is below the cutoff.
                 rotmat_mem_estimate = (8
                         * (order + 1)**2
                         * (2*order + 1)
-                        * len(forward_rotation_angles))
+                        * len(self.m2l_rotation_angles))
 
-                if rotmat_mem_estimate < _ROTMAT_MEM_CUTOFF:
-                    assert len(self.rotation_classes) == len(lists)
+                if rotmat_mem_estimate < _ROTMAT_PRECOMPUTATION_CUTOFF_BYTES:
+                    assert len(self.m2l_rotation_lists) == len(lists)
 
                     mploc = self.get_translation_routine(
                             "%ddmploc", vec_suffix="2_trunc_imany")
 
-                    # Compute forward and backward rotation matrices for this level.
-                    import pyfmmlib
-                    rotmat_builder = getattr(pyfmmlib, "rotviarecur3p_init_vec")
+                    from pyfmmlib import rotviarecur3p_init_vec as rotmat_builder
 
-                    ier, rotmatf = rotmat_builder(order, forward_rotation_angles)
+                    # Compute forward and backward rotation matrices for this level.
+                    ier, rotmatf = rotmat_builder(order, self.m2l_rotation_angles)
                     assert (0 == ier).all()
 
-                    ier, rotmatb = rotmat_builder(order, -forward_rotation_angles)
+                    ier, rotmatb = rotmat_builder(order, -self.m2l_rotation_angles)
                     assert (0 == ier).all()
 
                     kwargs["ldm"] = order
@@ -644,11 +648,11 @@ class FMMLibExpansionWrangler(object):
                     kwargs["nterms1"] = order
 
                     kwargs["rotmatf"] = rotmatf
-                    kwargs["rotmatf_offsets"] = self.rotation_classes
+                    kwargs["rotmatf_offsets"] = self.m2l_rotation_lists
                     kwargs["rotmatf_starts"] = starts_on_lvl
 
                     kwargs["rotmatb"] = rotmatb
-                    kwargs["rotmatb_offsets"] = self.rotation_classes
+                    kwargs["rotmatb_offsets"] = self.m2l_rotation_lists
                     kwargs["rotmatb_starts"] = starts_on_lvl
 
             # }}}

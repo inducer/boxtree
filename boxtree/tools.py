@@ -651,7 +651,7 @@ class ListRenumberer(object):
     Useful e.g. for compacting lists into a dense range.
 
     Returns a tuple (*renumbered*, *new_to_old*, *evt*), where *renumbered* is
-    the renumbered list and *new_to_old* maps renumbered values to new ones.
+    the renumbered list and *new_to_old* maps renumbered values to old ones.
 
     Example::
 

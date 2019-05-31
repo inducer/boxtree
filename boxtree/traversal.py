@@ -1708,15 +1708,21 @@ class FMMTraversalInfo(DeviceDataRecord):
         ``box_id_t [*]``
 
     To facilitate rotation-based translations ("point and shoot"), the following
-    lists record the angle between box translation pairs and the z-axis.
+    lists record the angle between box translation pairs and the *z*-axis.
 
-    .. attributes:: from_sep_siblings_rotation_classes
+    .. attribute:: from_sep_siblings_rotation_classes
 
         ``int32 [*]``
 
-    .. attributes:: from_sep_siblings_rotation_class_to_angle
+        A list, corresponding to *from_sep_siblings_lists*, of the rotation
+        class of each box pair.
 
-        ``double [nfrom_sep_siblings_rotation_classes]``
+    .. attribute:: from_sep_siblings_rotation_class_to_angle
+
+        ``coord_t [nfrom_sep_siblings_rotation_classes]``
+
+        Maps rotation classes in *from_sep_siblings_rotation_classes* to
+        rotation angles.
 
     .. ------------------------------------------------------------------------
     .. rubric:: Separated Smaller Boxes ("List 3")
@@ -2380,13 +2386,17 @@ class FMMTraversalBuilder:
         wait_for = [evt]
         from_sep_siblings = result["from_sep_siblings"]
 
-        result, evt = knl_info.from_sep_siblings_rotation_classes_finder(
-                queue, result["translation_vectors"].lists, wait_for=wait_for)
-        wait_for = [evt]
+        if tree.dimensions == 3:
+            result, evt = knl_info.from_sep_siblings_rotation_classes_finder(
+                    queue, result["translation_vectors"].lists, wait_for=wait_for)
+            wait_for = [evt]
 
-        from_sep_siblings_rotation_classes = result["rotation_classes"]
-        from_sep_siblings_rotation_class_to_angle = (
-                result["rotation_class_to_angle"])
+            from_sep_siblings_rotation_classes = result["rotation_classes"]
+            from_sep_siblings_rotation_class_to_angle = (
+                    result["rotation_class_to_angle"])
+        else:
+            from_sep_siblings_rotation_classes = None
+            from_sep_siblings_rotation_class_to_angle = None
 
         # }}}
 
