@@ -398,8 +398,7 @@ def test_from_sep_siblings_rotation_classes(ctx_factory, well_sep_is_n_away):
         seps = trav.from_sep_siblings_lists[start:end]
         rot_classes = trav.from_sep_siblings_rotation_classes[start:end]
 
-        center = centers[tgt_ibox]
-        translation_vecs = centers[seps] - center
+        translation_vecs = centers[tgt_ibox] - centers[seps]
         theta = np.arctan2(
                 la.norm(translation_vecs[:, :dims - 1], axis=1),
                 translation_vecs[:, dims - 1])
