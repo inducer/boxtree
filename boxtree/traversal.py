@@ -1707,8 +1707,9 @@ class FMMTraversalInfo(DeviceDataRecord):
 
         ``box_id_t [*]``
 
-    To facilitate rotation-based translations ("point and shoot"), the following
-    lists record the angle between box translation pairs and the *z*-axis.
+    To facilitate matrix precomputation for rotation-based translations ("point
+    and shoot"), the following lists record the angle between box translation
+    pairs and the *z*-axis.
 
     .. attribute:: from_sep_siblings_rotation_classes
 
