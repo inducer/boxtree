@@ -72,7 +72,7 @@ def test_list_renumberer(ctx_factory):
     arr = cl.array.to_device(
             queue,
             np.array([9., 4., 1., 4., 5., 6., 9.], dtype=np.float64))
-    
+
     lr = ListRenumberer(ctx, np.uint64, np.int)
 
     renumbered_arr, new_to_old, _ = lr(arr.view(np.uint64))
