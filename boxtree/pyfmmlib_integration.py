@@ -595,6 +595,55 @@ class FMMLibExpansionWrangler(object):
 
         return output
 
+    # {{{ precompute rotation matrices for optimized m2l
+
+    @memoize_method
+    def m2l_rotation_matrices(self):
+        # Returns a tuple (rotmatf, rotmatb, rotmat_order), consisting of the
+        # forward rotation matrices, backward rotation matrices, and the
+        # translation order of the matrices. rotmat_order is -1 if not
+        # supported.
+
+        def mem_estimate(order):
+            # Rotation matrix memory cost estimate.
+            return (8
+                    * (order + 1)**2
+                    * (2*order + 1)
+                    * len(self.m2l_rotation_angles))
+
+        rotmatf = None
+        rotmatb = None
+        rotmat_order = -1
+
+        if not self.supports_optimized_m2l:
+            return (rotmatf, rotmatb, rotmat_order)
+
+        # Find the largest order we can use. Because the memory cost of the
+        # matrices could be large, only precompute them if the cost estimate
+        # for the order does not exceed the cutoff.
+        for order in sorted(self.level_nterms, key=lambda x: -x):
+            if mem_estimate(order) < _ROTMAT_PRECOMPUTATION_CUTOFF_BYTES:
+                rotmat_order = order
+                break
+
+        if rotmat_order == -1:
+            return (rotmatf, rotmatb, rotmat_order)
+
+        # Compute the rotation matrices.
+        from pyfmmlib import rotviarecur3p_init_vec as rotmat_builder
+
+        ier, rotmatf = (
+                rotmat_builder(rotmat_order, self.m2l_rotation_angles))
+        assert (0 == ier).all()
+
+        ier, rotmatb = (
+                rotmat_builder(rotmat_order, -self.m2l_rotation_angles))  # noqa pylint:disable=invalid-unary-operand-type
+        assert (0 == ier).all()
+
+        return (rotmatf, rotmatb, rotmat_order)
+
+    # }}}
+
     @log_process(logger)
     @return_timing_data
     def multipole_to_local(self,
@@ -603,6 +652,9 @@ class FMMLibExpansionWrangler(object):
             starts, lists, mpole_exps):
         tree = self.tree
         local_exps = self.local_expansion_zeros()
+
+        # Precomputed rotation matrices
+        rotmatf, rotmatb, rotmat_order = self.m2l_rotation_matrices()
 
         for lev in range(self.tree.nlevels):
             lstart, lstop = level_start_target_or_target_parent_box_nrs[lev:lev+2]
@@ -615,44 +667,25 @@ class FMMLibExpansionWrangler(object):
 
             kwargs = {}
 
-            # {{{ precompute rotation matrices for optimized m2l, if applicable
+            # {{{ set up optimized m2l, if applicable
 
-            if self.supports_optimized_m2l:
-                order = self.level_nterms[lev]
+            if self.level_nterms[lev] <= rotmat_order:
+                assert len(self.m2l_rotation_lists) == len(lists)
 
-                # Rotation matrix precomputation can use a large amount of memory.
-                # Only use it when the estimated size is below the cutoff.
-                rotmat_mem_estimate = (8
-                        * (order + 1)**2
-                        * (2*order + 1)
-                        * len(self.m2l_rotation_angles))
+                mploc = self.get_translation_routine(
+                        "%ddmploc", vec_suffix="2_trunc_imany")
 
-                if rotmat_mem_estimate < _ROTMAT_PRECOMPUTATION_CUTOFF_BYTES:
-                    assert len(self.m2l_rotation_lists) == len(lists)
+                kwargs["ldm"] = rotmat_order
+                kwargs["nterms"] = self.level_nterms[lev]
+                kwargs["nterms1"] = self.level_nterms[lev]
 
-                    mploc = self.get_translation_routine(
-                            "%ddmploc", vec_suffix="2_trunc_imany")
+                kwargs["rotmatf"] = rotmatf
+                kwargs["rotmatf_offsets"] = self.m2l_rotation_lists
+                kwargs["rotmatf_starts"] = starts_on_lvl
 
-                    from pyfmmlib import rotviarecur3p_init_vec as rotmat_builder
-
-                    # Compute forward and backward rotation matrices for this level.
-                    ier, rotmatf = rotmat_builder(order, self.m2l_rotation_angles)
-                    assert (0 == ier).all()
-
-                    ier, rotmatb = rotmat_builder(order, -self.m2l_rotation_angles)  # noqa pylint:disable=invalid-unary-operand-type
-                    assert (0 == ier).all()
-
-                    kwargs["ldm"] = order
-                    kwargs["nterms"] = order
-                    kwargs["nterms1"] = order
-
-                    kwargs["rotmatf"] = rotmatf
-                    kwargs["rotmatf_offsets"] = self.m2l_rotation_lists
-                    kwargs["rotmatf_starts"] = starts_on_lvl
-
-                    kwargs["rotmatb"] = rotmatb
-                    kwargs["rotmatb_offsets"] = self.m2l_rotation_lists
-                    kwargs["rotmatb_starts"] = starts_on_lvl
+                kwargs["rotmatb"] = rotmatb
+                kwargs["rotmatb_offsets"] = self.m2l_rotation_lists
+                kwargs["rotmatb_starts"] = starts_on_lvl
 
             # }}}
 
