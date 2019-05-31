@@ -135,7 +135,6 @@ class FMMLibExpansionWrangler(object):
     # }}}
 
     def level_to_rscale(self, level):
-        return 1
         result = self.tree.root_extent * 2 ** -level * self.rscale_factor
         if abs(result) > 1:
             result = 1
@@ -189,7 +188,7 @@ class FMMLibExpansionWrangler(object):
     def get_vec_routine(self, name):
         return self.get_routine(name, "_vec")
 
-    def get_translation_routine(self, name,  vec_suffix="_vec"):
+    def get_translation_routine(self, name, vec_suffix="_vec"):
         suffix = ""
         if self.dim == 3:
             suffix = "quadu"
