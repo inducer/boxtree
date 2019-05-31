@@ -400,11 +400,12 @@ def test_from_sep_siblings_rotation_classes(ctx_factory, well_sep_is_n_away):
 
         center = centers[tgt_ibox]
         translation_vecs = centers[seps] - center
-        cos_theta = (
-                translation_vecs[:, dims - 1]
-                / la.norm(translation_vecs, axis=1))
+        theta = np.arctan2(
+                la.norm(translation_vecs[:, :dims - 1], axis=1),            
+                translation_vecs[:, dims - 1])
         rot_angles = trav.from_sep_siblings_rotation_class_to_angle[rot_classes]
-        assert np.allclose(np.arccos(cos_theta), rot_angles, atol=1e-13, rtol=1e-13)
+        
+        assert np.allclose(theta, rot_angles, atol=1e-13, rtol=1e-13)
 
 # }}}
 

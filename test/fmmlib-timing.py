@@ -57,8 +57,8 @@ def test_pyfmmlib_fmm(ctx_factory, dims, use_dipoles, helmholtz_k):
     ctx = ctx_factory()
     queue = cl.CommandQueue(ctx)
 
-    nsources = 3000
-    ntargets = 1000
+    nsources = 30000
+    ntargets = 10000
     dtype = np.float64
 
     sources = p_normal(queue, nsources, dims, dtype, seed=15)
@@ -96,7 +96,7 @@ def test_pyfmmlib_fmm(ctx_factory, dims, use_dipoles, helmholtz_k):
     if dims == 2 and helmholtz_k == 0:
         base_nterms = 20
     else:
-        base_nterms = 10
+        base_nterms = 15
 
     def fmm_level_to_nterms(tree, lev):
         result = base_nterms
@@ -110,19 +110,26 @@ def test_pyfmmlib_fmm(ctx_factory, dims, use_dipoles, helmholtz_k):
 
         return result
 
-    from boxtree.pyfmmlib_integration import FMMLibExpansionWrangler
-    wrangler = FMMLibExpansionWrangler(
-            trav.tree, helmholtz_k,
-            fmm_level_to_nterms=fmm_level_to_nterms,
-            dipole_vec=dipole_vec,
-            from_sep_siblings_rotation_classes=trav.from_sep_siblings_rotation_classes,
-            from_sep_siblings_rotation_angles=trav.from_sep_siblings_rotation_class_to_angle)
+    if 1:
+        from boxtree.pyfmmlib_integration import FMMLibExpansionWrangler
+        wrangler = FMMLibExpansionWrangler(
+                trav.tree, helmholtz_k,
+                fmm_level_to_nterms=fmm_level_to_nterms,
+                dipole_vec=dipole_vec)
+    else:
+        from boxtree.pyfmmlib_integration import FMMLibExpansionWrangler
+        wrangler = FMMLibExpansionWrangler(
+                trav.tree, helmholtz_k,
+                fmm_level_to_nterms=fmm_level_to_nterms,
+                dipole_vec=dipole_vec,
+                from_sep_siblings_rotation_classes=trav.from_sep_siblings_rotation_classes,
+                from_sep_siblings_rotation_angles=trav.from_sep_siblings_rotation_class_to_angle)
 
     from boxtree.fmm import drive_fmm
 
     timing_data = {}
     pot = drive_fmm(trav, wrangler, weights, timing_data=timing_data)
-    print("M2L timing", timing_data["multipole_to_local"]["wall_elapsed"])
+    print("M2L timing", timing_data["multipole_to_local"]["process_elapsed"])
     assert timing_data
 
     # {{{ ref fmmlib computation

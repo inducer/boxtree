@@ -640,7 +640,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
             if (sep)
             {
                 int_coord_vec_t vec = get_translation_vector(
-                    root_extent, level, center, sib_center);
+                    root_extent, level, sib_center, center);
                 APPEND_from_sep_siblings(sib_box_id);
                 APPEND_translation_vectors(vec);
             }
