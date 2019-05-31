@@ -693,7 +693,6 @@ def test_fmm_with_optimized_3d_m2l(ctx_factory, helmholtz_k, well_sep_is_n_away)
     optimized_pot = drive_fmm(
             trav, optimized_wrangler, weights, timing_data=optimized_timing_data)
 
-
     try:
         print("Baseline M2L time : %#.4g s" %
                   baseline_timing_data["multipole_to_local"]["process_elapsed"])
