@@ -1382,7 +1382,7 @@ ROTATION_COSINE_FINDER_PREAMBLE_TEMPLATE = Template(r"""//CL:mako//
     }
 
     /*
-     * Normalizes a integer vector by dividing it by its (absolute) GCD.
+     * Normalizes a integer vector by dividing it by its GCD.
      */
     inline int_coord_vec_t gcd_normalize(int_coord_vec_t vec)
     {
@@ -1409,10 +1409,11 @@ ROTATION_COSINE_FINDER_TEMPLATE = ElementwiseTemplate(
 
     operation=r"""//CL:mako//
     /*
-     * Normalize the translation vector (by dividing by its absolute GCD).
+     * Normalize the translation vector (by dividing by its GCD).
      *
-     * We need this, because generally in in floating point arithmetic,
-     * if k is a positive scalar and v is a vector, we can't assume
+     * We need this before computing the cosine of the rotation angle, because
+     * generally in in floating point arithmetic, if k is a positive scalar and v
+     * is a vector, we can't assume
      *
      *   kv[-1] / sqrt(|kv|^2) == v[-1] / sqrt(|v|^2).
      *
@@ -1440,6 +1441,11 @@ class _RotationClassesFinder(object):
             self, context, well_sep_is_n_away, dimensions,
             int_coord_vec_dtype, coord_dtype):
 
+        # equiv_int_dtype_for_coord_dtype is an unsigned equivalent width dtype
+        # for coord_dtype. We use this in ListRenumberer, which only supports
+        # unsigned types. (That means the rotation cosines are sorted according
+        # to the interpretation of the bits as unsigned integers, but the order
+        # doesn't matter.)
         if coord_dtype.itemsize == 4:
             self.equiv_int_dtype_for_coord_dtype = np.uint32
         elif coord_dtype.itemsize == 8:

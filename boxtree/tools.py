@@ -678,6 +678,12 @@ class ListRenumberer(object):
         >>> new_to_old
         array([1, 3, 4, 6])
 
+    .. note::
+
+        Due to radix sort not handling signed types or floats
+        (https://gitlab.tiker.net/inducer/pyopencl/issues/16),
+        make sure *from_element_dtype* is an unsigned integer type.
+
     """
 
     def __init__(self, context, from_element_dtype, to_element_dtype=None):
