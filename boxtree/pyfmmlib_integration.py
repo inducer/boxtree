@@ -653,7 +653,8 @@ class FMMLibExpansionWrangler(object):
         tree = self.tree
         local_exps = self.local_expansion_zeros()
 
-        # Precomputed rotation matrices
+        # Precomputed rotation matrices (matrices of larger order can be used
+        # for translations of smaller order)
         rotmatf, rotmatb, rotmat_order = self.m2l_rotation_matrices()
 
         for lev in range(self.tree.nlevels):
