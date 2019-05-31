@@ -693,15 +693,13 @@ def test_fmm_with_optimized_3d_m2l(ctx_factory, helmholtz_k, well_sep_is_n_away)
     optimized_pot = drive_fmm(
             trav, optimized_wrangler, weights, timing_data=optimized_timing_data)
 
-    try:
-        print("Baseline M2L time : %#.4g s" %
-                  baseline_timing_data["multipole_to_local"]["process_elapsed"])
+    baseline_time = baseline_timing_data["multipole_to_local"]["process_elapsed"]
+    if baseline_time is not None:
+        print("Baseline M2L time : %#.4g s" % baseline_time)
 
-        print("Optimized M2L time: %#.4g s" %
-                  optimized_timing_data["multipole_to_local"]["process_elapsed"])
-
-    except KeyError:
-        pass
+    opt_time = optimized_timing_data["multipole_to_local"]["process_elapsed"]
+    if opt_time is not None:
+        print("Optimized M2L time: %#.4g s" % opt_time)
 
     assert np.allclose(baseline_pot, optimized_pot, atol=1e-13, rtol=1e-13)
 
