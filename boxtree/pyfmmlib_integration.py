@@ -37,12 +37,73 @@ __doc__ = """Integrates :mod:`boxtree` with
 `pyfmmlib <http://pypi.python.org/pypi/pyfmmlib>`_.
 """
 
-# {{{ constants
 
-# Only use M2L translations with precomputed rotation matrices ("optimized M2L")
-# when the total size of the precomputation is below a certain amount of bytes.
+# {{{ geometry data interface
 
-_ROTMAT_PRECOMPUTATION_CUTOFF_BYTES = 10**8
+class FMMLibGeometryDataInterface(object):
+    """Abstract interface for additional, optional geometry data passed to the
+    expansion wrangler.
+
+    """
+
+    def m2l_rotation_classes(self):
+        """Return a NumPy array mapping entries of List 2 to rotation classes,
+        or *None* if not available.
+
+        If available, this list should follow the same format as the list
+        `from_sep_siblings_rotation_classes`.
+        """
+        raise NotImplementedError
+
+    def m2l_rotation_angles(self):
+        """Return a NumPy array mapping rotation classes to rotation angles,
+        or *None* if not available.
+        """
+        raise NotImplementedError
+
+
+class EmptyFMMLibGeometryData(FMMLibGeometryDataInterface):
+    """A default implementation of the :class:`FMMLibGeometryDataInterface`.
+    Returns no data.
+
+    """
+
+    def m2l_rotation_classes(self):
+        return None
+
+    def m2l_rotation_angles(self):
+        return None
+
+
+class FMMLibGeometryData(FMMLibGeometryDataInterface):
+    """An implementation of the :class:`FMMLibGeometryDataInterface`."""
+
+    def __init__(self, queue, trav):
+        self.queue = queue
+        self.trav = trav
+        self.tree = trav.tree
+
+    @property
+    @memoize_method
+    def rotation_classes_builder(self):
+        return RotationClassesBuilder(
+                self.queue.context,
+                self.trav.well_sep_is_n_away,
+                self.trav.dimensions,
+                self.tree.box_id_dtype,
+                self.tree.coord_dtype)
+
+    @memoize_method
+    def build_rotation_classes_lists(self):
+        return self.rotation_classes_builder(self.queue, self.trav)
+
+    @memoize_method
+    def m2l_rotation_classes(self):
+        return self.build_rotation_classes_lists()["rotation_classes"]
+
+    @memoize_method
+    def m2l_rotation_angles(self):
+        return self.build_rotation_classes_lists()["rotation_angles"]
 
 # }}}
 
@@ -60,7 +121,8 @@ class FMMLibExpansionWrangler(object):
 
     def __init__(self, tree, helmholtz_k, fmm_level_to_nterms=None, ifgrad=False,
             dipole_vec=None, dipoles_already_reordered=False, nterms=None,
-            m2l_rotation_lists=None, m2l_rotation_angles=None):
+            optimized_m2l_precomputation_memory_cutoff_bytes=10**8,
+            geo_data=EmptyFMMLibGeometryData()):
         """
         :arg fmm_level_to_nterms: a callable that, upon being passed the tree
             and the tree level as an integer, returns the value of *nterms* for the
@@ -88,6 +150,7 @@ class FMMLibExpansionWrangler(object):
                 return nterms
 
         self.tree = tree
+        self.geo_data = geo_data
 
         if helmholtz_k == 0:
             self.eqn_letter = "l"
