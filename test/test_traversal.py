@@ -378,22 +378,22 @@ def test_from_sep_siblings_rotation_classes(ctx_factory, well_sep_is_n_away):
     # {{{ build traversal
 
     from boxtree.traversal import FMMTraversalBuilder, RotationClassesBuilder
-    
+
     tg = FMMTraversalBuilder(ctx, well_sep_is_n_away=well_sep_is_n_away)
     trav, _ = tg(queue, tree)
-
-    tree = tree.get(queue=queue)
-    trav = trav.get(queue=queue)
-
-    centers = tree.box_centers.T
 
     rb = RotationClassesBuilder(ctx, well_sep_is_n_away, tree.dimensions,
             tree.box_id_dtype, tree.box_level_dtype, tree.coord_dtype)
 
     result, _ = rb(queue, trav)
 
-    rot_classes = result["from_sep_siblings_rotation_classes"].get(queue)
-    rot_angles = result["from_sep_siblings_rotation_class_to_angle"].get(queue)
+    rot_classes = result.from_sep_siblings_rotation_classes.get(queue)
+    rot_angles = result.from_sep_siblings_rotation_class_to_angle.get(queue)
+
+    tree = tree.get(queue=queue)
+    trav = trav.get(queue=queue)
+
+    centers = tree.box_centers.T
 
     # }}}
 

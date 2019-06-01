@@ -1721,9 +1721,6 @@ class FMMTraversalBuilder:
         self.well_sep_is_n_away = well_sep_is_n_away
         self.from_sep_smaller_crit = from_sep_smaller_crit
 
-    def get_extra_kernel_info(self, dimensions):
-        pass
-
     # {{{ kernel builder
 
     @memoize_method
@@ -1862,7 +1859,6 @@ class FMMTraversalBuilder:
                 VectorArg(box_flags_enum.dtype, "box_flags"),
                 ]
 
-
         for list_name, template, extra_args, extra_lists, eliminate_empty_list in [
                 ("same_level_non_well_sep_boxes",
                     SAME_LEVEL_NON_WELL_SEP_BOXES_TEMPLATE, [], [], []),
@@ -1897,7 +1893,7 @@ class FMMTraversalBuilder:
                                 "from_sep_smaller_min_nsources_cumul"),
                             ScalarArg(box_id_dtype, "from_sep_smaller_source_level"),
                             ],
-                            [("from_sep_close_smaller", box_id_dtype)]
+                            ["from_sep_close_smaller"]
                             if sources_have_extent or targets_have_extent
                             else [], ["from_sep_smaller"]),
                 ("from_sep_bigger", FROM_SEP_BIGGER_TEMPLATE,
@@ -1911,11 +1907,10 @@ class FMMTraversalBuilder:
                             VectorArg(box_id_dtype,
                                 "same_level_non_well_sep_boxes_lists"),
                             ],
-                            [("from_sep_close_bigger", box_id_dtype)]
+                            ["from_sep_close_bigger"]
                             if sources_have_extent or targets_have_extent
                             else [], []),
                 ]:
-
             src = Template(
                     TRAVERSAL_PREAMBLE_TEMPLATE
                     + HELPER_FUNCTION_TEMPLATE
@@ -1923,7 +1918,9 @@ class FMMTraversalBuilder:
                     strict_undefined=True).render(**render_vars)
 
             result[list_name+"_builder"] = ListOfListsBuilder(self.context,
-                    [(list_name, box_id_dtype)] + extra_lists,
+                    [(list_name, box_id_dtype)]
+                    + [(extra_list_name, box_id_dtype)
+                        for extra_list_name in extra_lists],
                     str(src),
                     arg_decls=base_args + extra_args,
                     debug=debug, name_prefix=list_name,
@@ -2480,16 +2477,42 @@ ROTATION_COSINE_FINDER_TEMPLATE = ElementwiseTemplate(
     """)
 
 
+class RotationClassesInfo(DeviceDataRecord):
+    r"""Interaction lists to help with matrix precomputations for rotation-based
+    translations ("point and shoot"),
+
+    .. attribute:: nfrom_sep_siblings_rotation_classes
+
+       The number of distinct rotation classes.
+
+    .. attribute:: from_sep_siblings_rotation_classes
+
+        ``int32 [*]``
+
+        A list, corresponding to *from_sep_siblings_lists* of *trav*, of
+        the rotation class of each box pair.
+
+    .. attribute:: from_sep_siblings_rotation_class_to_angle
+
+        ``coord_t [nfrom_sep_siblings_rotation_classes]``
+
+        Maps rotation classes in *from_sep_siblings_rotation_classes* to
+        rotation angles. This represents the angle between box translation
+        pairs and the *z*-axis.
+
+    """
+
+    @property
+    def nfrom_sep_siblings_rotation_classes(self):
+        return len(self.from_sep_siblings_rotation_class_to_angle)
+
+
 class RotationClassesBuilder(object):
     """Build rotation classes for List 2 translations.
-
-    This class builds lists to facilitate matrix precomputations for
-    rotation-based translations ("point and shoot"),
     """
 
     def __init__(self, context, well_sep_is_n_away, dimensions, box_id_dtype,
             box_level_dtype, coord_dtype):
-
         coord_vec_dtype = cl.cltypes.vec_types[coord_dtype, dimensions]
         int_coord_vec_dtype = cl.cltypes.vec_types[np.dtype(np.int32), dimensions]
 
@@ -2534,34 +2557,14 @@ class RotationClassesBuilder(object):
         self.dimensions = dimensions
         self.coord_dtype = coord_dtype
 
+    @log_process(logger, "build rotation classes")
     def __call__(self, queue, trav, wait_for=None):
-        """Build a dictionary with information about List 2 rotation classes.
-
-        The following entries are in the dictionary.
-
-            .. attribute:: nfrom_sep_siblings_rotation_classes
-
-               The number of distinct rotation classes.
-
-            .. attribute:: from_sep_siblings_rotation_classes
-
-                ``int32 [*]``
-
-                A list, corresponding to *from_sep_siblings_lists* of *trav*, of
-                the rotation class of each box pair.
-
-            .. attribute:: from_sep_siblings_rotation_class_to_angle
-
-                ``coord_t [nfrom_sep_siblings_rotation_classes]``
-
-                Maps rotation classes in *from_sep_siblings_rotation_classes* to
-                rotation angles. This represents the angle between box translation
-                pairs and the *z*-axis.
+        """Returns a pair *info*, *evt* where info is a :class:`RotationClassesInfo`.
         """
-        trav = trav.to_device(queue)
-        tree = trav.tree.to_device(queue)
+        rotation_cosines = cl.array.empty(
+                queue, len(trav.from_sep_siblings_lists), dtype=self.coord_dtype)
 
-        nitems = len(trav.from_sep_siblings_lists)
+        tree = trav.tree
 
         # This computes the cosine of the rotation angles using the formula
         #
@@ -2569,8 +2572,6 @@ class RotationClassesBuilder(object):
         #
         # acos() is not supported universally in double precision on GPUs, so we
         # don't invert the cosines to get the rotation angles on the device.
-        rotation_cosines = cl.array.empty(queue, nitems, dtype=self.coord_dtype)
-
         evt = self.rotation_cosine_finder(
                 trav.from_sep_siblings_lists,
                 trav.from_sep_siblings_starts,
@@ -2595,20 +2596,17 @@ class RotationClassesBuilder(object):
         rotation_class_to_angle = np.arccos(rotation_class_to_cosine)
         rotation_class_to_angle = cl.array.to_device(queue, rotation_class_to_angle)
 
-        # Sanity check.  There should be no more than 2^(d-1) * (2n+1)^d distinct
-        # rotation classes, since that is an upper bound on the number of
-        # distinct list 2 boxes.
+        # There should be no more than 2^(d-1) * (2n+1)^d distinct rotation
+        # classes, since that is an upper bound on the number of distinct list 2
+        # boxes.
         d = self.dimensions
         n = self.well_sep_is_n_away
         assert len(rotation_class_to_angle) <= 2**(d-1) * (2*n+1)**d
 
-        result = {}
-        result["from_sep_siblings_rotation_classes"] = (
-                rotation_classes.with_queue(None))
-        result["from_sep_siblings_rotation_class_to_angle"] = (
-                rotation_class_to_angle.with_queue(None))
-
-        return result, evt
+        return RotationClassesInfo(
+                from_sep_siblings_rotation_classes=rotation_classes,
+                from_sep_siblings_rotation_class_to_angle=rotation_class_to_angle,
+                ).with_queue(None), evt
 
 # }}}
 
