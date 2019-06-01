@@ -72,13 +72,7 @@ class FMMLibGeometryData(FMMLibGeometryDataInterface):
     @memoize_method
     def rotation_classes_builder(self):
         from boxtree.traversal import RotationClassesBuilder
-        return RotationClassesBuilder(
-                self.queue.context,
-                self.trav.well_sep_is_n_away,
-                self.tree.dimensions,
-                self.tree.box_id_dtype,
-                self.tree.box_level_dtype,
-                self.tree.coord_dtype)
+        return RotationClassesBuilder(self.queue.context)
 
     @memoize_method
     def build_rotation_classes_lists(self):
@@ -718,6 +712,7 @@ class FMMLibExpansionWrangler(object):
             # {{{ set up optimized m2l, if applicable
 
             if self.level_nterms[lev] <= rotmat_order:
+                print("using optimized with order", rotmat_order)
                 m2l_rotation_lists = self.geo_data.m2l_rotation_lists()
                 assert len(m2l_rotation_lists) == len(lists)
 

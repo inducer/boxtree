@@ -581,22 +581,15 @@ from mako.template import Template
 
 BINARY_SEARCH_TEMPLATE = Template("""
 /*
- * If "bias" = "left", returns the smallest value of i such that
- * val <= arr[i], or (size_t) -1 if val is greater than all values.
- *
- * If "bias" = "right", returns the largest value of i such that
- * arr[i] <= val, or (size_t) -1 if val is less than all values.
+ * Returns the largest value of i such that arr[i] <= val, or (size_t) -1 if val
+ * is less than all values.
  */
 inline size_t bsearch(
     __global const ${elem_t} *arr,
     size_t len,
     const ${elem_t} val)
 {
-%if bias == "left":
-    if (arr[len - 1] < val)
-%elif bias == "right":
     if (val < arr[0])
-%endif
     {
         return -1;
     }
@@ -607,20 +600,12 @@ inline size_t bsearch(
     {
         i = l + (r - l) / 2;
 
-    %if bias == "left":
-        if (val <= arr[i] && (i == 0 || arr[i - 1] < val))
-    %elif bias == "right":
         if (arr[i] <= val && (i == len - 1 || val < arr[i + 1]))
-    %endif
         {
             return i;
         }
 
-    %if bias == "left":
-        if (arr[i] < val)
-    %elif bias == "right":
         if (arr[i] <= val)
-    %endif
         {
             l = i;
         }
@@ -635,105 +620,12 @@ inline size_t bsearch(
 
 class InlineBinarySearch(object):
 
-    def __init__(self, bias, elem_type_name):
-        self.render_vars = {"bias": bias, "elem_t": elem_type_name}
+    def __init__(self, elem_type_name):
+        self.render_vars = {"elem_t": elem_type_name}
 
     @memoize_method
     def __str__(self):
         return BINARY_SEARCH_TEMPLATE.render(**self.render_vars)
-
-# }}}
-
-
-# {{{ list renumberer
-
-LIST_RENUMBERER_TEMPLATE = ElementwiseTemplate(
-    arguments=r"""
-        elem_t *orig,
-        elem_t *sorted,
-        renumbered_t *renumbered_orig,
-        unsigned int len,
-    """,
-    operation=r"""//CL//
-        renumbered_orig[i] = bsearch(sorted, len, orig[i]);
-    """,
-    name="list_renumberer")
-
-
-class ListRenumberer(object):
-    """Renumber a list (with repetition) of N values to the range [0,1,...,N).
-
-    Useful e.g. for compacting lists into a dense range.
-
-    Returns a tuple (*renumbered*, *new_to_old*, *evt*), where *renumbered* is
-    the renumbered list and *new_to_old* maps renumbered values to old ones.
-
-    Example::
-
-        >>> arr = cl.array.to_device(queue, np.array([1, 6, 6, 4, 3]))
-        >>> lr = ListRenumberer(ctx, np.int)
-        >>> renumbered, new_to_old, evt = lr(arr)
-        >>> renumbered
-        array([0, 3, 3, 2, 1])
-        >>> new_to_old
-        array([1, 3, 4, 6])
-
-    .. note::
-
-        Due to radix sort not handling signed types or floats
-        (https://gitlab.tiker.net/inducer/pyopencl/issues/16),
-        make sure *from_element_dtype* is an unsigned integer type.
-
-    """
-
-    def __init__(self, context, from_element_dtype, to_element_dtype=None):
-        from pyopencl.algorithm import RadixSort, unique
-
-        if to_element_dtype is None:
-            to_element_dtype = from_element_dtype
-
-        self.sort = RadixSort(
-                context,
-                [VectorArg(from_element_dtype, "arr")],
-                "arr[i]",
-                ["arr"],
-                key_dtype=from_element_dtype)
-
-        self.uniq = unique
-
-        self.list_renumberer = (
-                LIST_RENUMBERER_TEMPLATE.build(
-                    context,
-                    type_aliases=(
-                        ("elem_t", from_element_dtype),
-                        ("renumbered_t", to_element_dtype),
-                        ),
-                    var_values=(),
-                    more_preamble=str(InlineBinarySearch("left", "elem_t"))))
-
-        self.to_element_dtype = to_element_dtype
-
-    def __call__(self, items, queue=None, wait_for=None):
-        if queue is None:
-            queue = items.queue
-
-        (sorted_items,), evt = self.sort(items, queue=queue, wait_for=wait_for)
-
-        new_to_old, uniq_count, evt = self.uniq(sorted_items, wait_for=[evt])
-
-        uniq_count = uniq_count.get()
-
-        renumbered_items = cl.array.empty(
-                queue, len(items), dtype=self.to_element_dtype)
-
-        new_to_old = new_to_old[:uniq_count]
-
-        evt = self.list_renumberer(
-                items, new_to_old, renumbered_items, len(new_to_old),
-                queue=queue,
-                wait_for=[evt] + renumbered_items.events + new_to_old.events)
-
-        return renumbered_items, new_to_old, evt
 
 # }}}
 

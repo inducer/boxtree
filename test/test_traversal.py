@@ -382,9 +382,7 @@ def test_from_sep_siblings_rotation_classes(ctx_factory, well_sep_is_n_away):
     tg = FMMTraversalBuilder(ctx, well_sep_is_n_away=well_sep_is_n_away)
     trav, _ = tg(queue, tree)
 
-    rb = RotationClassesBuilder(ctx, well_sep_is_n_away, tree.dimensions,
-            tree.box_id_dtype, tree.box_level_dtype, tree.coord_dtype)
-
+    rb = RotationClassesBuilder(ctx)
     result, _ = rb(queue, trav, tree)
 
     rot_classes = result.from_sep_siblings_rotation_classes.get(queue)

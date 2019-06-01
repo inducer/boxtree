@@ -2360,13 +2360,13 @@ class FMMTraversalBuilder:
 
 # {{{ rotation classes builder
 
-ROTATION_COSINE_FINDER_PREAMBLE_TEMPLATE = Template(r"""//CL:mako//
+TRANSLATION_CLASS_FINDER_PREAMBLE_TEMPLATE = Template(r"""//CL:mako//
     #define LEVEL_TO_RAD(level) \
         (root_extent * 1 / (coord_t) (1 << (level + 1)))
 
     /*
      * Return an integer vector indicating the a translation direction
-     * as a multiple of the box radius.
+     * as a multiple of the box diameter.
      */
     inline int_coord_vec_t get_translation_vector(
         coord_t root_extent,
@@ -2375,46 +2375,45 @@ ROTATION_COSINE_FINDER_PREAMBLE_TEMPLATE = Template(r"""//CL:mako//
         coord_vec_t target_center)
     {
         int_coord_vec_t result = (int_coord_vec_t) 0;
+        coord_t diam = 2 * LEVEL_TO_RAD(level);
         %for i in range(dimensions):
-            result.s${i} = rint(
-               (target_center.s${i} - source_center.s${i})
-               / LEVEL_TO_RAD(level));
+            result.s${i} = rint((target_center.s${i} - source_center.s${i}) / diam);
         %endfor
         return result;
     }
 
     /*
-     * Compute the gcd of two positive integers.
+     * Compute the translation class for the given translation vector.  The
+     * translation class maps a translation vector (a_1, a_2, ..., a_d) into
+     * a dense range of integers [0, ..., (4*n+3)^d - 1], where
+     * d is the dimension and n is well_sep_is_n_away.
+     *
+     * This relies on the fact that the entries of the vector will
+     * always be in the range [-2n-1,...,2n+1].
+     *
+     * The formula is:
+     *
+     *                        \== d                   k-1
+     *    cls(a ,a ,...,a ) =  >      (2n+1+a ) (4n+3).
+     *         1  2      d    /__ k=1        k
+     *
      */
-    inline int gcd(int a, int b)
+    inline int get_translation_class(int_coord_vec_t vec, int well_sep_is_n_away)
     {
-        while (b)
-        {
-            int tmp = a;
-            a = b;
-            b = tmp % b;
-        }
-        return a;
-    }
-
-    /*
-     * Normalizes a integer vector by dividing it by its GCD.
-     */
-    inline int_coord_vec_t gcd_normalize(int_coord_vec_t vec)
-    {
-        int vec_gcd = abs(vec.s0);
-
-        %for i in range(1, dimensions):
-            vec_gcd = gcd(vec_gcd, abs(vec.s${i}));
+        int result = 0;
+        int base = 4 * well_sep_is_n_away + 3;
+        int mult = 1;
+        %for i in range(dimensions):
+            result += (2 * well_sep_is_n_away + 1 + vec.s${i}) * mult;
+            mult *= base;
         %endfor
-
-        return vec / vec_gcd;
+        return result;
     }
-    """ + str(InlineBinarySearch("right", "box_id_t")),
+    """ + str(InlineBinarySearch("box_id_t")),
     strict_undefined=True)
 
 
-ROTATION_COSINE_FINDER_TEMPLATE = ElementwiseTemplate(
+TRANSLATION_CLASS_FINDER_TEMPLATE = ElementwiseTemplate(
     arguments=r"""//CL:mako//
     /* input: */
     box_id_t *from_sep_siblings_lists,
@@ -2425,9 +2424,11 @@ ROTATION_COSINE_FINDER_TEMPLATE = ElementwiseTemplate(
     int aligned_nboxes,
     coord_t root_extent,
     box_level_t *box_levels,
+    int well_sep_is_n_away,
 
     /* output: */
-    coord_t *rotation_cosines,
+    int *translation_classes,
+    int *translation_class_is_used,
     """,
 
     operation=TRAVERSAL_PREAMBLE_MAKO_DEFS + r"""//CL:mako//
@@ -2442,38 +2443,18 @@ ROTATION_COSINE_FINDER_TEMPLATE = ElementwiseTemplate(
     box_id_t target_box_id = target_or_target_parent_boxes[itarget_box];
 
     /*
-     * Compute the translation vector.
+     * Compute the translation vector and translation class.
      */
     ${load_center("source_center", "source_box_id")}
     ${load_center("target_center", "target_box_id")}
 
-    int_coord_vec_t translation_vector = get_translation_vector(
+    int_coord_vec_t vec = get_translation_vector(
         root_extent, box_levels[source_box_id], source_center, target_center);
 
-    /*
-     * Normalize the translation vector (by dividing by its GCD).
-     *
-     * We need this before computing the cosine of the rotation angle, because
-     * generally in in floating point arithmetic, if k is a positive scalar and v
-     * is a vector, we can't assume
-     *
-     *   kv[-1] / sqrt(|kv|^2) == v[-1] / sqrt(|v|^2).
-     *
-     * Normalizing ensures vectors that are positive integer multiples of each
-     * other get classified into the same equivalence class of rotations.
-     */
-    int_coord_vec_t vec = gcd_normalize(translation_vector);
+    int translation_class = get_translation_class(vec, well_sep_is_n_away);
 
-    coord_t num = vec.s${dimensions-1};
-    coord_t denom = 0;
-
-    %for i in range(dimensions):
-        denom += vec.s${i} * vec.s${i};
-    %endfor
-
-    denom = sqrt(denom);
-
-    rotation_cosines[i] = num / denom;
+    translation_classes[i] = translation_class;
+    translation_class_is_used[translation_class] = 1;
     """)
 
 
@@ -2511,29 +2492,21 @@ class RotationClassesBuilder(object):
     """Build rotation classes for List 2 translations.
     """
 
-    def __init__(self, context, well_sep_is_n_away, dimensions, box_id_dtype,
-            box_level_dtype, coord_dtype):
+    def __init__(self, context):
+        self.context = context
+
+    @memoize_method
+    def get_kernel_info(self, dimensions, well_sep_is_n_away,
+            box_id_dtype, box_level_dtype, coord_dtype):
         coord_vec_dtype = cl.cltypes.vec_types[coord_dtype, dimensions]
         int_coord_vec_dtype = cl.cltypes.vec_types[np.dtype(np.int32), dimensions]
 
-        # equiv_int_dtype_for_coord_dtype is an unsigned equivalent width dtype
-        # for coord_dtype. We use this in ListRenumberer, which only supports
-        # unsigned types. (That means the rotation cosines are sorted according
-        # to the interpretation of the bits as unsigned integers, but the order
-        # doesn't matter.)
-        if coord_dtype.itemsize == 4:
-            self.equiv_int_dtype_for_coord_dtype = np.uint32
-        elif coord_dtype.itemsize == 8:
-            self.equiv_int_dtype_for_coord_dtype = np.uint64
-        else:
-            raise ValueError("unexpected coord_dtype")
-
-        preamble = ROTATION_COSINE_FINDER_PREAMBLE_TEMPLATE.render(
+        preamble = TRANSLATION_CLASS_FINDER_PREAMBLE_TEMPLATE.render(
                 dimensions=dimensions)
 
-        self.rotation_cosine_finder = (
-                ROTATION_COSINE_FINDER_TEMPLATE.build(
-                    context,
+        translation_class_finder = (
+                TRANSLATION_CLASS_FINDER_TEMPLATE.build(
+                    self.context,
                     type_aliases=(
                         ("int_coord_vec_t", int_coord_vec_dtype),
                         ("coord_vec_t", coord_vec_dtype),
@@ -2546,31 +2519,111 @@ class RotationClassesBuilder(object):
                     ),
                     more_preamble=preamble))
 
-        from boxtree.tools import ListRenumberer
+        return _KernelInfo(translation_class_finder=translation_class_finder)
 
-        self.list_renumberer = ListRenumberer(
-                context,
-                from_element_dtype=self.equiv_int_dtype_for_coord_dtype,
-                to_element_dtype=np.int32)
+    @staticmethod
+    def vec_gcd(vec):
+        """Return the GCD of a list of integers."""
+        def gcd(a, b):
+            while b:
+                a, b = b, a % b
+            return a
 
-        self.well_sep_is_n_away = well_sep_is_n_away
-        self.dimensions = dimensions
-        self.coord_dtype = coord_dtype
+        result = abs(vec[0])
+        for elem in vec[1:]:
+            result = gcd(result, abs(elem))
+        return result
+
+    def compute_rotation_classes(self,
+            well_sep_is_n_away, dimensions, used_translation_classes):
+        """Convert translation classes to a list of rotation classes and angles."""
+        angle_to_rot_class = {}
+        angles = []
+
+        ntranslation_classes = (
+                self.ntranslation_classes(well_sep_is_n_away, dimensions))
+
+        translation_class_to_rot_class = (
+                np.empty(ntranslation_classes, dtype=np.int32))
+
+        translation_class_to_rot_class[:] = -1
+
+        for cls in used_translation_classes:
+            vec = self.translation_class_to_vector(
+                    well_sep_is_n_away, dimensions, cls)
+
+            # Normalize the translation vector (by dividing by its GCD).
+            #
+            # We need this before computing the cosine of the rotation angle,
+            # because generally in in floating point arithmetic, if k is a
+            # positive scalar and v is a vector, we can't assume
+            #
+            #   kv[-1] / sqrt(|kv|^2) == v[-1] / sqrt(|v|^2).
+            #
+            # Normalizing ensures vectors that are positive integer multiples of
+            # each other get classified into the same equivalence class of
+            # rotations.
+            vec //= self.vec_gcd(vec)
+
+            # Compute the rotation angle for the vector.
+            norm = np.linalg.norm(vec)
+            assert norm != 0
+            angle = np.arccos(vec[-1] / norm)
+
+            # Find the rotation class.
+            if angle in angle_to_rot_class:
+                rot_class = angle_to_rot_class[angle]
+            else:
+                rot_class = len(angles)
+                angle_to_rot_class[angle] = rot_class
+                angles.append(angle)
+
+            translation_class_to_rot_class[cls] = rot_class
+
+        return translation_class_to_rot_class, angles
+
+    @staticmethod
+    def ntranslation_classes(well_sep_is_n_away, dimensions):
+        return (4 * well_sep_is_n_away + 3) ** dimensions
+
+    @staticmethod
+    def translation_class_to_vector(well_sep_is_n_away, dimensions, cls):
+        # This computes the vector for the translation class, using the inverse
+        # of the formula found in get_translation_class() defined in
+        # TRANSLATION_CLASS_FINDER_PREAMBLE_TEMPLATE.
+        result = np.zeros(dimensions, dtype=np.int32)
+        shift = 2 * well_sep_is_n_away + 1
+        base = 4 * well_sep_is_n_away + 3
+        for i in range(dimensions):
+            result[i] = cls % base - shift
+            cls //= base
+        return result
 
     @log_process(logger, "build rotation classes")
     def __call__(self, queue, trav, tree, wait_for=None):
         """Returns a pair *info*, *evt* where info is a :class:`RotationClassesInfo`.
         """
-        rotation_cosines = cl.array.empty(
-                queue, len(trav.from_sep_siblings_lists), dtype=self.coord_dtype)
 
-        # This computes the cosine of the rotation angles using the formula
-        #
-        #     cos(theta) = a . b / (|a| * |b|).
-        #
-        # acos() is not supported universally in double precision on GPUs, so we
-        # don't invert the cosines to get the rotation angles on the device.
-        evt = self.rotation_cosine_finder(
+        # {{{ compute translation classes for list 2
+
+        well_sep_is_n_away = trav.well_sep_is_n_away
+        dimensions = tree.dimensions
+        coord_dtype = tree.coord_dtype
+
+        knl_info = self.get_kernel_info(
+                dimensions, well_sep_is_n_away, tree.box_id_dtype,
+                tree.box_level_dtype, coord_dtype)
+
+        ntranslation_classes = (
+                self.ntranslation_classes(well_sep_is_n_away, dimensions))
+
+        translation_classes_lists = cl.array.empty(
+                queue, len(trav.from_sep_siblings_lists), dtype=np.int32)
+
+        translation_class_is_used = cl.array.zeros(
+                queue, ntranslation_classes, dtype=np.int32)
+
+        evt = knl_info.translation_class_finder(
                 trav.from_sep_siblings_lists,
                 trav.from_sep_siblings_starts,
                 trav.target_or_target_parent_boxes,
@@ -2579,31 +2632,41 @@ class RotationClassesBuilder(object):
                 tree.aligned_nboxes,
                 tree.root_extent,
                 tree.box_levels,
-                rotation_cosines,
+                well_sep_is_n_away,
+                translation_classes_lists,
+                translation_class_is_used,
                 queue=queue, wait_for=wait_for)
 
-        rotation_classes, rotation_class_to_cosine, evt = (
-                self.list_renumberer(
-                    rotation_cosines.view(self.equiv_int_dtype_for_coord_dtype),
-                    queue=queue,
-                    wait_for=[evt]))
+        # }}}
 
-        # Compute the rotation angles.
-        rotation_class_to_cosine = (
-                rotation_class_to_cosine.view(self.coord_dtype).get())
-        rotation_class_to_angle = np.arccos(rotation_class_to_cosine)
-        rotation_class_to_angle = cl.array.to_device(queue, rotation_class_to_angle)
+        # {{{ convert translation classes to rotation classes
+
+        used_translation_classes = (
+                np.flatnonzero(translation_class_is_used.get()))
+
+        translation_class_to_rotation_class, rotation_angles = (
+                self.compute_rotation_classes(
+                    well_sep_is_n_away, dimensions, used_translation_classes))
 
         # There should be no more than 2^(d-1) * (2n+1)^d distinct rotation
-        # classes, since that is an upper bound on the number of distinct list 2
-        # boxes.
-        d = self.dimensions
-        n = self.well_sep_is_n_away
-        assert len(rotation_class_to_angle) <= 2**(d-1) * (2*n+1)**d
+        # classes, since that is an upper bound on the number of distinct
+        # positions for list 2 boxes.
+        d = dimensions
+        n = well_sep_is_n_away
+        assert len(rotation_angles) <= 2**(d-1) * (2*n+1)**d
+
+        rotation_classes_lists = (
+                cl.array.take(
+                    cl.array.to_device(queue, translation_class_to_rotation_class),
+                    translation_classes_lists))
+
+        rotation_angles = cl.array.to_device(queue, np.array(rotation_angles))
+
+        # }}}
 
         return RotationClassesInfo(
-                from_sep_siblings_rotation_classes=rotation_classes,
-                from_sep_siblings_rotation_class_to_angle=rotation_class_to_angle,
+                from_sep_siblings_rotation_classes=rotation_classes_lists,
+                from_sep_siblings_rotation_class_to_angle=rotation_angles,
                 ).with_queue(None), evt
 
 # }}}
