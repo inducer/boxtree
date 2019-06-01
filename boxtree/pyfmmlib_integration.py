@@ -684,7 +684,7 @@ class FMMLibExpansionWrangler(object):
         assert (0 == ier).all()
 
         ier, rotmatb = (
-                rotmat_builder(rotmat_order, -m2l_rotation_angles))  # noqa pylint:disable=invalid-unary-operand-type
+                rotmat_builder(rotmat_order, -m2l_rotation_angles))
         assert (0 == ier).all()
 
         return (rotmatf, rotmatb, rotmat_order)
