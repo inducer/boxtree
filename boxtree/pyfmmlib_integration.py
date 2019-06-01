@@ -44,35 +44,20 @@ class FMMLibGeometryDataInterface(object):
     """Abstract interface for additional, optional geometry data passed to the
     expansion wrangler.
 
+    .. automethod:: m2l_rotation_lists
+
+    .. automethod:: m2l_rotation_angles
     """
 
-    def m2l_rotation_classes(self):
-        """Return a NumPy array mapping entries of List 2 to rotation classes,
-        or *None* if not available.
-
-        If available, this list should follow the same format as the list
-        `from_sep_siblings_rotation_classes`.
+    def m2l_rotation_lists(self):
+        """Return a NumPy array mapping entries of List 2 to rotation classes.
         """
         raise NotImplementedError
 
     def m2l_rotation_angles(self):
-        """Return a NumPy array mapping rotation classes to rotation angles,
-        or *None* if not available.
+        """Return a NumPy array mapping List 2 rotation classes to rotation angles.
         """
         raise NotImplementedError
-
-
-class EmptyFMMLibGeometryData(FMMLibGeometryDataInterface):
-    """A default implementation of the :class:`FMMLibGeometryDataInterface`.
-    Returns no data.
-
-    """
-
-    def m2l_rotation_classes(self):
-        return None
-
-    def m2l_rotation_angles(self):
-        return None
 
 
 class FMMLibGeometryData(FMMLibGeometryDataInterface):
@@ -86,24 +71,34 @@ class FMMLibGeometryData(FMMLibGeometryDataInterface):
     @property
     @memoize_method
     def rotation_classes_builder(self):
+        from boxtree.traversal import RotationClassesBuilder
         return RotationClassesBuilder(
                 self.queue.context,
                 self.trav.well_sep_is_n_away,
-                self.trav.dimensions,
+                self.tree.dimensions,
                 self.tree.box_id_dtype,
+                self.tree.box_level_dtype,
                 self.tree.coord_dtype)
 
     @memoize_method
     def build_rotation_classes_lists(self):
-        return self.rotation_classes_builder(self.queue, self.trav)
+        trav = self.trav.to_device(self.queue)
+        tree = self.tree.to_device(self.queue)
+        return self.rotation_classes_builder(self.queue, trav, tree)[0]
 
     @memoize_method
-    def m2l_rotation_classes(self):
-        return self.build_rotation_classes_lists()["rotation_classes"]
+    def m2l_rotation_lists(self):
+        return (self
+                .build_rotation_classes_lists()
+                .from_sep_siblings_rotation_classes
+                .get(self.queue))
 
     @memoize_method
     def m2l_rotation_angles(self):
-        return self.build_rotation_classes_lists()["rotation_angles"]
+        return (self
+                .build_rotation_classes_lists()
+                .from_sep_siblings_rotation_class_to_angle
+                .get(self.queue))
 
 # }}}
 
@@ -122,19 +117,11 @@ class FMMLibExpansionWrangler(object):
     def __init__(self, tree, helmholtz_k, fmm_level_to_nterms=None, ifgrad=False,
             dipole_vec=None, dipoles_already_reordered=False, nterms=None,
             optimized_m2l_precomputation_memory_cutoff_bytes=10**8,
-            geo_data=EmptyFMMLibGeometryData()):
+            geo_data=None):
         """
         :arg fmm_level_to_nterms: a callable that, upon being passed the tree
             and the tree level as an integer, returns the value of *nterms* for the
             multipole and local expansions on that level.
-
-        :arg m2l_rotation_lists: corresponds to the
-            *from_sep_siblings_rotation_classes* attribute of the traversal
-            object
-
-        :arg m2l_rotation_angles:corresponds to the
-            *from_sep_siblings_rotation_class_to_angle* attribute of the traversal
-            object
         """
 
         if nterms is not None and fmm_level_to_nterms is not None:
@@ -151,6 +138,7 @@ class FMMLibExpansionWrangler(object):
 
         self.tree = tree
         self.geo_data = geo_data
+        self.rotmat_cutoff_bytes = optimized_m2l_precomputation_memory_cutoff_bytes
 
         if helmholtz_k == 0:
             self.eqn_letter = "l"
@@ -175,6 +163,8 @@ class FMMLibExpansionWrangler(object):
 
         self.dim = tree.dimensions
 
+        self.supports_optimized_m2l = self.dim == 3 and geo_data is not None
+
         if dipole_vec is not None:
             assert dipole_vec.shape == (self.dim, self.tree.nsources)
 
@@ -186,14 +176,6 @@ class FMMLibExpansionWrangler(object):
         else:
             self.dipole_vec = None
             self.dp_suffix = ""
-
-        self.supports_optimized_m2l = (
-                tree.dimensions == 3
-                and m2l_rotation_lists is not None
-                and m2l_rotation_angles is not None)
-
-        self.m2l_rotation_lists = m2l_rotation_lists
-        self.m2l_rotation_angles = m2l_rotation_angles
 
     # }}}
 
@@ -667,13 +649,6 @@ class FMMLibExpansionWrangler(object):
         # translation order of the matrices. rotmat_order is -1 if not
         # supported.
 
-        def mem_estimate(order):
-            # Rotation matrix memory cost estimate.
-            return (8
-                    * (order + 1)**2
-                    * (2*order + 1)
-                    * len(self.m2l_rotation_angles))
-
         rotmatf = None
         rotmatb = None
         rotmat_order = -1
@@ -681,11 +656,20 @@ class FMMLibExpansionWrangler(object):
         if not self.supports_optimized_m2l:
             return (rotmatf, rotmatb, rotmat_order)
 
+        m2l_rotation_angles = self.geo_data.m2l_rotation_angles()
+
+        def mem_estimate(order):
+            # Rotation matrix memory cost estimate.
+            return (8
+                    * (order + 1)**2
+                    * (2*order + 1)
+                    * len(m2l_rotation_angles))
+
         # Find the largest order we can use. Because the memory cost of the
         # matrices could be large, only precompute them if the cost estimate
         # for the order does not exceed the cutoff.
         for order in sorted(self.level_nterms, key=lambda x: -x):
-            if mem_estimate(order) < _ROTMAT_PRECOMPUTATION_CUTOFF_BYTES:
+            if mem_estimate(order) < self.rotmat_cutoff_bytes:
                 rotmat_order = order
                 break
 
@@ -696,11 +680,11 @@ class FMMLibExpansionWrangler(object):
         from pyfmmlib import rotviarecur3p_init_vec as rotmat_builder
 
         ier, rotmatf = (
-                rotmat_builder(rotmat_order, self.m2l_rotation_angles))
+                rotmat_builder(rotmat_order, m2l_rotation_angles))
         assert (0 == ier).all()
 
         ier, rotmatb = (
-                rotmat_builder(rotmat_order, -self.m2l_rotation_angles))  # noqa pylint:disable=invalid-unary-operand-type
+                rotmat_builder(rotmat_order, -m2l_rotation_angles))  # noqa pylint:disable=invalid-unary-operand-type
         assert (0 == ier).all()
 
         return (rotmatf, rotmatb, rotmat_order)
@@ -734,7 +718,8 @@ class FMMLibExpansionWrangler(object):
             # {{{ set up optimized m2l, if applicable
 
             if self.level_nterms[lev] <= rotmat_order:
-                assert len(self.m2l_rotation_lists) == len(lists)
+                m2l_rotation_lists = self.geo_data.m2l_rotation_lists()
+                assert len(m2l_rotation_lists) == len(lists)
 
                 mploc = self.get_translation_routine(
                         "%ddmploc", vec_suffix="2_trunc_imany")
@@ -744,11 +729,11 @@ class FMMLibExpansionWrangler(object):
                 kwargs["nterms1"] = self.level_nterms[lev]
 
                 kwargs["rotmatf"] = rotmatf
-                kwargs["rotmatf_offsets"] = self.m2l_rotation_lists
+                kwargs["rotmatf_offsets"] = m2l_rotation_lists
                 kwargs["rotmatf_starts"] = starts_on_lvl
 
                 kwargs["rotmatb"] = rotmatb
-                kwargs["rotmatb_offsets"] = self.m2l_rotation_lists
+                kwargs["rotmatb_offsets"] = m2l_rotation_lists
                 kwargs["rotmatb_starts"] = starts_on_lvl
 
             # }}}

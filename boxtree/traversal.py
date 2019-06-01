@@ -2558,13 +2558,11 @@ class RotationClassesBuilder(object):
         self.coord_dtype = coord_dtype
 
     @log_process(logger, "build rotation classes")
-    def __call__(self, queue, trav, wait_for=None):
+    def __call__(self, queue, trav, tree, wait_for=None):
         """Returns a pair *info*, *evt* where info is a :class:`RotationClassesInfo`.
         """
         rotation_cosines = cl.array.empty(
                 queue, len(trav.from_sep_siblings_lists), dtype=self.coord_dtype)
-
-        tree = trav.tree
 
         # This computes the cosine of the rotation angles using the formula
         #

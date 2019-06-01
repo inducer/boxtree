@@ -19,6 +19,10 @@ Integration with PyFMMLib
 
 .. automodule:: boxtree.pyfmmlib_integration
 
+.. autoclass:: FMMLibGeometryDataInterface
+
+.. autoclass:: FMMLibGeometryData
+
 .. autoclass:: FMMLibExpansionWrangler
 
 .. vim: sw=4

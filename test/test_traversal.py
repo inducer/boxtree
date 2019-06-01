@@ -385,7 +385,7 @@ def test_from_sep_siblings_rotation_classes(ctx_factory, well_sep_is_n_away):
     rb = RotationClassesBuilder(ctx, well_sep_is_n_away, tree.dimensions,
             tree.box_id_dtype, tree.box_level_dtype, tree.coord_dtype)
 
-    result, _ = rb(queue, trav)
+    result, _ = rb(queue, trav, tree)
 
     rot_classes = result.from_sep_siblings_rotation_classes.get(queue)
     rot_angles = result.from_sep_siblings_rotation_class_to_angle.get(queue)
