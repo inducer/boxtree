@@ -2599,7 +2599,7 @@ class RotationClassesBuilder(object):
             cls //= base
         return result
 
-    @log_process(logger, "build rotation classes")
+    @log_process(logger, "build m2l rotation classes")
     def __call__(self, queue, trav, tree, wait_for=None):
         """Returns a pair *info*, *evt* where info is a :class:`RotationClassesInfo`.
         """
