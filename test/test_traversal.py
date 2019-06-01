@@ -377,7 +377,8 @@ def test_from_sep_siblings_rotation_classes(ctx_factory, well_sep_is_n_away):
 
     # {{{ build traversal
 
-    from boxtree.traversal import FMMTraversalBuilder
+    from boxtree.traversal import FMMTraversalBuilder, RotationClassesBuilder
+    
     tg = FMMTraversalBuilder(ctx, well_sep_is_n_away=well_sep_is_n_away)
     trav, _ = tg(queue, tree)
 
@@ -385,6 +386,14 @@ def test_from_sep_siblings_rotation_classes(ctx_factory, well_sep_is_n_away):
     trav = trav.get(queue=queue)
 
     centers = tree.box_centers.T
+
+    rb = RotationClassesBuilder(ctx, well_sep_is_n_away, tree.dimensions,
+            tree.box_id_dtype, tree.box_level_dtype, tree.coord_dtype)
+
+    result, _ = rb(queue, trav)
+
+    rot_classes = result["from_sep_siblings_rotation_classes"].get(queue)
+    rot_angles = result["from_sep_siblings_rotation_class_to_angle"].get(queue)
 
     # }}}
 
@@ -396,15 +405,15 @@ def test_from_sep_siblings_rotation_classes(ctx_factory, well_sep_is_n_away):
     for itgt_box, tgt_ibox in enumerate(trav.target_or_target_parent_boxes):
         start, end = trav.from_sep_siblings_starts[itgt_box:itgt_box+2]
         seps = trav.from_sep_siblings_lists[start:end]
-        rot_classes = trav.from_sep_siblings_rotation_classes[start:end]
+        level_rot_classes = rot_classes[start:end]
 
         translation_vecs = centers[tgt_ibox] - centers[seps]
         theta = np.arctan2(
                 la.norm(translation_vecs[:, :dims - 1], axis=1),
                 translation_vecs[:, dims - 1])
-        rot_angles = trav.from_sep_siblings_rotation_class_to_angle[rot_classes]
+        level_rot_angles = rot_angles[level_rot_classes]
 
-        assert np.allclose(theta, rot_angles, atol=1e-13, rtol=1e-13)
+        assert np.allclose(theta, level_rot_angles, atol=1e-13, rtol=1e-13)
 
 # }}}
 
