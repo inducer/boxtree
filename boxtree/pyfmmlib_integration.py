@@ -712,7 +712,6 @@ class FMMLibExpansionWrangler(object):
             # {{{ set up optimized m2l, if applicable
 
             if self.level_nterms[lev] <= rotmat_order:
-                print("using optimized with order", rotmat_order)
                 m2l_rotation_lists = self.geo_data.m2l_rotation_lists()
                 assert len(m2l_rotation_lists) == len(lists)
 
