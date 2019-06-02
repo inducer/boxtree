@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 from __future__ import division
 
 __copyright__ = "Copyright (C) 2012 Andreas Kloeckner"
@@ -2393,7 +2394,7 @@ TRANSLATION_CLASS_FINDER_PREAMBLE_TEMPLATE = Template(r"""//CL:mako//
      *
      * The formula is:
      *
-     *                        \== d                   k-1
+     *                        \‾‾ d                   k-1
      *    cls(a ,a ,...,a ) =  >      (2n+1+a ) (4n+3).
      *         1  2      d    /__ k=1        k
      *
