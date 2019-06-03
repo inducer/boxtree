@@ -2364,10 +2364,8 @@ TRANSLATION_CLASS_FINDER_PREAMBLE_TEMPLATE = Template(r"""//CL:mako//
     #define LEVEL_TO_RAD(level) \
         (root_extent * 1 / (coord_t) (1 << (level + 1)))
 
-    /*
-     * Return an integer vector indicating the a translation direction
-     * as a multiple of the box diameter.
-     */
+    // Return an integer vector indicating the a translation direction
+    // as a multiple of the box diameter.
     inline int_coord_vec_t get_translation_vector(
         coord_t root_extent,
         int level,
@@ -2382,24 +2380,31 @@ TRANSLATION_CLASS_FINDER_PREAMBLE_TEMPLATE = Template(r"""//CL:mako//
         return result;
     }
 
-    /*
-     * Compute the translation class for the given translation vector.  The
-     * translation class maps a translation vector (a_1, a_2, ..., a_d) into
-     * a dense range of integers [0, ..., (4*n+3)^d - 1], where
-     * d is the dimension and n is well_sep_is_n_away.
-     *
-     * This relies on the fact that the entries of the vector will
-     * always be in the range [-2n-1,...,2n+1].
-     *
-     * The formula is:
-     *
-     *                         \~~   d                 k-1
-     *     cls(a ,a ,...,a ) =  >      (2n+1+a ) (4n+3)
-     *          1  2      d    /__ k=1        k
-     *
-     */
+    // Compute the translation class for the given translation vector.  The
+    // translation class maps a translation vector (a_1, a_2, ..., a_d) into
+    // a dense range of integers [0, ..., (4*n+3)^d - 1], where
+    // d is the dimension and n is well_sep_is_n_away.
+    //
+    // This relies on the fact that the entries of the vector will
+    // always be in the range [-2n-1,...,2n+1].
+    //
+    // The mapping from vector to class is:
+    //
+    //                         \~~   d                 k-1
+    //     cls(a ,a ,...,a ) =  >      (2n+1+a ) (4n+3)
+    //          1  2      d    /__ k=1        k
+    //
+    // Returns -1 on error.
     inline int get_translation_class(int_coord_vec_t vec, int well_sep_is_n_away)
     {
+        int dim_bound = 2 * well_sep_is_n_away + 1;
+        %for i in range(dimensions):
+            if (!(-dim_bound <= vec.s${i} && vec.s${i} <= dim_bound))
+            {
+                return -1;
+            }
+        %endfor
+
         int result = 0;
         int base = 4 * well_sep_is_n_away + 3;
         int mult = 1;
@@ -2429,12 +2434,11 @@ TRANSLATION_CLASS_FINDER_TEMPLATE = ElementwiseTemplate(
     /* output: */
     int *translation_classes,
     int *translation_class_is_used,
+    int *error_flag,
     """,
 
     operation=TRAVERSAL_PREAMBLE_MAKO_DEFS + r"""//CL:mako//
-    /*
-     * Find the target box for this source box.
-     */
+    // Find the target box for this source box.
     box_id_t source_box_id = from_sep_siblings_lists[i];
 
     size_t itarget_box = bsearch(
@@ -2442,9 +2446,14 @@ TRANSLATION_CLASS_FINDER_TEMPLATE = ElementwiseTemplate(
 
     box_id_t target_box_id = target_or_target_parent_boxes[itarget_box];
 
-    /*
-     * Compute the translation vector and translation class.
-     */
+    // Ensure levels are the same.
+    if (box_levels[source_box_id] != box_levels[target_box_id])
+    {
+        *error_flag = 1;
+        PYOPENCL_ELWISE_CONTINUE;
+    }
+
+    // Compute the translation vector and translation class.
     ${load_center("source_center", "source_box_id")}
     ${load_center("target_center", "target_box_id")}
 
@@ -2452,6 +2461,13 @@ TRANSLATION_CLASS_FINDER_TEMPLATE = ElementwiseTemplate(
         root_extent, box_levels[source_box_id], source_center, target_center);
 
     int translation_class = get_translation_class(vec, well_sep_is_n_away);
+
+    // Ensure valid translation class.
+    if (translation_class == -1)
+    {
+        *error_flag = 1;
+        PYOPENCL_ELWISE_CONTINUE;
+    }
 
     translation_classes[i] = translation_class;
     translation_class_is_used[translation_class] = 1;
@@ -2500,6 +2516,13 @@ class RotationClassesBuilder(object):
             box_id_dtype, box_level_dtype, coord_dtype):
         coord_vec_dtype = cl.cltypes.vec_types[coord_dtype, dimensions]
         int_coord_vec_dtype = cl.cltypes.vec_types[np.dtype(np.int32), dimensions]
+
+        # Make sure translation classes can fit inside a 32 bit integer.
+        if (not
+                (
+                    self.ntranslation_classes(well_sep_is_n_away, dimensions)
+                    <= np.iinfo(np.int32).max)):
+            raise ValueError("would overflow")
 
         preamble = TRANSLATION_CLASS_FINDER_PREAMBLE_TEMPLATE.render(
                 dimensions=dimensions)
@@ -2623,6 +2646,8 @@ class RotationClassesBuilder(object):
         translation_class_is_used = cl.array.zeros(
                 queue, ntranslation_classes, dtype=np.int32)
 
+        error_flag = cl.array.zeros(queue, 1, dtype=np.int32)
+
         evt = knl_info.translation_class_finder(
                 trav.from_sep_siblings_lists,
                 trav.from_sep_siblings_starts,
@@ -2635,7 +2660,11 @@ class RotationClassesBuilder(object):
                 well_sep_is_n_away,
                 translation_classes_lists,
                 translation_class_is_used,
+                error_flag,
                 queue=queue, wait_for=wait_for)
+
+        if (error_flag.get()):
+            raise ValueError("could not compute translation classes")
 
         # }}}
 
