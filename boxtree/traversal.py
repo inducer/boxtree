@@ -2521,7 +2521,7 @@ class RotationClassesBuilder(object):
         if (not
                 (
                     self.ntranslation_classes(well_sep_is_n_away, dimensions)
-                    <= np.iinfo(np.int32).max)):
+                    <= 1 + np.iinfo(np.int32).max)):
             raise ValueError("would overflow")
 
         preamble = TRANSLATION_CLASS_FINDER_PREAMBLE_TEMPLATE.render(
