@@ -296,6 +296,7 @@ def test_tree_connectivity(ctx_factory, dims, sources_are_targets):
 # test simply ensures that interaction list plotting is still
 # working.
 def test_plot_traversal(ctx_factory, well_sep_is_n_away=1, plot=False):
+    pytest.importorskip("matplotlib")
     ctx = ctx_factory()
     queue = cl.CommandQueue(ctx)
 
