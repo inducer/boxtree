@@ -290,9 +290,13 @@ def test_tree_connectivity(ctx_factory, dims, sources_are_targets):
 # }}}
 
 
-# {{{ visualization helper (not a test)
+# {{{ visualization helper
 
-def plot_traversal(ctx_factory, do_plot=False, well_sep_is_n_away=1):
+# Set 'plot' kwarg to True to actually plot. Otherwise, this
+# test simply ensures that interaction list plotting is still
+# working.
+def test_plot_traversal(ctx_factory, well_sep_is_n_away=1, plot=False):
+    pytest.importorskip("matplotlib")
     ctx = ctx_factory()
     queue = cl.CommandQueue(ctx)
 
@@ -337,11 +341,19 @@ def plot_traversal(ctx_factory, do_plot=False, well_sep_is_n_away=1):
         from boxtree.visualization import draw_box_lists
 
         #draw_box_lists(randrange(tree.nboxes))
-        draw_box_lists(plotter, trav, 320)
+
+        if well_sep_is_n_away == 1:
+            draw_box_lists(plotter, trav, 380)
+        elif well_sep_is_n_away == 2:
+            draw_box_lists(plotter, trav, 320)
         #plotter.draw_box_numbers()
 
-        import matplotlib.pyplot as pt
-        pt.show()
+        if plot:
+            import matplotlib.pyplot as pt
+            pt.gca().set_xticks([])
+            pt.gca().set_yticks([])
+
+            pt.show()
 
 # }}}
 
