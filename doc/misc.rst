@@ -24,12 +24,20 @@ for instructions.
 User-visible Changes
 ====================
 
-Version 2018.2
+Version 2019.1
 --------------
+
 .. note::
 
     This version is currently under development. You can get snapshots from
     boxtree's `git repository <https://github.com/inducer/boxtree>`_
+
+* Faster M2Ls in the FMMLIB backend using precomputed rotation matrices.  This
+  change adds a *geo_data* parameter to the FMMLIB geometry wrangler
+  constructor.
+
+Version 2018.2
+--------------
 
 * Changed index style of the *from_sep_close_bigger_starts* interaction list.
 
