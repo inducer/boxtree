@@ -377,7 +377,8 @@ def test_from_sep_siblings_rotation_classes(ctx_factory, well_sep_is_n_away):
 
     # {{{ build traversal
 
-    from boxtree.traversal import FMMTraversalBuilder, RotationClassesBuilder
+    from boxtree.traversal import FMMTraversalBuilder
+    from boxtree.rotation_classes import RotationClassesBuilder
 
     tg = FMMTraversalBuilder(ctx, well_sep_is_n_away=well_sep_is_n_away)
     trav, _ = tg(queue, tree)

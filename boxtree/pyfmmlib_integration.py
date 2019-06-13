@@ -71,7 +71,7 @@ class FMMLibGeometryData(FMMLibGeometryDataInterface):
     @property
     @memoize_method
     def rotation_classes_builder(self):
-        from boxtree.traversal import RotationClassesBuilder
+        from boxtree.rotation_classes import RotationClassesBuilder
         return RotationClassesBuilder(self.queue.context)
 
     @memoize_method
