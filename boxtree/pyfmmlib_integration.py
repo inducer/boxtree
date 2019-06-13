@@ -38,7 +38,7 @@ __doc__ = """Integrates :mod:`boxtree` with
 """
 
 
-# {{{ geometry data interface
+# {{{ rotation data interface
 
 class FMMLibRotationDataInterface(object):
     """Abstract interface for additional, optional data for precomputation of
@@ -62,7 +62,7 @@ class FMMLibRotationDataInterface(object):
 
 
 class FMMLibRotationData(FMMLibRotationDataInterface):
-    """An implementation of the :class:`FMMLibGeometryDataInterface`."""
+    """An implementation of the :class:`FMMLibRotationDataInterface`."""
 
     def __init__(self, queue, trav):
         self.queue = queue
