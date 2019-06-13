@@ -131,7 +131,7 @@ class FMMLibExpansionWrangler(object):
                 return nterms
 
         self.tree = tree
-        self.geo_data = geo_data
+        self._geo_data = geo_data
         self.rotmat_cutoff_bytes = optimized_m2l_precomputation_memory_cutoff_bytes
 
         if helmholtz_k == 0:
@@ -650,7 +650,7 @@ class FMMLibExpansionWrangler(object):
         if not self.supports_optimized_m2l:
             return (rotmatf, rotmatb, rotmat_order)
 
-        m2l_rotation_angles = self.geo_data.m2l_rotation_angles()
+        m2l_rotation_angles = self._geo_data.m2l_rotation_angles()
 
         def mem_estimate(order):
             # Rotation matrix memory cost estimate.
@@ -712,7 +712,7 @@ class FMMLibExpansionWrangler(object):
             # {{{ set up optimized m2l, if applicable
 
             if self.level_nterms[lev] <= rotmat_order:
-                m2l_rotation_lists = self.geo_data.m2l_rotation_lists()
+                m2l_rotation_lists = self._geo_data.m2l_rotation_lists()
                 assert len(m2l_rotation_lists) == len(lists)
 
                 mploc = self.get_translation_routine(
