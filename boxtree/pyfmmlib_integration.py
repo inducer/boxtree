@@ -55,7 +55,7 @@ class FMMLibGeometryDataInterface(object):
         raise NotImplementedError
 
     def m2l_rotation_angles(self):
-        """Return a NumPy array mapping List 2 rotation classes to rotation angles.
+        """Return a :mod:`numpy` array mapping List 2 rotation classes to rotation angles.
         """
         raise NotImplementedError
 
