@@ -2476,7 +2476,7 @@ TRANSLATION_CLASS_FINDER_TEMPLATE = ElementwiseTemplate(
 
 class RotationClassesInfo(DeviceDataRecord):
     r"""Interaction lists to help with matrix precomputations for rotation-based
-    translations ("point and shoot"),
+    translations ("point and shoot").
 
     .. attribute:: nfrom_sep_siblings_rotation_classes
 
