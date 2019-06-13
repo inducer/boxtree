@@ -33,7 +33,7 @@ Version 2019.1
     boxtree's `git repository <https://github.com/inducer/boxtree>`_
 
 * Faster M2Ls in the FMMLIB backend using precomputed rotation matrices.  This
-  change adds a *geo_data* parameter to the FMMLIB geometry wrangler
+  change adds an *optional_geo_data* parameter to the FMMLIB geometry wrangler
   constructor.
 
 Version 2018.2

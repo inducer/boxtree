@@ -681,7 +681,7 @@ def test_fmm_with_optimized_3d_m2l(ctx_factory, helmholtz_k, well_sep_is_n_away)
     optimized_wrangler = FMMLibExpansionWrangler(
             trav.tree, helmholtz_k,
             fmm_level_to_nterms=fmm_level_to_nterms,
-            geo_data=FMMLibGeometryData(queue, trav))
+            optional_geo_data=FMMLibGeometryData(queue, trav))
 
     from boxtree.fmm import drive_fmm
 
