@@ -29,7 +29,7 @@ import pyopencl.array  # noqa
 import pyopencl.cltypes  # noqa
 from pyopencl.elementwise import ElementwiseTemplate
 from mako.template import Template
-from boxtree.tools import AXIS_NAMES, DeviceDataRecord, InlineBinarySearch
+from boxtree.tools import AXIS_NAMES, DeviceDataRecord
 
 import logging
 logger = logging.getLogger(__name__)
