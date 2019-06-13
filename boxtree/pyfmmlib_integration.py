@@ -40,13 +40,14 @@ __doc__ = """Integrates :mod:`boxtree` with
 
 # {{{ geometry data interface
 
-class FMMLibGeometryDataInterface(object):
-    """Abstract interface for additional, optional geometry data passed to the
-    expansion wrangler.
+class FMMLibRotationDataInterface(object):
+    """Abstract interface for additional, optional data for precomputation of
+    rotation matrices passed to the expansion wrangler.
 
     .. automethod:: m2l_rotation_lists
 
     .. automethod:: m2l_rotation_angles
+
     """
 
     def m2l_rotation_lists(self):
@@ -60,7 +61,7 @@ class FMMLibGeometryDataInterface(object):
         raise NotImplementedError
 
 
-class FMMLibGeometryData(FMMLibGeometryDataInterface):
+class FMMLibRotationData(FMMLibRotationDataInterface):
     """An implementation of the :class:`FMMLibGeometryDataInterface`."""
 
     def __init__(self, queue, trav):
@@ -111,7 +112,7 @@ class FMMLibExpansionWrangler(object):
     def __init__(self, tree, helmholtz_k, fmm_level_to_nterms=None, ifgrad=False,
             dipole_vec=None, dipoles_already_reordered=False, nterms=None,
             optimized_m2l_precomputation_memory_cutoff_bytes=10**8,
-            optional_geo_data=None):
+            rotation_data=None):
         """
         :arg fmm_level_to_nterms: a callable that, upon being passed the tree
             and the tree level as an integer, returns the value of *nterms* for the
@@ -131,7 +132,7 @@ class FMMLibExpansionWrangler(object):
                 return nterms
 
         self.tree = tree
-        self.optional_geo_data = optional_geo_data
+        self.rotation_data = rotation_data
         self.rotmat_cutoff_bytes = optimized_m2l_precomputation_memory_cutoff_bytes
 
         if helmholtz_k == 0:
@@ -157,7 +158,7 @@ class FMMLibExpansionWrangler(object):
 
         self.dim = tree.dimensions
 
-        self.supports_optimized_m2l = self.dim == 3 and optional_geo_data is not None
+        self.supports_optimized_m2l = self.dim == 3 and rotation_data is not None
 
         if dipole_vec is not None:
             assert dipole_vec.shape == (self.dim, self.tree.nsources)
@@ -650,7 +651,7 @@ class FMMLibExpansionWrangler(object):
         if not self.supports_optimized_m2l:
             return (rotmatf, rotmatb, rotmat_order)
 
-        m2l_rotation_angles = self.optional_geo_data.m2l_rotation_angles()
+        m2l_rotation_angles = self.rotation_data.m2l_rotation_angles()
 
         def mem_estimate(order):
             # Rotation matrix memory cost estimate.
@@ -712,7 +713,7 @@ class FMMLibExpansionWrangler(object):
             # {{{ set up optimized m2l, if applicable
 
             if self.level_nterms[lev] <= rotmat_order:
-                m2l_rotation_lists = self.optional_geo_data.m2l_rotation_lists()
+                m2l_rotation_lists = self.rotation_data.m2l_rotation_lists()
                 assert len(m2l_rotation_lists) == len(lists)
 
                 mploc = self.get_translation_routine(
