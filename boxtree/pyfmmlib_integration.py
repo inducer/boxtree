@@ -114,9 +114,16 @@ class FMMLibExpansionWrangler(object):
             optimized_m2l_precomputation_memory_cutoff_bytes=10**8,
             rotation_data=None):
         """
-        :arg fmm_level_to_nterms: a callable that, upon being passed the tree
+        :arg fmm_level_to_nterms: A callable that, upon being passed the tree
             and the tree level as an integer, returns the value of *nterms* for the
             multipole and local expansions on that level.
+        :arg rotation_data: Either *None* or an instance of the
+            :class:`FMMLibRotationDataInterface`. In three dimensions, passing
+            *rotation_data* enables optimized M2L (List 2) translations.
+            In two dimensions, this does nothing.
+        :arg optimized_m2l_precomputation_memory_cutoff_bytes: When using
+            optimized List 2 translations, an upper bound in bytes on the
+            amount of storage to use for a precomputed rotation matrix.
         """
 
         if nterms is not None and fmm_level_to_nterms is not None:
