@@ -40,6 +40,9 @@ from pytools import log_process
 
 # {{{ rotation classes builder
 
+# Note that these kernels compute translation classes first, and
+# these get converted to rotation classes in a second step, from Python.
+
 TRANSLATION_CLASS_FINDER_PREAMBLE_TEMPLATE = Template(r"""//CL:mako//
     #define LEVEL_TO_RAD(level) \
         (root_extent * 1 / (coord_t) (1 << (level + 1)))
