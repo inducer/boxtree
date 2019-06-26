@@ -19,9 +19,11 @@ Integration with PyFMMLib
 
 .. automodule:: boxtree.pyfmmlib_integration
 
-.. autoclass:: FMMLibGeometryDataInterface
+.. autoclass:: FMMLibRotationDataInterface
 
-.. autoclass:: FMMLibGeometryData
+.. autoclass:: FMMLibRotationData
+
+.. autoclass:: FMMLibRotationDataNotSuppliedWarning
 
 .. autoclass:: FMMLibExpansionWrangler
 
