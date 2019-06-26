@@ -95,6 +95,10 @@ class FMMLibRotationData(FMMLibRotationDataInterface):
                 .from_sep_siblings_rotation_class_to_angle
                 .get(self.queue))
 
+
+class FMMLibRotationDataNotSuppliedWarning(UserWarning):
+    pass
+
 # }}}
 
 
@@ -165,7 +169,19 @@ class FMMLibExpansionWrangler(object):
 
         self.dim = tree.dimensions
 
-        self.supports_optimized_m2l = self.dim == 3 and rotation_data is not None
+        if self.dim == 3:
+            if rotation_data is None:
+                from warnings import warn
+                warn(
+                        "List 2 (multipole-to-local) translations will be "
+                        "unoptimized. Supply a rotation_data argument to "
+                        "the wrangler for optimized List 2.",
+                        FMMLibRotationDataNotSuppliedWarning,
+                        stacklevel=2)
+
+            self.supports_optimized_m2l = rotation_data is not None
+        else:
+            self.supports_optimized_m2l = False
 
         if dipole_vec is not None:
             assert dipole_vec.shape == (self.dim, self.tree.nsources)

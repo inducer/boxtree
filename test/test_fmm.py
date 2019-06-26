@@ -27,11 +27,13 @@ from six.moves import range
 import numpy as np
 import numpy.linalg as la
 import pyopencl as cl
+import warnings
 
 import pytest
 from pyopencl.tools import (  # noqa
         pytest_generate_tests_for_pyopencl as pytest_generate_tests)
 
+from boxtree.pyfmmlib_integration import FMMLibRotationDataNotSuppliedWarning
 from boxtree.tools import (  # noqa: F401
         make_normal_particle_array as p_normal,
         make_surface_particle_array as p_surface,
@@ -41,6 +43,8 @@ from boxtree.tools import (  # noqa: F401
 
 import logging
 logger = logging.getLogger(__name__)
+
+warnings.simplefilter("ignore", FMMLibRotationDataNotSuppliedWarning)
 
 
 # {{{ fmm interaction completeness test
