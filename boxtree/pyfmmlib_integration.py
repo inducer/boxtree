@@ -143,8 +143,6 @@ class FMMLibExpansionWrangler(object):
                 return nterms
 
         self.tree = tree
-        self.rotation_data = rotation_data
-        self.rotmat_cutoff_bytes = optimized_m2l_precomputation_memory_cutoff_bytes
 
         if helmholtz_k == 0:
             self.eqn_letter = "l"
@@ -168,6 +166,9 @@ class FMMLibExpansionWrangler(object):
         self.ifgrad = ifgrad
 
         self.dim = tree.dimensions
+
+        self.rotation_data = rotation_data
+        self.rotmat_cutoff_bytes = optimized_m2l_precomputation_memory_cutoff_bytes
 
         if self.dim == 3:
             if rotation_data is None:
