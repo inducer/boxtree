@@ -27,11 +27,13 @@ from six.moves import range
 import numpy as np
 import numpy.linalg as la
 import pyopencl as cl
+import warnings
 
 import pytest
 from pyopencl.tools import (  # noqa
         pytest_generate_tests_for_pyopencl as pytest_generate_tests)
 
+from boxtree.pyfmmlib_integration import FMMLibRotationDataNotSuppliedWarning
 from boxtree.tools import (  # noqa: F401
         make_normal_particle_array as p_normal,
         make_surface_particle_array as p_surface,
@@ -41,6 +43,8 @@ from boxtree.tools import (  # noqa: F401
 
 import logging
 logger = logging.getLogger(__name__)
+
+warnings.simplefilter("ignore", FMMLibRotationDataNotSuppliedWarning)
 
 
 # {{{ fmm interaction completeness test
@@ -615,6 +619,93 @@ def test_fmm_float32(ctx_factory, enable_extents):
     pot = drive_fmm(host_trav, wrangler, weights)
 
     assert (pot == weights_sum).all()
+
+# }}}
+
+
+# {{{ test with fmm optimized 3d m2l
+
+@pytest.mark.parametrize("well_sep_is_n_away", (1, 2))
+@pytest.mark.parametrize("helmholtz_k", (0, 2))
+def test_fmm_with_optimized_3d_m2l(ctx_factory, helmholtz_k, well_sep_is_n_away):
+    logging.basicConfig(level=logging.INFO)
+
+    from pytest import importorskip
+    importorskip("pyfmmlib")
+
+    dims = 3
+
+    ctx = ctx_factory()
+    queue = cl.CommandQueue(ctx)
+
+    nsources = 5000
+    ntargets = 5000
+    dtype = np.float64
+
+    sources = p_normal(queue, nsources, dims, dtype, seed=15)
+    targets = (
+            p_normal(queue, ntargets, dims, dtype, seed=18)
+            + np.array([2, 0, 0])[:dims])
+
+    from boxtree import TreeBuilder
+    tb = TreeBuilder(ctx)
+
+    tree, _ = tb(queue, sources, targets=targets,
+            max_particles_in_box=30, debug=True)
+
+    from boxtree.traversal import FMMTraversalBuilder
+    tbuild = FMMTraversalBuilder(ctx)
+    trav, _ = tbuild(queue, tree, debug=True)
+
+    trav = trav.get(queue=queue)
+
+    from pyopencl.clrandom import PhiloxGenerator
+    rng = PhiloxGenerator(queue.context, seed=20)
+
+    weights = rng.uniform(queue, nsources, dtype=np.float64).get()
+
+    base_nterms = 10
+
+    def fmm_level_to_nterms(tree, lev):
+        result = base_nterms
+
+        if lev < 3 and helmholtz_k:
+            # exercise order-varies-by-level capability
+            result += 5
+
+        return result
+
+    from boxtree.pyfmmlib_integration import (
+            FMMLibExpansionWrangler, FMMLibRotationData)
+
+    baseline_wrangler = FMMLibExpansionWrangler(
+            trav.tree, helmholtz_k,
+            fmm_level_to_nterms=fmm_level_to_nterms)
+
+    optimized_wrangler = FMMLibExpansionWrangler(
+            trav.tree, helmholtz_k,
+            fmm_level_to_nterms=fmm_level_to_nterms,
+            rotation_data=FMMLibRotationData(queue, trav))
+
+    from boxtree.fmm import drive_fmm
+
+    baseline_timing_data = {}
+    baseline_pot = drive_fmm(
+            trav, baseline_wrangler, weights, timing_data=baseline_timing_data)
+
+    optimized_timing_data = {}
+    optimized_pot = drive_fmm(
+            trav, optimized_wrangler, weights, timing_data=optimized_timing_data)
+
+    baseline_time = baseline_timing_data["multipole_to_local"]["process_elapsed"]
+    if baseline_time is not None:
+        print("Baseline M2L time : %#.4g s" % baseline_time)
+
+    opt_time = optimized_timing_data["multipole_to_local"]["process_elapsed"]
+    if opt_time is not None:
+        print("Optimized M2L time: %#.4g s" % opt_time)
+
+    assert np.allclose(baseline_pot, optimized_pot, atol=1e-13, rtol=1e-13)
 
 # }}}
 
