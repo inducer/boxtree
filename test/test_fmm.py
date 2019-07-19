@@ -536,18 +536,23 @@ def test_pyfmmlib_numerical_stability(ctx_factory, dims, helmholtz_k, order):
     ctx = ctx_factory()
     queue = cl.CommandQueue(ctx)
 
-    nsources = 20
+    nsources = 30
     dtype = np.float64
 
-    # The input particles are arranged with geometrically decreasing spacing
-    # along a line, to build a deep tree that stress-tests the translations.
+    # The input particles are arranged with geometrically increasing/decreasing
+    # spacing along a line, to build a deep tree that stress-tests the
+    # translations.
+    particle_line = np.array([2**-i for i in range(nsources//2)], dtype=dtype)
+    particle_line = np.hstack([particle_line, 3 - particle_line])
     zero = np.zeros(nsources, dtype=dtype)
+
     sources = np.vstack([
-            np.array([2**-i for i in range(nsources)], dtype=dtype),
+            particle_line,
             zero,
             zero])[:dims]
 
-    targets = sources * (1 + 3 ** -nsources)
+    targets = sources.copy()
+    targets[0] += 5
 
     from boxtree import TreeBuilder
     tb = TreeBuilder(ctx)
@@ -562,11 +567,7 @@ def test_pyfmmlib_numerical_stability(ctx_factory, dims, helmholtz_k, order):
     trav, _ = tbuild(queue, tree, debug=True)
 
     trav = trav.get(queue=queue)
-
-    from pyopencl.clrandom import PhiloxGenerator
-    rng = PhiloxGenerator(queue.context, seed=20)
-
-    weights = rng.uniform(queue, nsources, dtype=np.float64).get()
+    weights = np.ones_like(sources[0])
 
     from boxtree.pyfmmlib_integration import (
             FMMLibExpansionWrangler, FMMLibRotationData)
