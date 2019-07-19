@@ -551,8 +551,7 @@ def test_pyfmmlib_numerical_stability(ctx_factory, dims, helmholtz_k, order):
             zero,
             zero])[:dims]
 
-    targets = sources.copy()
-    targets[0] += 5
+    targets = sources * (1 + 1e-3)
 
     from boxtree import TreeBuilder
     tb = TreeBuilder(ctx)
