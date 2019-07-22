@@ -199,12 +199,11 @@ class FMMLibExpansionWrangler(object):
     # }}}
 
     def level_to_rscale(self, level):
-        if self.dim == 3 and self.eqn_letter == "l":
-            return 1
-
         result = self.tree.root_extent * 2 ** -level * self.rscale_factor
         if abs(result) > 1:
             result = 1
+        if self.dim == 3 and self.eqn_letter == "l":
+            result = 1 / result
         return result
 
     @memoize_method
