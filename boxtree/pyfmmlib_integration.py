@@ -203,6 +203,9 @@ class FMMLibExpansionWrangler(object):
         if abs(result) > 1:
             result = 1
         if self.dim == 3 and self.eqn_letter == "l":
+            # Laplace 3D uses the opposite convention compared to
+            # all other cases.
+            # https://gitlab.tiker.net/inducer/boxtree/merge_requests/81
             result = 1 / result
         return result
 
