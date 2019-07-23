@@ -47,6 +47,52 @@ logger = logging.getLogger(__name__)
 warnings.simplefilter("ignore", FMMLibRotationDataNotSuppliedWarning)
 
 
+# {{{ ref fmmlib pot computation
+
+def get_fmmlib_ref_pot(wrangler, weights, sources_host, targets_host,
+        helmholtz_k, dipole_vec=None):
+    dims = sources_host.shape[0]
+    eqn_letter = "h" if helmholtz_k else "l"
+    use_dipoles = dipole_vec is not None
+
+    import pyfmmlib
+    fmmlib_routine = getattr(
+            pyfmmlib,
+            "%spot%s%ddall%s_vec" % (
+                eqn_letter,
+                "fld" if dims == 3 else "grad",
+                dims,
+                "_dp" if use_dipoles else ""))
+
+    kwargs = {}
+    if dims == 3:
+        kwargs["iffld"] = False
+    else:
+        kwargs["ifgrad"] = False
+        kwargs["ifhess"] = False
+
+    if use_dipoles:
+        if helmholtz_k == 0 and dims == 2:
+            kwargs["dipstr"] = (
+                    -weights  # pylint:disable=invalid-unary-operand-type
+                    * (dipole_vec[0] + 1j * dipole_vec[1]))
+        else:
+            kwargs["dipstr"] = weights
+            kwargs["dipvec"] = dipole_vec
+    else:
+        kwargs["charge"] = weights
+    if helmholtz_k:
+        kwargs["zk"] = helmholtz_k
+
+    return wrangler.finalize_potentials(
+            fmmlib_routine(
+                sources=sources_host, targets=targets_host,
+                **kwargs)[0]
+            )
+
+# }}}
+
+
 # {{{ fmm interaction completeness test
 
 class ConstantOneExpansionWranglerWithFilteredTargetsInTreeOrder(
@@ -419,40 +465,8 @@ def test_pyfmmlib_fmm(ctx_factory, dims, use_dipoles, helmholtz_k):
 
     logger.info("computing direct (reference) result")
 
-    import pyfmmlib
-    fmmlib_routine = getattr(
-            pyfmmlib,
-            "%spot%s%ddall%s_vec" % (
-                wrangler.eqn_letter,
-                "fld" if dims == 3 else "grad",
-                dims,
-                "_dp" if use_dipoles else ""))
-
-    kwargs = {}
-    if dims == 3:
-        kwargs["iffld"] = False
-    else:
-        kwargs["ifgrad"] = False
-        kwargs["ifhess"] = False
-
-    if use_dipoles:
-        if helmholtz_k == 0 and dims == 2:
-            kwargs["dipstr"] = (
-                    -weights  # pylint:disable=invalid-unary-operand-type
-                    * (dipole_vec[0] + 1j * dipole_vec[1]))
-        else:
-            kwargs["dipstr"] = weights
-            kwargs["dipvec"] = dipole_vec
-    else:
-        kwargs["charge"] = weights
-    if helmholtz_k:
-        kwargs["zk"] = helmholtz_k
-
-    ref_pot = wrangler.finalize_potentials(
-            fmmlib_routine(
-                sources=sources_host.T, targets=targets_host.T,
-                **kwargs)[0]
-            )
+    ref_pot = get_fmmlib_ref_pot(wrangler, weights, sources_host.T,
+            targets_host.T, helmholtz_k, dipole_vec)
 
     rel_err = la.norm(pot - ref_pot, np.inf) / la.norm(ref_pot, np.inf)
     logger.info("relative l2 error vs fmmlib direct: %g" % rel_err)
@@ -502,6 +516,90 @@ def test_pyfmmlib_fmm(ctx_factory, dims, use_dipoles, helmholtz_k):
 
         logger.info("relative l2 error vs sumpy direct: %g" % sumpy_rel_err)
         assert sumpy_rel_err < 1e-5, sumpy_rel_err
+
+    # }}}
+
+# }}}
+
+
+# {{{ test fmmlib numerical stability
+
+@pytest.mark.parametrize("dims", [2, 3])
+@pytest.mark.parametrize("helmholtz_k", [0, 2])
+@pytest.mark.parametrize("order", [35])
+def test_pyfmmlib_numerical_stability(ctx_factory, dims, helmholtz_k, order):
+    logging.basicConfig(level=logging.INFO)
+
+    from pytest import importorskip
+    importorskip("pyfmmlib")
+
+    ctx = ctx_factory()
+    queue = cl.CommandQueue(ctx)
+
+    nsources = 30
+    dtype = np.float64
+
+    # The input particles are arranged with geometrically increasing/decreasing
+    # spacing along a line, to build a deep tree that stress-tests the
+    # translations.
+    particle_line = np.array([2**-i for i in range(nsources//2)], dtype=dtype)
+    particle_line = np.hstack([particle_line, 3 - particle_line])
+    zero = np.zeros(nsources, dtype=dtype)
+
+    sources = np.vstack([
+            particle_line,
+            zero,
+            zero])[:dims]
+
+    targets = sources * (1 + 1e-3)
+
+    from boxtree import TreeBuilder
+    tb = TreeBuilder(ctx)
+
+    tree, _ = tb(queue, sources, targets=targets,
+            max_particles_in_box=2, debug=True)
+
+    assert tree.nlevels >= 15
+
+    from boxtree.traversal import FMMTraversalBuilder
+    tbuild = FMMTraversalBuilder(ctx)
+    trav, _ = tbuild(queue, tree, debug=True)
+
+    trav = trav.get(queue=queue)
+    weights = np.ones_like(sources[0])
+
+    from boxtree.pyfmmlib_integration import (
+            FMMLibExpansionWrangler, FMMLibRotationData)
+
+    def fmm_level_to_nterms(tree, lev):
+        return order
+
+    wrangler = FMMLibExpansionWrangler(
+            trav.tree, helmholtz_k,
+            fmm_level_to_nterms=fmm_level_to_nterms,
+            rotation_data=FMMLibRotationData(queue, trav))
+
+    from boxtree.fmm import drive_fmm
+
+    pot = drive_fmm(trav, wrangler, weights)
+    assert not np.isnan(pot).any()
+
+    # {{{ ref fmmlib computation
+
+    logger.info("computing direct (reference) result")
+
+    ref_pot = get_fmmlib_ref_pot(wrangler, weights, sources, targets,
+            helmholtz_k)
+
+    rel_err = la.norm(pot - ref_pot, np.inf) / la.norm(ref_pot, np.inf)
+    logger.info("relative l2 error vs fmmlib direct: %g" % rel_err)
+
+    if dims == 2:
+        error_bound = (1/2) ** (1 + order)
+    else:
+        error_bound = (3/4) ** (1 + order)
+
+    assert rel_err < error_bound, rel_err
 
     # }}}
 
