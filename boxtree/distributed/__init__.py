@@ -57,7 +57,7 @@ class DistributedFMMInfo(object):
 
     def __init__(self, queue, global_trav_dev,
                  distributed_expansion_wrangler_factory,
-                 cost_model=None, comm=MPI.COMM_WORLD):
+                 calibration_params=None, comm=MPI.COMM_WORLD):
 
         # TODO: Support box_target_counts_nonchild?
 
@@ -98,16 +98,19 @@ class DistributedFMMInfo(object):
 
         if current_rank == 0:
             # Construct default cost model if not supplied
-            if cost_model is None:
+            cost_model = CLFMMCostModel(queue)
+
+            if calibration_params is None:
                 # TODO: should replace the calibration params with a reasonable
                 #       deafult one
-                cost_model = CLFMMCostModel(
-                    queue, CLFMMCostModel.get_constantone_calibration_params()
-                )
+                calibration_params = \
+                    CLFMMCostModel.get_constantone_calibration_params()
 
             boxes_time = cost_model.aggregate_stage_costs_per_box(
                 global_trav_dev,
-                cost_model(global_trav_dev, self.global_wrangler.level_nterms)
+                cost_model(
+                    global_trav_dev, self.global_wrangler.level_nterms,
+                    calibration_params)
             ).get()
 
             from boxtree.distributed.partition import partition_work
