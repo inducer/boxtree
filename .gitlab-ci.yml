@@ -18,7 +18,7 @@ Python 3 Titan V:
     script:
     - export PY_EXE=python3
     - export PYOPENCL_TEST=nvi:titan
-    - EXTRA_INSTALL="pybind11 numpy mako"
+    - EXTRA_INSTALL="pybind11 numpy mako matplotlib"
     - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project.sh
     - ". ./build-and-test-py-project.sh"
     tags:
@@ -68,7 +68,7 @@ Python 3 POCL:
     script:
     - export PY_EXE=python3
     - export PYOPENCL_TEST=portable
-    - export EXTRA_INSTALL="pybind11 numpy mako"
+    - export EXTRA_INSTALL="pybind11 numpy mako matplotlib"
     - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project.sh
     - ". ./build-and-test-py-project.sh"
     tags:

@@ -1568,7 +1568,8 @@ class FMMTraversalInfo(DeviceDataRecord):
         type ``box_id_t``.  (Note: This list contains global box numbers, not
         indices into :attr:`source_boxes`.)
 
-        Note *starts* are indexed by `target_boxes_sep_smaller_by_source_level`. For
+        Note *starts* are indexed along with
+        `target_boxes_sep_smaller_by_source_level`. For
         example, for level *i*, *lists[starts[j]:starts[j+1]]* represents "List 3"
         source boxes of *target_boxes_sep_smaller_by_source_level[i][j]* on level
         *i*.

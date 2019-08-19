@@ -290,9 +290,13 @@ def test_tree_connectivity(ctx_factory, dims, sources_are_targets):
 # }}}
 
 
-# {{{ visualization helper (not a test)
+# {{{ visualization helper
 
-def plot_traversal(ctx_factory, do_plot=False, well_sep_is_n_away=1):
+# Set 'plot' kwarg to True to actually plot. Otherwise, this
+# test simply ensures that interaction list plotting is still
+# working.
+def test_plot_traversal(ctx_factory, well_sep_is_n_away=1, plot=False):
+    pytest.importorskip("matplotlib")
     ctx = ctx_factory()
     queue = cl.CommandQueue(ctx)
 
@@ -337,11 +341,90 @@ def plot_traversal(ctx_factory, do_plot=False, well_sep_is_n_away=1):
         from boxtree.visualization import draw_box_lists
 
         #draw_box_lists(randrange(tree.nboxes))
-        draw_box_lists(plotter, trav, 320)
+
+        if well_sep_is_n_away == 1:
+            draw_box_lists(plotter, trav, 380)
+        elif well_sep_is_n_away == 2:
+            draw_box_lists(plotter, trav, 320)
         #plotter.draw_box_numbers()
 
-        import matplotlib.pyplot as pt
-        pt.show()
+        if plot:
+            import matplotlib.pyplot as pt
+            pt.gca().set_xticks([])
+            pt.gca().set_yticks([])
+
+            pt.show()
+
+# }}}
+
+
+# {{{ test_from_sep_siblings_rotation_classes
+
+@pytest.mark.parametrize("well_sep_is_n_away", (1, 2))
+def test_from_sep_siblings_rotation_classes(ctx_factory, well_sep_is_n_away):
+    ctx = ctx_factory()
+    queue = cl.CommandQueue(ctx)
+
+    dims = 3
+    nparticles = 10**4
+    dtype = np.float64
+
+    # {{{ build tree
+
+    from pyopencl.clrandom import PhiloxGenerator
+    rng = PhiloxGenerator(queue.context, seed=15)
+
+    from pytools.obj_array import make_obj_array
+    particles = make_obj_array([
+        rng.normal(queue, nparticles, dtype=dtype)
+        for i in range(dims)])
+
+    from boxtree import TreeBuilder
+    tb = TreeBuilder(ctx)
+
+    queue.finish()
+    tree, _ = tb(queue, particles, max_particles_in_box=30, debug=True)
+
+    # }}}
+
+    # {{{ build traversal
+
+    from boxtree.traversal import FMMTraversalBuilder
+    from boxtree.rotation_classes import RotationClassesBuilder
+
+    tg = FMMTraversalBuilder(ctx, well_sep_is_n_away=well_sep_is_n_away)
+    trav, _ = tg(queue, tree)
+
+    rb = RotationClassesBuilder(ctx)
+    result, _ = rb(queue, trav, tree)
+
+    rot_classes = result.from_sep_siblings_rotation_classes.get(queue)
+    rot_angles = result.from_sep_siblings_rotation_class_to_angle.get(queue)
+
+    tree = tree.get(queue=queue)
+    trav = trav.get(queue=queue)
+
+    centers = tree.box_centers.T
+
+    # }}}
+
+    # For each entry of from_sep_siblings, compute the source-target translation
+    # direction as a vector, and check that the from_sep_siblings rotation class
+    # in the traversal corresponds to the angle with the z-axis of the
+    # translation direction.
+
+    for itgt_box, tgt_ibox in enumerate(trav.target_or_target_parent_boxes):
+        start, end = trav.from_sep_siblings_starts[itgt_box:itgt_box+2]
+        seps = trav.from_sep_siblings_lists[start:end]
+        level_rot_classes = rot_classes[start:end]
+
+        translation_vecs = centers[tgt_ibox] - centers[seps]
+        theta = np.arctan2(
+                la.norm(translation_vecs[:, :dims - 1], axis=1),
+                translation_vecs[:, dims - 1])
+        level_rot_angles = rot_angles[level_rot_classes]
+
+        assert np.allclose(theta, level_rot_angles, atol=1e-13, rtol=1e-13)
 
 # }}}
 
