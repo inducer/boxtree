@@ -156,13 +156,6 @@ def taylor_translation_cost_model(dim, nlevels):
 
 
 class AbstractFMMCostModel(ABC):
-    def with_calibration_params(self, calibration_params):
-        """Return a copy of *self* with a new set of calibration parameters."""
-        return type(self)(
-            calibration_params,
-            translation_cost_model_factory=self.translation_cost_model_factory
-        )
-
     @abstractmethod
     def process_form_multipoles(self, traversal, p2m_cost):
         """Cost for forming multipole expansions of each box.
@@ -358,6 +351,7 @@ class AbstractFMMCostModel(ABC):
 
     def get_fmm_modeled_cost(self, traversal, level_to_order,
                              ndirect_sources_per_target_box,
+                             calibration_params,
                              box_target_counts_nonchild=None):
         """Predict cost of a new traversal object.
 
@@ -370,26 +364,27 @@ class AbstractFMMCostModel(ABC):
             direct evaluation sources (list 1, list 3 close, list 4 close) for each
             target box. You may find :func:`get_ndirect_sources_per_target_box`
             helpful.
+        :arg calibration_params: a :class:`dict` of calibration parameters. These
+            parameters can be got from `estimate_calibration_params`.
         :arg box_target_counts_nonchild: a :class:`numpy.ndarray` or
             :class:`pyopencl.array.Array` of shape (nboxes,), the number of targets
             which need evaluation. For example, this is useful in QBX by specifying
-            the number of non-QBX targets. If None, use all targets are considered,
+            the number of non-QBX targets. If None, all targets are considered,
             namely traversal.tree.box_target_counts_nonchild.
         :return: a :class:`dict`, the cost of fmm stages.
         """
         tree = traversal.tree
-        params = self.calibration_params.copy()
         result = {}
 
         for ilevel in range(tree.nlevels):
-            params["p_fmm_lev%d" % ilevel] = level_to_order[ilevel]
+            calibration_params["p_fmm_lev%d" % ilevel] = level_to_order[ilevel]
 
         xlat_cost = self.translation_cost_model_factory(
             tree.dimensions, tree.nlevels
         )
 
         translation_cost = self.fmm_cost_factors_for_kernels_from_model(
-            tree.nlevels, xlat_cost, params
+            tree.nlevels, xlat_cost, calibration_params
         )
 
         if box_target_counts_nonchild is None:
@@ -432,7 +427,7 @@ class AbstractFMMCostModel(ABC):
 
         return result
 
-    def __call__(self, traversal, level_to_order):
+    def __call__(self, traversal, level_to_order, calibration_params):
         """Top-level entry point for predicting cost of a new traversal object.
 
         Also see :func:`get_fmm_modeled_cost` for more customization.
@@ -441,6 +436,8 @@ class AbstractFMMCostModel(ABC):
         :arg level_to_order: a :class:`numpy.ndarray` of shape
             (traversal.tree.nlevels,) representing the expansion orders
             of different levels.
+        :arg calibration_params: a :class:`dict` of calibration parameters. These
+            parameters can be got from `estimate_calibration_params`.
 
         :return: a :class:`dict`, the cost of fmm stages.
         """
@@ -449,7 +446,8 @@ class AbstractFMMCostModel(ABC):
         )
 
         return self.get_fmm_modeled_cost(
-            traversal, level_to_order, ndirect_sources_per_target_box
+            traversal, level_to_order, ndirect_sources_per_target_box,
+            calibration_params
         )
 
     @abstractmethod
@@ -485,7 +483,8 @@ class AbstractFMMCostModel(ABC):
                                     additional_stage_to_param_names=()):
         """
         :arg model_results: a :class:`list` of the modeled cost for each step of FMM,
-            returned by :func:`get_fmm_modeled_cost`.
+            returned by :func:`get_fmm_modeled_cost` with constant 1 calibration
+            parameters.
         :arg timing_results: a :class:`list` of the same length as *model_results*.
             Each entry is a :class:`dict` filled with timing data returned by
             *boxtree.fmm.drive_fmm*
@@ -557,29 +556,16 @@ class CLFMMCostModel(AbstractFMMCostModel):
         memory.
     """
     def __init__(self, queue,
-                 calibration_params,
                  translation_cost_model_factory=pde_aware_translation_cost_model):
         """
         :arg queue: a :class:`pyopencl.CommandQueue` object on which the execution
             of this object runs.
-        :arg calibration_params: the calibration parameters. For evaluation, use
-            parameters returned by :func:`estimate_calibration_params`. For training,
-            use :func:`get_constantone_calibration_params` to make all cost modifiers
-            1.
         :arg translation_cost_model_factory: a function, which takes tree dimension
             and the number of tree levels as arguments, returns an object of
             :class:`TranslationCostModel`.
         """
         self.queue = queue
-        self.calibration_params = calibration_params
         self.translation_cost_model_factory = translation_cost_model_factory
-
-    def with_calibration_params(self, calibration_params):
-        """Return a copy of *self* with a new set of calibration parameters."""
-        return type(self)(
-            self.queue, calibration_params,
-            translation_cost_model_factory=self.translation_cost_model_factory
-        )
 
     # {{{ form multipoles
 
@@ -1118,18 +1104,12 @@ class CLFMMCostModel(AbstractFMMCostModel):
 
 class PythonFMMCostModel(AbstractFMMCostModel):
     def __init__(self,
-                 calibration_params,
                  translation_cost_model_factory=pde_aware_translation_cost_model):
         """
-        :arg calibration_params: the calibration parameters. For evaluation, use
-            parameters returned by :func:`estimate_calibration_params`. For training,
-            use :func:`get_constantone_calibration_params` to make all cost modifiers
-            1.
         :arg translation_cost_model_factory: a function, which takes tree dimension
             and the number of tree levels as arguments, returns an object of
             :class:`TranslationCostModel`.
         """
-        self.calibration_params = calibration_params
         self.translation_cost_model_factory = translation_cost_model_factory
 
     def process_form_multipoles(self, traversal, p2m_cost):

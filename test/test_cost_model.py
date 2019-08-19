@@ -61,8 +61,8 @@ def test_compare_cl_and_py_cost_model(ctx_factory, nsources, ntargets, dims, dty
 
     # {{{ Construct cost models
 
-    cl_cost_model = CLFMMCostModel(queue, None, None)
-    python_cost_model = PythonFMMCostModel(None, None)
+    cl_cost_model = CLFMMCostModel(queue, None)
+    python_cost_model = PythonFMMCostModel(None)
 
     constant_one_params = cl_cost_model.get_constantone_calibration_params().copy()
     for ilevel in range(trav.tree.nlevels):
@@ -438,10 +438,7 @@ def test_estimate_calibration_params(ctx_factory):
         for name in param_names:
             assert test_params1[name] == test_params2[name]
 
-    python_cost_model = PythonFMMCostModel(
-        PythonFMMCostModel.get_constantone_calibration_params(),
-        pde_aware_translation_cost_model
-    )
+    python_cost_model = PythonFMMCostModel(pde_aware_translation_cost_model)
 
     python_model_results = []
 
@@ -449,7 +446,10 @@ def test_estimate_calibration_params(ctx_factory):
         traversal = traversals[icase]
         level_to_order = level_to_orders[icase]
 
-        python_model_results.append(python_cost_model(traversal, level_to_order))
+        python_model_results.append(python_cost_model(
+            traversal, level_to_order,
+            PythonFMMCostModel.get_constantone_calibration_params()
+        ))
 
     python_params = python_cost_model.estimate_calibration_params(
         python_model_results, timing_results[:-1], time_field_name=time_field_name
@@ -458,7 +458,7 @@ def test_estimate_calibration_params(ctx_factory):
     test_params_sanity(python_params)
 
     cl_cost_model = CLFMMCostModel(
-        queue, CLFMMCostModel.get_constantone_calibration_params(),
+        queue,
         pde_aware_translation_cost_model
     )
 
@@ -468,7 +468,10 @@ def test_estimate_calibration_params(ctx_factory):
         traversal = traversals_dev[icase]
         level_to_order = level_to_orders[icase]
 
-        cl_model_results.append(cl_cost_model(traversal, level_to_order))
+        cl_model_results.append(cl_cost_model(
+            traversal, level_to_order,
+            CLFMMCostModel.get_constantone_calibration_params()
+        ))
 
     cl_params = cl_cost_model.estimate_calibration_params(
         cl_model_results, timing_results[:-1], time_field_name=time_field_name
@@ -547,13 +550,16 @@ def test_cost_model_gives_correct_op_counts_with_constantone_wrangler(
     drive_fmm(trav, wrangler, src_weights, timing_data=timing_data)
 
     cost_model = CLFMMCostModel(
-        queue, CLFMMCostModel.get_constantone_calibration_params(),
+        queue,
         translation_cost_model_factory=OpCountingTranslationCostModel
     )
 
     level_to_order = np.array([1 for _ in range(tree.nlevels)])
 
-    modeled_time = cost_model(trav_dev, level_to_order)
+    modeled_time = cost_model(
+        trav_dev, level_to_order,
+        CLFMMCostModel.get_constantone_calibration_params()
+    )
 
     mismatches = []
     for stage in timing_data:
