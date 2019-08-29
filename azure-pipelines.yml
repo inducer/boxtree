@@ -80,7 +80,9 @@ jobs:
     -
         script: |
             set -e
-            EXTRA_INSTALL="pymbolic mako matplotlib"
+            CONDA_ENVIRONMENT=.test-conda-env-py3.yml
+            REQUIREMENTS_TXT=.test-conda-env-requirements.txt
+            USE_CONDA_BUILD=1
             curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/prepare-and-run-pylint.sh
             . ./prepare-and-run-pylint.sh pytools test/test_*.py
 
