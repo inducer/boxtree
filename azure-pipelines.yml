@@ -79,7 +79,7 @@ jobs:
     -
         script: |
             set -e
-            EXTRA_INSTALL="pymbolic matplotlib"
+            EXTRA_INSTALL="pymbolic mako matplotlib"
             curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/prepare-and-run-pylint.sh
             . ./prepare-and-run-pylint.sh pytools test/test_*.py
 
