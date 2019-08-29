@@ -66,17 +66,8 @@ jobs:
     job: 'Pylint'
     pool:
         vmImage: 'ubuntu-16.04'
-    strategy:
-        matrix:
-            Python36:
-                python.version: '3.6'
 
     steps:
-    -
-        task: UsePythonVersion@0
-        inputs:
-            versionSpec: '$(python.version)'
-
     -
         script: |
             set -e
@@ -84,6 +75,6 @@ jobs:
             REQUIREMENTS_TXT=.test-conda-env-requirements.txt
             USE_CONDA_BUILD=1
             curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/prepare-and-run-pylint.sh
-            . ./prepare-and-run-pylint.sh pytools test/test_*.py
+            . ./prepare-and-run-pylint.sh boxtree test/test_*.py
 
         displayName: 'Pylint'
