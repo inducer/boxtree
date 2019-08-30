@@ -12,6 +12,8 @@ jobs:
             cat .test-conda-env-py2.yml
             CONDA_ENVIRONMENT=.test-conda-env-py2.yml
             REQUIREMENTS_TXT=.test-conda-env-requirements.txt
+            mkdir -p ~/.config/matplotlib
+            echo "backend: Agg" > ~/.config/matplotlib/matplotlibrc
             curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project-within-miniconda.sh
             . ./build-and-test-py-project-within-miniconda.sh
 
