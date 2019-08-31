@@ -11,7 +11,6 @@ jobs:
             sed 's/python=3/python=2.7/' .test-conda-env-py3.yml > .test-conda-env-py2.yml
             cat .test-conda-env-py2.yml
             CONDA_ENVIRONMENT=.test-conda-env-py2.yml
-            REQUIREMENTS_TXT=.test-conda-env-requirements.txt
             mkdir -p ~/.config/matplotlib
             echo "backend: Agg" > ~/.config/matplotlib/matplotlibrc
             curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project-within-miniconda.sh
@@ -34,7 +33,6 @@ jobs:
         script: |
             set -e
             CONDA_ENVIRONMENT=.test-conda-env-py3.yml
-            REQUIREMENTS_TXT=.test-conda-env-requirements.txt
             curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project-within-miniconda.sh
             . ./build-and-test-py-project-within-miniconda.sh
 
@@ -79,7 +77,6 @@ jobs:
         script: |
             set -e
             CONDA_ENVIRONMENT=.test-conda-env-py3.yml
-            REQUIREMENTS_TXT=.test-conda-env-requirements.txt
             USE_CONDA_BUILD=1
             curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/prepare-and-run-pylint.sh
             . ./prepare-and-run-pylint.sh boxtree test/test_*.py
