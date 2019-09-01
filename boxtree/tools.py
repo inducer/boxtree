@@ -580,25 +580,38 @@ from mako.template import Template
 
 
 BINARY_SEARCH_TEMPLATE = Template("""
-inline size_t bsearch(__global ${idx_t} *starts, size_t len, ${idx_t} val)
+/*
+ * Returns the largest value of i such that arr[i] <= val, or (size_t) -1 if val
+ * is less than all values.
+ */
+inline size_t bsearch(
+    __global const ${elem_t} *arr,
+    size_t len,
+    const ${elem_t} val)
 {
-    size_t l_idx = 0, r_idx = len - 1, my_idx;
-    for (;;)
+    if (val < arr[0])
     {
-        my_idx = (l_idx + r_idx) / 2;
+        return -1;
+    }
 
-        if (starts[my_idx] <= val && val < starts[my_idx + 1])
+    size_t l = 0, r = len, i;
+
+    while (1)
+    {
+        i = l + (r - l) / 2;
+
+        if (arr[i] <= val && (i == len - 1 || val < arr[i + 1]))
         {
-            return my_idx;
+            return i;
         }
 
-        if (starts[my_idx] > val)
+        if (arr[i] <= val)
         {
-            r_idx = my_idx - 1;
+            l = i;
         }
         else
         {
-            l_idx = my_idx + 1;
+            r = i;
         }
     }
 }
@@ -607,12 +620,12 @@ inline size_t bsearch(__global ${idx_t} *starts, size_t len, ${idx_t} val)
 
 class InlineBinarySearch(object):
 
-    def __init__(self, idx_t):
-        self.idx_t = idx_t
+    def __init__(self, elem_type_name):
+        self.render_vars = {"elem_t": elem_type_name}
 
     @memoize_method
     def __str__(self):
-        return BINARY_SEARCH_TEMPLATE.render(idx_t=self.idx_t)
+        return BINARY_SEARCH_TEMPLATE.render(**self.render_vars)
 
 # }}}
 

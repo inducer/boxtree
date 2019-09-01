@@ -19,6 +19,12 @@ Integration with PyFMMLib
 
 .. automodule:: boxtree.pyfmmlib_integration
 
+.. autoclass:: FMMLibRotationDataInterface
+
+.. autoclass:: FMMLibRotationData
+
+.. autoclass:: FMMLibRotationDataNotSuppliedWarning
+
 .. autoclass:: FMMLibExpansionWrangler
 
 .. vim: sw=4

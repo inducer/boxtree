@@ -2,9 +2,14 @@ boxtree: Quad/Octrees, FMM Traversals, Geometric Queries
 ========================================================
 
 .. image:: https://gitlab.tiker.net/inducer/boxtree/badges/master/pipeline.svg
-   :target: https://gitlab.tiker.net/inducer/boxtree/commits/master
+    :alt: Gitlab Build Status
+    :target: https://gitlab.tiker.net/inducer/boxtree/commits/master
+.. image:: https://dev.azure.com/ak-spam/inducer/_apis/build/status/inducer.boxtree?branchName=master
+    :alt: Azure Build Status
+    :target: https://dev.azure.com/ak-spam/inducer/_build/latest?definitionId=6&branchName=master
 .. image:: https://badge.fury.io/py/boxtree.png
-    :target: http://pypi.python.org/pypi/boxtree
+    :alt: Python Package Index Release Page
+    :target: https://pypi.org/project/boxtree/
 
 boxtree is a package that, given some point locations in two or three
 dimensions, sorts them into an adaptive quad/octree of boxes, efficiently, in

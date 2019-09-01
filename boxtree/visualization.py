@@ -341,7 +341,7 @@ def draw_box_lists(tree_plotter, traversal, ibox):
         _draw_box_list(tree_plotter, ibox,
                 traversal.from_sep_smaller_by_level[ilev].starts,
                 traversal.from_sep_smaller_by_level[ilev].lists,
-                key_to_box=traversal.target_boxes,
+                key_to_box=traversal.target_boxes_sep_smaller_by_source_level[ilev],
                 facecolor="orange")
 
     # list 3 close

@@ -1,0 +1,16 @@
+name: test-conda-env
+channels:
+- conda-forge
+- defaults
+
+dependencies:
+- python=3
+- git
+- conda-forge::numpy
+- pocl
+- mako
+- pyopencl
+- islpy
+- pyfmmlib
+# Only needed to make pylint succeed
+- matplotlib
