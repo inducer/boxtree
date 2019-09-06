@@ -421,8 +421,8 @@ class QuadratureOnBoxTree(object):
         self.boxtree = boxtree
 
         if quadrature_formula is None:
-            from modepy import GaussLegendreQuadrature
-            self.quadrature_formula = GaussLegendreQuadrature(0)
+            from modepy import LegendreGaussQuadrature
+            self.quadrature_formula = LegendreGaussQuadrature(0)
         else:
             self.quadrature_formula = quadrature_formula
 
