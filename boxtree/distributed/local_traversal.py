@@ -54,9 +54,13 @@ def generate_local_travs(
             particle_id_t=dtype_to_ctype(local_tree.particle_id_dtype),
             box_flag_t=box_flag_t
         ),
-        Template("""
+        Template(r"""
+            // reset HAS_OWN_TARGETS and HAS_CHILD_TARGETS bits in the flag of each
+            // box
             box_flags[i] &= (~${HAS_OWN_TARGETS});
             box_flags[i] &= (~${HAS_CHILD_TARGETS});
+
+            // rebuild HAS_OWN_TARGETS and HAS_CHILD_TARGETS bits
             if(box_target_counts_nonchild[i]) box_flags[i] |= ${HAS_OWN_TARGETS};
             if(box_target_counts_nonchild[i] < box_target_counts_cumul[i])
                 box_flags[i] |= ${HAS_CHILD_TARGETS};
