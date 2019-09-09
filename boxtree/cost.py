@@ -541,7 +541,7 @@ class AbstractFMMCostModel(ABC):
             actual = actual_times[param]
 
             if np.allclose(uncalibrated, 0):
-                result[param] = float("NaN")
+                result[param] = 0.0
                 continue
 
             result[param] = (
