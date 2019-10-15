@@ -692,7 +692,7 @@ class FMMLibExpansionWrangler(object):
         # Find the largest order we can use. Because the memory cost of the
         # matrices could be large, only precompute them if the cost estimate
         # for the order does not exceed the cutoff.
-        for order in sorted(self.level_nterms, key=lambda x: -x):
+        for order in sorted(self.level_nterms, reverse=True):
             if mem_estimate(order) < self.rotmat_cutoff_bytes:
                 rotmat_order = order
                 break
