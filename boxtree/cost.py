@@ -1,14 +1,3 @@
-"""
-This module helps predict the running time of each step of FMM. There are two
-implementations of the interface :class:`AbstractFMMCostModel`, namely
-:class:`CLFMMCostModel` using OpenCL and :class:`PythonFMMCostModel` using pure
-Python.
-
-An implementation of :class:`AbstractFMMCostModel` uses a
-:class:`FMMTranslationCostModel` to assign translation costs to a
-:class:`boxtree.traversal.FMMTraversalInfo` object.
-"""
-
 from __future__ import division, absolute_import
 
 __copyright__ = """
@@ -35,6 +24,66 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
+"""
+
+__doc__ = """
+This module helps predict the running time of each step of FMM
+
+:class:`FMMTranslationCostModel` describes the translation or evaluation cost of a
+single operation. For example, *m2p* describes the cost for translating a single
+multipole expansion to a single target.
+
+:class:`AbstractFMMCostModel` uses :class:`FMMTranslationCostModel` and calibration
+parameter to compute the total cost of each step of FMM in each box. There are two
+implementations of the interface :class:`AbstractFMMCostModel`, namely
+:class:`CLFMMCostModel` using OpenCL and :class:`PythonFMMCostModel` using pure
+Python. The calibration parameter can be estimated using
+:meth:`AbstractFMMCostModel.estimate_calibration_params`.
+
+*cost_model.py* in the *examples* demostrates how the training and evaluating are
+performed in action.
+
+A similar module in *pytential* extends the functionality of his module to
+incorporate QBX-specific operations.
+
+Translation Cost of a Single Operation
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+.. autoclass:: FMMTranslationCostModel
+
+.. autofunction:: pde_aware_translation_cost_model
+
+.. autofunction:: taylor_translation_cost_model
+
+Cost Model Classes
+^^^^^^^^^^^^^^^^^^
+
+.. autoclass:: AbstractFMMCostModel
+
+.. autoclass:: CLFMMCostModel
+
+.. autoclass:: PythonFMMCostModel
+
+Training (Generate Calibration Parameters)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+.. automethod:: AbstractFMMCostModel.estimate_calibration_params
+
+Evaluating
+^^^^^^^^^^
+
+.. automethod:: AbstractFMMCostModel.get_fmm_modeled_cost
+
+.. automethod:: AbstractFMMCostModel.__call__
+
+Utilities
+^^^^^^^^^
+.. automethod:: AbstractFMMCostModel.aggregate
+
+.. automethod:: AbstractFMMCostModel.aggregate_stage_costs_per_box
+
+.. automethod:: AbstractFMMCostModel.get_constantone_calibration_params
+
 """
 
 import numpy as np
@@ -363,7 +412,8 @@ class AbstractFMMCostModel(ABC):
             :class:`pyopencl.array.Array` of shape (ntarget_boxes,), the number of
             direct evaluation sources (list 1, list 3 close, list 4 close) for each
             target box. You may find :func:`get_ndirect_sources_per_target_box`
-            helpful.
+            helpful. This argument is useful because the same result can be reused
+            for p2p, p2qbxl and tsqbx.
         :arg calibration_params: a :class:`dict` of calibration parameters. These
             parameters can be got from `estimate_calibration_params`.
         :arg box_target_counts_nonchild: a :class:`numpy.ndarray` or
@@ -483,7 +533,7 @@ class AbstractFMMCostModel(ABC):
                                     additional_stage_to_param_names=()):
         """
         :arg model_results: a :class:`list` of the modeled cost for each step of FMM,
-            returned by :func:`get_fmm_modeled_cost` with constant 1 calibration
+            returned by :func:`get_fmm_modeled_cost` with constant-one calibration
             parameters.
         :arg timing_results: a :class:`list` of the same length as *model_results*.
             Each entry is a :class:`dict` filled with timing data returned by
