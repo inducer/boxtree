@@ -96,21 +96,26 @@ def demo_cost_model():
     for icase in range(len(traversals)-1):
         traversal = traversals_dev[icase]
         model_results.append(
-            cost_model(traversal, level_to_orders[icase],
-                       CLFMMCostModel.get_constantone_calibration_params())
+            cost_model(
+                traversal, level_to_orders[icase],
+                CLFMMCostModel.get_constantone_calibration_params(),
+                per_box=False
+            )
         )
 
     params = cost_model.estimate_calibration_params(
         model_results, timing_results[:-1], time_field_name=time_field_name
     )
 
-    predicted_time = cost_model(traversals_dev[-1], level_to_orders[-1], params)
+    predicted_time = cost_model(
+        traversals_dev[-1], level_to_orders[-1], params, per_box=False
+    )
 
     for field in ["form_multipoles", "eval_direct", "multipole_to_local",
                   "eval_multipoles", "form_locals", "eval_locals",
                   "coarsen_multipoles", "refine_locals"]:
         logger.info("predicted time for {0}: {1}".format(
-            field, str(cost_model.aggregate(predicted_time[field]))
+            field, str(predicted_time[field])
         ))
         logger.info("actual time for {0}: {1}".format(
             field, str(timing_results[-1][field]["process_elapsed"])

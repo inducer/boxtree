@@ -448,7 +448,8 @@ def test_estimate_calibration_params(ctx_factory):
 
         python_model_results.append(python_cost_model(
             traversal, level_to_order,
-            PythonFMMCostModel.get_constantone_calibration_params()
+            PythonFMMCostModel.get_constantone_calibration_params(),
+            per_box=False
         ))
 
     python_params = python_cost_model.estimate_calibration_params(
@@ -457,10 +458,7 @@ def test_estimate_calibration_params(ctx_factory):
 
     test_params_sanity(python_params)
 
-    cl_cost_model = CLFMMCostModel(
-        queue,
-        pde_aware_translation_cost_model
-    )
+    cl_cost_model = CLFMMCostModel(queue, pde_aware_translation_cost_model)
 
     cl_model_results = []
 
@@ -470,7 +468,8 @@ def test_estimate_calibration_params(ctx_factory):
 
         cl_model_results.append(cl_cost_model(
             traversal, level_to_order,
-            CLFMMCostModel.get_constantone_calibration_params()
+            CLFMMCostModel.get_constantone_calibration_params(),
+            per_box=False
         ))
 
     cl_params = cl_cost_model.estimate_calibration_params(
@@ -525,9 +524,7 @@ def test_cost_model_gives_correct_op_counts_with_constantone_wrangler(
 
     from pyopencl.clrandom import PhiloxGenerator
     rng = PhiloxGenerator(queue.context, seed=20)
-    target_radii = rng.uniform(
-        queue, ntargets, a=0, b=0.04, dtype=dtype
-    ).get()
+    target_radii = rng.uniform(queue, ntargets, a=0, b=0.04, dtype=dtype).get()
 
     from boxtree import TreeBuilder
     tb = TreeBuilder(ctx)
@@ -558,25 +555,29 @@ def test_cost_model_gives_correct_op_counts_with_constantone_wrangler(
 
     modeled_time = cost_model(
         trav_dev, level_to_order,
-        CLFMMCostModel.get_constantone_calibration_params()
+        CLFMMCostModel.get_constantone_calibration_params(),
+        per_box=False
     )
 
     mismatches = []
     for stage in timing_data:
-        if (timing_data[stage]["ops_elapsed"]
-                != cost_model.aggregate(modeled_time[stage])):
+        if timing_data[stage]["ops_elapsed"] != modeled_time[stage]:
             mismatches.append(
                     (stage, timing_data[stage]["ops_elapsed"], modeled_time[stage]))
 
     assert not mismatches, "\n".join(str(s) for s in mismatches)
 
-    # {{{ Test aggregate_stage_costs_per_box
+    # {{{ Test per-box cost
 
     total_cost = 0.0
     for stage in timing_data:
         total_cost += timing_data[stage]["ops_elapsed"]
 
-    per_box_cost = cost_model.aggregate_stage_costs_per_box(trav_dev, modeled_time)
+    per_box_cost = cost_model(
+        trav_dev, level_to_order,
+        CLFMMCostModel.get_constantone_calibration_params(),
+        per_box=True
+    )
     total_aggregate_cost = cost_model.aggregate(per_box_cost)
     assert total_cost == (
             total_aggregate_cost
