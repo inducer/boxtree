@@ -12,6 +12,7 @@ dependencies:
 - pyopencl
 - islpy
 - pyfmmlib
+- mpi4py
 
 # Only needed to make pylint succeed
 - matplotlib

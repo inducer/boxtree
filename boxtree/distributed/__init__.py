@@ -106,11 +106,9 @@ class DistributedFMMInfo(object):
                 calibration_params = \
                     CLFMMCostModel.get_constantone_calibration_params()
 
-            boxes_time = cost_model.aggregate_stage_costs_per_box(
-                global_trav_dev,
-                cost_model(
-                    global_trav_dev, self.global_wrangler.level_nterms,
-                    calibration_params)
+            boxes_time = cost_model(
+                global_trav_dev, self.global_wrangler.level_nterms,
+                calibration_params, per_box=True
             ).get()
 
             from boxtree.distributed.partition import partition_work
