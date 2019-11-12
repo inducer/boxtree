@@ -109,7 +109,7 @@ def test_against_shared(num_processes, dims, nsources, ntargets):
     import subprocess
     import sys
     subprocess.run([
-        "mpiexec", "-np", str(num_processes),
+        "mpiexec", "-np", str(num_processes), "-oversubscribe",
         "-x", "PYTEST", "-x", "dims", "-x", "nsources", "-x", "ntargets",
         # https://mpi4py.readthedocs.io/en/stable/mpi4py.run.html
         sys.executable, "-m", "mpi4py.run", __file__],
@@ -200,7 +200,7 @@ def test_constantone(num_processes, dims, nsources, ntargets):
     import subprocess
     import sys
     subprocess.run([
-        "mpiexec", "-np", str(num_processes),
+        "mpiexec", "-np", str(num_processes), "-oversubscribe",
         "-x", "PYTEST", "-x", "dims", "-x", "nsources", "-x", "ntargets",
         # https://mpi4py.readthedocs.io/en/stable/mpi4py.run.html
         sys.executable, "-m", "mpi4py.run", __file__],
