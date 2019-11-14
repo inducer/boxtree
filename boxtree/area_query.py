@@ -975,9 +975,10 @@ class SpaceInvaderQueryBuilder(object):
         outer_space_invader_dists = cl.array.zeros(queue, tree.nboxes, np.float32)
         if not wait_for:
             wait_for = []
-        wait_for = wait_for \
-                + outer_space_invader_dists.events \
+        wait_for = (wait_for
+                + outer_space_invader_dists.events
                 + ball_radii.events
+                + [evt for bc in ball_centers for evt in bc.events])
 
         evt = space_invader_query_kernel(
                 *SPACE_INVADER_QUERY_TEMPLATE.unwrap_args(
