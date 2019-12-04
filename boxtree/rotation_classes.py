@@ -153,7 +153,7 @@ TRANSLATION_CLASS_FINDER_TEMPLATE = ElementwiseTemplate(
     }
 
     translation_classes[i] = translation_class;
-    translation_class_is_used[translation_class] = 1;
+    atomic_or(&translation_class_is_used[translation_class], 1);
     """)
 
 
