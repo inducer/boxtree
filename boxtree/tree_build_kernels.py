@@ -878,7 +878,7 @@ LEVEL_RESTRICT_TPL = Template(
                         box_force_split[child_box_id]))
                     {
                         box_force_split[box_id] = 1;
-                        *have_upper_level_split_box = 1;
+                        atomic_or(have_upper_level_split_box, 1);
                         continue_walk = false;
                     }
                 }
