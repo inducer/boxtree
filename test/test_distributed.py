@@ -7,6 +7,7 @@ from boxtree.tools import ConstantOneExpansionWrangler as \
 import logging
 import os
 import pytest
+import sys
 
 # Note: Do not import mpi4py.MPI object at the module level, because OpenMPI does not
 # support recursive invocations.
@@ -26,7 +27,6 @@ def run_mpi(num_processes, env):
     :arg env: a Python `dict` of environment variables
     """
     import subprocess
-    import sys
     from mpi4py import MPI
 
     # Using "-m mpi4py" is necessary for avoiding deadlocks on exception cleanup
@@ -131,6 +131,8 @@ def _test_against_shared(dims, nsources, ntargets, dtype):
 @pytest.mark.parametrize("num_processes, dims, nsources, ntargets", [
     (4, 3, 10000, 10000)
 ])
+@pytest.mark.skipif(sys.version_info < (3, 5),
+                    reason="distributed implementation requires 3.5 or higher")
 def test_against_shared(num_processes, dims, nsources, ntargets):
     pytest.importorskip("mpi4py")
 
@@ -213,6 +215,8 @@ def _test_constantone(dims, nsources, ntargets, dtype):
 @pytest.mark.parametrize("num_processes, dims, nsources, ntargets", [
     (4, 3, 10000, 10000)
 ])
+@pytest.mark.skipif(sys.version_info < (3, 5),
+                    reason="distributed implementation requires 3.5 or higher")
 def test_constantone(num_processes, dims, nsources, ntargets):
     pytest.importorskip("mpi4py")
 
@@ -248,8 +252,6 @@ if __name__ == "__main__":
             _test_constantone(dims, nsources, ntargets, dtype)
 
     else:
-        import sys
-
         if len(sys.argv) > 1:
 
             # You can test individual routines by typing
