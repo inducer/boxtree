@@ -55,8 +55,8 @@ def get_fetch_local_particles_knls(context, global_tree):
     This function compiles several PyOpenCL kernels helpful for fetching particles of
     local trees from global tree.
 
-    :param context: The context to compile against.
-    :param global_tree: The global tree from which local trees are generated.
+    :arg context: The context to compile against.
+    :arg global_tree: The global tree from which local trees are generated.
     :return: A FetchLocalParticlesKernels object.
     """
 
@@ -226,8 +226,7 @@ def fetch_local_particles(queue, global_tree, src_box_mask, tgt_box_mask, local_
     box_source_counts_cumul, box_target_starts, box_target_counts_nonchild,
     box_target_counts_cumul.
 
-    These generated fields are stored directly into :arg:local_tree.
-
+    These generated fields are stored directly into *local_tree*.
     """
     global_tree_dev = global_tree.to_device(queue).with_queue(queue)
     nsources = global_tree.nsources

@@ -58,6 +58,20 @@ class DistributedFMMInfo(object):
     def __init__(self, queue, global_trav_dev,
                  distributed_expansion_wrangler_factory,
                  calibration_params=None, comm=MPI.COMM_WORLD):
+        """
+        .. attribute:: global_wrangler
+
+            An object implementing :class:`ExpansionWranglerInterface`.
+            *global_wrangler* contains reference to the global tree object and is
+            used for distributing and collecting density/potential between the root
+            and worker ranks. This attribute is only present on the root rank.
+
+        .. attribute:: local_wrangler
+
+            An object implementing :class:`ExpansionWranglerInterface`.
+            *local_wrangler* contains reference to the local tree object and is
+            used for local FMM operations. This attribute is present on all ranks.
+        """
 
         # TODO: Support box_target_counts_nonchild?
 
@@ -145,14 +159,6 @@ class DistributedFMMInfo(object):
         # }}}
 
         # {{{ Get local wrangler
-
-        """
-        Note: The difference between "local wrangler" and "global wrangler" is that
-        they reference different tree object. "local wrangler" uses local tree
-        object on each worker process for FMM computation, whereas "global wrangler"
-        is only valid on root process used for assembling results from worker
-        processes.
-        """
 
         self.local_wrangler = self.distributed_expansion_wrangler_factory(
             self.local_tree)

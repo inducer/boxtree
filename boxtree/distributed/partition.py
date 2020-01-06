@@ -30,14 +30,14 @@ from mako.template import Template
 
 
 def partition_work(boxes_time, traversal, total_rank):
-    """ This function assigns responsible boxes of each process.
+    """ This function assigns responsible boxes for each rank.
 
     Each process is responsible for calculating the multiple expansions as well as
     evaluating target potentials in *responsible_boxes*.
 
     :arg boxes_time: The expected running time of each box.
     :arg traversal: The traversal object built on root containing all particles.
-    :arg total_rank: The total number of processes.
+    :arg total_rank: The total number of ranks.
     :return: A numpy array of shape (total_rank,), where the ith element is an numpy
         array containing the responsible boxes of process i.
     """
@@ -201,11 +201,11 @@ class ResponsibleBoxesQuery(object):
     def ancestor_boxes_mask(self, responsible_boxes_mask):
         """ Query the ancestors of responsible boxes.
 
-        :param responsible_boxes_mask: A pyopencl.array.Array object of shape
+        :arg responsible_boxes_mask: A :class:`pyopencl.array.Array` object of shape
             (tree.nboxes,) whose ith entry is 1 iff i is a responsible box.
-        :return: A pyopencl.array.Array object of shape (tree.nboxes,) whose ith
-            entry is 1 iff i is an ancestor of the responsible boxes specified by
-            responsible_boxes_mask.
+        :return: A :class:`pyopencl.array.Array` object of shape (tree.nboxes,) whose
+            ith entry is 1 iff i is an ancestor of the responsible boxes specified by
+            *responsible_boxes_mask*.
         """
         ancestor_boxes = cl.array.zeros(
             self.queue, (self.tree.nboxes,), dtype=np.int8)
@@ -224,16 +224,16 @@ class ResponsibleBoxesQuery(object):
 
     def src_boxes_mask(self, responsible_boxes_mask, ancestor_boxes_mask):
         """ Query the boxes whose sources are needed in order to evaluate potentials
-        of boxes represented by responsible_boxes_mask.
+        of boxes represented by *responsible_boxes_mask*.
 
-        :param responsible_boxes_mask: A pyopencl.array.Array object of shape
+        :arg responsible_boxes_mask: A :class:`pyopencl.array.Array` object of shape
             (tree.nboxes,) whose ith entry is 1 iff i is a responsible box.
-        :param ancestor_boxes_mask: A pyopencl.array.Array object of shape
+        :param ancestor_boxes_mask: A :class:`pyopencl.array.Array` object of shape
             (tree.nboxes,) whose ith entry is 1 iff i is either a responsible box
             or an ancestor of the responsible boxes.
-        :return: A pyopencl.array.Array object of shape (tree.nboxes,) whose ith
-            entry is 1 iff souces of box i are needed for evaluating the potentials
-            of targets in boxes represented by responsible_boxes_mask.
+        :return: A :class:`pyopencl.array.Array` object of shape (tree.nboxes,) whose
+            ith entry is 1 iff souces of box i are needed for evaluating the
+            potentials of targets in boxes represented by *responsible_boxes_mask*.
         """
         src_boxes_mask = responsible_boxes_mask.copy()
 
@@ -279,16 +279,17 @@ class ResponsibleBoxesQuery(object):
 
     def multipole_boxes_mask(self, responsible_boxes_mask, ancestor_boxes_mask):
         """ Query the boxes whose multipoles are used in order to evaluate
-        potentials of targets in boxes represented by responsible_boxes_mask.
+        potentials of targets in boxes represented by *responsible_boxes_mask*.
 
-        :param responsible_boxes_mask: A pyopencl.array.Array object of shape
+        :arg responsible_boxes_mask: A :class:`pyopencl.array.Array` object of shape
             (tree.nboxes,) whose ith entry is 1 iff i is a responsible box.
-        :param ancestor_boxes_mask: A pyopencl.array.Array object of shape
+        :arg ancestor_boxes_mask: A :class:`pyopencl.array.Array` object of shape
             (tree.nboxes,) whose ith entry is 1 iff i is either a responsible box
             or an ancestor of the responsible boxes.
-        :return: A pyopencl.array.Array object of shape (tree.nboxes,) whose ith
-            entry is 1 iff multipoles of box i are needed for evaluating the
-            potentials of targets in boxes represented by responsible_boxes_mask.
+        :return: A :class:`pyopencl.array.Array` object of shape (tree.nboxes,)
+            whose ith entry is 1 iff multipoles of box i are needed for evaluating
+            the potentials of targets in boxes represented by
+            *responsible_boxes_mask*.
         """
 
         multipole_boxes_mask = cl.array.zeros(self.queue, (self.tree.nboxes,),
@@ -335,7 +336,7 @@ class ResponsibleBoxesQuery(object):
         multipole_boxes_mask: Current process needs multipole expressions in these
             boxes.
 
-        :param responsible_boxes_list: A numpy array of responsible box indices.
+        :arg responsible_boxes_list: A numpy array of responsible box indices.
 
         :returns: responsible_box_mask, ancestor_boxes_mask, src_boxes_mask and
             multipole_boxes_mask, as described above.

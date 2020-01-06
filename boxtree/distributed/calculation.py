@@ -155,7 +155,7 @@ def communicate_mpoles(wrangler, comm, trav, mpole_exps, return_stats=False):
     decrease the bandwidth cost by sending only information that is relevant to
     the processes receiving the message.
 
-    This function needs to be called collectively by all processes in :arg comm.
+    This function needs to be called collectively by all processes in *comm*.
 
     .. [1] Lashuk, Ilya, Aparna Chandramowlishwaran, Harper Langston,
        Tuan-Anh Nguyen, Rahul Sampath, Aashay Shringarpure, Richard Vuduc, Lexing
@@ -297,13 +297,13 @@ def communicate_mpoles(wrangler, comm, trav, mpole_exps, return_stats=False):
 
 def distribute_source_weights(source_weights, local_data, comm=MPI.COMM_WORLD):
     """ This function transfers needed source_weights from root process to each
-    worker process in communicator :arg comm.
+    worker process in communicator *comm*.
 
-    This function needs to be called by all processes in the :arg comm communicator.
+    This function needs to be called collectively by all processes in *comm*.
 
-    :param source_weights: Source weights in tree order on root, None on worker
+    :arg source_weights: Source weights in tree order on root, None on worker
         processes.
-    :param local_data: Returned from *generate_local_tree*. None on worker processes.
+    :arg local_data: Returned from *generate_local_tree*. None on worker processes.
     :return Source weights needed for the current process.
     """
     current_rank = comm.Get_rank()
@@ -340,21 +340,21 @@ def calculate_pot(local_wrangler, global_wrangler, local_trav, source_weights,
                   _communicate_mpoles_via_allreduce=False):
     """ Calculate potentials for targets on distributed memory machines.
 
-    This function needs to be called collectively by all process in :arg comm.
+    This function needs to be called collectively by all ranks in *comm*.
 
-    :param local_wrangler: Expansion wranglers for each worker process for FMM.
-    :param global_wrangler: Expansion wrangler on root process for assembling partial
-        results from worker processes together. This argument differs from
-        :arg local_wrangler by referening the global tree instead of local trees.
-        This argument is None on worker processes.
-    :param local_trav: Local traversal object returned from generate_local_travs.
-    :param source_weights: Source weights for FMM. None on worker processes.
-    :param local_data: LocalData object returned from generate_local_tree.
+    :arg local_wrangler: Expansion wranglers for each worker rank.
+    :param global_wrangler: Expansion wrangler on the root rank for assembling
+        partial results from worker processes together. This argument differs from
+        *local_wrangler* by referening the global tree instead of local trees.
+        This argument is None on worker ranks.
+    :param local_trav: Local traversal object returned from *generate_local_travs*.
+    :param source_weights: Source weights for FMM. None on worker ranks.
+    :param local_data: LocalData object returned from *generate_local_tree*.
     :param comm: MPI communicator.
     :param _communicate_mpoles_via_allreduce: Use MPI allreduce for communicating
         multipole expressions. Using MPI allreduce is slower but might be helpful for
         debugging purpose.
-    :return: On the root process, this function returns calculated potentials. On
+    :return: On the root rank, this function returns calculated potentials. On
         worker processes, this function returns None.
     """
 
