@@ -45,6 +45,23 @@ jobs:
             testResultsFiles: 'test/pytest.xml'
 
 -
+    job: 'Python3Examples'
+    pool:
+        vmImage: 'ubuntu-latest'
+
+    steps:
+    -
+        script: |
+            set -e
+            CONDA_ENVIRONMENT=.test-conda-env-py3.yml
+            curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-py-project-within-miniconda.sh
+            . ./build-py-project-within-miniconda.sh
+            curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/run-examples.sh
+            . ./run-examples.sh
+
+        displayName: 'RunExamples'
+
+-
     job: 'Flake8'
     pool:
         vmImage: 'ubuntu-latest'
