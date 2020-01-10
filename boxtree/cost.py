@@ -35,7 +35,7 @@ multipole expansion to a single target.
 
 :class:`AbstractFMMCostModel` uses :class:`FMMTranslationCostModel` and calibration
 parameter to compute the total cost of each step of FMM in each box. There is an
-:class:`AbstractFMMCostModel`, implemented by :class:`FMMCostModel`.
+:class:`AbstractFMMCostModel`, implemented by :class:`CLFMMCostModel`.
 
 :file:`examples/cost_model.py` demostrates how the calibration and evaluation
 are performed.
