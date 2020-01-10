@@ -34,14 +34,11 @@ single operation. For example, *m2p* describes the cost for translating a single
 multipole expansion to a single target.
 
 :class:`AbstractFMMCostModel` uses :class:`FMMTranslationCostModel` and calibration
-parameter to compute the total cost of each step of FMM in each box. There are two
-implementations of the interface :class:`AbstractFMMCostModel`, namely
-:class:`CLFMMCostModel` using OpenCL and :class:`PythonFMMCostModel` using pure
-Python. The calibration parameter can be estimated using
-:meth:`AbstractFMMCostModel.estimate_calibration_params`.
+parameter to compute the total cost of each step of FMM in each box. There is an
+:class:`AbstractFMMCostModel`, implemented by :class:`FMMCostModel`.
 
-*cost_model.py* in the *examples* demostrates how the training and evaluating are
-performed in action.
+:file:`examples/cost_model.py` demostrates how the calibration and evaluation
+are performed.
 
 A similar module in *pytential* extends the functionality of his module to
 incorporate QBX-specific operations.
@@ -1224,11 +1221,9 @@ class CLFMMCostModel(AbstractFMMCostModel):
 # }}}
 
 
-# {{{ _PythonFMMCostModel
+# {{{ _PythonFMMCostModel (undocumented, only used for testing)
 
 class _PythonFMMCostModel(AbstractFMMCostModel):
-    # undocumented, only used for testing
-
     def __init__(
             self,
             translation_cost_model_factory=make_pde_aware_translation_cost_model):

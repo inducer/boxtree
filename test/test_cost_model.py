@@ -1,3 +1,31 @@
+from __future__ import division, absolute_import
+
+__copyright__ = """
+Copyright (C) 2013 Andreas Kloeckner
+Copyright (C) 2018 Matt Wala
+Copyright (C) 2018 Hao Gao
+"""
+
+__license__ = """
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+"""
+
 import numpy as np
 import pyopencl as cl
 import time
@@ -6,7 +34,7 @@ import pytest
 from pyopencl.tools import (  # noqa
     pytest_generate_tests_for_pyopencl as pytest_generate_tests)
 from pymbolic import evaluate
-from boxtree.cost import CLFMMCostModel, PythonFMMCostModel
+from boxtree.cost import CLFMMCostModel, _PythonFMMCostModel
 from boxtree.cost import make_pde_aware_translation_cost_model
 import sys
 
@@ -18,6 +46,8 @@ logger.setLevel(logging.INFO)
 
 SUPPORTS_PROCESS_TIME = (sys.version_info >= (3, 3))
 
+
+# {{{ test_compare_cl_and_py_cost_model
 
 @pytest.mark.opencl
 @pytest.mark.parametrize(
@@ -62,7 +92,7 @@ def test_compare_cl_and_py_cost_model(ctx_factory, nsources, ntargets, dims, dty
     # {{{ Construct cost models
 
     cl_cost_model = CLFMMCostModel(queue, None)
-    python_cost_model = PythonFMMCostModel(None)
+    python_cost_model = _PythonFMMCostModel(None)
 
     constant_one_params = cl_cost_model.get_unit_calibration_params().copy()
     for ilevel in range(trav.tree.nlevels):
@@ -356,6 +386,10 @@ def test_compare_cl_and_py_cost_model(ctx_factory, nsources, ntargets, dims, dty
 
     # }}}
 
+# }}}
+
+
+# {{{ test_estimate_calibration_params
 
 @pytest.mark.opencl
 def test_estimate_calibration_params(ctx_factory):
@@ -438,7 +472,7 @@ def test_estimate_calibration_params(ctx_factory):
         for name in param_names:
             assert test_params1[name] == test_params2[name]
 
-    python_cost_model = PythonFMMCostModel(make_pde_aware_translation_cost_model)
+    python_cost_model = _PythonFMMCostModel(make_pde_aware_translation_cost_model)
 
     python_model_results = []
 
@@ -448,7 +482,7 @@ def test_estimate_calibration_params(ctx_factory):
 
         python_model_results.append(python_cost_model.cost_per_stage(
             traversal, level_to_order,
-            PythonFMMCostModel.get_unit_calibration_params(),
+            _PythonFMMCostModel.get_unit_calibration_params(),
         ))
 
     python_params = python_cost_model.estimate_calibration_params(
@@ -478,6 +512,10 @@ def test_estimate_calibration_params(ctx_factory):
     if SUPPORTS_PROCESS_TIME:
         test_params_equal(cl_params, python_params)
 
+# }}}
+
+
+# {{{ test_cost_model_op_counts_agree_with_constantone_wrangler
 
 class OpCountingTranslationCostModel(object):
     """A translation cost model which assigns at cost of 1 to each operation."""
@@ -511,7 +549,7 @@ class OpCountingTranslationCostModel(object):
         (5000, 5000, 3, np.float64)
     ]
 )
-def test_cost_model_gives_correct_op_counts_with_constantone_wrangler(
+def test_cost_model_op_counts_agree_with_constantone_wrangler(
         ctx_factory, nsources, ntargets, dims, dtype):
     ctx = ctx_factory()
     queue = cl.CommandQueue(ctx)
@@ -583,6 +621,8 @@ def test_cost_model_gives_correct_op_counts_with_constantone_wrangler(
 
     # }}}
 
+# }}}
+
 
 # You can test individual routines by typing
 # $ python test_cost_model.py 'test_routine(cl.create_some_context)'
@@ -593,3 +633,5 @@ if __name__ == "__main__":
     else:
         from pytest import main
         main([__file__])
+
+# vim: foldmethod=marker
