@@ -114,12 +114,15 @@ def demo_cost_model():
     for field in ["form_multipoles", "eval_direct", "multipole_to_local",
                   "eval_multipoles", "form_locals", "eval_locals",
                   "coarsen_multipoles", "refine_locals"]:
-        logger.info("predicted time for {0}: {1}".format(
-            field, str(predicted_time[field])
-        ))
-        logger.info("actual time for {0}: {1}".format(
-            field, str(timing_results[-1][field]["process_elapsed"])
-        ))
+        measured = timing_results[-1][field]["process_elapsed"]
+        pred_err = (
+                (measured - predicted_time[field])
+                / measured)
+        logger.info("actual/predicted time for %s: %.3g/%.3g -> %g %% error",
+                field,
+                measured,
+                predicted_time[field],
+                abs(100*pred_err))
 
 
 if __name__ == '__main__':
