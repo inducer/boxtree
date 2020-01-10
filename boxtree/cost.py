@@ -617,6 +617,17 @@ class AbstractFMMCostModel(ABC):
             c_p2p=1.0,
         )
 
+    _FMM_STAGE_TO_CALIBRATION_PARAMETER = {
+        "form_multipoles": "c_p2m",
+        "coarsen_multipoles": "c_m2m",
+        "eval_direct": "c_p2p",
+        "multipole_to_local": "c_m2l",
+        "eval_multipoles": "c_m2p",
+        "form_locals": "c_p2l",
+        "refine_locals": "c_l2l",
+        "eval_locals": "c_l2p"
+    }
+
     def estimate_calibration_params(self, model_results, timing_results,
                                     time_field_name="wall_elapsed",
                                     additional_stage_to_param_names=()):
@@ -639,18 +650,7 @@ class AbstractFMMCostModel(ABC):
         nresults = len(model_results)
         assert len(timing_results) == nresults
 
-        _FMM_STAGE_TO_CALIBRATION_PARAMETER = {
-            "form_multipoles": "c_p2m",
-            "coarsen_multipoles": "c_m2m",
-            "eval_direct": "c_p2p",
-            "multipole_to_local": "c_m2l",
-            "eval_multipoles": "c_m2p",
-            "form_locals": "c_p2l",
-            "refine_locals": "c_l2l",
-            "eval_locals": "c_l2p"
-        }
-
-        stage_to_param_names = _FMM_STAGE_TO_CALIBRATION_PARAMETER.copy()
+        stage_to_param_names = self._FMM_STAGE_TO_CALIBRATION_PARAMETER.copy()
         stage_to_param_names.update(additional_stage_to_param_names)
 
         params = set(stage_to_param_names.values())
