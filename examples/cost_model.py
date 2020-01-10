@@ -98,7 +98,7 @@ def demo_cost_model():
         model_results.append(
             cost_model.cost_per_stage(
                 traversal, level_to_orders[icase],
-                CLFMMCostModel.get_constantone_calibration_params(),
+                CLFMMCostModel.get_unit_calibration_params(),
             )
         )
 

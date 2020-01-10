@@ -188,25 +188,36 @@ def make_taylor_translation_cost_model(dim, nlevels):
 # {{{ AbstractFMMCostModel
 
 class AbstractFMMCostModel(ABC):
-    """
-    Training (Generate Calibration Parameters)
-    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    """An interface to obtain both FMM operation counts and calibrated (e.g. in
+    seconds) cost estimates.
 
-    .. automethod:: estimate_calibration_params
+    * To obtain operation counts only, use :meth:`get_unit_calibration_params`
+      with :meth:`cost_per_stage` or :meth:`cost_per_box`.
 
-    Evaluating
+    * To calibrate the model, pass operation counts together with timing data
+      to :meth:`estimate_calibration_params`.
+
+    * To evaluate the calibrated models, pass the calibration parameters
+      from :meth:`estimate_calibration_params` to :meth:`cost_per_stage` or
+      :meth:`cost_per_box`.
+
+    Evaluation
     ^^^^^^^^^^
 
     .. automethod:: cost_per_box
 
     .. automethod:: cost_per_stage
 
+    Calibration
+    ^^^^^^^^^^^
+
+    .. automethod:: estimate_calibration_params
+
     Utilities
     ^^^^^^^^^
     .. automethod:: aggregate_over_boxes
 
-    .. automethod:: get_constantone_calibration_params
-
+    .. automethod:: get_unit_calibration_params
     """
     @abstractmethod
     def process_form_multipoles(self, traversal, p2m_cost):
@@ -422,7 +433,8 @@ class AbstractFMMCostModel(ABC):
             (traversal.tree.nlevels,) representing the expansion orders
             of different levels.
         :arg calibration_params: a :class:`dict` of calibration parameters. These
-            parameters can be got from `estimate_calibration_params`.
+            parameters can be obtained via :meth:`estimate_calibration_params`
+            or :meth:`get_unit_calibration_params`.
         :arg ndirect_sources_per_target_box: a :class:`numpy.ndarray` or
             :class:`pyopencl.array.Array` of shape (ntarget_boxes,), the number of
             direct evaluation sources (list 1, list 3 close, list 4 close) for each
@@ -504,7 +516,8 @@ class AbstractFMMCostModel(ABC):
             (traversal.tree.nlevels,) representing the expansion orders
             of different levels.
         :arg calibration_params: a :class:`dict` of calibration parameters. These
-            parameters can be got from `estimate_calibration_params`.
+            parameters can be obtained via :meth:`estimate_calibration_params`
+            or :meth:`get_unit_calibration_params`.
         :arg ndirect_sources_per_target_box: a :class:`numpy.ndarray` or
             :class:`pyopencl.array.Array` of shape (ntarget_boxes,), the number of
             direct evaluation sources (list 1, list 3 close, list 4 close) for each
@@ -516,7 +529,7 @@ class AbstractFMMCostModel(ABC):
             which need evaluation. For example, this is useful in QBX by specifying
             the number of non-QBX targets. If None, all targets are considered,
             namely traversal.tree.box_target_counts_nonchild.
-        :return: a :class:`dict`, the cost of fmm stages.
+        :return: a :class:`dict`, mapping FMM stage names to cost numbers.
         """
         if ndirect_sources_per_target_box is None:
             ndirect_sources_per_target_box = (
@@ -583,7 +596,7 @@ class AbstractFMMCostModel(ABC):
         return result
 
     @staticmethod
-    def get_constantone_calibration_params():
+    def get_unit_calibration_params():
         return dict(
             c_l2l=1.0,
             c_l2p=1.0,
@@ -611,8 +624,8 @@ class AbstractFMMCostModel(ABC):
                                     additional_stage_to_param_names=()):
         """
         :arg model_results: a :class:`list` of the modeled cost for each step of FMM,
-            returned by :func:`cost_per_stage` with constant-one
-            calibration parameters.
+            returned by :func:`cost_per_stage` with unit calibration parameters
+            (from :meth:`get_unit_calibration_params`)
         :arg timing_results: a :class:`list` of the same length as *model_results*.
             Each entry is a :class:`dict` filled with timing data returned by
             *boxtree.fmm.drive_fmm*

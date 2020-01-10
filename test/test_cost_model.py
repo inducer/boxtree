@@ -64,7 +64,7 @@ def test_compare_cl_and_py_cost_model(ctx_factory, nsources, ntargets, dims, dty
     cl_cost_model = CLFMMCostModel(queue, None)
     python_cost_model = PythonFMMCostModel(None)
 
-    constant_one_params = cl_cost_model.get_constantone_calibration_params().copy()
+    constant_one_params = cl_cost_model.get_unit_calibration_params().copy()
     for ilevel in range(trav.tree.nlevels):
         constant_one_params["p_fmm_lev%d" % ilevel] = 10
 
@@ -448,7 +448,7 @@ def test_estimate_calibration_params(ctx_factory):
 
         python_model_results.append(python_cost_model.cost_per_stage(
             traversal, level_to_order,
-            PythonFMMCostModel.get_constantone_calibration_params(),
+            PythonFMMCostModel.get_unit_calibration_params(),
         ))
 
     python_params = python_cost_model.estimate_calibration_params(
@@ -467,7 +467,7 @@ def test_estimate_calibration_params(ctx_factory):
 
         cl_model_results.append(cl_cost_model.cost_per_stage(
             traversal, level_to_order,
-            CLFMMCostModel.get_constantone_calibration_params(),
+            CLFMMCostModel.get_unit_calibration_params(),
         ))
 
     cl_params = cl_cost_model.estimate_calibration_params(
@@ -553,7 +553,7 @@ def test_cost_model_gives_correct_op_counts_with_constantone_wrangler(
 
     modeled_time = cost_model.cost_per_stage(
         trav_dev, level_to_order,
-        CLFMMCostModel.get_constantone_calibration_params(),
+        CLFMMCostModel.get_unit_calibration_params(),
     )
 
     mismatches = []
@@ -572,7 +572,7 @@ def test_cost_model_gives_correct_op_counts_with_constantone_wrangler(
 
     per_box_cost = cost_model.cost_per_box(
         trav_dev, level_to_order,
-        CLFMMCostModel.get_constantone_calibration_params(),
+        CLFMMCostModel.get_unit_calibration_params(),
     )
     total_aggregate_cost = cost_model.aggregate_over_boxes(per_box_cost)
     assert total_cost == (
