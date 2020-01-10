@@ -178,22 +178,22 @@ def test_compare_cl_and_py_cost_model(ctx_factory, nsources, ntargets, dims, dty
 
     # }}}
 
-    # {{{ Test aggregate
+    # {{{ Test aggregate_over_boxes
 
     start_time = time.time()
 
-    cl_direct_aggregate = cl_cost_model.aggregate(cl_direct)
+    cl_direct_aggregate = cl_cost_model.aggregate_over_boxes(cl_direct)
 
     queue.finish()
-    logger.info("OpenCL time for aggregate: {0}".format(
+    logger.info("OpenCL time for aggregate_over_boxes: {0}".format(
         str(time.time() - start_time)
     ))
 
     start_time = time.time()
 
-    python_direct_aggregate = python_cost_model.aggregate(python_direct)
+    python_direct_aggregate = python_cost_model.aggregate_over_boxes(python_direct)
 
-    logger.info("Python time for aggregate: {0}".format(
+    logger.info("Python time for aggregate_over_boxes: {0}".format(
         str(time.time() - start_time)
     ))
 
@@ -446,10 +446,9 @@ def test_estimate_calibration_params(ctx_factory):
         traversal = traversals[icase]
         level_to_order = level_to_orders[icase]
 
-        python_model_results.append(python_cost_model(
+        python_model_results.append(python_cost_model.cost_per_stage(
             traversal, level_to_order,
             PythonFMMCostModel.get_constantone_calibration_params(),
-            per_box=False
         ))
 
     python_params = python_cost_model.estimate_calibration_params(
@@ -466,10 +465,9 @@ def test_estimate_calibration_params(ctx_factory):
         traversal = traversals_dev[icase]
         level_to_order = level_to_orders[icase]
 
-        cl_model_results.append(cl_cost_model(
+        cl_model_results.append(cl_cost_model.cost_per_stage(
             traversal, level_to_order,
             CLFMMCostModel.get_constantone_calibration_params(),
-            per_box=False
         ))
 
     cl_params = cl_cost_model.estimate_calibration_params(
@@ -553,10 +551,9 @@ def test_cost_model_gives_correct_op_counts_with_constantone_wrangler(
 
     level_to_order = np.array([1 for _ in range(tree.nlevels)])
 
-    modeled_time = cost_model(
+    modeled_time = cost_model.cost_per_stage(
         trav_dev, level_to_order,
         CLFMMCostModel.get_constantone_calibration_params(),
-        per_box=False
     )
 
     mismatches = []
@@ -573,12 +570,11 @@ def test_cost_model_gives_correct_op_counts_with_constantone_wrangler(
     for stage in timing_data:
         total_cost += timing_data[stage]["ops_elapsed"]
 
-    per_box_cost = cost_model(
+    per_box_cost = cost_model.cost_per_box(
         trav_dev, level_to_order,
         CLFMMCostModel.get_constantone_calibration_params(),
-        per_box=True
     )
-    total_aggregate_cost = cost_model.aggregate(per_box_cost)
+    total_aggregate_cost = cost_model.aggregate_over_boxes(per_box_cost)
     assert total_cost == (
             total_aggregate_cost
             + modeled_time["coarsen_multipoles"]

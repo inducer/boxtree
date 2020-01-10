@@ -96,10 +96,9 @@ def demo_cost_model():
     for icase in range(len(traversals)-1):
         traversal = traversals_dev[icase]
         model_results.append(
-            cost_model(
+            cost_model.cost_per_stage(
                 traversal, level_to_orders[icase],
                 CLFMMCostModel.get_constantone_calibration_params(),
-                per_box=False
             )
         )
 
@@ -107,8 +106,8 @@ def demo_cost_model():
         model_results, timing_results[:-1], time_field_name=time_field_name
     )
 
-    predicted_time = cost_model(
-        traversals_dev[-1], level_to_orders[-1], params, per_box=False
+    predicted_time = cost_model.cost_per_stage(
+        traversals_dev[-1], level_to_orders[-1], params,
     )
 
     for field in ["form_multipoles", "eval_direct", "multipole_to_local",
