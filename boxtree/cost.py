@@ -51,9 +51,9 @@ Translation Cost of a Single Operation
 
 .. autoclass:: FMMTranslationCostModel
 
-.. autofunction:: pde_aware_translation_cost_model
+.. autofunction:: make_pde_aware_translation_cost_model
 
-.. autofunction:: taylor_translation_cost_model
+.. autofunction:: make_taylor_translation_cost_model
 
 Cost Model Classes
 ^^^^^^^^^^^^^^^^^^
@@ -168,7 +168,7 @@ class FMMTranslationCostModel(object):
 
 # {{{ translation cost model factories
 
-def pde_aware_translation_cost_model(dim, nlevels):
+def make_pde_aware_translation_cost_model(dim, nlevels):
     """Create a cost model for FMM translation operators that make use of the
     knowledge that the potential satisfies a PDE.
 
@@ -189,7 +189,7 @@ def pde_aware_translation_cost_model(dim, nlevels):
     )
 
 
-def taylor_translation_cost_model(dim, nlevels):
+def make_taylor_translation_cost_model(dim, nlevels):
     """Create a cost model for FMM translation based on Taylor expansions
     in Cartesian coordinates.
     """
@@ -694,8 +694,9 @@ class CLFMMCostModel(AbstractFMMCostModel):
     .. note:: For methods in this class, argument *traversal* should live on device
         memory.
     """
-    def __init__(self, queue,
-                 translation_cost_model_factory=pde_aware_translation_cost_model):
+    def __init__(
+            self, queue,
+            translation_cost_model_factory=make_pde_aware_translation_cost_model):
         """
         :arg queue: a :class:`pyopencl.CommandQueue` object on which the execution
             of this object runs.
@@ -1226,8 +1227,9 @@ class CLFMMCostModel(AbstractFMMCostModel):
 
 
 class PythonFMMCostModel(AbstractFMMCostModel):
-    def __init__(self,
-                 translation_cost_model_factory=pde_aware_translation_cost_model):
+    def __init__(
+            self,
+            translation_cost_model_factory=make_pde_aware_translation_cost_model):
         """
         :arg translation_cost_model_factory: a function, which takes tree dimension
             and the number of tree levels as arguments, returns an object of
