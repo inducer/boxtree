@@ -61,9 +61,6 @@ Cost Model Classes
 .. autoclass:: AbstractFMMCostModel
 
 .. autoclass:: CLFMMCostModel
-
-.. autoclass:: PythonFMMCostModel
-
 """
 
 import numpy as np
@@ -88,6 +85,8 @@ else:
     from abc import ABCMeta, abstractmethod
     ABC = ABCMeta('ABC', (), {})
 
+
+# {{{ FMMTranslationCostModel
 
 class FMMTranslationCostModel(object):
     """Provides modeled costs for individual translations or evaluations.
@@ -145,6 +144,8 @@ class FMMTranslationCostModel(object):
 
         return nsource_coeffs * ntarget_coeffs
 
+# }}}
+
 
 # {{{ translation cost model factories
 
@@ -183,6 +184,8 @@ def make_taylor_translation_cost_model(dim, nlevels):
 
 # }}}
 
+
+# {{{ AbstractFMMCostModel
 
 class AbstractFMMCostModel(ABC):
     """
@@ -663,10 +666,15 @@ class AbstractFMMCostModel(ABC):
 
         return result
 
+# }}}
+
+
+# {{{ CLFMMCostModel
 
 class CLFMMCostModel(AbstractFMMCostModel):
-    """
-    .. note:: For methods in this class, argument *traversal* should live on device
+    """An OpenCL-based realization of :class:`AbstractFMMCostModel`.
+
+    .. note:: For methods in this class, argument *traversal* should live in device
         memory.
     """
     def __init__(
@@ -1200,8 +1208,14 @@ class CLFMMCostModel(AbstractFMMCostModel):
 
         return self.translation_costs_to_dev(translation_costs)
 
+# }}}
 
-class PythonFMMCostModel(AbstractFMMCostModel):
+
+# {{{ _PythonFMMCostModel
+
+class _PythonFMMCostModel(AbstractFMMCostModel):
+    # undocumented, only used for testing
+
     def __init__(
             self,
             translation_cost_model_factory=make_pde_aware_translation_cost_model):
@@ -1376,3 +1390,8 @@ class PythonFMMCostModel(AbstractFMMCostModel):
             return per_box_result
         else:
             return np.sum(per_box_result)
+
+# }}}
+
+
+# vim: foldmethod=marker
