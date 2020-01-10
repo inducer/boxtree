@@ -1,4 +1,4 @@
-FMM cost model
+FMM Cost Model
 ==============
 
 .. automodule:: boxtree.cost
