@@ -7,7 +7,7 @@ from pyopencl.tools import (  # noqa
     pytest_generate_tests_for_pyopencl as pytest_generate_tests)
 from pymbolic import evaluate
 from boxtree.cost import CLFMMCostModel, PythonFMMCostModel
-from boxtree.cost import pde_aware_translation_cost_model
+from boxtree.cost import make_pde_aware_translation_cost_model
 import sys
 
 import logging
@@ -68,7 +68,7 @@ def test_compare_cl_and_py_cost_model(ctx_factory, nsources, ntargets, dims, dty
     for ilevel in range(trav.tree.nlevels):
         constant_one_params["p_fmm_lev%d" % ilevel] = 10
 
-    xlat_cost = pde_aware_translation_cost_model(dims, trav.tree.nlevels)
+    xlat_cost = make_pde_aware_translation_cost_model(dims, trav.tree.nlevels)
 
     # }}}
 
@@ -438,7 +438,7 @@ def test_estimate_calibration_params(ctx_factory):
         for name in param_names:
             assert test_params1[name] == test_params2[name]
 
-    python_cost_model = PythonFMMCostModel(pde_aware_translation_cost_model)
+    python_cost_model = PythonFMMCostModel(make_pde_aware_translation_cost_model)
 
     python_model_results = []
 
@@ -458,7 +458,7 @@ def test_estimate_calibration_params(ctx_factory):
 
     test_params_sanity(python_params)
 
-    cl_cost_model = CLFMMCostModel(queue, pde_aware_translation_cost_model)
+    cl_cost_model = CLFMMCostModel(queue, make_pde_aware_translation_cost_model)
 
     cl_model_results = []
 
