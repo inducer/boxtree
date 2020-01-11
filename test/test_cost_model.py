@@ -34,7 +34,7 @@ import pytest
 from pyopencl.tools import (  # noqa
     pytest_generate_tests_for_pyopencl as pytest_generate_tests)
 from pymbolic import evaluate
-from boxtree.cost import CLFMMCostModel, _PythonFMMCostModel
+from boxtree.cost import FMMCostModel, _PythonFMMCostModel
 from boxtree.cost import make_pde_aware_translation_cost_model
 import sys
 
@@ -91,7 +91,7 @@ def test_compare_cl_and_py_cost_model(ctx_factory, nsources, ntargets, dims, dty
 
     # {{{ Construct cost models
 
-    cl_cost_model = CLFMMCostModel(queue, None)
+    cl_cost_model = FMMCostModel(queue, None)
     python_cost_model = _PythonFMMCostModel(None)
 
     constant_one_params = cl_cost_model.get_unit_calibration_params().copy()
@@ -491,7 +491,7 @@ def test_estimate_calibration_params(ctx_factory):
 
     test_params_sanity(python_params)
 
-    cl_cost_model = CLFMMCostModel(queue, make_pde_aware_translation_cost_model)
+    cl_cost_model = FMMCostModel(queue, make_pde_aware_translation_cost_model)
 
     cl_model_results = []
 
@@ -501,7 +501,7 @@ def test_estimate_calibration_params(ctx_factory):
 
         cl_model_results.append(cl_cost_model.cost_per_stage(
             traversal, level_to_order,
-            CLFMMCostModel.get_unit_calibration_params(),
+            FMMCostModel.get_unit_calibration_params(),
         ))
 
     cl_params = cl_cost_model.estimate_calibration_params(
@@ -582,7 +582,7 @@ def test_cost_model_op_counts_agree_with_constantone_wrangler(
     src_weights = np.random.rand(tree.nsources).astype(tree.coord_dtype)
     drive_fmm(trav, wrangler, src_weights, timing_data=timing_data)
 
-    cost_model = CLFMMCostModel(
+    cost_model = FMMCostModel(
         queue,
         translation_cost_model_factory=OpCountingTranslationCostModel
     )
@@ -591,7 +591,7 @@ def test_cost_model_op_counts_agree_with_constantone_wrangler(
 
     modeled_time = cost_model.cost_per_stage(
         trav_dev, level_to_order,
-        CLFMMCostModel.get_unit_calibration_params(),
+        FMMCostModel.get_unit_calibration_params(),
     )
 
     mismatches = []
@@ -610,7 +610,7 @@ def test_cost_model_op_counts_agree_with_constantone_wrangler(
 
     per_box_cost = cost_model.cost_per_box(
         trav_dev, level_to_order,
-        CLFMMCostModel.get_unit_calibration_params(),
+        FMMCostModel.get_unit_calibration_params(),
     )
     total_aggregate_cost = cost_model.aggregate_over_boxes(per_box_cost)
     assert total_cost == (

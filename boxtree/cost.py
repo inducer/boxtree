@@ -35,7 +35,7 @@ multipole expansion to a single target.
 
 :class:`AbstractFMMCostModel` uses :class:`FMMTranslationCostModel` and calibration
 parameter to compute the total cost of each step of FMM in each box. There is an
-:class:`AbstractFMMCostModel`, implemented by :class:`CLFMMCostModel`.
+:class:`AbstractFMMCostModel`, implemented by :class:`FMMCostModel`.
 
 :file:`examples/cost_model.py` demostrates how the calibration and evaluation
 are performed.
@@ -57,7 +57,7 @@ Cost Model Classes
 
 .. autoclass:: AbstractFMMCostModel
 
-.. autoclass:: CLFMMCostModel
+.. autoclass:: FMMCostModel
 """
 
 import numpy as np
@@ -216,6 +216,17 @@ class AbstractFMMCostModel(ABC):
 
     .. automethod:: get_unit_calibration_params
     """
+    @abstractmethod
+    def __init__(
+            self,
+            translation_cost_model_factory=make_pde_aware_translation_cost_model):
+        """
+        :arg translation_cost_model_factory: a function, which takes tree dimension
+            and the number of tree levels as arguments, returns an object of
+            :class:`TranslationCostModel`.
+        """
+        self.translation_cost_model_factory = translation_cost_model_factory
+
     @abstractmethod
     def process_form_multipoles(self, traversal, p2m_cost):
         """Cost for forming multipole expansions of each box.
@@ -420,9 +431,9 @@ class AbstractFMMCostModel(ABC):
         pass
 
     def cost_per_box(self, traversal, level_to_order,
-                                 calibration_params,
-                                 ndirect_sources_per_target_box=None,
-                                 box_target_counts_nonchild=None):
+                     calibration_params,
+                     ndirect_sources_per_target_box=None,
+                     box_target_counts_nonchild=None):
         """Predict the per-box costs of a new traversal object.
 
         :arg traversal: a :class:`boxtree.traversal.FMMTraversalInfo` object.
@@ -503,9 +514,9 @@ class AbstractFMMCostModel(ABC):
         return result
 
     def cost_per_stage(self, traversal, level_to_order,
-                                   calibration_params,
-                                   ndirect_sources_per_target_box=None,
-                                   box_target_counts_nonchild=None):
+                       calibration_params,
+                       ndirect_sources_per_target_box=None,
+                       box_target_counts_nonchild=None):
         """Predict the per-stage costs of a new traversal object.
 
         :arg traversal: a :class:`boxtree.traversal.FMMTraversalInfo` object.
@@ -679,9 +690,9 @@ class AbstractFMMCostModel(ABC):
 # }}}
 
 
-# {{{ CLFMMCostModel
+# {{{ FMMCostModel
 
-class CLFMMCostModel(AbstractFMMCostModel):
+class FMMCostModel(AbstractFMMCostModel):
     """An OpenCL-based realization of :class:`AbstractFMMCostModel`.
 
     .. note:: For methods in this class, argument *traversal* should live in device
@@ -698,7 +709,7 @@ class CLFMMCostModel(AbstractFMMCostModel):
             :class:`TranslationCostModel`.
         """
         self.queue = queue
-        self.translation_cost_model_factory = translation_cost_model_factory
+        AbstractFMMCostModel.__init__(self, translation_cost_model_factory)
 
     # {{{ form multipoles
 
@@ -1227,12 +1238,7 @@ class _PythonFMMCostModel(AbstractFMMCostModel):
     def __init__(
             self,
             translation_cost_model_factory=make_pde_aware_translation_cost_model):
-        """
-        :arg translation_cost_model_factory: a function, which takes tree dimension
-            and the number of tree levels as arguments, returns an object of
-            :class:`TranslationCostModel`.
-        """
-        self.translation_cost_model_factory = translation_cost_model_factory
+        AbstractFMMCostModel.__init__(self, translation_cost_model_factory)
 
     def process_form_multipoles(self, traversal, p2m_cost):
         tree = traversal.tree
