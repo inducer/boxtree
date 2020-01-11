@@ -88,9 +88,9 @@ def demo_cost_model():
 
     time_field_name = "process_elapsed"
 
-    from boxtree.cost import CLFMMCostModel
+    from boxtree.cost import FMMCostModel
     from boxtree.cost import make_pde_aware_translation_cost_model
-    cost_model = CLFMMCostModel(queue, make_pde_aware_translation_cost_model)
+    cost_model = FMMCostModel(queue, make_pde_aware_translation_cost_model)
 
     model_results = []
     for icase in range(len(traversals)-1):
@@ -98,7 +98,7 @@ def demo_cost_model():
         model_results.append(
             cost_model.cost_per_stage(
                 traversal, level_to_orders[icase],
-                CLFMMCostModel.get_unit_calibration_params(),
+                FMMCostModel.get_unit_calibration_params(),
             )
         )
 
