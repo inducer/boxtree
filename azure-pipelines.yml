@@ -2,7 +2,7 @@ jobs:
 -
     job: 'Python2'
     pool:
-        vmImage: 'ubuntu-16.04'
+        vmImage: 'ubuntu-latest'
 
     steps:
     -
@@ -11,7 +11,6 @@ jobs:
             sed 's/python=3/python=2.7/' .test-conda-env-py3.yml > .test-conda-env-py2.yml
             cat .test-conda-env-py2.yml
             CONDA_ENVIRONMENT=.test-conda-env-py2.yml
-            REQUIREMENTS_TXT=.test-conda-env-requirements.txt
             mkdir -p ~/.config/matplotlib
             echo "backend: Agg" > ~/.config/matplotlib/matplotlibrc
             curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project-within-miniconda.sh
@@ -27,14 +26,13 @@ jobs:
 -
     job: 'Python3'
     pool:
-        vmImage: 'ubuntu-16.04'
+        vmImage: 'ubuntu-latest'
 
     steps:
     -
         script: |
             set -e
             CONDA_ENVIRONMENT=.test-conda-env-py3.yml
-            REQUIREMENTS_TXT=.test-conda-env-requirements.txt
             curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project-within-miniconda.sh
             . ./build-and-test-py-project-within-miniconda.sh
 
@@ -47,13 +45,30 @@ jobs:
             testResultsFiles: 'test/pytest.xml'
 
 -
+    job: 'Python3Examples'
+    pool:
+        vmImage: 'ubuntu-latest'
+
+    steps:
+    -
+        script: |
+            set -e
+            CONDA_ENVIRONMENT=.test-conda-env-py3.yml
+            curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-py-project-within-miniconda.sh
+            . ./build-py-project-within-miniconda.sh
+            curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/run-examples.sh
+            . ./run-examples.sh
+
+        displayName: 'RunExamples'
+
+-
     job: 'Flake8'
     pool:
-        vmImage: 'ubuntu-16.04'
+        vmImage: 'ubuntu-latest'
     strategy:
         matrix:
-            Python36:
-                python.version: '3.6'
+            Python37:
+                python.version: '3.7'
 
     steps:
     -
@@ -65,23 +80,31 @@ jobs:
         script: |
             set -e
             curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/prepare-and-run-flake8.sh
-            . ./prepare-and-run-flake8.sh pyopencl test
+            . ./prepare-and-run-flake8.sh boxtree test examples
 
         displayName: 'Flake8'
 
 -
     job: 'Pylint'
     pool:
-        vmImage: 'ubuntu-16.04'
+        vmImage: 'ubuntu-latest'
 
     steps:
     -
         script: |
             set -e
-            CONDA_ENVIRONMENT=.test-conda-env-py3.yml
-            REQUIREMENTS_TXT=.test-conda-env-requirements.txt
+            sed 's/python=3/python=3.7/' .test-conda-env-py3.yml > .test-conda-env.yml
+            CONDA_ENVIRONMENT=.test-conda-env.yml
             USE_CONDA_BUILD=1
             curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/prepare-and-run-pylint.sh
             . ./prepare-and-run-pylint.sh boxtree test/test_*.py
 
         displayName: 'Pylint'
+
+schedules:
+-
+    cron: "0 0 * * 0"
+    displayName: Weekly build
+    branches:
+        include:
+        - master

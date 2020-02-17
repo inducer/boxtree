@@ -1,6 +1,0 @@
-git+https://github.com/inducer/pymbolic
-git+https://github.com/inducer/loopy
-
-# only for reference values for the fmmlib test
-# (unable to use--circular dep)
-# git+https://github.com/inducer/sumpy

@@ -80,6 +80,23 @@ Python 3 POCL:
         reports:
             junit: test/pytest.xml
 
+Python 3 POCL Examples:
+  script:
+  - test -n "$SKIP_EXAMPLES" && exit
+  - export PY_EXE=python3
+  - export PYOPENCL_TEST=portable
+  - export EXTRA_INSTALL="pybind11 numpy mako pyvisfile matplotlib"
+  - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-py-project-and-run-examples.sh
+  - ". ./build-py-project-and-run-examples.sh"
+  tags:
+  - python3
+  - pocl
+  except:
+  - tags
+  artifacts:
+    reports:
+      junit: test/pytest.xml
+
 Pylint:
   script:
   - export PY_EXE=python3
@@ -104,7 +121,7 @@ Documentation:
 Flake8:
     script:
     - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/prepare-and-run-flake8.sh
-    - ". ./prepare-and-run-flake8.sh boxtree test"
+    - ". ./prepare-and-run-flake8.sh boxtree test examples"
     tags:
     - python3
     except:
