@@ -682,7 +682,7 @@ class FMMLibExpansionWrangler(object):
 
         m2l_rotation_angles = self.rotation_data.m2l_rotation_angles()
 
-        if not m2l_rotation_angles:
+        if len(m2l_rotation_angles) == 0:
             # The pyfmmlib wrapper may or may not complain if you give it a
             # zero-length array.
             return (rotmatf, rotmatb, rotmat_order)
