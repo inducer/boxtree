@@ -65,7 +65,7 @@ def drive_fmm(traversal, expansion_wrangler, src_weights, timing_data=None):
     # Interface guidelines: Attributes of the tree are assumed to be known
     # to the expansion wrangler and should not be passed.
 
-    fmm_proc = ProcessLogger(logger, "qbx fmm")
+    fmm_proc = ProcessLogger(logger, "fmm")
     recorder = TimingRecorder()
 
     src_weights = wrangler.reorder_sources(src_weights)

@@ -1,3 +1,31 @@
+from __future__ import division, absolute_import
+
+__copyright__ = """
+Copyright (C) 2013 Andreas Kloeckner
+Copyright (C) 2018 Matt Wala
+Copyright (C) 2018 Hao Gao
+"""
+
+__license__ = """
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+"""
+
 import numpy as np
 import pyopencl as cl
 import time
@@ -6,8 +34,8 @@ import pytest
 from pyopencl.tools import (  # noqa
     pytest_generate_tests_for_pyopencl as pytest_generate_tests)
 from pymbolic import evaluate
-from boxtree.cost import CLFMMCostModel, PythonFMMCostModel
-from boxtree.cost import pde_aware_translation_cost_model
+from boxtree.cost import FMMCostModel, _PythonFMMCostModel
+from boxtree.cost import make_pde_aware_translation_cost_model
 import sys
 
 import logging
@@ -18,6 +46,8 @@ logger.setLevel(logging.INFO)
 
 SUPPORTS_PROCESS_TIME = (sys.version_info >= (3, 3))
 
+
+# {{{ test_compare_cl_and_py_cost_model
 
 @pytest.mark.opencl
 @pytest.mark.parametrize(
@@ -61,14 +91,14 @@ def test_compare_cl_and_py_cost_model(ctx_factory, nsources, ntargets, dims, dty
 
     # {{{ Construct cost models
 
-    cl_cost_model = CLFMMCostModel(queue, None)
-    python_cost_model = PythonFMMCostModel(None)
+    cl_cost_model = FMMCostModel(queue, None)
+    python_cost_model = _PythonFMMCostModel(None)
 
-    constant_one_params = cl_cost_model.get_constantone_calibration_params().copy()
+    constant_one_params = cl_cost_model.get_unit_calibration_params().copy()
     for ilevel in range(trav.tree.nlevels):
         constant_one_params["p_fmm_lev%d" % ilevel] = 10
 
-    xlat_cost = pde_aware_translation_cost_model(dims, trav.tree.nlevels)
+    xlat_cost = make_pde_aware_translation_cost_model(dims, trav.tree.nlevels)
 
     # }}}
 
@@ -178,22 +208,22 @@ def test_compare_cl_and_py_cost_model(ctx_factory, nsources, ntargets, dims, dty
 
     # }}}
 
-    # {{{ Test aggregate
+    # {{{ Test aggregate_over_boxes
 
     start_time = time.time()
 
-    cl_direct_aggregate = cl_cost_model.aggregate(cl_direct)
+    cl_direct_aggregate = cl_cost_model.aggregate_over_boxes(cl_direct)
 
     queue.finish()
-    logger.info("OpenCL time for aggregate: {0}".format(
+    logger.info("OpenCL time for aggregate_over_boxes: {0}".format(
         str(time.time() - start_time)
     ))
 
     start_time = time.time()
 
-    python_direct_aggregate = python_cost_model.aggregate(python_direct)
+    python_direct_aggregate = python_cost_model.aggregate_over_boxes(python_direct)
 
-    logger.info("Python time for aggregate: {0}".format(
+    logger.info("Python time for aggregate_over_boxes: {0}".format(
         str(time.time() - start_time)
     ))
 
@@ -356,6 +386,10 @@ def test_compare_cl_and_py_cost_model(ctx_factory, nsources, ntargets, dims, dty
 
     # }}}
 
+# }}}
+
+
+# {{{ test_estimate_calibration_params
 
 @pytest.mark.opencl
 def test_estimate_calibration_params(ctx_factory):
@@ -438,7 +472,7 @@ def test_estimate_calibration_params(ctx_factory):
         for name in param_names:
             assert test_params1[name] == test_params2[name]
 
-    python_cost_model = PythonFMMCostModel(pde_aware_translation_cost_model)
+    python_cost_model = _PythonFMMCostModel(make_pde_aware_translation_cost_model)
 
     python_model_results = []
 
@@ -446,10 +480,9 @@ def test_estimate_calibration_params(ctx_factory):
         traversal = traversals[icase]
         level_to_order = level_to_orders[icase]
 
-        python_model_results.append(python_cost_model(
+        python_model_results.append(python_cost_model.cost_per_stage(
             traversal, level_to_order,
-            PythonFMMCostModel.get_constantone_calibration_params(),
-            per_box=False
+            _PythonFMMCostModel.get_unit_calibration_params(),
         ))
 
     python_params = python_cost_model.estimate_calibration_params(
@@ -458,7 +491,7 @@ def test_estimate_calibration_params(ctx_factory):
 
     test_params_sanity(python_params)
 
-    cl_cost_model = CLFMMCostModel(queue, pde_aware_translation_cost_model)
+    cl_cost_model = FMMCostModel(queue, make_pde_aware_translation_cost_model)
 
     cl_model_results = []
 
@@ -466,10 +499,9 @@ def test_estimate_calibration_params(ctx_factory):
         traversal = traversals_dev[icase]
         level_to_order = level_to_orders[icase]
 
-        cl_model_results.append(cl_cost_model(
+        cl_model_results.append(cl_cost_model.cost_per_stage(
             traversal, level_to_order,
-            CLFMMCostModel.get_constantone_calibration_params(),
-            per_box=False
+            FMMCostModel.get_unit_calibration_params(),
         ))
 
     cl_params = cl_cost_model.estimate_calibration_params(
@@ -480,6 +512,10 @@ def test_estimate_calibration_params(ctx_factory):
     if SUPPORTS_PROCESS_TIME:
         test_params_equal(cl_params, python_params)
 
+# }}}
+
+
+# {{{ test_cost_model_op_counts_agree_with_constantone_wrangler
 
 class OpCountingTranslationCostModel(object):
     """A translation cost model which assigns at cost of 1 to each operation."""
@@ -513,7 +549,7 @@ class OpCountingTranslationCostModel(object):
         (5000, 5000, 3, np.float64)
     ]
 )
-def test_cost_model_gives_correct_op_counts_with_constantone_wrangler(
+def test_cost_model_op_counts_agree_with_constantone_wrangler(
         ctx_factory, nsources, ntargets, dims, dtype):
     ctx = ctx_factory()
     queue = cl.CommandQueue(ctx)
@@ -546,17 +582,16 @@ def test_cost_model_gives_correct_op_counts_with_constantone_wrangler(
     src_weights = np.random.rand(tree.nsources).astype(tree.coord_dtype)
     drive_fmm(trav, wrangler, src_weights, timing_data=timing_data)
 
-    cost_model = CLFMMCostModel(
+    cost_model = FMMCostModel(
         queue,
         translation_cost_model_factory=OpCountingTranslationCostModel
     )
 
     level_to_order = np.array([1 for _ in range(tree.nlevels)])
 
-    modeled_time = cost_model(
+    modeled_time = cost_model.cost_per_stage(
         trav_dev, level_to_order,
-        CLFMMCostModel.get_constantone_calibration_params(),
-        per_box=False
+        FMMCostModel.get_unit_calibration_params(),
     )
 
     mismatches = []
@@ -573,12 +608,11 @@ def test_cost_model_gives_correct_op_counts_with_constantone_wrangler(
     for stage in timing_data:
         total_cost += timing_data[stage]["ops_elapsed"]
 
-    per_box_cost = cost_model(
+    per_box_cost = cost_model.cost_per_box(
         trav_dev, level_to_order,
-        CLFMMCostModel.get_constantone_calibration_params(),
-        per_box=True
+        FMMCostModel.get_unit_calibration_params(),
     )
-    total_aggregate_cost = cost_model.aggregate(per_box_cost)
+    total_aggregate_cost = cost_model.aggregate_over_boxes(per_box_cost)
     assert total_cost == (
             total_aggregate_cost
             + modeled_time["coarsen_multipoles"]
@@ -586,6 +620,8 @@ def test_cost_model_gives_correct_op_counts_with_constantone_wrangler(
     )
 
     # }}}
+
+# }}}
 
 
 # You can test individual routines by typing
@@ -597,3 +633,5 @@ if __name__ == "__main__":
     else:
         from pytest import main
         main([__file__])
+
+# vim: foldmethod=marker

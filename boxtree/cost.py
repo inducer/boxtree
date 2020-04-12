@@ -34,14 +34,11 @@ single operation. For example, *m2p* describes the cost for translating a single
 multipole expansion to a single target.
 
 :class:`AbstractFMMCostModel` uses :class:`FMMTranslationCostModel` and calibration
-parameter to compute the total cost of each step of FMM in each box. There are two
-implementations of the interface :class:`AbstractFMMCostModel`, namely
-:class:`CLFMMCostModel` using OpenCL and :class:`PythonFMMCostModel` using pure
-Python. The calibration parameter can be estimated using
-:meth:`AbstractFMMCostModel.estimate_calibration_params`.
+parameter to compute the total cost of each step of FMM in each box. There is an
+:class:`AbstractFMMCostModel`, implemented by :class:`FMMCostModel`.
 
-*cost_model.py* in the *examples* demostrates how the training and evaluating are
-performed in action.
+:file:`examples/cost_model.py` demostrates how the calibration and evaluation
+are performed.
 
 A similar module in *pytential* extends the functionality of his module to
 incorporate QBX-specific operations.
@@ -51,39 +48,16 @@ Translation Cost of a Single Operation
 
 .. autoclass:: FMMTranslationCostModel
 
-.. autofunction:: pde_aware_translation_cost_model
+.. autofunction:: make_pde_aware_translation_cost_model
 
-.. autofunction:: taylor_translation_cost_model
+.. autofunction:: make_taylor_translation_cost_model
 
 Cost Model Classes
 ^^^^^^^^^^^^^^^^^^
 
 .. autoclass:: AbstractFMMCostModel
 
-.. autoclass:: CLFMMCostModel
-
-.. autoclass:: PythonFMMCostModel
-
-Training (Generate Calibration Parameters)
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-.. automethod:: AbstractFMMCostModel.estimate_calibration_params
-
-Evaluating
-^^^^^^^^^^
-
-.. automethod:: AbstractFMMCostModel.fmm_modeled_cost_per_box
-
-.. automethod:: AbstractFMMCostModel.fmm_modeled_cost_per_stage
-
-.. automethod:: AbstractFMMCostModel.__call__
-
-Utilities
-^^^^^^^^^
-.. automethod:: AbstractFMMCostModel.aggregate
-
-.. automethod:: AbstractFMMCostModel.get_constantone_calibration_params
-
+.. autoclass:: FMMCostModel
 """
 
 import numpy as np
@@ -108,6 +82,8 @@ else:
     from abc import ABCMeta, abstractmethod
     ABC = ABCMeta('ABC', (), {})
 
+
+# {{{ FMMTranslationCostModel
 
 class FMMTranslationCostModel(object):
     """Provides modeled costs for individual translations or evaluations.
@@ -165,10 +141,12 @@ class FMMTranslationCostModel(object):
 
         return nsource_coeffs * ntarget_coeffs
 
+# }}}
+
 
 # {{{ translation cost model factories
 
-def pde_aware_translation_cost_model(dim, nlevels):
+def make_pde_aware_translation_cost_model(dim, nlevels):
     """Create a cost model for FMM translation operators that make use of the
     knowledge that the potential satisfies a PDE.
 
@@ -189,7 +167,7 @@ def pde_aware_translation_cost_model(dim, nlevels):
     )
 
 
-def taylor_translation_cost_model(dim, nlevels):
+def make_taylor_translation_cost_model(dim, nlevels):
     """Create a cost model for FMM translation based on Taylor expansions
     in Cartesian coordinates.
     """
@@ -204,7 +182,51 @@ def taylor_translation_cost_model(dim, nlevels):
 # }}}
 
 
+# {{{ AbstractFMMCostModel
+
 class AbstractFMMCostModel(ABC):
+    """An interface to obtain both FMM operation counts and calibrated (e.g. in
+    seconds) cost estimates.
+
+    * To obtain operation counts only, use :meth:`get_unit_calibration_params`
+      with :meth:`cost_per_stage` or :meth:`cost_per_box`.
+
+    * To calibrate the model, pass operation counts together with timing data
+      to :meth:`estimate_calibration_params`.
+
+    * To evaluate the calibrated models, pass the calibration parameters
+      from :meth:`estimate_calibration_params` to :meth:`cost_per_stage` or
+      :meth:`cost_per_box`.
+
+    Evaluation
+    ^^^^^^^^^^
+
+    .. automethod:: cost_per_box
+
+    .. automethod:: cost_per_stage
+
+    Calibration
+    ^^^^^^^^^^^
+
+    .. automethod:: estimate_calibration_params
+
+    Utilities
+    ^^^^^^^^^
+    .. automethod:: aggregate_over_boxes
+
+    .. automethod:: get_unit_calibration_params
+    """
+    @abstractmethod
+    def __init__(
+            self,
+            translation_cost_model_factory=make_pde_aware_translation_cost_model):
+        """
+        :arg translation_cost_model_factory: a function, which takes tree dimension
+            and the number of tree levels as arguments, returns an object of
+            :class:`TranslationCostModel`.
+        """
+        self.translation_cost_model_factory = translation_cost_model_factory
+
     @abstractmethod
     def process_form_multipoles(self, traversal, p2m_cost):
         """Cost for forming multipole expansions of each box.
@@ -347,7 +369,7 @@ class AbstractFMMCostModel(ABC):
         pass
 
     @abstractmethod
-    def aggregate(self, per_box_result):
+    def aggregate_over_boxes(self, per_box_result):
         """Sum all entries of *per_box_result* into a number.
 
         :arg per_box_result: an object of :class:`numpy.ndarray` or
@@ -408,24 +430,25 @@ class AbstractFMMCostModel(ABC):
         """
         pass
 
-    def fmm_modeled_cost_per_box(self, traversal, level_to_order,
-                                 ndirect_sources_per_target_box,
-                                 calibration_params,
-                                 box_target_counts_nonchild=None):
+    def cost_per_box(self, traversal, level_to_order,
+                     calibration_params,
+                     ndirect_sources_per_target_box=None,
+                     box_target_counts_nonchild=None):
         """Predict the per-box costs of a new traversal object.
 
         :arg traversal: a :class:`boxtree.traversal.FMMTraversalInfo` object.
         :arg level_to_order: a :class:`numpy.ndarray` of shape
             (traversal.tree.nlevels,) representing the expansion orders
             of different levels.
+        :arg calibration_params: a :class:`dict` of calibration parameters. These
+            parameters can be obtained via :meth:`estimate_calibration_params`
+            or :meth:`get_unit_calibration_params`.
         :arg ndirect_sources_per_target_box: a :class:`numpy.ndarray` or
             :class:`pyopencl.array.Array` of shape (ntarget_boxes,), the number of
             direct evaluation sources (list 1, list 3 close, list 4 close) for each
             target box. You may find :func:`get_ndirect_sources_per_target_box`
             helpful. This argument is useful because the same result can be reused
             for p2p, p2qbxl and tsqbx.
-        :arg calibration_params: a :class:`dict` of calibration parameters. These
-            parameters can be got from `estimate_calibration_params`.
         :arg box_target_counts_nonchild: a :class:`numpy.ndarray` or
             :class:`pyopencl.array.Array` of shape (nboxes,), the number of targets
             which need evaluation. For example, this is useful in QBX by specifying
@@ -435,6 +458,10 @@ class AbstractFMMCostModel(ABC):
             (nboxes,), where the ith entry represents the cost of all stages for box
             i.
         """
+        if ndirect_sources_per_target_box is None:
+            ndirect_sources_per_target_box = (
+                self.get_ndirect_sources_per_target_box(traversal))
+
         tree = traversal.tree
         nboxes = tree.nboxes
         source_boxes = traversal.source_boxes
@@ -486,31 +513,36 @@ class AbstractFMMCostModel(ABC):
 
         return result
 
-    def fmm_modeled_cost_per_stage(self, traversal, level_to_order,
-                                   ndirect_sources_per_target_box,
-                                   calibration_params,
-                                   box_target_counts_nonchild=None):
+    def cost_per_stage(self, traversal, level_to_order,
+                       calibration_params,
+                       ndirect_sources_per_target_box=None,
+                       box_target_counts_nonchild=None):
         """Predict the per-stage costs of a new traversal object.
 
         :arg traversal: a :class:`boxtree.traversal.FMMTraversalInfo` object.
         :arg level_to_order: a :class:`numpy.ndarray` of shape
             (traversal.tree.nlevels,) representing the expansion orders
             of different levels.
+        :arg calibration_params: a :class:`dict` of calibration parameters. These
+            parameters can be obtained via :meth:`estimate_calibration_params`
+            or :meth:`get_unit_calibration_params`.
         :arg ndirect_sources_per_target_box: a :class:`numpy.ndarray` or
             :class:`pyopencl.array.Array` of shape (ntarget_boxes,), the number of
             direct evaluation sources (list 1, list 3 close, list 4 close) for each
             target box. You may find :func:`get_ndirect_sources_per_target_box`
             helpful. This argument is useful because the same result can be reused
             for p2p, p2qbxl and tsqbx.
-        :arg calibration_params: a :class:`dict` of calibration parameters. These
-            parameters can be got from `estimate_calibration_params`.
         :arg box_target_counts_nonchild: a :class:`numpy.ndarray` or
             :class:`pyopencl.array.Array` of shape (nboxes,), the number of targets
             which need evaluation. For example, this is useful in QBX by specifying
             the number of non-QBX targets. If None, all targets are considered,
             namely traversal.tree.box_target_counts_nonchild.
-        :return: a :class:`dict`, the cost of fmm stages.
+        :return: a :class:`dict`, mapping FMM stage names to cost numbers.
         """
+        if ndirect_sources_per_target_box is None:
+            ndirect_sources_per_target_box = (
+                self.get_ndirect_sources_per_target_box(traversal))
+
         tree = traversal.tree
         result = {}
 
@@ -528,7 +560,7 @@ class AbstractFMMCostModel(ABC):
         if box_target_counts_nonchild is None:
             box_target_counts_nonchild = traversal.tree.box_target_counts_nonchild
 
-        result["form_multipoles"] = self.aggregate(
+        result["form_multipoles"] = self.aggregate_over_boxes(
             self.process_form_multipoles(traversal, translation_cost["p2m_cost"])
         )
 
@@ -536,25 +568,25 @@ class AbstractFMMCostModel(ABC):
             traversal, translation_cost["m2m_cost"]
         )
 
-        result["eval_direct"] = self.aggregate(
+        result["eval_direct"] = self.aggregate_over_boxes(
             self.process_direct(
                 traversal, ndirect_sources_per_target_box, translation_cost["c_p2p"],
                 box_target_counts_nonchild=box_target_counts_nonchild
             )
         )
 
-        result["multipole_to_local"] = self.aggregate(
+        result["multipole_to_local"] = self.aggregate_over_boxes(
             self.process_list2(traversal, translation_cost["m2l_cost"])
         )
 
-        result["eval_multipoles"] = self.aggregate(
+        result["eval_multipoles"] = self.aggregate_over_boxes(
             self.process_list3(
                 traversal, translation_cost["m2p_cost"],
                 box_target_counts_nonchild=box_target_counts_nonchild
             )
         )
 
-        result["form_locals"] = self.aggregate(
+        result["form_locals"] = self.aggregate_over_boxes(
             self.process_list4(traversal, translation_cost["p2l_cost"])
         )
 
@@ -562,7 +594,7 @@ class AbstractFMMCostModel(ABC):
             traversal, translation_cost["l2l_cost"]
         )
 
-        result["eval_locals"] = self.aggregate(
+        result["eval_locals"] = self.aggregate_over_boxes(
             self.process_eval_locals(
                 traversal, translation_cost["l2p_cost"],
                 box_target_counts_nonchild=box_target_counts_nonchild
@@ -571,41 +603,8 @@ class AbstractFMMCostModel(ABC):
 
         return result
 
-    def __call__(self, traversal, level_to_order, calibration_params, per_box=True):
-        """Top-level entry point for predicting cost of a new traversal object.
-
-        Also see :func:`fmm_modeled_cost_per_box` and
-        :func:`fmm_modeled_cost_per_stage` for more customization.
-
-        :arg traversal: a :class:`boxtree.traversal.FMMTraversalInfo` object.
-        :arg level_to_order: a :class:`numpy.ndarray` of shape
-            (traversal.tree.nlevels,) representing the expansion orders
-            of different levels.
-        :arg calibration_params: a :class:`dict` of calibration parameters. These
-            parameters can be got from `estimate_calibration_params`.
-        :arg per_box: if *true*, returns the per-box cost; if *false*, returns the
-            per-stage cost.
-        :return: if *true*, a :class:`numpy.ndarray` or :class:`pyopencl.array.Array`
-            of shape (nboxes,), where the ith entry represents the cost of all stages
-            for box i; if *false*, a :class:`dict`, the cost of fmm stages.
-        """
-        ndirect_sources_per_target_box = (
-            self.get_ndirect_sources_per_target_box(traversal)
-        )
-
-        if per_box:
-            return self.fmm_modeled_cost_per_box(
-                traversal, level_to_order, ndirect_sources_per_target_box,
-                calibration_params
-            )
-        else:
-            return self.fmm_modeled_cost_per_stage(
-                traversal, level_to_order, ndirect_sources_per_target_box,
-                calibration_params
-            )
-
     @staticmethod
-    def get_constantone_calibration_params():
+    def get_unit_calibration_params():
         return dict(
             c_l2l=1.0,
             c_l2p=1.0,
@@ -617,13 +616,24 @@ class AbstractFMMCostModel(ABC):
             c_p2p=1.0,
         )
 
+    _FMM_STAGE_TO_CALIBRATION_PARAMETER = {
+        "form_multipoles": "c_p2m",
+        "coarsen_multipoles": "c_m2m",
+        "eval_direct": "c_p2p",
+        "multipole_to_local": "c_m2l",
+        "eval_multipoles": "c_m2p",
+        "form_locals": "c_p2l",
+        "refine_locals": "c_l2l",
+        "eval_locals": "c_l2p"
+    }
+
     def estimate_calibration_params(self, model_results, timing_results,
                                     time_field_name="wall_elapsed",
                                     additional_stage_to_param_names=()):
         """
         :arg model_results: a :class:`list` of the modeled cost for each step of FMM,
-            returned by :func:`fmm_modeled_cost_per_stage` with constant-one
-            calibration parameters.
+            returned by :func:`cost_per_stage` with unit calibration parameters
+            (from :meth:`get_unit_calibration_params`)
         :arg timing_results: a :class:`list` of the same length as *model_results*.
             Each entry is a :class:`dict` filled with timing data returned by
             *boxtree.fmm.drive_fmm*
@@ -639,18 +649,7 @@ class AbstractFMMCostModel(ABC):
         nresults = len(model_results)
         assert len(timing_results) == nresults
 
-        _FMM_STAGE_TO_CALIBRATION_PARAMETER = {
-            "form_multipoles": "c_p2m",
-            "coarsen_multipoles": "c_m2m",
-            "eval_direct": "c_p2p",
-            "multipole_to_local": "c_m2l",
-            "eval_multipoles": "c_m2p",
-            "form_locals": "c_p2l",
-            "refine_locals": "c_l2l",
-            "eval_locals": "c_l2p"
-        }
-
-        stage_to_param_names = _FMM_STAGE_TO_CALIBRATION_PARAMETER.copy()
+        stage_to_param_names = self._FMM_STAGE_TO_CALIBRATION_PARAMETER.copy()
         stage_to_param_names.update(additional_stage_to_param_names)
 
         params = set(stage_to_param_names.values())
@@ -688,14 +687,20 @@ class AbstractFMMCostModel(ABC):
 
         return result
 
+# }}}
 
-class CLFMMCostModel(AbstractFMMCostModel):
-    """
-    .. note:: For methods in this class, argument *traversal* should live on device
+
+# {{{ FMMCostModel
+
+class FMMCostModel(AbstractFMMCostModel):
+    """An OpenCL-based realization of :class:`AbstractFMMCostModel`.
+
+    .. note:: For methods in this class, argument *traversal* should live in device
         memory.
     """
-    def __init__(self, queue,
-                 translation_cost_model_factory=pde_aware_translation_cost_model):
+    def __init__(
+            self, queue,
+            translation_cost_model_factory=make_pde_aware_translation_cost_model):
         """
         :arg queue: a :class:`pyopencl.CommandQueue` object on which the execution
             of this object runs.
@@ -704,7 +709,7 @@ class CLFMMCostModel(AbstractFMMCostModel):
             :class:`TranslationCostModel`.
         """
         self.queue = queue
-        self.translation_cost_model_factory = translation_cost_model_factory
+        AbstractFMMCostModel.__init__(self, translation_cost_model_factory)
 
     # {{{ form multipoles
 
@@ -824,7 +829,7 @@ class CLFMMCostModel(AbstractFMMCostModel):
             queue=self.queue
         )
 
-        return self.aggregate(nm2m)
+        return self.aggregate_over_boxes(nm2m)
 
     # }}}
 
@@ -1196,7 +1201,7 @@ class CLFMMCostModel(AbstractFMMCostModel):
     def zero_cost_per_box(self, nboxes):
         return cl.array.zeros(self.queue, (nboxes,), dtype=np.float64)
 
-    def aggregate(self, per_box_result):
+    def aggregate_over_boxes(self, per_box_result):
         if isinstance(per_box_result, float):
             return per_box_result
         else:
@@ -1224,16 +1229,16 @@ class CLFMMCostModel(AbstractFMMCostModel):
 
         return self.translation_costs_to_dev(translation_costs)
 
+# }}}
 
-class PythonFMMCostModel(AbstractFMMCostModel):
-    def __init__(self,
-                 translation_cost_model_factory=pde_aware_translation_cost_model):
-        """
-        :arg translation_cost_model_factory: a function, which takes tree dimension
-            and the number of tree levels as arguments, returns an object of
-            :class:`TranslationCostModel`.
-        """
-        self.translation_cost_model_factory = translation_cost_model_factory
+
+# {{{ _PythonFMMCostModel (undocumented, only used for testing)
+
+class _PythonFMMCostModel(AbstractFMMCostModel):
+    def __init__(
+            self,
+            translation_cost_model_factory=make_pde_aware_translation_cost_model):
+        AbstractFMMCostModel.__init__(self, translation_cost_model_factory)
 
     def process_form_multipoles(self, traversal, p2m_cost):
         tree = traversal.tree
@@ -1394,8 +1399,13 @@ class PythonFMMCostModel(AbstractFMMCostModel):
     def zero_cost_per_box(self, nboxes):
         return np.zeros(nboxes, dtype=np.float64)
 
-    def aggregate(self, per_box_result):
+    def aggregate_over_boxes(self, per_box_result):
         if isinstance(per_box_result, float):
             return per_box_result
         else:
             return np.sum(per_box_result)
+
+# }}}
+
+
+# vim: foldmethod=marker
