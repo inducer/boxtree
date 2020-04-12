@@ -25,7 +25,7 @@ THE SOFTWARE.
 
 from mpi4py import MPI
 import numpy as np
-from boxtree.cost import CLFMMCostModel
+from boxtree.cost import FMMCostModel
 
 MPITags = dict(
     DIST_TREE=0,
@@ -112,17 +112,17 @@ class DistributedFMMInfo(object):
 
         if current_rank == 0:
             # Construct default cost model if not supplied
-            cost_model = CLFMMCostModel(queue)
+            cost_model = FMMCostModel(queue)
 
             if calibration_params is None:
                 # TODO: should replace the calibration params with a reasonable
                 #       deafult one
                 calibration_params = \
-                    CLFMMCostModel.get_constantone_calibration_params()
+                    FMMCostModel.get_unit_calibration_params()
 
-            boxes_time = cost_model(
+            boxes_time = cost_model.cost_per_box(
                 global_trav_dev, self.global_wrangler.level_nterms,
-                calibration_params, per_box=True
+                calibration_params
             ).get()
 
             from boxtree.distributed.partition import partition_work
