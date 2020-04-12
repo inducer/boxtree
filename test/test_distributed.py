@@ -40,7 +40,7 @@ def run_mpi(num_processes, env):
             env=env, check=True
         )
     elif mpi_library_name.startswith("Open MPI"):
-        command = ["mpiexec", "-np", str(num_processes)]
+        command = ["mpiexec", "-np", str(num_processes), "--oversubscribe"]
         for env_variable_name in env:
             command.append("-x")
             command.append(env_variable_name)
