@@ -36,6 +36,7 @@ import loopy as lp
 from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2  # noqa
 
 from functools import partial
+import sys
 
 
 # Use offsets in VectorArg by default.
@@ -1010,6 +1011,45 @@ class ConstantOneExpansionWrangler(object):
 
     def finalize_potentials(self, potentials):
         return potentials
+
+# }}}
+
+
+# {{{ MPI launcher
+
+def run_mpi(script, num_processes, env):
+    """Launch MPI processes.
+
+    This function forks another process and uses mpiexec to launch *num_processes*
+    copies of program *script*.
+
+    :arg script: the Python script to run
+    :arg num_processes: the number of copies of program to launch
+    :arg env: a Python `dict` of environment variables
+    """
+    import subprocess
+    from mpi4py import MPI
+
+    # Using "-m mpi4py" is necessary for avoiding deadlocks on exception cleanup
+    # See https://mpi4py.readthedocs.io/en/stable/mpi4py.run.html for details.
+
+    mpi_library_name = MPI.Get_library_version()
+    if mpi_library_name.startswith("MPICH"):
+        subprocess.run(
+            ["mpiexec", "-np", str(num_processes), sys.executable,
+             "-m", "mpi4py", script],
+            env=env, check=True
+        )
+    elif mpi_library_name.startswith("Open MPI"):
+        command = ["mpiexec", "-np", str(num_processes), "--oversubscribe"]
+        for env_variable_name in env:
+            command.append("-x")
+            command.append(env_variable_name)
+        command.extend([sys.executable, "-m", "mpi4py", script])
+
+        subprocess.run(command, env=env, check=True)
+    else:
+        raise RuntimeError("Unrecognized MPI implementation")
 
 # }}}
 

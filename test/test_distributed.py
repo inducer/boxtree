@@ -4,6 +4,7 @@ import numpy.linalg as la
 from boxtree.pyfmmlib_integration import FMMLibExpansionWrangler
 from boxtree.tools import ConstantOneExpansionWrangler as \
     ConstantOneExpansionWranglerBase
+from boxtree.tools import run_mpi
 import logging
 import os
 import pytest
@@ -15,40 +16,6 @@ import sys
 # Configure logging
 logging.basicConfig(level=os.environ.get("LOGLEVEL", "WARNING"))
 logging.getLogger("boxtree.distributed").setLevel(logging.INFO)
-
-
-def run_mpi(num_processes, env):
-    """Launch MPI processes.
-
-    This function forks another process and uses mpiexec to launch *num_processes*
-    copies of program.
-
-    :arg num_processes: the number of copies of program to launch
-    :arg env: a Python `dict` of environment variables
-    """
-    import subprocess
-    from mpi4py import MPI
-
-    # Using "-m mpi4py" is necessary for avoiding deadlocks on exception cleanup
-    # See https://mpi4py.readthedocs.io/en/stable/mpi4py.run.html for details.
-
-    mpi_library_name = MPI.Get_library_version()
-    if mpi_library_name.startswith("MPICH"):
-        subprocess.run(
-            ["mpiexec", "-np", str(num_processes), sys.executable,
-             "-m", "mpi4py", __file__],
-            env=env, check=True
-        )
-    elif mpi_library_name.startswith("Open MPI"):
-        command = ["mpiexec", "-np", str(num_processes), "--oversubscribe"]
-        for env_variable_name in env:
-            command.append("-x")
-            command.append(env_variable_name)
-        command.extend([sys.executable, "-m", "mpi4py", __file__])
-
-        subprocess.run(command, env=env, check=True)
-    else:
-        raise RuntimeError("Unrecognized MPI implementation")
 
 
 def _test_against_shared(dims, nsources, ntargets, dtype):
@@ -143,7 +110,7 @@ def test_against_shared(num_processes, dims, nsources, ntargets):
     newenv["ntargets"] = str(ntargets)
     newenv["OMP_NUM_THREADS"] = "1"
 
-    run_mpi(num_processes, newenv)
+    run_mpi(__file__, num_processes, newenv)
 
 
 # {{{ Constantone expansion wrangler
@@ -227,7 +194,7 @@ def test_constantone(num_processes, dims, nsources, ntargets):
     newenv["ntargets"] = str(ntargets)
     newenv["OMP_NUM_THREADS"] = "1"
 
-    run_mpi(num_processes, newenv)
+    run_mpi(__file__, num_processes, newenv)
 
 
 if __name__ == "__main__":
