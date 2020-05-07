@@ -132,7 +132,7 @@ TRANSLATION_CLASS_FINDER_TEMPLATE = ElementwiseTemplate(
     // Ensure levels are the same.
     if (box_levels[source_box_id] != box_levels[target_box_id])
     {
-        *error_flag = 1;
+        atomic_or(error_flag, 1);
         PYOPENCL_ELWISE_CONTINUE;
     }
 
@@ -148,12 +148,12 @@ TRANSLATION_CLASS_FINDER_TEMPLATE = ElementwiseTemplate(
     // Ensure valid translation class.
     if (translation_class == -1)
     {
-        *error_flag = 1;
+        atomic_or(error_flag, 1);
         PYOPENCL_ELWISE_CONTINUE;
     }
 
     translation_classes[i] = translation_class;
-    translation_class_is_used[translation_class] = 1;
+    atomic_or(&translation_class_is_used[translation_class], 1);
     """)
 
 

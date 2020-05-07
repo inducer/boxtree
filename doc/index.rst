@@ -40,6 +40,7 @@ Overview
     traversal
     fmm
     lookup
+    cost
     misc
 
 Indices and tables

@@ -682,6 +682,11 @@ class FMMLibExpansionWrangler(object):
 
         m2l_rotation_angles = self.rotation_data.m2l_rotation_angles()
 
+        if len(m2l_rotation_angles) == 0:
+            # The pyfmmlib wrapper may or may not complain if you give it a
+            # zero-length array.
+            return (rotmatf, rotmatb, rotmat_order)
+
         def mem_estimate(order):
             # Rotation matrix memory cost estimate.
             return (8
@@ -692,7 +697,7 @@ class FMMLibExpansionWrangler(object):
         # Find the largest order we can use. Because the memory cost of the
         # matrices could be large, only precompute them if the cost estimate
         # for the order does not exceed the cutoff.
-        for order in sorted(self.level_nterms, key=lambda x: -x):
+        for order in sorted(self.level_nterms, reverse=True):
             if mem_estimate(order) < self.rotmat_cutoff_bytes:
                 rotmat_order = order
                 break

@@ -725,7 +725,9 @@ def test_fmm_float32(ctx_factory, enable_extents):
 
 @pytest.mark.parametrize("well_sep_is_n_away", (1, 2))
 @pytest.mark.parametrize("helmholtz_k", (0, 2))
-def test_fmm_with_optimized_3d_m2l(ctx_factory, helmholtz_k, well_sep_is_n_away):
+@pytest.mark.parametrize("nsrcntgts", (20, 10000))
+def test_fmm_with_optimized_3d_m2l(ctx_factory, nsrcntgts, helmholtz_k,
+                                   well_sep_is_n_away):
     logging.basicConfig(level=logging.INFO)
 
     from pytest import importorskip
@@ -736,8 +738,7 @@ def test_fmm_with_optimized_3d_m2l(ctx_factory, helmholtz_k, well_sep_is_n_away)
     ctx = ctx_factory()
     queue = cl.CommandQueue(ctx)
 
-    nsources = 5000
-    ntargets = 5000
+    nsources = ntargets = nsrcntgts // 2
     dtype = np.float64
 
     sources = p_normal(queue, nsources, dims, dtype, seed=15)
