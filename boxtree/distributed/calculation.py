@@ -295,7 +295,7 @@ def communicate_mpoles(wrangler, comm, trav, mpole_exps, return_stats=False):
 
 # {{{ Distribute source weights
 
-def distribute_source_weights(source_weights, local_data, comm=MPI.COMM_WORLD):
+def distribute_source_weights(source_weights, src_idx, comm=MPI.COMM_WORLD):
     """ This function transfers needed source_weights from root process to each
     worker process in communicator *comm*.
 
@@ -303,7 +303,7 @@ def distribute_source_weights(source_weights, local_data, comm=MPI.COMM_WORLD):
 
     :arg source_weights: Source weights in tree order on root, None on worker
         processes.
-    :arg local_data: Returned from *generate_local_tree*. None on worker processes.
+    :arg src_idx: Returned from *generate_local_tree*. None on worker processes.
     :return Source weights needed for the current process.
     """
     current_rank = comm.Get_rank()
@@ -314,7 +314,7 @@ def distribute_source_weights(source_weights, local_data, comm=MPI.COMM_WORLD):
         local_src_weights = np.empty((total_rank,), dtype=object)
 
         for irank in range(total_rank):
-            local_src_weights[irank] = source_weights[local_data[irank].src_idx]
+            local_src_weights[irank] = source_weights[src_idx[irank]]
 
             if irank != 0:
                 weight_req.append(
@@ -336,7 +336,7 @@ def distribute_source_weights(source_weights, local_data, comm=MPI.COMM_WORLD):
 # {{{ FMM driver for calculating potentials
 
 def calculate_pot(local_wrangler, global_wrangler, local_trav, source_weights,
-                  local_data, comm=MPI.COMM_WORLD,
+                  src_idx, tgt_idx, comm=MPI.COMM_WORLD,
                   _communicate_mpoles_via_allreduce=False):
     """ Calculate potentials for targets on distributed memory machines.
 
@@ -369,7 +369,7 @@ def calculate_pot(local_wrangler, global_wrangler, local_trav, source_weights,
         source_weights = source_weights[global_wrangler.tree.user_source_ids]
 
     local_src_weights = distribute_source_weights(
-        source_weights, local_data, comm=comm
+        source_weights, src_idx, comm=comm
     )
 
     # }}}
@@ -513,7 +513,8 @@ def calculate_pot(local_wrangler, global_wrangler, local_trav, source_weights,
 
         for irank in range(1, total_rank):
             potentials_all_ranks[irank] = np.empty(
-                (local_data[irank].ntargets,), dtype=potentials.dtype)
+                tgt_idx[irank].shape, dtype=potentials.dtype
+            )
 
             comm.Recv([potentials_all_ranks[irank], potentials_mpi_type],
                       source=irank, tag=MPITags["GATHER_POTENTIALS"])
@@ -530,7 +531,7 @@ def calculate_pot(local_wrangler, global_wrangler, local_trav, source_weights,
                               dtype=potentials.dtype)
 
         for irank in range(total_rank):
-            potentials[local_data[irank].tgt_idx] = potentials_all_ranks[irank]
+            potentials[tgt_idx[irank]] = potentials_all_ranks[irank]
 
         logger.debug("reorder potentials")
         result = global_wrangler.reorder_potentials(potentials)

@@ -31,7 +31,6 @@ from boxtree import Tree
 from mpi4py import MPI
 import time
 import numpy as np
-from boxtree.distributed import MPITags
 
 import logging
 logger = logging.getLogger(__name__)
@@ -203,17 +202,6 @@ def get_fetch_local_particles_knls(context, global_tree):
         generate_box_particle_counts_nonchild=generate_box_particle_counts_nonchild,
         generate_box_particle_counts_cumul=generate_box_particle_counts_cumul
     )
-
-
-LocalData = namedtuple(
-    'LocalData',
-    [
-        'nsources',
-        'ntargets',
-        'src_idx',
-        'tgt_idx'
-    ]
-)
 
 
 def fetch_local_particles(queue, global_tree, src_box_mask, tgt_box_mask, local_tree,
@@ -480,18 +468,7 @@ def fetch_local_particles(queue, global_tree, src_box_mask, tgt_box_mask, local_
 
     # }}}
 
-    # {{{ Fetch fields to local_data
-
-    local_data = LocalData(
-        nsources=local_nsources,
-        ntargets=local_ntargets,
-        src_idx=src_idx,
-        tgt_idx=tgt_idx
-    )
-
-    # }}}
-
-    return local_tree, local_data
+    return local_tree, src_idx, tgt_idx
 
 
 class LocalTreeBuilder:
@@ -517,7 +494,7 @@ class LocalTreeBuilder:
         local_tree.user_source_ids = None
         local_tree.sorted_target_ids = None
 
-        local_tree, local_data = fetch_local_particles(
+        local_tree, src_idx, tgt_idx = fetch_local_particles(
             self.queue,
             self.global_tree,
             src_boxes_mask,
@@ -532,7 +509,7 @@ class LocalTreeBuilder:
 
         local_tree.__class__ = LocalTree
 
-        return local_tree, local_data
+        return local_tree, src_idx, tgt_idx
 
 
 class LocalTree(Tree):
@@ -568,92 +545,46 @@ class LocalTree(Tree):
 
 
 def generate_local_tree(queue, traversal, responsible_boxes_list,
-                        responsible_box_query, comm=MPI.COMM_WORLD,
-                        no_targets=False):
+                        responsible_box_query, comm=MPI.COMM_WORLD):
 
     # Get MPI information
-    current_rank = comm.Get_rank()
-    total_rank = comm.Get_size()
+    rank = comm.Get_rank()
+    size = comm.Get_size()
 
-    if current_rank == 0:
-        start_time = time.time()
+    start_time = time.time()
 
-    if current_rank == 0:
-        local_data = np.empty((total_rank,), dtype=object)
-    else:
-        local_data = None
+    tree = traversal.tree
+    local_tree_builder = LocalTreeBuilder(tree, queue)
 
-    if current_rank == 0:
-        tree = traversal.tree
+    (responsible_boxes_mask, ancestor_boxes, src_boxes_mask, box_mpole_is_used) = \
+        responsible_box_query.get_boxes_mask(responsible_boxes_list[rank])
 
-        local_tree_builder = LocalTreeBuilder(tree, queue)
+    local_tree, src_idx, tgt_idx = local_tree_builder.from_global_tree(
+        responsible_boxes_list[rank], responsible_boxes_mask, src_boxes_mask,
+        ancestor_boxes
+    )
 
-        box_mpole_is_used = cl.array.empty(
-            queue, (total_rank, tree.nboxes,), dtype=np.int8
+    # {{{ compute the users of multipole expansions of each box on root rank
+
+    box_mpole_is_used_all_ranks = None
+    if rank == 0:
+        box_mpole_is_used_all_ranks = np.empty(
+            (size, tree.nboxes), dtype=box_mpole_is_used.dtype
         )
+    comm.Gather(box_mpole_is_used.get(), box_mpole_is_used_all_ranks, root=0)
 
-        # request objects for non-blocking communication
-        tree_req = []
-        particles_req = []
+    box_to_user_starts = None
+    box_to_user_lists = None
 
-        # buffer holding communication data so that it is not garbage collected
-        local_tree = np.empty((total_rank,), dtype=object)
-        local_targets = np.empty((total_rank,), dtype=object)
-        local_sources = np.empty((total_rank,), dtype=object)
-        local_target_radii = np.empty((total_rank,), dtype=object)
-
-        for irank in range(total_rank):
-
-            (responsible_boxes_mask, ancestor_boxes, src_boxes_mask,
-             box_mpole_is_used[irank]) = \
-                responsible_box_query.get_boxes_mask(responsible_boxes_list[irank])
-
-            local_tree[irank], local_data[irank] = \
-                local_tree_builder.from_global_tree(
-                    responsible_boxes_list[irank], responsible_boxes_mask,
-                    src_boxes_mask, ancestor_boxes
-                )
-
-            # master process does not need to communicate with itself
-            if irank == 0:
-                continue
-
-            # {{{ Peel sources and targets off tree
-
-            local_targets[irank] = local_tree[irank].targets
-            local_tree[irank].targets = None
-
-            local_sources[irank] = local_tree[irank].sources
-            local_tree[irank].sources = None
-
-            if tree.targets_have_extent:
-                local_target_radii[irank] = local_tree[irank].target_radii
-                local_tree[irank].target_radii = None
-
-            # }}}
-
-            # Send the local tree skeleton without sources and targets
-            tree_req.append(comm.isend(
-                local_tree[irank], dest=irank, tag=MPITags["DIST_TREE"]))
-
-            # Send the sources and targets
-            particles_req.append(comm.Isend(
-                local_sources[irank], dest=irank, tag=MPITags["DIST_SOURCES"]))
-
-            if not no_targets:
-                particles_req.append(comm.Isend(
-                    local_targets[irank], dest=irank, tag=MPITags["DIST_TARGETS"]))
-
-                if tree.targets_have_extent:
-                    particles_req.append(comm.Isend(
-                        local_target_radii[irank], dest=irank,
-                        tag=MPITags["DIST_RADII"])
-                    )
+    if rank == 0:
+        box_mpole_is_used_all_ranks = cl.array.to_device(
+            queue, box_mpole_is_used_all_ranks
+        )
 
         from boxtree.tools import MaskCompressorKernel
         matcompr = MaskCompressorKernel(queue.context)
         (box_to_user_starts, box_to_user_lists, evt) = \
-            matcompr(queue, box_mpole_is_used.transpose(),
+            matcompr(queue, box_mpole_is_used_all_ranks.transpose(),
                      list_dtype=np.int32)
 
         cl.wait_for_events([evt])
@@ -664,83 +595,23 @@ def generate_local_tree(queue, traversal, responsible_boxes_list,
 
         logger.debug("computing box_to_user: done")
 
-    # Receive the local tree from root
-    if current_rank == 0:
-        MPI.Request.Waitall(tree_req)
-        local_tree = local_tree[0]
-    else:
-        local_tree = comm.recv(source=0, tag=MPITags["DIST_TREE"])
-
-    # Receive sources and targets
-    if current_rank == 0:
-        MPI.Request.Waitall(particles_req)
-    else:
-        reqs = []
-
-        local_tree.sources = np.empty(
-            (local_tree.dimensions, local_tree.nsources),
-            dtype=local_tree.coord_dtype
-        )
-        reqs.append(comm.Irecv(
-            local_tree.sources, source=0, tag=MPITags["DIST_SOURCES"]))
-
-        if no_targets:
-            local_tree.targets = None
-            if local_tree.targets_have_extent:
-                local_tree.target_radii = None
-        else:
-            local_tree.targets = np.empty(
-                (local_tree.dimensions, local_tree.ntargets),
-                dtype=local_tree.coord_dtype
-            )
-
-            reqs.append(comm.Irecv(
-                local_tree.targets, source=0, tag=MPITags["DIST_TARGETS"]))
-
-            if local_tree.targets_have_extent:
-                local_tree.target_radii = np.empty(
-                    (local_tree.ntargets,),
-                    dtype=local_tree.coord_dtype
-                )
-
-                reqs.append(comm.Irecv(
-                    local_tree.target_radii, source=0, tag=MPITags["DIST_RADII"]))
-
-        MPI.Request.Waitall(reqs)
-
-    # Receive box extent
-    if current_rank == 0:
-        box_target_bounding_box_min = traversal.box_target_bounding_box_min
-        box_target_bounding_box_max = traversal.box_target_bounding_box_max
-    else:
-        box_target_bounding_box_min = np.empty(
-            (local_tree.dimensions, local_tree.aligned_nboxes),
-            dtype=local_tree.coord_dtype
-        )
-        box_target_bounding_box_max = np.empty(
-            (local_tree.dimensions, local_tree.aligned_nboxes),
-            dtype=local_tree.coord_dtype
-        )
-    comm.Bcast(box_target_bounding_box_min, root=0)
-    comm.Bcast(box_target_bounding_box_max, root=0)
-    box_bounding_box = {
-        "min": box_target_bounding_box_min,
-        "max": box_target_bounding_box_max
-    }
-
-    if current_rank != 0:
-        box_to_user_starts = None
-        box_to_user_lists = None
-
     box_to_user_starts = comm.bcast(box_to_user_starts, root=0)
     box_to_user_lists = comm.bcast(box_to_user_lists, root=0)
 
     local_tree.box_to_user_starts = box_to_user_starts
     local_tree.box_to_user_lists = box_to_user_lists
 
-    if current_rank == 0:
-        logger.info("Distribute local tree in {} sec.".format(
-            str(time.time() - start_time))
-        )
+    # }}}
 
-    return local_tree, local_data, box_bounding_box
+    # {{ Gather source indices and target indices of each rank
+
+    src_idx_all_ranks = comm.gather(src_idx, root=0)
+    tgt_idx_all_ranks = comm.gather(tgt_idx, root=0)
+
+    # }}}
+
+    logger.info("Generate local tree on rank {} in {} sec.".format(
+        rank, str(time.time() - start_time)
+    ))
+
+    return local_tree, src_idx_all_ranks, tgt_idx_all_ranks
