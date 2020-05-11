@@ -718,8 +718,8 @@ class TreeBuilder(object):
                 # Currently undocumented.
                 lr_lookbehind_levels = kwargs.get("lr_lookbehind", 1)
                 minimal_new_level_length += sum(
-                    2**(l*dimensions) * new_level_leaf_counts[level - l]
-                    for l in range(1, 1 + min(level, lr_lookbehind_levels)))
+                    2**(lev*dimensions) * new_level_leaf_counts[level - lev]
+                    for lev in range(1, 1 + min(level, lr_lookbehind_levels)))
 
             nboxes_minimal = \
                     sum(minimal_upper_level_lengths) + minimal_new_level_length
@@ -740,8 +740,8 @@ class TreeBuilder(object):
                 # Recompute the level padding.
                 for ulevel in range(level):
                     upper_level_padding[ulevel] = sum(
-                        2**(l*dimensions) * new_level_leaf_counts[ulevel - l]
-                        for l in range(
+                        2**(lev*dimensions) * new_level_leaf_counts[ulevel - lev]
+                        for lev in range(
                             1, 1 + min(ulevel, lr_lookbehind_levels)))
 
                 new_upper_level_unused_box_counts = np.max(
