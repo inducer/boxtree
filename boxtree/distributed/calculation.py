@@ -349,7 +349,8 @@ def calculate_pot(local_wrangler, global_wrangler, local_trav, source_weights,
         This argument is None on worker ranks.
     :param local_trav: Local traversal object returned from *generate_local_travs*.
     :param source_weights: Source weights for FMM. None on worker ranks.
-    :param local_data: LocalData object returned from *generate_local_tree*.
+    :param src_idx: returned from *generate_local_tree*.
+    :param tgt_idx: returned from *generate_local_tree*.
     :param comm: MPI communicator.
     :param _communicate_mpoles_via_allreduce: Use MPI allreduce for communicating
         multipole expressions. Using MPI allreduce is slower but might be helpful for

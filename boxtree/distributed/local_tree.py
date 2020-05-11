@@ -544,7 +544,7 @@ class LocalTree(Tree):
         return self._dimensions
 
 
-def generate_local_tree(queue, traversal, responsible_boxes_list,
+def generate_local_tree(queue, tree, responsible_boxes_list,
                         responsible_box_query, comm=MPI.COMM_WORLD):
 
     # Get MPI information
@@ -553,7 +553,6 @@ def generate_local_tree(queue, traversal, responsible_boxes_list,
 
     start_time = time.time()
 
-    tree = traversal.tree
     local_tree_builder = LocalTreeBuilder(tree, queue)
 
     (responsible_boxes_mask, ancestor_boxes, src_boxes_mask, box_mpole_is_used) = \

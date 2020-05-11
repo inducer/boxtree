@@ -129,7 +129,7 @@ class DistributedFMMInfo(object):
 
         from boxtree.distributed.local_tree import generate_local_tree
         self.local_tree, self.src_idx, self.tgt_idx = generate_local_tree(
-            queue, self.global_trav, responsible_boxes_list, responsible_box_query
+            queue, global_tree, responsible_boxes_list, responsible_box_query
         )
 
         # }}}
