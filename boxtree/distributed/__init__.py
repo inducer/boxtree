@@ -51,7 +51,8 @@ def dtype_to_mpi(dtype):
 
 class DistributedFMMInfo(object):
 
-    def __init__(self, queue, global_trav_dev,
+    def __init__(self, queue, global_tree_dev,
+                 traversal_builder,
                  distributed_expansion_wrangler_factory,
                  calibration_params=None, comm=MPI.COMM_WORLD):
         """
@@ -69,23 +70,19 @@ class DistributedFMMInfo(object):
             used for local FMM operations.
         """
 
-        # TODO: Support box_target_counts_nonchild?
-
         self.comm = comm
         current_rank = comm.Get_rank()
 
-        # {{{ broadcast global traversal object
+        # {{{ Broadcast global tree
 
+        global_tree = None
         if current_rank == 0:
-            self.global_trav = global_trav_dev.get(queue=queue)
-        else:
-            self.global_trav = None
+            global_tree = global_tree_dev.get(queue)
+        global_tree = comm.bcast(global_tree, root=0)
+        global_tree_dev = global_tree.to_device(queue).with_queue(queue)
 
-        self.global_trav = comm.bcast(self.global_trav, root=0)
-
-        if current_rank != 0:
-            global_trav_dev = self.global_trav.to_device(queue)
-            global_trav_dev.tree = self.global_trav.tree.to_device(queue)
+        global_trav_dev, _ = traversal_builder(queue, global_tree_dev)
+        self.global_trav = global_trav_dev.get(queue)
 
         # }}}
 
@@ -94,9 +91,7 @@ class DistributedFMMInfo(object):
 
         # {{{ Get global wrangler
 
-        self.global_wrangler = distributed_expansion_wrangler_factory(
-            self.global_trav.tree
-        )
+        self.global_wrangler = distributed_expansion_wrangler_factory(global_tree)
 
         # }}}
 
@@ -143,12 +138,11 @@ class DistributedFMMInfo(object):
 
         from boxtree.distributed.local_traversal import generate_local_travs
         self.local_trav = generate_local_travs(
-            queue, self.local_tree,
+            queue, self.local_tree, traversal_builder,
             box_bounding_box={
                 "min": self.global_trav.box_target_bounding_box_min,
                 "max": self.global_trav.box_target_bounding_box_max
-            },
-            well_sep_is_n_away=self.global_trav.well_sep_is_n_away
+            }
         )
 
         # }}}
