@@ -46,9 +46,9 @@ VectorArg = partial(_VectorArg, with_offset=True)
 AXIS_NAMES = ("x", "y", "z", "w")
 
 
-def padded_bin(i, l):
-    """Format *i* as binary number, pad it to length *l*."""
-    return bin(i)[2:].rjust(l, "0")
+def padded_bin(i, nbits):
+    """Format *i* as binary number, pad it to length *nbits*."""
+    return bin(i)[2:].rjust(nbits, "0")
 
 
 # NOTE: Order of positional args should match GappyCopyAndMapKernel.__call__()
@@ -270,7 +270,7 @@ class DeviceDataRecord(Record):
     instances on the host.
     """
 
-    def _transform_arrays(self, f):
+    def _transform_arrays(self, f, exclude_fields=frozenset()):
         result = {}
 
         def transform_val(val):
@@ -290,6 +290,9 @@ class DeviceDataRecord(Record):
                 return f(val)
 
         for field_name in self.__class__.fields:
+            if field_name in exclude_fields:
+                continue
+
             try:
                 attr = getattr(self, field_name)
             except AttributeError:
@@ -335,9 +338,12 @@ class DeviceDataRecord(Record):
 
         return self._transform_arrays(try_with_queue)
 
-    def to_device(self, queue):
+    def to_device(self, queue, exclude_fields=frozenset()):
         """ Return a copy of `self` in all :class:`numpy.ndarray` arrays are
         transferred to device memory as :class:`pyopencl.array.Array` objects.
+
+        :arg exclude_fields: a :class:`frozenset` containing fields excluding from
+            transferring to the device memory.
         """
 
         def _to_device(attr):
@@ -346,7 +352,7 @@ class DeviceDataRecord(Record):
             else:
                 return attr
 
-        return self._transform_arrays(_to_device)
+        return self._transform_arrays(_to_device, exclude_fields)
 
 # }}}
 
