@@ -389,6 +389,13 @@ class Tree(DeviceDataRecord):
 
     # }}}
 
+    def to_device(self, queue, exclude_fields=frozenset()):
+        # level_start_box_nrs should remain in host memory
+        exclude_fields = set(exclude_fields)
+        exclude_fields.add("level_start_box_nrs")
+
+        return super(Tree, self).to_device(queue, frozenset(exclude_fields))
+
 # }}}
 
 
