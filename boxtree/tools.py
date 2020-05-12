@@ -46,9 +46,9 @@ ScalarArg = ScalarArg
 AXIS_NAMES = ("x", "y", "z", "w")
 
 
-def padded_bin(i, l):
-    """Format *i* as binary number, pad it to length *l*."""
-    return bin(i)[2:].rjust(l, "0")
+def padded_bin(i, nbits):
+    """Format *i* as binary number, pad it to length *nbits*."""
+    return bin(i)[2:].rjust(nbits, "0")
 
 
 # NOTE: Order of positional args should match GappyCopyAndMapKernel.__call__()
