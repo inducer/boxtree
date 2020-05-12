@@ -134,6 +134,13 @@ class DistributedFMMInfo(object):
 
         # }}}
 
+        # {{ Gather source indices and target indices of each rank
+
+        self.src_idx_all_ranks = comm.gather(self.src_idx, root=0)
+        self.tgt_idx_all_ranks = comm.gather(self.tgt_idx, root=0)
+
+        # }}}
+
         # {{{ Compute traversal object on each rank
 
         from boxtree.distributed.local_traversal import generate_local_travs
@@ -158,6 +165,6 @@ class DistributedFMMInfo(object):
         from boxtree.distributed.calculation import calculate_pot
         return calculate_pot(
             self.local_wrangler, self.global_wrangler, self.local_trav,
-            source_weights, self.src_idx, self.tgt_idx,
+            source_weights, self.src_idx_all_ranks, self.tgt_idx_all_ranks,
             _communicate_mpoles_via_allreduce=_communicate_mpoles_via_allreduce
         )

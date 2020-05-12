@@ -602,15 +602,8 @@ def generate_local_tree(queue, tree, responsible_boxes_list,
 
     # }}}
 
-    # {{ Gather source indices and target indices of each rank
-
-    src_idx_all_ranks = comm.gather(src_idx, root=0)
-    tgt_idx_all_ranks = comm.gather(tgt_idx, root=0)
-
-    # }}}
-
     logger.info("Generate local tree on rank {} in {} sec.".format(
         rank, str(time.time() - start_time)
     ))
 
-    return local_tree, src_idx_all_ranks, tgt_idx_all_ranks
+    return local_tree, src_idx, tgt_idx
