@@ -26,7 +26,7 @@ def _test_against_shared(dims, nsources, ntargets, dtype):
     rank = comm.Get_rank()
 
     # Initialize arguments for worker processes
-    d_trav = None
+    tree = None
     sources_weights = None
     helmholtz_k = 0
 
@@ -36,6 +36,9 @@ def _test_against_shared(dims, nsources, ntargets, dtype):
 
     def fmm_level_to_nterms(tree, level):
         return max(level, 3)
+
+    from boxtree.traversal import FMMTraversalBuilder
+    tg = FMMTraversalBuilder(ctx, well_sep_is_n_away=2)
 
     # Generate particles and run shared-memory parallelism on rank 0
     if rank == 0:
@@ -60,8 +63,6 @@ def _test_against_shared(dims, nsources, ntargets, dtype):
         tree, _ = tb(queue, sources, targets=targets, target_radii=target_radii,
                      stick_out_factor=0.25, max_particles_in_box=30, debug=True)
 
-        from boxtree.traversal import FMMTraversalBuilder
-        tg = FMMTraversalBuilder(ctx, well_sep_is_n_away=2)
         d_trav, _ = tg(queue, tree, debug=True)
         trav = d_trav.get(queue=queue)
 
@@ -84,7 +85,8 @@ def _test_against_shared(dims, nsources, ntargets, dtype):
 
     from boxtree.distributed import DistributedFMMInfo
     distribued_fmm_info = DistributedFMMInfo(
-        queue, d_trav, distributed_expansion_wrangler_factory, comm=comm)
+        queue, tree, tg, distributed_expansion_wrangler_factory, comm=comm
+    )
     pot_dfmm = distribued_fmm_info.drive_dfmm(sources_weights)
 
     if rank == 0:
@@ -132,13 +134,16 @@ def _test_constantone(dims, nsources, ntargets, dtype):
     rank = comm.Get_rank()
 
     # Initialization
-    d_trav = None
+    tree = None
     sources_weights = None
 
     # Configure PyOpenCL
     import pyopencl as cl
     ctx = cl.create_some_context()
     queue = cl.CommandQueue(ctx)
+
+    from boxtree.traversal import FMMTraversalBuilder
+    tg = FMMTraversalBuilder(ctx)
 
     if rank == 0:
 
@@ -157,17 +162,12 @@ def _test_constantone(dims, nsources, ntargets, dtype):
         tree, _ = tb(queue, sources, targets=targets, max_particles_in_box=30,
                      debug=True)
 
-        # Build global interaction lists
-        from boxtree.traversal import FMMTraversalBuilder
-        tg = FMMTraversalBuilder(ctx)
-        d_trav, _ = tg(queue, tree, debug=True)
-
     def constantone_expansion_wrangler_factory(tree):
         return ConstantOneExpansionWrangler(tree)
 
     from boxtree.distributed import DistributedFMMInfo
     distributed_fmm_info = DistributedFMMInfo(
-        queue, d_trav, constantone_expansion_wrangler_factory, comm=MPI.COMM_WORLD
+        queue, tree, tg, constantone_expansion_wrangler_factory, comm=MPI.COMM_WORLD
     )
 
     pot_dfmm = distributed_fmm_info.drive_dfmm(

@@ -147,8 +147,6 @@ class ResponsibleBoxesQuery(object):
         self.from_sep_bigger_lists_dev = cl.array.to_device(
             queue, traversal.from_sep_bigger_lists)
 
-        # }}}
-
         if self.tree.targets_have_extent:
             # list 3 close
             if traversal.from_sep_close_smaller_starts is not None:
@@ -163,6 +161,8 @@ class ResponsibleBoxesQuery(object):
                     queue, traversal.from_sep_close_bigger_starts)
                 self.from_sep_close_bigger_lists_dev = cl.array.to_device(
                     queue, traversal.from_sep_close_bigger_lists)
+
+        # }}}
 
         # helper kernel for ancestor box query
         self.mark_parent_knl = cl.elementwise.ElementwiseKernel(
@@ -323,7 +323,7 @@ class ResponsibleBoxesQuery(object):
     def get_boxes_mask(self, responsible_boxes_list):
         """
         Given a list of responsible boxes for a process, calculates the following
-        three masks:
+        four masks:
 
         responsible_box_mask: Current process will evaluate target potentials and
             multipole expansions in these boxes. Sources and targets in these boxes

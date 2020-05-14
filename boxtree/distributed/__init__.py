@@ -28,14 +28,10 @@ import numpy as np
 from boxtree.cost import FMMCostModel
 
 MPITags = dict(
-    DIST_TREE=0,
-    DIST_SOURCES=1,
-    DIST_TARGETS=2,
-    DIST_RADII=3,
-    DIST_WEIGHT=4,
-    GATHER_POTENTIALS=5,
-    REDUCE_POTENTIALS=6,
-    REDUCE_INDICES=7
+    DIST_WEIGHT=1,
+    GATHER_POTENTIALS=2,
+    REDUCE_POTENTIALS=3,
+    REDUCE_INDICES=4
 )
 
 
@@ -55,7 +51,8 @@ def dtype_to_mpi(dtype):
 
 class DistributedFMMInfo(object):
 
-    def __init__(self, queue, global_trav_dev,
+    def __init__(self, queue, global_tree_dev,
+                 traversal_builder,
                  distributed_expansion_wrangler_factory,
                  calibration_params=None, comm=MPI.COMM_WORLD):
         """
@@ -64,97 +61,96 @@ class DistributedFMMInfo(object):
             An object implementing :class:`ExpansionWranglerInterface`.
             *global_wrangler* contains reference to the global tree object and is
             used for distributing and collecting density/potential between the root
-            and worker ranks. This attribute is only present on the root rank.
+            and worker ranks.
 
         .. attribute:: local_wrangler
 
             An object implementing :class:`ExpansionWranglerInterface`.
             *local_wrangler* contains reference to the local tree object and is
-            used for local FMM operations. This attribute is present on all ranks.
+            used for local FMM operations.
         """
-
-        # TODO: Support box_target_counts_nonchild?
 
         self.comm = comm
         current_rank = comm.Get_rank()
 
+        # {{{ Broadcast global tree
+
+        global_tree = None
         if current_rank == 0:
-            self.global_trav = global_trav_dev.get(queue=queue)
-        else:
-            self.global_trav = None
+            global_tree = global_tree_dev.get(queue)
+        global_tree = comm.bcast(global_tree, root=0)
+        global_tree_dev = global_tree.to_device(queue).with_queue(queue)
+
+        global_trav_dev, _ = traversal_builder(queue, global_tree_dev)
+        self.global_trav = global_trav_dev.get(queue)
+
+        # }}}
 
         self.distributed_expansion_wrangler_factory = \
             distributed_expansion_wrangler_factory
 
         # {{{ Get global wrangler
 
-        if current_rank == 0:
-            self.global_wrangler = distributed_expansion_wrangler_factory(
-                self.global_trav.tree
-            )
-        else:
-            self.global_wrangler = None
-
-        # }}}
-
-        # {{{ Broadcast well_sep_is_n_away
-
-        if current_rank == 0:
-            well_sep_is_n_away = self.global_trav.well_sep_is_n_away
-        else:
-            well_sep_is_n_away = None
-
-        well_sep_is_n_away = comm.bcast(well_sep_is_n_away, root=0)
+        self.global_wrangler = distributed_expansion_wrangler_factory(global_tree)
 
         # }}}
 
         # {{{ Partiton work
 
-        if current_rank == 0:
-            # Construct default cost model if not supplied
-            cost_model = FMMCostModel(queue)
+        # Construct default cost model if not supplied
+        cost_model = FMMCostModel(queue)
 
-            if calibration_params is None:
-                # TODO: should replace the calibration params with a reasonable
-                #       deafult one
-                calibration_params = \
-                    FMMCostModel.get_unit_calibration_params()
+        if calibration_params is None:
+            # TODO: should replace the calibration params with a reasonable
+            #       deafult one
+            calibration_params = \
+                FMMCostModel.get_unit_calibration_params()
 
-            boxes_time = cost_model.cost_per_box(
-                global_trav_dev, self.global_wrangler.level_nterms,
-                calibration_params
-            ).get()
+        boxes_time = cost_model.cost_per_box(
+            global_trav_dev, self.global_wrangler.level_nterms,
+            calibration_params
+        ).get()
 
-            from boxtree.distributed.partition import partition_work
-            responsible_boxes_list = partition_work(
-                boxes_time, self.global_trav, comm.Get_size()
-            )
-        else:
-            responsible_boxes_list = None
+        from boxtree.distributed.partition import partition_work
+        responsible_boxes_list = partition_work(
+            boxes_time, self.global_trav, comm.Get_size()
+        )
+
+        # It is assumed that, even if each rank computes `responsible_boxes_list`
+        # independently, it should be the same across ranks, since ranks use the same
+        # calibration parameters.
 
         # }}}
 
-        # {{{ Compute and distribute local tree
+        # {{{ Compute local tree
 
-        if current_rank == 0:
-            from boxtree.distributed.partition import ResponsibleBoxesQuery
-            responsible_box_query = ResponsibleBoxesQuery(queue, self.global_trav)
-        else:
-            responsible_box_query = None
+        from boxtree.distributed.partition import ResponsibleBoxesQuery
+        responsible_box_query = ResponsibleBoxesQuery(queue, self.global_trav)
 
         from boxtree.distributed.local_tree import generate_local_tree
-        self.local_tree, self.local_data, self.box_bounding_box = \
-            generate_local_tree(queue, self.global_trav, responsible_boxes_list,
-                                responsible_box_query)
+        self.local_tree, self.src_idx, self.tgt_idx = generate_local_tree(
+            queue, global_tree, responsible_boxes_list, responsible_box_query
+        )
 
         # }}}
 
-        # {{{ Compute traversal object on each process
+        # {{ Gather source indices and target indices of each rank
+
+        self.src_idx_all_ranks = comm.gather(self.src_idx, root=0)
+        self.tgt_idx_all_ranks = comm.gather(self.tgt_idx, root=0)
+
+        # }}}
+
+        # {{{ Compute traversal object on each rank
 
         from boxtree.distributed.local_traversal import generate_local_travs
         self.local_trav = generate_local_travs(
-            queue, self.local_tree, self.box_bounding_box,
-            well_sep_is_n_away=well_sep_is_n_away)
+            queue, self.local_tree, traversal_builder,
+            box_bounding_box={
+                "min": self.global_trav.box_target_bounding_box_min,
+                "max": self.global_trav.box_target_bounding_box_max
+            }
+        )
 
         # }}}
 
@@ -169,6 +165,6 @@ class DistributedFMMInfo(object):
         from boxtree.distributed.calculation import calculate_pot
         return calculate_pot(
             self.local_wrangler, self.global_wrangler, self.local_trav,
-            source_weights, self.local_data,
+            source_weights, self.src_idx_all_ranks, self.tgt_idx_all_ranks,
             _communicate_mpoles_via_allreduce=_communicate_mpoles_via_allreduce
         )

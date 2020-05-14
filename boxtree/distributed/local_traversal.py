@@ -33,8 +33,7 @@ logger = logging.getLogger(__name__)
 
 
 def generate_local_travs(
-        queue, local_tree, box_bounding_box=None,
-        well_sep_is_n_away=1, from_sep_smaller_crit=None,
+        queue, local_tree, traversal_builder, box_bounding_box=None,
         merge_close_lists=False):
 
     start_time = time.time()
@@ -117,14 +116,7 @@ def generate_local_travs(
     modify_own_sources_knl(d_tree.responsible_boxes_list, local_box_flags)
     modify_child_sources_knl(d_tree.ancestor_mask, local_box_flags)
 
-    from boxtree.traversal import FMMTraversalBuilder
-    tg = FMMTraversalBuilder(
-        queue.context,
-        well_sep_is_n_away=well_sep_is_n_away,
-        from_sep_smaller_crit=from_sep_smaller_crit
-    )
-
-    d_local_trav, _ = tg(
+    d_local_trav, _ = traversal_builder(
         queue, d_tree, debug=True,
         box_bounding_box=box_bounding_box,
         local_box_flags=local_box_flags
