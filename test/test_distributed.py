@@ -5,7 +5,6 @@ from boxtree.pyfmmlib_integration import FMMLibExpansionWrangler
 from boxtree.tools import ConstantOneExpansionWrangler as \
     ConstantOneExpansionWranglerBase
 from boxtree.tools import run_mpi
-from boxtree.distributed.calculation import DistributedExpansionWrangler
 import logging
 import os
 import pytest
@@ -116,19 +115,16 @@ def test_against_shared(num_processes, dims, nsources, ntargets):
     run_mpi(__file__, num_processes, newenv)
 
 
-# {{{ Constantone expansion wrangler
-
-class ConstantOneExpansionWrangler(
-        ConstantOneExpansionWranglerBase, DistributedExpansionWrangler):
-
-    def __init__(self, tree):
-        super(ConstantOneExpansionWrangler, self).__init__(tree)
-        self.level_nterms = np.ones(tree.nlevels, dtype=np.int32)
-
-# }}}
-
-
 def _test_constantone(dims, nsources, ntargets, dtype):
+    from boxtree.distributed.calculation import DistributedExpansionWrangler
+
+    class ConstantOneExpansionWrangler(
+            ConstantOneExpansionWranglerBase, DistributedExpansionWrangler):
+
+        def __init__(self, tree):
+            super(ConstantOneExpansionWrangler, self).__init__(tree)
+            self.level_nterms = np.ones(tree.nlevels, dtype=np.int32)
+
     from mpi4py import MPI
 
     # Get the current rank

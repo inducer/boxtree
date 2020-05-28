@@ -41,6 +41,14 @@ logger = logging.getLogger(__name__)
 # {{{ Distributed FMM wrangler
 
 class DistributedExpansionWrangler:
+    def __init__(self, queue, tree):
+        self.queue = queue
+        self.tree = tree
+
+    def multipole_expansions_view(self, mpole_exps, level):
+        # should be implemented in subclasses
+        pass
+
     def distribute_source_weights(
             self, source_weights, src_idx_all_ranks, comm=MPI.COMM_WORLD):
         """ This method transfers needed source_weights from root process to each
@@ -176,11 +184,10 @@ class DistributedFMMLibExpansionWrangler(
         FMMLibExpansionWrangler, DistributedExpansionWrangler):
 
     def __init__(self, queue, tree, helmholtz_k, fmm_level_to_nterms=None):
-        super(DistributedFMMLibExpansionWrangler, self).__init__(
-            tree, helmholtz_k, fmm_level_to_nterms
+        DistributedExpansionWrangler.__init__(self, queue, tree)
+        FMMLibExpansionWrangler.__init__(
+            self, tree, helmholtz_k, fmm_level_to_nterms
         )
-
-        self.queue = queue
 
 # }}}
 
