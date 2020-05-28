@@ -40,14 +40,42 @@ logger = logging.getLogger(__name__)
 
 # {{{ Distributed FMM wrangler
 
-class DistributedFMMLibExpansionWrangler(FMMLibExpansionWrangler):
+class DistributedExpansionWrangler:
+    def distribute_source_weights(
+            self, source_weights, src_idx_all_ranks, comm=MPI.COMM_WORLD):
+        """ This method transfers needed source_weights from root process to each
+        worker process in communicator *comm*.
 
-    def __init__(self, queue, tree, helmholtz_k, fmm_level_to_nterms=None):
-        super(DistributedFMMLibExpansionWrangler, self).__init__(
-            tree, helmholtz_k, fmm_level_to_nterms
-        )
+        This method needs to be called collectively by all processes in *comm*.
 
-        self.queue = queue
+        :arg source_weights: Source weights in tree order on root, None on worker
+            processes.
+        :arg src_idx_all_ranks: Returned from *generate_local_tree*. None on worker
+            processes.
+        :return Source weights needed for the current process.
+        """
+        mpi_rank = comm.Get_rank()
+        mpi_size = comm.Get_size()
+
+        if mpi_rank == 0:
+            distribute_weight_req = []
+            local_src_weights = np.empty((mpi_size,), dtype=object)
+
+            for irank in range(mpi_size):
+                local_src_weights[irank] = source_weights[src_idx_all_ranks[irank]]
+
+                if irank != 0:
+                    distribute_weight_req.append(comm.isend(
+                        local_src_weights[irank], dest=irank,
+                        tag=MPITags["DIST_WEIGHT"]
+                    ))
+
+            MPI.Request.Waitall(distribute_weight_req)
+            local_src_weights = local_src_weights[0]
+        else:
+            local_src_weights = comm.recv(source=0, tag=MPITags["DIST_WEIGHT"])
+
+        return local_src_weights
 
     def slice_mpoles(self, mpoles, slice_indices):
         if len(slice_indices) == 0:
@@ -142,6 +170,17 @@ class DistributedFMMLibExpansionWrangler(FMMLibExpansionWrangler):
             box_to_user_lists,
             box_in_subrange
         )
+
+
+class DistributedFMMLibExpansionWrangler(
+        FMMLibExpansionWrangler, DistributedExpansionWrangler):
+
+    def __init__(self, queue, tree, helmholtz_k, fmm_level_to_nterms=None):
+        super(DistributedFMMLibExpansionWrangler, self).__init__(
+            tree, helmholtz_k, fmm_level_to_nterms
+        )
+
+        self.queue = queue
 
 # }}}
 
@@ -293,46 +332,6 @@ def communicate_mpoles(wrangler, comm, trav, mpole_exps, return_stats=False):
 # }}}
 
 
-# {{{ Distribute source weights
-
-def distribute_source_weights(source_weights, src_idx, comm=MPI.COMM_WORLD):
-    """ This function transfers needed source_weights from root process to each
-    worker process in communicator *comm*.
-
-    This function needs to be called collectively by all processes in *comm*.
-
-    :arg source_weights: Source weights in tree order on root, None on worker
-        processes.
-    :arg src_idx: Returned from *generate_local_tree*. None on worker processes.
-    :return Source weights needed for the current process.
-    """
-    current_rank = comm.Get_rank()
-    total_rank = comm.Get_size()
-
-    if current_rank == 0:
-        weight_req = []
-        local_src_weights = np.empty((total_rank,), dtype=object)
-
-        for irank in range(total_rank):
-            local_src_weights[irank] = source_weights[src_idx[irank]]
-
-            if irank != 0:
-                weight_req.append(
-                    comm.isend(local_src_weights[irank], dest=irank,
-                               tag=MPITags["DIST_WEIGHT"])
-                )
-
-        MPI.Request.Waitall(weight_req)
-
-        local_src_weights = local_src_weights[0]
-    else:
-        local_src_weights = comm.recv(source=0, tag=MPITags["DIST_WEIGHT"])
-
-    return local_src_weights
-
-# }}}
-
-
 # {{{ FMM driver for calculating potentials
 
 def calculate_pot(local_wrangler, global_wrangler, local_trav, source_weights,
@@ -371,7 +370,7 @@ def calculate_pot(local_wrangler, global_wrangler, local_trav, source_weights,
         # Convert src_weights to tree order
         source_weights = source_weights[global_wrangler.tree.user_source_ids]
 
-    local_src_weights = distribute_source_weights(
+    local_src_weights = local_wrangler.distribute_source_weights(
         source_weights, src_idx_all_ranks, comm=comm
     )
 

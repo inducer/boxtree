@@ -5,6 +5,7 @@ from boxtree.pyfmmlib_integration import FMMLibExpansionWrangler
 from boxtree.tools import ConstantOneExpansionWrangler as \
     ConstantOneExpansionWranglerBase
 from boxtree.tools import run_mpi
+from boxtree.distributed.calculation import DistributedExpansionWrangler
 import logging
 import os
 import pytest
@@ -117,7 +118,8 @@ def test_against_shared(num_processes, dims, nsources, ntargets):
 
 # {{{ Constantone expansion wrangler
 
-class ConstantOneExpansionWrangler(ConstantOneExpansionWranglerBase):
+class ConstantOneExpansionWrangler(
+        ConstantOneExpansionWranglerBase, DistributedExpansionWrangler):
 
     def __init__(self, tree):
         super(ConstantOneExpansionWrangler, self).__init__(tree)
