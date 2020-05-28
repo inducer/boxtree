@@ -46,8 +46,10 @@ class DistributedExpansionWrangler:
         self.tree = tree
 
     def multipole_expansions_view(self, mpole_exps, level):
-        # should be implemented in subclasses
-        pass
+        # should be overwritten in subclasses
+        level_start_box_idx = -1
+        mpoles_current_level = np.array(0)
+        return level_start_box_idx, mpoles_current_level
 
     def distribute_source_weights(
             self, source_weights, src_idx_all_ranks, comm=MPI.COMM_WORLD):
