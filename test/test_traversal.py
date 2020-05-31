@@ -358,10 +358,10 @@ def test_plot_traversal(ctx_factory, well_sep_is_n_away=1, plot=False):
 # }}}
 
 
-# {{{ test_from_sep_siblings_rotation_classes
+# {{{ test_from_sep_siblings_translation_classes
 
 @pytest.mark.parametrize("well_sep_is_n_away", (1, 2))
-def test_from_sep_siblings_rotation_classes(ctx_factory, well_sep_is_n_away):
+def test_from_sep_siblings_translation_classes(ctx_factory, well_sep_is_n_away):
     ctx = ctx_factory()
     queue = cl.CommandQueue(ctx)
 
@@ -391,6 +391,7 @@ def test_from_sep_siblings_rotation_classes(ctx_factory, well_sep_is_n_away):
 
     from boxtree.traversal import FMMTraversalBuilder
     from boxtree.rotation_classes import RotationClassesBuilder
+    from boxtree.translation_classes import TranslationClassesBuilder
 
     tg = FMMTraversalBuilder(ctx, well_sep_is_n_away=well_sep_is_n_away)
     trav, _ = tg(queue, tree)
@@ -398,8 +399,15 @@ def test_from_sep_siblings_rotation_classes(ctx_factory, well_sep_is_n_away):
     rb = RotationClassesBuilder(ctx)
     result, _ = rb(queue, trav, tree)
 
+    tb = TranslationClassesBuilder(ctx)
+    result_tb, _ = tb(queue, trav, tree)
+
     rot_classes = result.from_sep_siblings_rotation_classes.get(queue)
     rot_angles = result.from_sep_siblings_rotation_class_to_angle.get(queue)
+
+    translation_classes = result_tb.from_sep_siblings_translation_classes.get(queue)
+    distance_vectors = \
+        result_tb.from_sep_siblings_translation_class_to_distance_vector.get(queue)
 
     tree = tree.get(queue=queue)
     trav = trav.get(queue=queue)
@@ -418,10 +426,17 @@ def test_from_sep_siblings_rotation_classes(ctx_factory, well_sep_is_n_away):
         seps = trav.from_sep_siblings_lists[start:end]
         level_rot_classes = rot_classes[start:end]
 
-        translation_vecs = centers[tgt_ibox] - centers[seps]
+        level_translation_classes = translation_classes[start:end]
+        actual_translation_vecs = distance_vectors[:, level_translation_classes].T
+        expected_translation_vecs = centers[tgt_ibox] - centers[seps]
+
+        if len(expected_translation_vecs) > 0:
+            assert np.allclose(actual_translation_vecs, expected_translation_vecs,
+                               atol=1e-13, rtol=1e-13)
+
         theta = np.arctan2(
-                la.norm(translation_vecs[:, :dims - 1], axis=1),
-                translation_vecs[:, dims - 1])
+                la.norm(expected_translation_vecs[:, :dims - 1], axis=1),
+                expected_translation_vecs[:, dims - 1])
         level_rot_angles = rot_angles[level_rot_classes]
 
         assert np.allclose(theta, level_rot_angles, atol=1e-13, rtol=1e-13)
