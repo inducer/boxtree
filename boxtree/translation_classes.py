@@ -168,7 +168,7 @@ class TranslationClassesInfo(DeviceDataRecord):
 
     .. attribute:: nfrom_sep_siblings_translation_classes
 
-       The number of distinct rotation classes.
+       The number of distinct translation classes.
 
     .. attribute:: from_sep_siblings_translation_classes
 
@@ -179,10 +179,17 @@ class TranslationClassesInfo(DeviceDataRecord):
 
     .. attribute:: from_sep_siblings_translation_class_to_distance_vector
 
-        ``coord_t [nfrom_sep_siblings_translation_classes]``
+        ``coord_vec_t [nfrom_sep_siblings_translation_classes]``
 
-        Maps translation classes in *from_sep_siblings_translation_classes* to
-        the distance between the centers.
+        Maps translation classes in *from_sep_siblings_translation_classes*
+        to the distance between the centers
+
+    .. attribute:: from_sep_siblings_translation_classes_level_starts
+
+        ``coord_t [nlevels + 1]``
+
+        A list with an entry for each level giving the starting translation
+        class id for that level.
     """
 
     @property
@@ -339,17 +346,28 @@ class TranslationClassesBuilder(object):
         num_translation_classes = self.ntranslation_classes(well_sep_is_n_away,
                                                             dimensions)
 
+        nlevels = tree.nlevels
         count = 0
+        prev_level = -1
+        from_sep_siblings_translation_classes_level_starts = \
+            np.empty(nlevels+1, dtype=np.int32)
         for i, used in enumerate(translation_class_is_used.get()):
-            if not used:
-                continue
-            used_translation_classes_map[i] = count
             cls_without_level = i % num_translation_classes
             level = i // num_translation_classes
+            if (prev_level != level):
+                from_sep_siblings_translation_classes_level_starts[level] = count
+                prev_level = level
+
+            if not used:
+                continue
+
+            used_translation_classes_map[i] = count
             unit_vector = self.translation_class_to_vector(well_sep_is_n_away,
                                                     dimensions, cls_without_level)
             distances[:, count] = unit_vector * tree.root_extent / (1 << level)
             count = count + 1
+
+        from_sep_siblings_translation_classes_level_starts[nlevels] = count
 
         translation_classes_lists = (
                 cl.array.take(
@@ -357,10 +375,14 @@ class TranslationClassesBuilder(object):
                     translation_classes_lists))
 
         distances = cl.array.to_device(queue, distances)
+        from_sep_siblings_translation_classes_level_starts = cl.array.to_device(
+            queue, from_sep_siblings_translation_classes_level_starts)
 
         return TranslationClassesInfo(
                 from_sep_siblings_translation_classes=translation_classes_lists,
                 from_sep_siblings_translation_class_to_distance_vector=distances,
+                from_sep_siblings_translation_classes_level_starts=(
+                    from_sep_siblings_translation_classes_level_starts),
                 ).with_queue(None), evt
 
 # }}}
