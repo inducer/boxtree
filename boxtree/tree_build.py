@@ -220,7 +220,16 @@ class TreeBuilder(object):
 
         def zeros(shape, dtype):
             result = cl.array.zeros(queue, shape, dtype, allocator=allocator)
-            event, = result.events
+            if result.events:
+                event, = result.events
+            else:
+                from numbers import Number
+                if isinstance(shape, Number):
+                    shape = (shape,)
+                from pytools import product
+                assert product(shape) == 0
+                event = cl.enqueue_marker(queue)
+
             return result, event
 
         knl_info = self.get_kernel_info(dimensions, coord_dtype,
