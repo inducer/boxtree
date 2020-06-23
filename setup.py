@@ -38,6 +38,7 @@ def main():
               ],
 
           packages=["boxtree"],
+          python_requires="~=3.6",
           install_requires=[
               "pytools>=2018.4",
               "pyopencl>=2018.2.2",
