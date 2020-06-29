@@ -243,19 +243,6 @@ class TranslationClassesBuilder(object):
         return _KernelInfo(translation_class_finder=translation_class_finder)
 
     @staticmethod
-    def vec_gcd(vec):
-        """Return the GCD of a list of integers."""
-        def gcd(a, b):
-            while b:
-                a, b = b, a % b
-            return a
-
-        result = abs(vec[0])
-        for elem in vec[1:]:
-            result = gcd(result, abs(elem))
-        return result
-
-    @staticmethod
     def ntranslation_classes(well_sep_is_n_away, dimensions):
         return (4 * well_sep_is_n_away + 3) ** dimensions
 

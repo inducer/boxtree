@@ -68,6 +68,19 @@ class RotationClassesInfo(DeviceDataRecord):
 
 class RotationClassesBuilder(TranslationClassesBuilder):
 
+    @staticmethod
+    def vec_gcd(vec):
+        """Return the GCD of a list of integers."""
+        def gcd(a, b):
+            while b:
+                a, b = b, a % b
+            return a
+
+        result = abs(vec[0])
+        for elem in vec[1:]:
+            result = gcd(result, abs(elem))
+        return result
+
     def compute_rotation_classes(self,
             well_sep_is_n_away, dimensions, used_translation_classes):
         """Convert translation classes to a list of rotation classes and angles."""
