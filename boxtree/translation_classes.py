@@ -201,10 +201,7 @@ class TranslationClassesBuilder(object):
     """Build translation classes for List 2 translations.
     """
 
-    def __init__(self, context, translation_class_per_level=True):
-        """translation_class_per_level determines whether the class depends on
-        the level or not.
-        """
+    def __init__(self, context):
         self.context = context
 
     @memoize_method
