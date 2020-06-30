@@ -152,7 +152,8 @@ TRANSLATION_CLASS_FINDER_TEMPLATE = ElementwiseTemplate(
     }
 
     % if translation_class_per_level:
-        translation_class += box_levels[source_box_id] * ${ntranslation_classes};
+        translation_class += box_levels[source_box_id] * \
+                                ${ntranslation_classes_per_level};
     % endif
 
     translation_classes[i] = translation_class;
@@ -184,14 +185,16 @@ class TranslationClassesInfo(DeviceDataRecord):
         ``coord_vec_t [nfrom_sep_siblings_translation_classes]``
 
         Maps translation classes in *from_sep_siblings_translation_classes*
-        to the distance between the centers
+        to distance (translation) vectors from source box center to
+        target box center.
 
     .. attribute:: from_sep_siblings_translation_classes_level_starts
 
         ``int32 [nlevels + 1]``
 
         A list with an entry for each level giving the starting translation
-        class id for that level. Translation classes are numbered contiguously by level.
+        class id for that level. Translation classes are numbered contiguously
+        by level.
     """
 
     @property
@@ -213,7 +216,7 @@ class TranslationClassesBuilder(object):
         int_coord_vec_dtype = cl.cltypes.vec_types[np.dtype(np.int32), dimensions]
 
         num_translation_classes = \
-            self.ntranslation_classes(well_sep_is_n_away, dimensions)
+            self.ntranslation_classes_per_level(well_sep_is_n_away, dimensions)
 
         # Make sure translation classes can fit inside a 32 bit integer.
         if not num_translation_classes <= 1 + np.iinfo(np.int32).max:
@@ -234,7 +237,7 @@ class TranslationClassesBuilder(object):
                     ),
                     var_values=(
                         ("dimensions", dimensions),
-                        ("ntranslation_classes", num_translation_classes),
+                        ("ntranslation_classes_per_level", num_translation_classes),
                         ("translation_class_per_level", translation_class_per_level),
                     ),
                     more_preamble=preamble))
@@ -245,12 +248,13 @@ class TranslationClassesBuilder(object):
     def ntranslation_classes_per_level(well_sep_is_n_away, dimensions):
         return (4 * well_sep_is_n_away + 3) ** dimensions
 
-    @staticmethod
-    def translation_class_to_normalized_vector(well_sep_is_n_away, dimensions, cls):
+    def translation_class_to_normalized_vector(self, well_sep_is_n_away,
+            dimensions, cls):
         # This computes the vector for the translation class, using the inverse
         # of the formula found in get_translation_class() defined in
         # TRANSLATION_CLASS_FINDER_PREAMBLE_TEMPLATE.
-        assert 0 <= cls < self.ntranslation_classes_per_level(well_sep_is_n_away, dimensions)
+        assert 0 <= cls < self.ntranslation_classes_per_level(well_sep_is_n_away,
+                                                              dimensions)
         result = np.zeros(dimensions, dtype=np.int32)
         shift = 2 * well_sep_is_n_away + 1
         base = 4 * well_sep_is_n_away + 3
@@ -277,7 +281,7 @@ class TranslationClassesBuilder(object):
                 tree.box_level_dtype, coord_dtype, is_translation_per_level)
 
         ntranslation_classes = (
-                self.ntranslation_classes(well_sep_is_n_away, dimensions))
+                self.ntranslation_classes_per_level(well_sep_is_n_away, dimensions))
 
         if is_translation_per_level:
             ntranslation_classes = ntranslation_classes * tree.nlevels
@@ -330,8 +334,8 @@ class TranslationClassesBuilder(object):
 
         distances = np.empty((dimensions, len(translation_class_is_used)),
                              dtype=tree.coord_dtype)
-        num_translation_classes = self.ntranslation_classes(well_sep_is_n_away,
-                                                            dimensions)
+        num_translation_classes = \
+            self.ntranslation_classes_per_level(well_sep_is_n_away, dimensions)
 
         nlevels = tree.nlevels
         count = 0
@@ -349,8 +353,8 @@ class TranslationClassesBuilder(object):
                 continue
 
             used_translation_classes_map[i] = count
-            unit_vector = self.translation_class_to_vector(well_sep_is_n_away,
-                                                    dimensions, cls_without_level)
+            unit_vector = self.translation_class_to_normalized_vector(
+                            well_sep_is_n_away, dimensions, cls_without_level)
             distances[:, count] = unit_vector * tree.root_extent / (1 << level)
             count = count + 1
 

@@ -91,16 +91,17 @@ class RotationClassesBuilder(object):
         angle_to_rot_class = {}
         angles = []
 
-        ntranslation_classes = (
-                self.tcb.ntranslation_classes(well_sep_is_n_away, dimensions))
+        ntranslation_classes_per_level = (
+                self.tcb.ntranslation_classes_per_level(well_sep_is_n_away,
+                    dimensions))
 
         translation_class_to_rot_class = (
-                np.empty(ntranslation_classes, dtype=np.int32))
+                np.empty(ntranslation_classes_per_level, dtype=np.int32))
 
         translation_class_to_rot_class[:] = -1
 
         for cls in used_translation_classes:
-            vec = self.tcb.translation_class_to_vector(
+            vec = self.tcb.translation_class_to_normalized_vector(
                     well_sep_is_n_away, dimensions, cls)
 
             # Normalize the translation vector (by dividing by its GCD).
