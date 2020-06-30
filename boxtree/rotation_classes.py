@@ -66,7 +66,11 @@ class RotationClassesInfo(DeviceDataRecord):
         return len(self.from_sep_siblings_rotation_class_to_angle)
 
 
-class RotationClassesBuilder(TranslationClassesBuilder):
+class RotationClassesBuilder(object):
+
+    def __init__(self, context):
+        self.context = context
+        self.tcb = TranslationClassesBuilder(context)
 
     @staticmethod
     def vec_gcd(vec):
@@ -88,7 +92,7 @@ class RotationClassesBuilder(TranslationClassesBuilder):
         angles = []
 
         ntranslation_classes = (
-                self.ntranslation_classes(well_sep_is_n_away, dimensions))
+                self.tcb.ntranslation_classes(well_sep_is_n_away, dimensions))
 
         translation_class_to_rot_class = (
                 np.empty(ntranslation_classes, dtype=np.int32))
@@ -96,7 +100,7 @@ class RotationClassesBuilder(TranslationClassesBuilder):
         translation_class_to_rot_class[:] = -1
 
         for cls in used_translation_classes:
-            vec = self.translation_class_to_vector(
+            vec = self.tcb.translation_class_to_vector(
                     well_sep_is_n_away, dimensions, cls)
 
             # Normalize the translation vector (by dividing by its GCD).
@@ -134,7 +138,7 @@ class RotationClassesBuilder(TranslationClassesBuilder):
         """Returns a pair *info*, *evt* where info is a :class:`RotationClassesInfo`.
         """
         evt, translation_class_is_used, translation_classes_lists = \
-            self.compute_translation_classes(queue, trav, tree, wait_for, False)
+            self.tcb.compute_translation_classes(queue, trav, tree, wait_for, False)
 
         d = tree.dimensions
         n = trav.well_sep_is_n_away
