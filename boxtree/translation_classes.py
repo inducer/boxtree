@@ -46,7 +46,7 @@ TRANSLATION_CLASS_FINDER_PREAMBLE_TEMPLATE = Template(r"""//CL:mako//
 
     // Return an integer vector indicating the a translation direction
     // as a multiple of the box diameter.
-    inline int_coord_vec_t get_translation_vector(
+    inline int_coord_vec_t get_normalized_translation_vector(
         coord_t root_extent,
         int level,
         coord_vec_t source_center,
@@ -64,6 +64,8 @@ TRANSLATION_CLASS_FINDER_PREAMBLE_TEMPLATE = Template(r"""//CL:mako//
     // translation class maps a translation vector (a_1, a_2, ..., a_d) into
     // a dense range of integers [0, ..., (4*n+3)^d - 1], where
     // d is the dimension and n is well_sep_is_n_away.
+    //
+    // The translation vector should be normalized for a box diameter of 1.
     //
     // This relies on the fact that the entries of the vector will
     // always be in the range [-2n-1,...,2n+1].
@@ -137,7 +139,7 @@ TRANSLATION_CLASS_FINDER_TEMPLATE = ElementwiseTemplate(
     ${load_center("source_center", "source_box_id")}
     ${load_center("target_center", "target_box_id")}
 
-    int_coord_vec_t vec = get_translation_vector(
+    int_coord_vec_t vec = get_normalized_translation_vector(
         root_extent, box_levels[source_box_id], source_center, target_center);
 
     int translation_class = get_translation_class(vec, well_sep_is_n_away);
@@ -186,10 +188,10 @@ class TranslationClassesInfo(DeviceDataRecord):
 
     .. attribute:: from_sep_siblings_translation_classes_level_starts
 
-        ``coord_t [nlevels + 1]``
+        ``int32 [nlevels + 1]``
 
         A list with an entry for each level giving the starting translation
-        class id for that level.
+        class id for that level. Translation classes are numbered contiguously by level.
     """
 
     @property
@@ -240,14 +242,15 @@ class TranslationClassesBuilder(object):
         return _KernelInfo(translation_class_finder=translation_class_finder)
 
     @staticmethod
-    def ntranslation_classes(well_sep_is_n_away, dimensions):
+    def ntranslation_classes_per_level(well_sep_is_n_away, dimensions):
         return (4 * well_sep_is_n_away + 3) ** dimensions
 
     @staticmethod
-    def translation_class_to_vector(well_sep_is_n_away, dimensions, cls):
+    def translation_class_to_normalized_vector(well_sep_is_n_away, dimensions, cls):
         # This computes the vector for the translation class, using the inverse
         # of the formula found in get_translation_class() defined in
         # TRANSLATION_CLASS_FINDER_PREAMBLE_TEMPLATE.
+        assert 0 <= cls < self.ntranslation_classes_per_level(well_sep_is_n_away, dimensions)
         result = np.zeros(dimensions, dtype=np.int32)
         shift = 2 * well_sep_is_n_away + 1
         base = 4 * well_sep_is_n_away + 3
