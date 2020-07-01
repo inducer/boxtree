@@ -358,7 +358,7 @@ def test_plot_traversal(ctx_factory, well_sep_is_n_away=1, plot=False):
 # }}}
 
 
-# {{{ test_from_sep_siblings_translation_classes
+# {{{ test_from_sep_siblings_translation_and_rotation_classes
 
 @pytest.mark.parametrize("well_sep_is_n_away", (1, 2))
 def test_from_sep_siblings_translation_and_rotation_classes(ctx_factory,
