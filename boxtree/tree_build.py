@@ -247,10 +247,10 @@ class TreeBuilder(object):
             # Targets weren't specified. Sources are also targets. Let's
             # call them "srcntgts".
 
-            from pytools.obj_array import is_obj_array, make_obj_array
-            if is_obj_array(particles):
+            if isinstance(particles, np.ndarray) and particles.dtype.char == "O":
                 srcntgts = particles
             else:
+                from pytools.obj_array import make_obj_array
                 srcntgts = make_obj_array([
                     p.with_queue(queue).copy() for p in particles
                     ])
