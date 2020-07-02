@@ -250,7 +250,6 @@ class TreeBuilder(object):
             if isinstance(particles, np.ndarray) and particles.dtype.char == "O":
                 srcntgts = particles
             else:
-                assert isinstance(particles, cl.array.Array)
                 from pytools.obj_array import make_obj_array
                 srcntgts = make_obj_array([
                     p.with_queue(queue).copy() for p in particles
