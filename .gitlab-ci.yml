@@ -1,73 +1,7 @@
-Python 2.7 POCL:
-    script:
-    - export PY_EXE=python2.7
-    - export PYOPENCL_TEST=portable
-    - export EXTRA_INSTALL="pybind11 numpy mako"
-    - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project.sh
-    - ". ./build-and-test-py-project.sh"
-    tags:
-    - python2.7
-    - pocl
-    except:
-    - tags
-    artifacts:
-        reports:
-            junit: test/pytest.xml
-
-Python 3 Titan V:
-    script:
-    - export PY_EXE=python3
-    - export PYOPENCL_TEST=nvi:titan
-    - EXTRA_INSTALL="pybind11 numpy mako matplotlib"
-    - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project.sh
-    - ". ./build-and-test-py-project.sh"
-    tags:
-    - python3
-    - nvidia-titan-v
-    allow_failure: true
-    except:
-    - tags
-    artifacts:
-        reports:
-            junit: test/pytest.xml
-
-#Python 3 Titan X:
-#    script:
-#    - export PY_EXE=python3
-#    - export PYOPENCL_TEST=nvi:titan
-#    - EXTRA_INSTALL="pybind11 numpy mako"
-#    - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project.sh
-#    - ". ./build-and-test-py-project.sh"
-#    tags:
-#    - python3
-#    - nvidia-titan-x
-#    except:
-#    - tags
-#    artifacts:
-#        reports:
-#            junit: test/pytest.xml
-
-Python 3 K40:
-    script:
-    - export PY_EXE=python3
-    - export PYOPENCL_TEST=nvi:k40
-    - export EXTRA_INSTALL="pybind11 numpy mako"
-    - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project.sh
-    - ". ./build-and-test-py-project.sh"
-    allow_failure: true
-    tags:
-    - python3
-    - nvidia-k40
-    except:
-    - tags
-    artifacts:
-        reports:
-            junit: test/pytest.xml
-
 Python 3 POCL:
     script:
     - export PY_EXE=python3
-    - export PYOPENCL_TEST=portable
+    - export PYOPENCL_TEST=portable:pthread
     - export EXTRA_INSTALL="pybind11 numpy mako matplotlib"
     - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project.sh
     - ". ./build-and-test-py-project.sh"
@@ -80,11 +14,53 @@ Python 3 POCL:
         reports:
             junit: test/pytest.xml
 
+Python 3 POCL Titan V:
+    script:
+    - export PYOPENCL_TEST=portable:titan
+    - CONDA_ENVIRONMENT=.test-conda-env-py3.yml
+    - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project-within-miniconda.sh
+    - ". ./build-and-test-py-project-within-miniconda.sh"
+    tags:
+    - nvidia-titan-v
+    except:
+    - tags
+    artifacts:
+        reports:
+            junit: test/pytest.xml
+
+Python 3 POCL Titan X:
+    script:
+    - export PYOPENCL_TEST=portable:titan
+    - CONDA_ENVIRONMENT=.test-conda-env-py3.yml
+    - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project-within-miniconda.sh
+    - ". ./build-and-test-py-project-within-miniconda.sh"
+    tags:
+    - nvidia-titan-x
+    except:
+    - tags
+    artifacts:
+        reports:
+            junit: test/pytest.xml
+
+Python 3 POCL K40:
+    script:
+    - export PYOPENCL_TEST=portable:k40
+    - CONDA_ENVIRONMENT=.test-conda-env-py3.yml
+    - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project-within-miniconda.sh
+    - ". ./build-and-test-py-project-within-miniconda.sh"
+    tags:
+    - nvidia-k40
+    except:
+    - tags
+    artifacts:
+        reports:
+            junit: test/pytest.xml
+
 Python 3 POCL Examples:
   script:
   - test -n "$SKIP_EXAMPLES" && exit
   - export PY_EXE=python3
-  - export PYOPENCL_TEST=portable
+  - export PYOPENCL_TEST=portable:pthread
   - export EXTRA_INSTALL="pybind11 numpy mako pyvisfile matplotlib"
   - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-py-project-and-run-examples.sh
   - ". ./build-py-project-and-run-examples.sh"

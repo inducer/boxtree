@@ -25,12 +25,10 @@ def main():
               'Intended Audience :: Science/Research',
               'License :: OSI Approved :: MIT License',
               'Natural Language :: English',
+
               'Programming Language :: Python',
-              # We use conditional expressions, so 2.5 is the bare minimum.
-              'Programming Language :: Python :: 2.5',
-              'Programming Language :: Python :: 2.6',
-              'Programming Language :: Python :: 2.7',
-              # 3.x has not yet been tested.
+              'Programming Language :: Python :: 3',
+
               'Topic :: Scientific/Engineering',
               'Topic :: Scientific/Engineering :: Information Analysis',
               'Topic :: Scientific/Engineering :: Mathematics',
@@ -40,6 +38,7 @@ def main():
               ],
 
           packages=["boxtree"],
+          python_requires="~=3.6",
           install_requires=[
               "pytools>=2018.4",
               "pyopencl>=2018.2.2",

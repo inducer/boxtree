@@ -37,21 +37,6 @@ jobs:
                 curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/prepare-and-run-pylint.sh
                 . ./prepare-and-run-pylint.sh boxtree test/test_*.py
 
-    pytest2:
-        name: Conda Python 2
-        runs-on: ubuntu-latest
-        steps:
-        -   uses: actions/checkout@v2
-        -   name: "Main Script"
-            run: |
-                sed 's/python=3/python=2.7/' .test-conda-env-py3.yml > .test-conda-env-py2.yml
-                cat .test-conda-env-py2.yml
-                CONDA_ENVIRONMENT=.test-conda-env-py2.yml
-                mkdir -p ~/.config/matplotlib
-                echo "backend: Agg" > ~/.config/matplotlib/matplotlibrc
-                curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project-within-miniconda.sh
-                . ./build-and-test-py-project-within-miniconda.sh
-
     pytest3:
         name: Conda Python 3
         runs-on: ubuntu-latest

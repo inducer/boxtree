@@ -1,13 +1,14 @@
 name: test-conda-env
 channels:
 - conda-forge
-- defaults
+- nodefaults
 
 dependencies:
 - python=3
 - git
-- conda-forge::numpy
+- numpy
 - pocl
+- pocl-cuda
 - mako
 - pyopencl
 - islpy

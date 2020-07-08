@@ -222,7 +222,16 @@ class TreeBuilder(object):
 
         def zeros(shape, dtype):
             result = cl.array.zeros(queue, shape, dtype, allocator=allocator)
-            event, = result.events
+            if result.events:
+                event, = result.events
+            else:
+                from numbers import Number
+                if isinstance(shape, Number):
+                    shape = (shape,)
+                from pytools import product
+                assert product(shape) == 0
+                event = cl.enqueue_marker(queue)
+
             return result, event
 
         knl_info = self.get_kernel_info(dimensions, coord_dtype,
@@ -240,10 +249,10 @@ class TreeBuilder(object):
             # Targets weren't specified. Sources are also targets. Let's
             # call them "srcntgts".
 
-            from pytools.obj_array import is_obj_array, make_obj_array
-            if is_obj_array(particles):
+            if isinstance(particles, np.ndarray) and particles.dtype.char == "O":
                 srcntgts = particles
             else:
+                from pytools.obj_array import make_obj_array
                 srcntgts = make_obj_array([
                     p.with_queue(queue).copy() for p in particles
                     ])
@@ -720,8 +729,8 @@ class TreeBuilder(object):
                 # Currently undocumented.
                 lr_lookbehind_levels = kwargs.get("lr_lookbehind", 1)
                 minimal_new_level_length += sum(
-                    2**(l*dimensions) * new_level_leaf_counts[level - l]
-                    for l in range(1, 1 + min(level, lr_lookbehind_levels)))
+                    2**(lev*dimensions) * new_level_leaf_counts[level - lev]
+                    for lev in range(1, 1 + min(level, lr_lookbehind_levels)))
 
             nboxes_minimal = \
                     sum(minimal_upper_level_lengths) + minimal_new_level_length
@@ -742,8 +751,8 @@ class TreeBuilder(object):
                 # Recompute the level padding.
                 for ulevel in range(level):
                     upper_level_padding[ulevel] = sum(
-                        2**(l*dimensions) * new_level_leaf_counts[ulevel - l]
-                        for l in range(
+                        2**(lev*dimensions) * new_level_leaf_counts[ulevel - lev]
+                        for lev in range(
                             1, 1 + min(ulevel, lr_lookbehind_levels)))
 
                 new_upper_level_unused_box_counts = np.max(
