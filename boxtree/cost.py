@@ -392,13 +392,15 @@ class AbstractFMMCostModel(ABC):
         """Evaluate translation cost factors from symbolic model. The result of this
         function can be used for process_* methods in this class.
 
+        :arg queue: If not None, the cost factor arrays will be transferred to device
+            using this queue.
         :arg nlevels: the number of tree levels.
         :arg xlat_cost: a :class:`FMMTranslationCostModel`.
         :arg context: a :class:`dict` of parameters passed as context when
             evaluating symbolic expressions in *xlat_cost*.
         :return: a :class:`dict`, the translation cost of each step in FMM.
         """
-        return {
+        translation_costs = {
             "p2m_cost": np.array([
                 evaluate(xlat_cost.p2m(ilevel), context=context)
                 for ilevel in range(nlevels)
@@ -430,6 +432,16 @@ class AbstractFMMCostModel(ABC):
             ], dtype=np.float64)
         }
 
+        if queue:
+            for name in translation_costs:
+                if not isinstance(translation_costs[name], np.ndarray):
+                    continue
+                translation_costs[name] = cl.array.to_device(
+                    queue, translation_costs[name]
+                ).with_queue(None)
+
+        return translation_costs
+
     @abstractmethod
     def zero_cost_per_box(self, queue, nboxes):
         """Helper function for returning the per-box cost filled with 0.
@@ -447,7 +459,7 @@ class AbstractFMMCostModel(ABC):
                      box_target_counts_nonchild=None):
         """Predict the per-box costs of a new traversal object.
 
-        :arg queue: a :class:`pyopencl.CommandQueue` objection.
+        :arg queue: a :class:`pyopencl.CommandQueue` object.
         :arg traversal: a :class:`boxtree.traversal.FMMTraversalInfo` object.
         :arg level_to_order: a :class:`numpy.ndarray` of shape
             (traversal.tree.nlevels,) representing the expansion orders
@@ -1041,7 +1053,7 @@ class FMMCostModel(AbstractFMMCostModel):
                 traversal.target_boxes_sep_smaller_by_source_level[ilevel],
                 sep_smaller_list.starts,
                 box_target_counts_nonchild,
-                m2p_cost[ilevel].get().reshape(-1)[0],
+                m2p_cost[ilevel].get(queue=queue).reshape(-1)[0],
                 nm2p,
                 queue=queue
             )
@@ -1221,29 +1233,15 @@ class FMMCostModel(AbstractFMMCostModel):
         else:
             return cl.array.sum(per_box_result).get().reshape(-1)[0]
 
-    @staticmethod
-    def translation_costs_to_dev(queue, translation_costs):
-        """This helper function transfers all :class:`numpy.ndarray` fields in
-        *translation_costs* to device memory as :class:`pyopencl.array.Array`.
-        """
-        for name in translation_costs:
-            if not isinstance(translation_costs[name], np.ndarray):
-                continue
-            translation_costs[name] = cl.array.to_device(
-                queue, translation_costs[name]
-            )
+    def fmm_cost_factors_for_kernels_from_model(
+            self, queue, nlevels, xlat_cost, context):
+        if not isinstance(queue, cl.CommandQueue):
+            raise TypeError(
+                "An OpenCL command queue must be supplied for cost model")
 
-        return translation_costs
-
-    def fmm_cost_factors_for_kernels_from_model(self, queue,
-                                                nlevels, xlat_cost, context):
-        translation_costs = (
-            AbstractFMMCostModel.fmm_cost_factors_for_kernels_from_model(
-                self, queue, nlevels, xlat_cost, context
-            )
+        return AbstractFMMCostModel.fmm_cost_factors_for_kernels_from_model(
+            self, queue, nlevels, xlat_cost, context
         )
-
-        return self.translation_costs_to_dev(queue, translation_costs)
 
 # }}}
 
@@ -1416,6 +1414,12 @@ class _PythonFMMCostModel(AbstractFMMCostModel):
             return per_box_result
         else:
             return np.sum(per_box_result)
+
+    def fmm_cost_factors_for_kernels_from_model(
+            self, queue, nlevels, xlat_cost, context):
+        return AbstractFMMCostModel.fmm_cost_factors_for_kernels_from_model(
+            self, None, nlevels, xlat_cost, context
+        )
 
 # }}}
 
