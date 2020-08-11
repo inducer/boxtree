@@ -52,6 +52,7 @@ Python 3 POCL K40:
     - nvidia-k40
     except:
     - tags
+    allow_failure: true
     artifacts:
         reports:
             junit: test/pytest.xml
