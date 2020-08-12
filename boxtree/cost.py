@@ -387,6 +387,15 @@ class AbstractFMMCostModel(ABC):
         """
         pass
 
+    @staticmethod
+    def cost_factors_to_dev(cost_factors, queue):
+        for name in cost_factors:
+            if not isinstance(cost_factors[name], np.ndarray):
+                continue
+            cost_factors[name] = cl.array.to_device(
+                queue, cost_factors[name]
+            ).with_queue(None)
+
     def fmm_cost_factors_for_kernels_from_model(
             self, queue, nlevels, xlat_cost, context):
         """Evaluate translation cost factors from symbolic model. The result of this
@@ -400,7 +409,7 @@ class AbstractFMMCostModel(ABC):
             evaluating symbolic expressions in *xlat_cost*.
         :return: a :class:`dict`, the translation cost of each step in FMM.
         """
-        translation_costs = {
+        cost_factors = {
             "p2m_cost": np.array([
                 evaluate(xlat_cost.p2m(ilevel), context=context)
                 for ilevel in range(nlevels)
@@ -433,14 +442,9 @@ class AbstractFMMCostModel(ABC):
         }
 
         if queue:
-            for name in translation_costs:
-                if not isinstance(translation_costs[name], np.ndarray):
-                    continue
-                translation_costs[name] = cl.array.to_device(
-                    queue, translation_costs[name]
-                ).with_queue(None)
+            self.cost_factors_to_dev(cost_factors, queue)
 
-        return translation_costs
+        return cost_factors
 
     @abstractmethod
     def zero_cost_per_box(self, queue, nboxes):
