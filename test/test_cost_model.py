@@ -507,7 +507,6 @@ def test_estimate_calibration_params(ctx_factory):
     cl_params = cl_cost_model.estimate_calibration_params(
         cl_model_results, timing_results[:-1], time_field_name=time_field_name
     )
-    queue.finish()
 
     test_params_sanity(cl_params)
 
@@ -594,7 +593,6 @@ def test_cost_model_op_counts_agree_with_constantone_wrangler(
         queue, trav_dev, level_to_order,
         FMMCostModel.get_unit_calibration_params(),
     )
-    queue.finish()
 
     mismatches = []
     for stage in timing_data:
@@ -615,7 +613,6 @@ def test_cost_model_op_counts_agree_with_constantone_wrangler(
         FMMCostModel.get_unit_calibration_params(),
     )
     total_aggregate_cost = cost_model.aggregate_over_boxes(per_box_cost)
-    queue.finish()
 
     assert total_cost == (
             total_aggregate_cost

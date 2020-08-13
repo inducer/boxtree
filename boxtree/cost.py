@@ -389,12 +389,17 @@ class AbstractFMMCostModel(ABC):
 
     @staticmethod
     def cost_factors_to_dev(cost_factors, queue):
+        cost_factors_dev = {}
+
         for name in cost_factors:
             if not isinstance(cost_factors[name], np.ndarray):
+                cost_factors_dev[name] = cost_factors[name]
                 continue
-            cost_factors[name] = cl.array.to_device(
+            cost_factors_dev[name] = cl.array.to_device(
                 queue, cost_factors[name]
             ).with_queue(None)
+
+        return cost_factors_dev
 
     def fmm_cost_factors_for_kernels_from_model(
             self, queue, nlevels, xlat_cost, context):
@@ -442,7 +447,7 @@ class AbstractFMMCostModel(ABC):
         }
 
         if queue:
-            self.cost_factors_to_dev(cost_factors, queue)
+            cost_factors = self.cost_factors_to_dev(cost_factors, queue)
 
         return cost_factors
 
