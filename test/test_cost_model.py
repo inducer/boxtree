@@ -91,7 +91,7 @@ def test_compare_cl_and_py_cost_model(ctx_factory, nsources, ntargets, dims, dty
 
     # {{{ Construct cost models
 
-    cl_cost_model = FMMCostModel(queue, None)
+    cl_cost_model = FMMCostModel(None)
     python_cost_model = _PythonFMMCostModel(None)
 
     constant_one_params = cl_cost_model.get_unit_calibration_params().copy()
@@ -117,7 +117,7 @@ def test_compare_cl_and_py_cost_model(ctx_factory, nsources, ntargets, dims, dty
     start_time = time.time()
 
     cl_form_multipoles = cl_cost_model.process_form_multipoles(
-        trav_dev, p2m_cost_dev
+        queue, trav_dev, p2m_cost_dev
     )
 
     queue.finish()
@@ -128,7 +128,7 @@ def test_compare_cl_and_py_cost_model(ctx_factory, nsources, ntargets, dims, dty
     start_time = time.time()
 
     python_form_multipoles = python_cost_model.process_form_multipoles(
-        trav, p2m_cost
+        queue, trav, p2m_cost
     )
 
     logger.info("Python time for process_form_multipoles: {0}".format(
@@ -152,7 +152,7 @@ def test_compare_cl_and_py_cost_model(ctx_factory, nsources, ntargets, dims, dty
     queue.finish()
     start_time = time.time()
     cl_coarsen_multipoles = cl_cost_model.process_coarsen_multipoles(
-        trav_dev, m2m_cost_dev
+        queue, trav_dev, m2m_cost_dev
     )
 
     queue.finish()
@@ -163,7 +163,7 @@ def test_compare_cl_and_py_cost_model(ctx_factory, nsources, ntargets, dims, dty
     start_time = time.time()
 
     python_coarsen_multipoles = python_cost_model.process_coarsen_multipoles(
-        trav, m2m_cost
+        queue, trav, m2m_cost
     )
 
     logger.info("Python time for coarsen_multipoles: {0}".format(
@@ -180,10 +180,10 @@ def test_compare_cl_and_py_cost_model(ctx_factory, nsources, ntargets, dims, dty
     start_time = time.time()
 
     cl_ndirect_sources_per_target_box = \
-        cl_cost_model.get_ndirect_sources_per_target_box(trav_dev)
+        cl_cost_model.get_ndirect_sources_per_target_box(queue, trav_dev)
 
     cl_direct = cl_cost_model.process_direct(
-        trav_dev, cl_ndirect_sources_per_target_box, 5.0
+        queue, trav_dev, cl_ndirect_sources_per_target_box, 5.0
     )
 
     queue.finish()
@@ -194,10 +194,10 @@ def test_compare_cl_and_py_cost_model(ctx_factory, nsources, ntargets, dims, dty
     start_time = time.time()
 
     python_ndirect_sources_per_target_box = \
-        python_cost_model.get_ndirect_sources_per_target_box(trav)
+        python_cost_model.get_ndirect_sources_per_target_box(queue, trav)
 
     python_direct = python_cost_model.process_direct(
-        trav, python_ndirect_sources_per_target_box, 5.0
+        queue, trav, python_ndirect_sources_per_target_box, 5.0
     )
 
     logger.info("Python time for process_direct: {0}".format(
@@ -245,7 +245,7 @@ def test_compare_cl_and_py_cost_model(ctx_factory, nsources, ntargets, dims, dty
     queue.finish()
     start_time = time.time()
 
-    cl_m2l_cost = cl_cost_model.process_list2(trav_dev, m2l_cost_dev)
+    cl_m2l_cost = cl_cost_model.process_list2(queue, trav_dev, m2l_cost_dev)
 
     queue.finish()
     logger.info("OpenCL time for process_list2: {0}".format(
@@ -253,7 +253,7 @@ def test_compare_cl_and_py_cost_model(ctx_factory, nsources, ntargets, dims, dty
     ))
 
     start_time = time.time()
-    python_m2l_cost = python_cost_model.process_list2(trav, m2l_cost)
+    python_m2l_cost = python_cost_model.process_list2(queue, trav, m2l_cost)
     logger.info("Python time for process_list2: {0}".format(
         str(time.time() - start_time)
     ))
@@ -275,7 +275,7 @@ def test_compare_cl_and_py_cost_model(ctx_factory, nsources, ntargets, dims, dty
     queue.finish()
     start_time = time.time()
 
-    cl_m2p_cost = cl_cost_model.process_list3(trav_dev, m2p_cost_dev)
+    cl_m2p_cost = cl_cost_model.process_list3(queue, trav_dev, m2p_cost_dev)
 
     queue.finish()
     logger.info("OpenCL time for process_list3: {0}".format(
@@ -283,7 +283,7 @@ def test_compare_cl_and_py_cost_model(ctx_factory, nsources, ntargets, dims, dty
     ))
 
     start_time = time.time()
-    python_m2p_cost = python_cost_model.process_list3(trav, m2p_cost)
+    python_m2p_cost = python_cost_model.process_list3(queue, trav, m2p_cost)
     logger.info("Python time for process_list3: {0}".format(
         str(time.time() - start_time)
     ))
@@ -305,7 +305,7 @@ def test_compare_cl_and_py_cost_model(ctx_factory, nsources, ntargets, dims, dty
     queue.finish()
     start_time = time.time()
 
-    cl_p2l_cost = cl_cost_model.process_list4(trav_dev, p2l_cost_dev)
+    cl_p2l_cost = cl_cost_model.process_list4(queue, trav_dev, p2l_cost_dev)
 
     queue.finish()
     logger.info("OpenCL time for process_list4: {0}".format(
@@ -313,7 +313,7 @@ def test_compare_cl_and_py_cost_model(ctx_factory, nsources, ntargets, dims, dty
     ))
 
     start_time = time.time()
-    python_p2l_cost = python_cost_model.process_list4(trav, p2l_cost)
+    python_p2l_cost = python_cost_model.process_list4(queue, trav, p2l_cost)
     logger.info("Python time for process_list4: {0}".format(
         str(time.time() - start_time)
     ))
@@ -336,7 +336,7 @@ def test_compare_cl_and_py_cost_model(ctx_factory, nsources, ntargets, dims, dty
     start_time = time.time()
 
     cl_refine_locals_cost = cl_cost_model.process_refine_locals(
-        trav_dev, l2l_cost_dev
+        queue, trav_dev, l2l_cost_dev
     )
 
     queue.finish()
@@ -346,7 +346,7 @@ def test_compare_cl_and_py_cost_model(ctx_factory, nsources, ntargets, dims, dty
 
     start_time = time.time()
     python_refine_locals_cost = python_cost_model.process_refine_locals(
-        trav, l2l_cost
+        queue, trav, l2l_cost
     )
     logger.info("Python time for refine_locals: {0}".format(
         str(time.time() - start_time)
@@ -369,7 +369,7 @@ def test_compare_cl_and_py_cost_model(ctx_factory, nsources, ntargets, dims, dty
     queue.finish()
     start_time = time.time()
 
-    cl_l2p_cost = cl_cost_model.process_eval_locals(trav_dev, l2p_cost_dev)
+    cl_l2p_cost = cl_cost_model.process_eval_locals(queue, trav_dev, l2p_cost_dev)
 
     queue.finish()
     logger.info("OpenCL time for process_eval_locals: {0}".format(
@@ -377,7 +377,7 @@ def test_compare_cl_and_py_cost_model(ctx_factory, nsources, ntargets, dims, dty
     ))
 
     start_time = time.time()
-    python_l2p_cost = python_cost_model.process_eval_locals(trav, l2p_cost)
+    python_l2p_cost = python_cost_model.process_eval_locals(queue, trav, l2p_cost)
     logger.info("Python time for process_eval_locals: {0}".format(
         str(time.time() - start_time)
     ))
@@ -481,7 +481,7 @@ def test_estimate_calibration_params(ctx_factory):
         level_to_order = level_to_orders[icase]
 
         python_model_results.append(python_cost_model.cost_per_stage(
-            traversal, level_to_order,
+            queue, traversal, level_to_order,
             _PythonFMMCostModel.get_unit_calibration_params(),
         ))
 
@@ -491,7 +491,7 @@ def test_estimate_calibration_params(ctx_factory):
 
     test_params_sanity(python_params)
 
-    cl_cost_model = FMMCostModel(queue, make_pde_aware_translation_cost_model)
+    cl_cost_model = FMMCostModel(make_pde_aware_translation_cost_model)
 
     cl_model_results = []
 
@@ -500,13 +500,14 @@ def test_estimate_calibration_params(ctx_factory):
         level_to_order = level_to_orders[icase]
 
         cl_model_results.append(cl_cost_model.cost_per_stage(
-            traversal, level_to_order,
+            queue, traversal, level_to_order,
             FMMCostModel.get_unit_calibration_params(),
         ))
 
     cl_params = cl_cost_model.estimate_calibration_params(
         cl_model_results, timing_results[:-1], time_field_name=time_field_name
     )
+
     test_params_sanity(cl_params)
 
     if SUPPORTS_PROCESS_TIME:
@@ -583,14 +584,13 @@ def test_cost_model_op_counts_agree_with_constantone_wrangler(
     drive_fmm(trav, wrangler, src_weights, timing_data=timing_data)
 
     cost_model = FMMCostModel(
-        queue,
         translation_cost_model_factory=OpCountingTranslationCostModel
     )
 
     level_to_order = np.array([1 for _ in range(tree.nlevels)])
 
     modeled_time = cost_model.cost_per_stage(
-        trav_dev, level_to_order,
+        queue, trav_dev, level_to_order,
         FMMCostModel.get_unit_calibration_params(),
     )
 
@@ -609,10 +609,11 @@ def test_cost_model_op_counts_agree_with_constantone_wrangler(
         total_cost += timing_data[stage]["ops_elapsed"]
 
     per_box_cost = cost_model.cost_per_box(
-        trav_dev, level_to_order,
+        queue, trav_dev, level_to_order,
         FMMCostModel.get_unit_calibration_params(),
     )
     total_aggregate_cost = cost_model.aggregate_over_boxes(per_box_cost)
+
     assert total_cost == (
             total_aggregate_cost
             + modeled_time["coarsen_multipoles"]
