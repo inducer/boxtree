@@ -427,7 +427,8 @@ class TreeWithLinkedPointSources(Tree):
         is an object array.)
 
         This array is stored in :ref:`tree point source order <particle-orderings>`,
-        unlike the parameter to :meth:`boxtree.tree.TreeWithLinkedPointSources.___init__`
+        unlike the parameter to
+        :meth:`boxtree.tree.TreeWithLinkedPointSources.___init__`
 
     .. attribute:: point_source_counts
 
