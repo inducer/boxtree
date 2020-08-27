@@ -136,6 +136,8 @@ class Tree(DeviceDataRecord):
 
     .. attribute:: nlevels
 
+    .. attribute:: nboxes
+
     .. attribute:: bounding_box
 
         a tuple *(bbox_min, bbox_max)* of
@@ -406,8 +408,8 @@ class TreeWithLinkedPointSources(Tree):
     linked with extent are expanded into point sources which are linked to the
     extent-having sources in the original tree. (In an FMM context, they may
     stand in for the 'underlying' source for the purpose of the far-field
-    calculation.) Has all the same attributes as :class:`Tree`.
-    :attr:`Tree.sources_have_extent` is always *True* for instances of this
+    calculation.) Has all the same attributes as :class:`boxtree.Tree`.
+    :attr:`boxtree.Tree.sources_have_extent` is always *True* for instances of this
     type. In addition, the following attributes are available.
 
     .. attribute:: npoint_sources
@@ -425,7 +427,7 @@ class TreeWithLinkedPointSources(Tree):
         is an object array.)
 
         This array is stored in :ref:`tree point source order <particle-orderings>`,
-        unlike the parameter to :meth:`TreeWithLinkedPointSources.___init__`
+        unlike the parameter to :meth:`boxtree.tree.TreeWithLinkedPointSources.___init__`
 
     .. attribute:: point_source_counts
 
@@ -463,7 +465,7 @@ class TreeWithLinkedPointSources(Tree):
 def link_point_sources(queue, tree, point_source_starts, point_sources,
         debug=False):
     r"""
-    *Construction:* Requires that :attr:`Tree.sources_have_extent` is *True*
+    *Construction:* Requires that :attr:`boxtree.Tree.sources_have_extent` is *True*
     on *tree*.
 
     :arg queue: a :class:`pyopencl.CommandQueue` instance
@@ -475,7 +477,7 @@ def link_point_sources(queue, tree, point_source_starts, point_sources,
 
         All the particles linked to *isrc* shoud fall within the :math:`l^\infty`
         'circle' around particle number *isrc* with the radius drawn from
-        :attr:`source_radii`.
+        :attr:`boxtree.Tree.source_radii`.
 
     :arg point_sources: an object array of (XYZ) point coordinate arrays.
     """

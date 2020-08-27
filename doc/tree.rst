@@ -41,10 +41,6 @@ Tree with linked point sources
 
 .. autoclass:: TreeWithLinkedPointSources
 
-    .. rubric:: Methods
-
-    .. automethod:: get
-
 .. autofunction:: link_point_sources
 
 Filtering the lists of targets
