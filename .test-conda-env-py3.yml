@@ -1,13 +1,14 @@
 name: test-conda-env
 channels:
 - conda-forge
-- defaults
+- nodefaults
 
 dependencies:
 - python=3
 - git
-- conda-forge::numpy
+- numpy
 - pocl
+- pocl-cuda
 - mako
 - pyopencl
 - islpy
@@ -16,12 +17,3 @@ dependencies:
 
 # Only needed to make pylint succeed
 - matplotlib
-
-- pip
-- pip:
-    - git+https://github.com/inducer/pymbolic
-    - git+https://github.com/inducer/loopy
-
-    # only for reference values for the fmmlib test
-    # (unable to use--circular dep)
-    # git+https://github.com/inducer/sumpy

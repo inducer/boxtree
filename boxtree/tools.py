@@ -276,8 +276,8 @@ class DeviceDataRecord(Record):
         def transform_val(val):
             from pyopencl.algorithm import BuiltList
             if isinstance(val, np.ndarray) and val.dtype == object:
-                from pytools.obj_array import with_object_array_or_scalar
-                return with_object_array_or_scalar(f, val)
+                from pytools.obj_array import obj_array_vectorize
+                return obj_array_vectorize(f, val)
             elif isinstance(val, list):
                 return [transform_val(i) for i in val]
             elif isinstance(val, BuiltList):

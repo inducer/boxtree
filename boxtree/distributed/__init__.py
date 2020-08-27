@@ -98,7 +98,7 @@ class DistributedFMMInfo(object):
         # {{{ Partiton work
 
         # Construct default cost model if not supplied
-        cost_model = FMMCostModel(queue)
+        cost_model = FMMCostModel()
 
         if calibration_params is None:
             # TODO: should replace the calibration params with a reasonable
@@ -107,7 +107,7 @@ class DistributedFMMInfo(object):
                 FMMCostModel.get_unit_calibration_params()
 
         boxes_time = cost_model.cost_per_box(
-            global_trav_dev, self.global_wrangler.level_nterms,
+            queue, global_trav_dev, self.global_wrangler.level_nterms,
             calibration_params
         ).get()
 
