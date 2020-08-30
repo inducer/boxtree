@@ -428,7 +428,7 @@ class TreeWithLinkedPointSources(Tree):
 
         This array is stored in :ref:`tree point source order <particle-orderings>`,
         unlike the parameter to
-        :meth:`boxtree.tree.TreeWithLinkedPointSources.___init__`
+        :meth:`boxtree.tree.TreeWithLinkedPointSources.__init__`
 
     .. attribute:: point_source_counts
 
@@ -460,6 +460,11 @@ class TreeWithLinkedPointSources(Tree):
     .. attribute:: box_point_source_counts_cumul
 
         ``particle_id_t [nboxes]``
+
+    .. method:: __init__
+
+        This constructor is not intended to be called by users directly.
+        Call :func:`link_point_sources` instead.
     """
 
 
