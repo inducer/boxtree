@@ -90,25 +90,27 @@ def demo_cost_model():
 
     from boxtree.cost import FMMCostModel
     from boxtree.cost import make_pde_aware_translation_cost_model
-    cost_model = FMMCostModel(queue, make_pde_aware_translation_cost_model)
+    cost_model = FMMCostModel(make_pde_aware_translation_cost_model)
 
     model_results = []
     for icase in range(len(traversals)-1):
         traversal = traversals_dev[icase]
         model_results.append(
             cost_model.cost_per_stage(
-                traversal, level_to_orders[icase],
+                queue, traversal, level_to_orders[icase],
                 FMMCostModel.get_unit_calibration_params(),
             )
         )
+    queue.finish()
 
     params = cost_model.estimate_calibration_params(
         model_results, timing_results[:-1], time_field_name=time_field_name
     )
 
     predicted_time = cost_model.cost_per_stage(
-        traversals_dev[-1], level_to_orders[-1], params,
+        queue, traversals_dev[-1], level_to_orders[-1], params,
     )
+    queue.finish()
 
     for field in ["form_multipoles", "eval_direct", "multipole_to_local",
                   "eval_multipoles", "form_locals", "eval_locals",

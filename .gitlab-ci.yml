@@ -42,19 +42,19 @@ Python 3 POCL Titan X:
         reports:
             junit: test/pytest.xml
 
-Python 3 POCL K40:
-    script:
-    - export PYOPENCL_TEST=portable:k40
-    - CONDA_ENVIRONMENT=.test-conda-env-py3.yml
-    - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project-within-miniconda.sh
-    - ". ./build-and-test-py-project-within-miniconda.sh"
-    tags:
-    - nvidia-k40
-    except:
-    - tags
-    artifacts:
-        reports:
-            junit: test/pytest.xml
+# Python 3 POCL K40:
+#     script:
+#     - export PYOPENCL_TEST=portable:k40
+#     - CONDA_ENVIRONMENT=.test-conda-env-py3.yml
+#     - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project-within-miniconda.sh
+#     - ". ./build-and-test-py-project-within-miniconda.sh"
+#     tags:
+#     - nvidia-k40
+#     except:
+#     - tags
+#     artifacts:
+#         reports:
+#             junit: test/pytest.xml
 
 Python 3 POCL Examples:
   script:
@@ -91,8 +91,6 @@ Documentation:
     - ". ./build-docs.sh"
     tags:
     - python3
-    only:
-    - master
 
 Flake8:
     script:
