@@ -101,8 +101,8 @@ the point sources have their own orderings:
 * **user point source order**
 * **tree point source order** (tree/box-sorted)
 
-:attr:`TreeWithLinkedPointSources.user_point_source_ids` helps translate point
-source arrays into tree order for processing.
+:attr:`boxtree.tree.TreeWithLinkedPointSources.user_point_source_ids` helps
+translate point source arrays into tree order for processing.
 
 .. _csr:
 
