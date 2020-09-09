@@ -125,9 +125,9 @@ class TreeBuilder(object):
             to which particle stick-out is measured. See :attr:`Tree.extent_norm`.
         :arg bbox: Bounding box of either type:
             1. A dim-by-2 array, with each row to be [min, max] coordinates
-               in its corresponding axis direction.
+            in its corresponding axis direction.
             2. (Internal use only) of the same type as returned by
-               *boxtree.bounding_box.make_bounding_box_dtype*.
+            *boxtree.bounding_box.make_bounding_box_dtype*.
             When given, this bounding box is used for tree
             building. Otherwise, the bounding box is determined from particles
             in such a way that it is square and is slightly larger at the top (so
@@ -247,10 +247,10 @@ class TreeBuilder(object):
             # Targets weren't specified. Sources are also targets. Let's
             # call them "srcntgts".
 
-            from pytools.obj_array import is_obj_array, make_obj_array
-            if is_obj_array(particles):
+            if isinstance(particles, np.ndarray) and particles.dtype.char == "O":
                 srcntgts = particles
             else:
+                from pytools.obj_array import make_obj_array
                 srcntgts = make_obj_array([
                     p.with_queue(queue).copy() for p in particles
                     ])

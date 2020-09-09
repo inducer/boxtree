@@ -1463,7 +1463,7 @@ class FMMTraversalInfo(DeviceDataRecord):
     .. note::
 
         To obtain the overall, non-adaptive box extent, use
-        :attr:`Tree.box_centers` along with :attr:`Tree.box_levels`.
+        :attr:`boxtree.Tree.box_centers` along with :attr:`boxtree.Tree.box_levels`.
 
     If they are not available, the corresponding attributes will be *None*.
 
@@ -1499,6 +1499,16 @@ class FMMTraversalInfo(DeviceDataRecord):
         ``box_id_t [nboxes+1]``
 
     .. attribute:: same_level_non_well_sep_boxes_lists
+
+        ``box_id_t [*]``
+
+    Following attributes are deprecated.
+
+    .. attribute:: colleagues_starts
+
+        ``box_id_t [nboxes+1]``
+
+    .. attribute:: colleagues_lists
 
         ``box_id_t [*]``
 
@@ -1709,14 +1719,16 @@ class FMMTraversalBuilder:
         :arg well_sep_is_n_away: Either An integer 1 or greater.
             (Only 1 and 2 are tested.)
             The spacing between boxes that is considered "well-separated" for
-            :attr:`from_sep_siblings` (List 2).
+            :attr:`boxtree.traversal.FMMTraversalInfo.from_sep_siblings_starts`
+            (List 2).
         :arg from_sep_smaller_crit: The criterion used to determine separation
-            box dimensions and separation for :attr:`from_sep_smaller_by_level`
+            box dimensions and separation for
+            :attr:`boxtree.traversal.FMMTraversalInfo.from_sep_smaller_by_level`
             (List 3). May be one of ``"static_linf"`` (use the box square,
-            possibly enlarged by :attr:`Tree.stick_out_factor`), ``"precise_linf"`
-            (use the precise extent of targets in the box, including their radii),
-            or ``"static_l2"`` (use the circumcircle of the box,
-            possibly enlarged by :attr:`Tree.stick_out_factor`).
+            possibly enlarged by :attr:`boxtree.Tree.stick_out_factor`),
+            ``"precise_linf"`` (use the precise extent of targets in the box,
+            including their radii), or ``"static_l2"`` (use the circumcircle of
+            the box, possibly enlarged by :attr:`boxtree.Tree.stick_out_factor`).
         """
         self.context = context
         self.well_sep_is_n_away = well_sep_is_n_away
