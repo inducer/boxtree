@@ -83,8 +83,8 @@ def _test_against_shared(dims, nsources, ntargets, dtype):
         return DistributedFMMLibExpansionWrangler(
             queue, tree, helmholtz_k, fmm_level_to_nterms=fmm_level_to_nterms)
 
-    from boxtree.distributed import DistributedFMMInfo
-    distribued_fmm_info = DistributedFMMInfo(
+    from boxtree.distributed import DistributedFMMRunner
+    distribued_fmm_info = DistributedFMMRunner(
         queue, tree, tg, distributed_expansion_wrangler_factory, comm=comm
     )
     pot_dfmm = distribued_fmm_info.drive_dfmm(sources_weights)
@@ -163,8 +163,8 @@ def _test_constantone(dims, nsources, ntargets, dtype):
     def constantone_expansion_wrangler_factory(tree):
         return ConstantOneExpansionWrangler(tree)
 
-    from boxtree.distributed import DistributedFMMInfo
-    distributed_fmm_info = DistributedFMMInfo(
+    from boxtree.distributed import DistributedFMMRunner
+    distributed_fmm_info = DistributedFMMRunner(
         queue, tree, tg, constantone_expansion_wrangler_factory, comm=MPI.COMM_WORLD
     )
 

@@ -41,6 +41,7 @@ Overview
     fmm
     lookup
     cost
+    distributed
     misc
 
 Indices and tables
