@@ -1,5 +1,5 @@
-Traversal building
-==================
+Building interation lists
+=========================
 
 .. automodule:: boxtree.traversal
 
@@ -16,6 +16,36 @@ Build Entrypoint
 ----------------
 
 .. autoclass:: FMMTraversalBuilder
+
+    .. automethod:: __call__
+
+
+.. automodule:: boxtree.rotation_classes
+
+Rotation classes data structure
+-------------------------------
+
+.. autoclass:: RotationClassesInfo
+
+Build rotation classes
+----------------------
+
+.. autoclass:: RotationClassesBuilder
+
+    .. automethod:: __call__
+
+
+.. automodule:: boxtree.translation_classes
+
+Translation classes data structure
+----------------------------------
+
+.. autoclass:: TranslationClassesInfo
+
+Build translation classes
+-------------------------
+
+.. autoclass:: TranslationClassesBuilder
 
     .. automethod:: __call__
 

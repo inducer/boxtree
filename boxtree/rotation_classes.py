@@ -67,6 +67,8 @@ class RotationClassesInfo(DeviceDataRecord):
 
 
 class RotationClassesBuilder(object):
+    """Build rotation classes for List 2 translations.
+    """
 
     def __init__(self, context):
         self.context = context
