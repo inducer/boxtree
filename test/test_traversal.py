@@ -199,8 +199,8 @@ def test_tree_connectivity(ctx_factory, dims, sources_are_targets):
                     plotter.draw_tree(fill=False, edgecolor="black", zorder=10)
                     plotter.set_bounding_box()
 
-                    plotter.draw_box(ibox, facecolor='green', alpha=0.5)
-                    plotter.draw_box(jbox, facecolor='red', alpha=0.5)
+                    plotter.draw_box(ibox, facecolor="green", alpha=0.5)
+                    plotter.draw_box(jbox, facecolor="red", alpha=0.5)
 
                     import matplotlib.pyplot as pt
                     pt.gca().set_aspect("equal")
