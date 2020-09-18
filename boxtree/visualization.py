@@ -42,7 +42,7 @@ def int_to_roman(inp):
     if not 0 < inp < 4000:
         raise ValueError("Argument must be between 1 and 3999 (got %d)" % inp)
     ints = (1000, 900,  500, 400, 100,  90, 50,  40, 10,  9,   5,  4,   1)
-    nums = ('M', 'CM', 'D', 'CD', 'C', 'XC', 'L', 'XL', 'X', 'IX', 'V', 'IV', 'I')
+    nums = ("M", "CM", "D", "CD", "C", "XC", "L", "XL", "X", "IX", "V", "IV", "I")
     result = ""
     for i in range(len(ints)):
         count = int(inp / ints[i])
@@ -87,7 +87,7 @@ class TreePlotter:
         """
         :arg kwargs: keyword arguments to pass on to
             :class:`matplotlib.patches.PathPatch`,
-            e.g. `facecolor='red', edgecolor='yellow', alpha=0.5`
+            e.g. `facecolor="red", edgecolor="yellow", alpha=0.5`
         """
 
         el, eh = self.tree.get_box_extent(ibox)
@@ -125,7 +125,7 @@ class TreePlotter:
             lev = int(tree.box_levels[ibox])
             pt.text(x, y, str(ibox), fontsize=20*1.15**(-lev),
                     ha="center", va="center",
-                    bbox=dict(facecolor='white', alpha=0.5, lw=0))
+                    bbox=dict(facecolor="white", alpha=0.5, lw=0))
 
     def get_tikz_for_tree(self):
         if self.tree.dimensions != 2:
@@ -212,7 +212,7 @@ def _draw_box_list(tree_plotter, ibox, starts, lists, key_to_box=None, **kwargs)
 
 
 def draw_same_level_non_well_sep_boxes(tree_plotter, traversal, ibox):
-    tree_plotter.draw_box(ibox, facecolor='red',
+    tree_plotter.draw_box(ibox, facecolor="red",
             alpha=0.5)
 
     # same-level non-well-sep
@@ -223,7 +223,7 @@ def draw_same_level_non_well_sep_boxes(tree_plotter, traversal, ibox):
 
 
 def draw_box_lists(tree_plotter, traversal, ibox):
-    tree_plotter.draw_box(ibox, facecolor='red',
+    tree_plotter.draw_box(ibox, facecolor="red",
             alpha=0.5)
 
     # from near neighbors ("list 1")

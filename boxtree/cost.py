@@ -80,7 +80,7 @@ if sys.version_info >= (3, 4):
     from abc import ABC, abstractmethod
 else:
     from abc import ABCMeta, abstractmethod
-    ABC = ABCMeta('ABC', (), {})
+    ABC = ABCMeta("ABC", (), {})
 
 
 # {{{ FMMTranslationCostModel

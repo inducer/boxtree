@@ -144,7 +144,7 @@ class TreeBuilder(object):
         # {{{ input processing
 
         if kind not in ["adaptive", "adaptive-level-restricted", "non-adaptive"]:
-            raise ValueError("unknown tree kind \"{0}\"".format(kind))
+            raise ValueError("unknown tree kind '{0}'".format(kind))
 
         # we'll modify this below, so copy it
         if wait_for is None:
@@ -391,8 +391,8 @@ class TreeBuilder(object):
                     bbox_bak = bbox.copy()
                     bbox = np.empty(1, bbox_auto.dtype)
                     for i, ax in enumerate(axis_names):
-                        bbox['min_'+ax] = bbox_bak[i][0]
-                        bbox['max_'+ax] = bbox_bak[i][1]
+                        bbox["min_"+ax] = bbox_bak[i][0]
+                        bbox["max_"+ax] = bbox_bak[i][1]
                 else:
                     assert len(bbox) == 1
             else:
