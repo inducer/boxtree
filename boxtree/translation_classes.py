@@ -177,7 +177,7 @@ class TranslationClassesInfo(DeviceDataRecord):
 
         ``int32 [*]``
 
-        A list, corresponding to *from_sep_siblings_lists* of *trav*, of
+        A list, corresponding to *from_sep_siblings_lists* of :attr:`traversal`, of
         the translation classes of each box pair.
 
     .. attribute:: from_sep_siblings_translation_class_to_distance_vector
@@ -195,6 +195,11 @@ class TranslationClassesInfo(DeviceDataRecord):
         A list with an entry for each level giving the starting translation
         class id for that level. Translation classes are numbered contiguously
         by level.
+
+    .. attribute:: traversal
+
+        A :class:`boxtree.traversal.FMMTraversalInfo` object corresponding to the
+        traversal that these translation classes refer to.
     """
 
     @property
@@ -369,12 +374,15 @@ class TranslationClassesBuilder(object):
         from_sep_siblings_translation_classes_level_starts = cl.array.to_device(
             queue, from_sep_siblings_translation_classes_level_starts)
 
-        return TranslationClassesInfo(
+        info = TranslationClassesInfo(
                 from_sep_siblings_translation_classes=translation_classes_lists,
                 from_sep_siblings_translation_class_to_distance_vector=distances,
                 from_sep_siblings_translation_classes_level_starts=(
                     from_sep_siblings_translation_classes_level_starts),
-                ).with_queue(None), evt
+                ).with_queue(None)
+
+        info.traversal = trav
+        return info, evt
 
 # }}}
 
