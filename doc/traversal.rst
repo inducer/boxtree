@@ -1,4 +1,4 @@
-Building interation lists
+Building interaction lists
 =========================
 
 .. automodule:: boxtree.traversal
