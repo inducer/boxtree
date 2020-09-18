@@ -202,6 +202,14 @@ class TranslationClassesInfo(DeviceDataRecord):
         traversal that these translation classes refer to.
     """
 
+    def __init__(self, traversal, **kwargs):
+        super(TranslationClassesInfo, self).__init__(**kwargs)
+        self.traversal = traversal
+
+    def copy(self, **kwargs):
+        traversal = kwargs.pop('traversal', self.traversal)
+        return self.__class__(traversal=traversal, **self.get_copy_kwargs(**kwargs))
+
     @property
     def nfrom_sep_siblings_translation_classes(self):
         return len(self.from_sep_siblings_translation_class_to_distance_vector)
@@ -375,13 +383,13 @@ class TranslationClassesBuilder(object):
             queue, from_sep_siblings_translation_classes_level_starts)
 
         info = TranslationClassesInfo(
+                traversal=trav,
                 from_sep_siblings_translation_classes=translation_classes_lists,
                 from_sep_siblings_translation_class_to_distance_vector=distances,
                 from_sep_siblings_translation_classes_level_starts=(
                     from_sep_siblings_translation_classes_level_starts),
                 ).with_queue(None)
 
-        info.traversal = trav
         return info, evt
 
 # }}}
