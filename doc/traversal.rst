@@ -1,5 +1,5 @@
 Building interaction lists
-=========================
+==========================
 
 .. automodule:: boxtree.traversal
 
