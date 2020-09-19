@@ -207,7 +207,7 @@ class TranslationClassesInfo(DeviceDataRecord):
         self.traversal = traversal
 
     def copy(self, **kwargs):
-        traversal = kwargs.pop('traversal', self.traversal)
+        traversal = kwargs.pop("traversal", self.traversal)
         return self.__class__(traversal=traversal, **self.get_copy_kwargs(**kwargs))
 
     @property
