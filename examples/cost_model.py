@@ -126,5 +126,5 @@ def demo_cost_model():
                 abs(100*pred_err))
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     demo_cost_model()
