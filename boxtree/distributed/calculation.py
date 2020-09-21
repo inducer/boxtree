@@ -28,6 +28,7 @@ import pyopencl as cl
 from boxtree.distributed import MPITags
 from mpi4py import MPI
 from boxtree.distributed import dtype_to_mpi
+from boxtree.fmm import TimingRecorder
 from boxtree.pyfmmlib_integration import FMMLibExpansionWrangler
 from pytools import memoize_method
 from pyopencl.tools import dtype_to_ctype
@@ -360,37 +361,47 @@ def communicate_mpoles(wrangler, comm, trav, mpole_exps, return_stats=False):
 
 def calculate_pot(local_wrangler, global_wrangler, local_trav, source_weights,
                   src_idx_all_ranks, tgt_idx_all_ranks, comm=MPI.COMM_WORLD,
-                  _communicate_mpoles_via_allreduce=False):
+                  _communicate_mpoles_via_allreduce=False,
+                  timing_data=None):
     """ Calculate potentials for targets on distributed memory machines.
 
     This function needs to be called collectively by all ranks in *comm*.
 
-    :arg local_wrangler: Expansion wranglers for each worker rank.
-    :param global_wrangler: Expansion wrangler on the root rank for assembling
-        partial results from worker processes together. This argument differs from
-        *local_wrangler* by referening the global tree instead of local trees.
-        This argument is None on worker ranks.
-    :param local_trav: Local traversal object returned from *generate_local_travs*.
-    :param source_weights: Source weights for FMM. None on worker ranks.
-    :param src_idx_all_ranks: gathered from the return value of
-        *generate_local_tree*. Only significant on root rank.
-    :param tgt_idx_all_ranks: gathered from the return value of
-        *generate_local_tree*. Only significant on root rank.
-    :param comm: MPI communicator.
-    :param _communicate_mpoles_via_allreduce: Use MPI allreduce for communicating
-        multipole expressions. Using MPI allreduce is slower but might be helpful for
-        debugging purpose.
+    :arg local_wrangler: expansion wrangler referencing the local tree. This argument
+        is significant on all ranks.
+    :arg global_wrangler: expansion wrangler referencing the global tree. This
+        argument is used on the root rank for assembling partial results from
+        worker ranks together. This argument is significant only on the root rank.
+    :arg local_trav: local traversal object returned from *generate_local_travs*.
+    :arg source_weights: source weights for FMM. This argument is significant only
+        on the root rank.
+    :arg src_idx_all_ranks: a :class:`list` with shape ``(nranks,)``, where the ith
+        entry is a :class:`numpy.ndarray` representing the source indices of the
+        local tree on rank *i*. Each entry can be returned from
+        *generate_local_tree*. This argument is significant only on root rank.
+    :arg tgt_idx_all_ranks: a :class:`list` with shape ``(nranks,)``, where the ith
+        entry is a :class:`numpy.ndarray` representing the target indices of the
+        local tree on rank *i*. Each entry can be returned from
+        *generate_local_tree*. This argument is significant only on root rank.
+    :arg comm: MPI communicator.
+    :arg _communicate_mpoles_via_allreduce: whether to use MPI allreduce for
+        communicating multipole expressions. Using MPI allreduce is slower but might
+        be helpful for debugging purpose.
+    :arg timing_data: Either *None*, or a :class:`dict` that is populated with
+        timing information for the stages of the algorithm (in the form of
+        :class:`TimingResult`) for the local rank, if such information is available.
     :return: On the root rank, this function returns calculated potentials. On
         worker processes, this function returns None.
     """
+    recorder = TimingRecorder()
 
     # Get MPI information
-    current_rank = comm.Get_rank()
-    total_rank = comm.Get_size()
+    mpi_rank = comm.Get_rank()
+    mpi_size = comm.Get_size()
 
     # {{{ Distribute source weights
 
-    if current_rank == 0:
+    if mpi_rank == 0:
         # Convert src_weights to tree order
         source_weights = source_weights[global_wrangler.tree.user_source_ids]
 
@@ -402,21 +413,23 @@ def calculate_pot(local_wrangler, global_wrangler, local_trav, source_weights,
 
     # {{{ "Step 2.1:" Construct local multipoles
 
-    logger.debug("construct local multipoles")
-    mpole_exps = local_wrangler.form_multipoles(
+    mpole_exps, timing_future = local_wrangler.form_multipoles(
             local_trav.level_start_source_box_nrs,
             local_trav.source_boxes,
-            local_src_weights)[0]
+            local_src_weights)
+
+    recorder.add("form_multipoles", timing_future)
 
     # }}}
 
     # {{{ "Step 2.2:" Propagate multipoles upward
 
-    logger.debug("propagate multipoles upward")
-    local_wrangler.coarsen_multipoles(
+    mpole_exps, timing_future = local_wrangler.coarsen_multipoles(
             local_trav.level_start_source_parent_box_nrs,
             local_trav.source_parent_boxes,
             mpole_exps)
+
+    recorder.add("coarsen_multipoles", timing_future)
 
     # mpole_exps is called Phi in [1]
 
@@ -435,12 +448,13 @@ def calculate_pot(local_wrangler, global_wrangler, local_trav, source_weights,
 
     # {{{ "Stage 3:" Direct evaluation from neighbor source boxes ("list 1")
 
-    logger.debug("direct evaluation from neighbor source boxes ('list 1')")
-    potentials = local_wrangler.eval_direct(
+    potentials, timing_future = local_wrangler.eval_direct(
             local_trav.target_boxes,
             local_trav.neighbor_source_boxes_starts,
             local_trav.neighbor_source_boxes_lists,
-            local_src_weights)[0]
+            local_src_weights)
+
+    recorder.add("eval_direct", timing_future)
 
     # these potentials are called alpha in [1]
 
@@ -448,13 +462,14 @@ def calculate_pot(local_wrangler, global_wrangler, local_trav, source_weights,
 
     # {{{ "Stage 4:" translate separated siblings' ("list 2") mpoles to local
 
-    logger.debug("translate separated siblings' ('list 2') mpoles to local")
-    local_exps = local_wrangler.multipole_to_local(
+    local_exps, timing_future = local_wrangler.multipole_to_local(
             local_trav.level_start_target_or_target_parent_box_nrs,
             local_trav.target_or_target_parent_boxes,
             local_trav.from_sep_siblings_starts,
             local_trav.from_sep_siblings_lists,
-            mpole_exps)[0]
+            mpole_exps)
+
+    recorder.add("multipole_to_local", timing_future)
 
     # local_exps represents both Gamma and Delta in [1]
 
@@ -462,70 +477,80 @@ def calculate_pot(local_wrangler, global_wrangler, local_trav, source_weights,
 
     # {{{ "Stage 5:" evaluate sep. smaller mpoles ("list 3") at particles
 
-    logger.debug("evaluate sep. smaller mpoles at particles ('list 3 far')")
-
     # (the point of aiming this stage at particles is specifically to keep its
     # contribution *out* of the downward-propagating local expansions)
 
-    potentials = potentials + local_wrangler.eval_multipoles(
+    mpole_result, timing_future = local_wrangler.eval_multipoles(
             local_trav.target_boxes_sep_smaller_by_source_level,
             local_trav.from_sep_smaller_by_level,
-            mpole_exps)[0]
+            mpole_exps)
+
+    recorder.add("eval_multipoles", timing_future)
+
+    potentials = potentials + mpole_result
 
     # these potentials are called beta in [1]
 
     if local_trav.from_sep_close_smaller_starts is not None:
-        logger.debug("evaluate separated close smaller interactions directly "
-                     "('list 3 close')")
-        potentials = potentials + local_wrangler.eval_direct(
+        direct_result, timing_future = local_wrangler.eval_direct(
                 local_trav.target_boxes,
                 local_trav.from_sep_close_smaller_starts,
                 local_trav.from_sep_close_smaller_lists,
-                local_src_weights)[0]
+                local_src_weights)
+
+        recorder.add("eval_direct", timing_future)
+
+        potentials = potentials + direct_result
 
     # }}}
 
     # {{{ "Stage 6:" form locals for separated bigger source boxes ("list 4")
 
-    logger.debug("form locals for separated bigger source boxes ('list 4 far')")
-
-    local_exps = local_exps + local_wrangler.form_locals(
+    local_result, timing_future = local_wrangler.form_locals(
             local_trav.level_start_target_or_target_parent_box_nrs,
             local_trav.target_or_target_parent_boxes,
             local_trav.from_sep_bigger_starts,
             local_trav.from_sep_bigger_lists,
-            local_src_weights)[0]
+            local_src_weights)
+
+    recorder.add("form_locals", timing_future)
+
+    local_exps = local_exps + local_result
 
     if local_trav.from_sep_close_bigger_starts is not None:
-        logger.debug("evaluate separated close bigger interactions directly "
-                     "('list 4 close')")
-
-        potentials = potentials + local_wrangler.eval_direct(
+        direct_result, timing_future = local_wrangler.eval_direct(
                 local_trav.target_boxes,
                 local_trav.from_sep_close_bigger_starts,
                 local_trav.from_sep_close_bigger_lists,
-                local_src_weights)[0]
+                local_src_weights)
+
+        recorder.add("eval_direct", timing_future)
+
+        potentials = potentials + direct_result
 
     # }}}
 
     # {{{ "Stage 7:" propagate local_exps downward
 
-    logger.debug("propagate local_exps downward")
-
-    local_wrangler.refine_locals(
+    local_exps, timing_future = local_wrangler.refine_locals(
             local_trav.level_start_target_or_target_parent_box_nrs,
             local_trav.target_or_target_parent_boxes,
             local_exps)
+
+    recorder.add("refine_locals", timing_future)
 
     # }}}
 
     # {{{ "Stage 8:" evaluate locals
 
-    logger.debug("evaluate locals")
-    potentials = potentials + local_wrangler.eval_locals(
+    local_result, timing_future = local_wrangler.eval_locals(
             local_trav.level_start_target_box_nrs,
             local_trav.target_boxes,
-            local_exps)[0]
+            local_exps)
+
+    recorder.add("eval_locals", timing_future)
+
+    potentials = potentials + local_result
 
     # }}}
 
@@ -533,11 +558,11 @@ def calculate_pot(local_wrangler, global_wrangler, local_trav, source_weights,
 
     potentials_mpi_type = dtype_to_mpi(potentials.dtype)
 
-    if current_rank == 0:
-        potentials_all_ranks = np.empty((total_rank,), dtype=object)
+    if mpi_rank == 0:
+        potentials_all_ranks = np.empty((mpi_size,), dtype=object)
         potentials_all_ranks[0] = potentials
 
-        for irank in range(1, total_rank):
+        for irank in range(1, mpi_size):
             potentials_all_ranks[irank] = np.empty(
                 tgt_idx_all_ranks[irank].shape, dtype=potentials.dtype
             )
@@ -552,22 +577,22 @@ def calculate_pot(local_wrangler, global_wrangler, local_trav, source_weights,
 
     # {{{ Assemble potentials from worker processes together on the root process
 
-    if current_rank == 0:
-        potentials = np.empty((global_wrangler.tree.ntargets,),
-                              dtype=potentials.dtype)
+    if mpi_rank == 0:
+        potentials = np.empty(global_wrangler.tree.ntargets, dtype=potentials.dtype)
 
-        for irank in range(total_rank):
+        for irank in range(mpi_size):
             potentials[tgt_idx_all_ranks[irank]] = potentials_all_ranks[irank]
 
-        logger.debug("reorder potentials")
         result = global_wrangler.reorder_potentials(potentials)
 
-        logger.debug("finalize potentials")
         result = global_wrangler.finalize_potentials(result)
 
     # }}}
 
-    if current_rank == 0:
+    if timing_data is not None:
+        timing_data.update(recorder.summarize())
+
+    if mpi_rank == 0:
         return result
 
 # }}}

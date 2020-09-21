@@ -180,12 +180,15 @@ class DistributedFMMRunner(object):
 
         # }}}
 
-    def drive_dfmm(self, source_weights, _communicate_mpoles_via_allreduce=False):
+    def drive_dfmm(
+            self, source_weights, _communicate_mpoles_via_allreduce=False,
+            timing_data=None):
         """Calculate potentials at target points.
         """
         from boxtree.distributed.calculation import calculate_pot
         return calculate_pot(
             self.local_wrangler, self.global_wrangler, self.local_trav,
             source_weights, self.src_idx_all_ranks, self.tgt_idx_all_ranks,
-            _communicate_mpoles_via_allreduce=_communicate_mpoles_via_allreduce
+            _communicate_mpoles_via_allreduce=_communicate_mpoles_via_allreduce,
+            timing_data=timing_data
         )
