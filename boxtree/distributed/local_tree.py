@@ -50,15 +50,13 @@ FetchLocalParticlesKernels = namedtuple(
 
 
 def get_fetch_local_particles_knls(context, global_tree):
-    """
-    This function compiles several PyOpenCL kernels helpful for fetching particles of
+    """Compiles PyOpenCL kernels helpful for constructing particles of
     local trees from global tree.
 
     :arg context: The context to compile against.
     :arg global_tree: The global tree from which local trees are generated.
     :return: A FetchLocalParticlesKernels object.
     """
-
     particle_mask_knl = cl.elementwise.ElementwiseKernel(
         context,
         arguments=Template("""
@@ -204,10 +202,10 @@ def get_fetch_local_particles_knls(context, global_tree):
     )
 
 
-def fetch_local_particles(queue, global_tree, src_box_mask, tgt_box_mask, local_tree,
-                          knls):
-    """ This helper function fetches particles needed for worker processes, and
-    reconstruct list of lists indexing.
+def fetch_local_particles(
+        queue, global_tree, src_box_mask, tgt_box_mask, local_tree):
+    """This helper function generates particles of the local tree, and reconstruct
+    list of lists indexing accordingly.
 
     Specifically, this function generates the following fields for the local tree:
     sources, targets, target_radii, box_source_starts, box_source_counts_nonchild,
@@ -216,6 +214,7 @@ def fetch_local_particles(queue, global_tree, src_box_mask, tgt_box_mask, local_
 
     These generated fields are stored directly into *local_tree*.
     """
+    knls = get_fetch_local_particles_knls(queue.context, global_tree)
     global_tree_dev = global_tree.to_device(queue).with_queue(queue)
     nsources = global_tree.nsources
 
@@ -471,47 +470,6 @@ def fetch_local_particles(queue, global_tree, src_box_mask, tgt_box_mask, local_
     return local_tree, src_idx, tgt_idx
 
 
-class LocalTreeBuilder:
-
-    def __init__(self, global_tree, queue):
-        self.global_tree = global_tree
-        self.knls = get_fetch_local_particles_knls(queue.context, global_tree)
-        self.queue = queue
-
-    def from_global_tree(self, responsible_boxes_list, responsible_boxes_mask,
-                         src_boxes_mask, ancestor_mask):
-
-        local_tree = self.global_tree.copy(
-            responsible_boxes_list=responsible_boxes_list,
-            ancestor_mask=ancestor_mask.get(),
-            box_to_user_starts=None,
-            box_to_user_lists=None,
-            _dimensions=None,
-            _ntargets=None,
-            _nsources=None,
-        )
-
-        local_tree.user_source_ids = None
-        local_tree.sorted_target_ids = None
-
-        local_tree, src_idx, tgt_idx = fetch_local_particles(
-            self.queue,
-            self.global_tree,
-            src_boxes_mask,
-            responsible_boxes_mask,
-            local_tree,
-            self.knls
-        )
-
-        local_tree._dimensions = local_tree.dimensions
-        local_tree._ntargets = local_tree.targets[0].shape[0]
-        local_tree._nsources = local_tree.sources[0].shape[0]
-
-        local_tree.__class__ = LocalTree
-
-        return local_tree, src_idx, tgt_idx
-
-
 class LocalTree(Tree):
     """
     .. attribute:: box_to_user_starts
@@ -544,38 +502,57 @@ class LocalTree(Tree):
         return self._dimensions
 
 
-def generate_local_tree(queue, tree, responsible_boxes_list,
+def generate_local_tree(queue, global_tree, responsible_boxes_list,
                         responsible_box_query, comm=MPI.COMM_WORLD):
-
     # Get MPI information
-    rank = comm.Get_rank()
-    size = comm.Get_size()
+    mpi_rank = comm.Get_rank()
+    mpi_size = comm.Get_size()
 
     start_time = time.time()
 
-    local_tree_builder = LocalTreeBuilder(tree, queue)
-
     (responsible_boxes_mask, ancestor_boxes, src_boxes_mask, box_mpole_is_used) = \
-        responsible_box_query.get_boxes_mask(responsible_boxes_list[rank])
+        responsible_box_query.get_boxes_mask(responsible_boxes_list[mpi_rank])
 
-    local_tree, src_idx, tgt_idx = local_tree_builder.from_global_tree(
-        responsible_boxes_list[rank], responsible_boxes_mask, src_boxes_mask,
-        ancestor_boxes
+    local_tree = global_tree.copy(
+        responsible_boxes_list=responsible_boxes_list[mpi_rank],
+        ancestor_mask=ancestor_boxes.get(),
+        box_to_user_starts=None,
+        box_to_user_lists=None,
+        _dimensions=None,
+        _ntargets=None,
+        _nsources=None,
     )
+
+    local_tree.user_source_ids = None
+    local_tree.sorted_target_ids = None
+
+    local_tree, src_idx, tgt_idx = fetch_local_particles(
+        queue,
+        global_tree,
+        src_boxes_mask,
+        responsible_boxes_mask,
+        local_tree,
+    )
+
+    local_tree._dimensions = local_tree.dimensions
+    local_tree._ntargets = local_tree.targets[0].shape[0]
+    local_tree._nsources = local_tree.sources[0].shape[0]
+
+    local_tree.__class__ = LocalTree
 
     # {{{ compute the users of multipole expansions of each box on root rank
 
     box_mpole_is_used_all_ranks = None
-    if rank == 0:
+    if mpi_rank == 0:
         box_mpole_is_used_all_ranks = np.empty(
-            (size, tree.nboxes), dtype=box_mpole_is_used.dtype
+            (mpi_size, global_tree.nboxes), dtype=box_mpole_is_used.dtype
         )
     comm.Gather(box_mpole_is_used.get(), box_mpole_is_used_all_ranks, root=0)
 
     box_to_user_starts = None
     box_to_user_lists = None
 
-    if rank == 0:
+    if mpi_rank == 0:
         box_mpole_is_used_all_ranks = cl.array.to_device(
             queue, box_mpole_is_used_all_ranks
         )
@@ -603,7 +580,7 @@ def generate_local_tree(queue, tree, responsible_boxes_list,
     # }}}
 
     logger.info("Generate local tree on rank {} in {} sec.".format(
-        rank, str(time.time() - start_time)
+        mpi_rank, str(time.time() - start_time)
     ))
 
     return local_tree, src_idx, tgt_idx

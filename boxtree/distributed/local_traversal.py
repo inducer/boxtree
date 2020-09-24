@@ -78,7 +78,9 @@ def generate_local_travs(
                             d_tree.box_flags)
 
     # Generate local source flags
-    local_box_flags = d_tree.box_flags & 250
+    local_box_flags = d_tree.box_flags & (255 - box_flags_enum.HAS_OWN_SOURCES)
+    local_box_flags = local_box_flags & (255 - box_flags_enum.HAS_CHILD_SOURCES)
+
     modify_own_sources_knl = cl.elementwise.ElementwiseKernel(
         queue.context,
         Template(r"""
@@ -117,7 +119,7 @@ def generate_local_travs(
     modify_child_sources_knl(d_tree.ancestor_mask, local_box_flags)
 
     d_local_trav, _ = traversal_builder(
-        queue, d_tree, debug=True,
+        queue, d_tree,
         box_bounding_box=box_bounding_box,
         local_box_flags=local_box_flags
     )
