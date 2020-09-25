@@ -80,7 +80,7 @@ if sys.version_info >= (3, 4):
     from abc import ABC, abstractmethod
 else:
     from abc import ABCMeta, abstractmethod
-    ABC = ABCMeta('ABC', (), {})
+    ABC = ABCMeta("ABC", (), {})
 
 
 # {{{ FMMTranslationCostModel
@@ -198,23 +198,28 @@ class AbstractFMMCostModel(ABC):
       from :meth:`estimate_calibration_params` to :meth:`cost_per_stage` or
       :meth:`cost_per_box`.
 
-    Evaluation
-    ^^^^^^^^^^
+    .. ------------------------------------------------------------------------
+    .. rubric:: Evaluation
+    .. ------------------------------------------------------------------------
 
     .. automethod:: cost_per_box
 
     .. automethod:: cost_per_stage
 
-    Calibration
-    ^^^^^^^^^^^
+    .. ------------------------------------------------------------------------
+    .. rubric:: Calibration
+    .. ------------------------------------------------------------------------
 
     .. automethod:: estimate_calibration_params
 
-    Utilities
-    ^^^^^^^^^
+    .. ------------------------------------------------------------------------
+    .. rubric:: Utilities
+    .. ------------------------------------------------------------------------
     .. automethod:: aggregate_over_boxes
 
     .. automethod:: get_unit_calibration_params
+
+    .. automethod:: get_ndirect_sources_per_target_box
     """
     def __init__(
             self,
@@ -222,7 +227,7 @@ class AbstractFMMCostModel(ABC):
         """
         :arg translation_cost_model_factory: a function, which takes tree dimension
             and the number of tree levels as arguments, returns an object of
-            :class:`TranslationCostModel`.
+            :class:`FMMTranslationCostModel`.
         """
         self.translation_cost_model_factory = translation_cost_model_factory
 
@@ -479,7 +484,7 @@ class AbstractFMMCostModel(ABC):
         :arg ndirect_sources_per_target_box: a :class:`numpy.ndarray` or
             :class:`pyopencl.array.Array` of shape (ntarget_boxes,), the number of
             direct evaluation sources (list 1, list 3 close, list 4 close) for each
-            target box. You may find :func:`get_ndirect_sources_per_target_box`
+            target box. You may find :meth:`get_ndirect_sources_per_target_box`
             helpful. This argument is useful because the same result can be reused
             for p2p, p2qbxl and tsqbx.
         :arg box_target_counts_nonchild: a :class:`numpy.ndarray` or
