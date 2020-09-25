@@ -36,15 +36,15 @@ import logging
 logger = logging.getLogger(__name__)
 
 FetchLocalParticlesKernels = namedtuple(
-    'FetchLocalParticlesKernels',
+    "FetchLocalParticlesKernels",
     [
-        'particle_mask_knl',
-        'mask_scan_knl',
-        'fetch_local_src_knl',
-        'fetch_local_tgt_knl',
-        'generate_box_particle_starts',
-        'generate_box_particle_counts_nonchild',
-        'generate_box_particle_counts_cumul'
+        "particle_mask_knl",
+        "mask_scan_knl",
+        "fetch_local_src_knl",
+        "fetch_local_tgt_knl",
+        "generate_box_particle_starts",
+        "generate_box_particle_counts_nonchild",
+        "generate_box_particle_counts_cumul"
     ]
 )
 

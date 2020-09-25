@@ -27,7 +27,7 @@ from mpi4py import MPI
 import numpy as np
 from boxtree.cost import FMMCostModel
 
-__all__ = ['DistributedFMMRunner']
+__all__ = ["DistributedFMMRunner"]
 
 MPITags = dict(
     DIST_WEIGHT=1,
@@ -41,9 +41,9 @@ def dtype_to_mpi(dtype):
     """ This function translates a numpy datatype into the corresponding type used in
     mpi4py.
     """
-    if hasattr(MPI, '_typedict'):
+    if hasattr(MPI, "_typedict"):
         mpi_type = MPI._typedict[np.dtype(dtype).char]
-    elif hasattr(MPI, '__TypeDict__'):
+    elif hasattr(MPI, "__TypeDict__"):
         mpi_type = MPI.__TypeDict__[np.dtype(dtype).char]
     else:
         raise RuntimeError("There is no dictionary to translate from Numpy dtype to "
