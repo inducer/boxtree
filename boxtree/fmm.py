@@ -36,13 +36,13 @@ except ImportError:
 
 try:
     from mpi4py import MPI
+    from boxtree.distributed import dtype_to_mpi
+    from boxtree.distributed import MPITags
 except ImportError:
     pass
 
 
 import numpy as np
-from boxtree.distributed import dtype_to_mpi
-from boxtree.distributed import MPITags
 from pytools import ProcessLogger
 
 
