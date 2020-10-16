@@ -51,7 +51,7 @@ def drive_fmm(traversal, expansion_wrangler, src_weights, timing_data=None):
     :arg traversal: A :class:`boxtree.traversal.FMMTraversalInfo` instance.
     :arg expansion_wrangler: An object exhibiting the
         :class:`ExpansionWranglerInterface`.
-    :arg src_weights: Source 'density/weights/charges'.
+    :arg src_weights: A sequence of source 'density/weights/charges'.
         Passed unmodified to *expansion_wrangler*.
     :arg timing_data: Either *None*, or a :class:`dict` that is populated with
         timing information for the stages of the algorithm (in the form of
@@ -68,7 +68,7 @@ def drive_fmm(traversal, expansion_wrangler, src_weights, timing_data=None):
     fmm_proc = ProcessLogger(logger, "fmm")
     recorder = TimingRecorder()
 
-    src_weights = wrangler.reorder_sources(src_weights)
+    src_weights = [wrangler.reorder_sources(weight) for weight in src_weights]
 
     # {{{ "Step 2.1:" Construct local multipoles
 

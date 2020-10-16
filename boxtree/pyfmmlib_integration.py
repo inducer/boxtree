@@ -529,6 +529,8 @@ class FMMLibExpansionWrangler(object):
     @log_process(logger)
     @return_timing_data
     def form_multipoles(self, level_start_source_box_nrs, source_boxes, src_weights):
+        assert len(src_weights) == 1
+        src_weights = src_weights[0]
         formmp = self.get_routine("%ddformmp" + self.dp_suffix)
 
         mpoles = self.multipole_expansion_zeros()
@@ -626,6 +628,8 @@ class FMMLibExpansionWrangler(object):
     @return_timing_data
     def eval_direct(self, target_boxes, neighbor_sources_starts,
             neighbor_sources_lists, src_weights):
+        assert len(src_weights) == 1
+        src_weights = src_weights[0]
         output = self.output_zeros()
 
         ev = self.get_direct_eval_routine()
@@ -882,6 +886,8 @@ class FMMLibExpansionWrangler(object):
     def form_locals(self,
             level_start_target_or_target_parent_box_nrs,
             target_or_target_parent_boxes, starts, lists, src_weights):
+        assert len(src_weights) == 1
+        src_weights = src_weights[0]
         local_exps = self.local_expansion_zeros()
 
         formta = self.get_routine("%ddformta" + self.dp_suffix, suffix="_imany")

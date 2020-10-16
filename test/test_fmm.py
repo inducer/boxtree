@@ -263,7 +263,7 @@ def test_fmm_completeness(ctx_factory, dims, nsources_req, ntargets_req,
                 wrangler.reorder_sources(weights)) == weights).all()
 
     from boxtree.fmm import drive_fmm
-    pot = drive_fmm(host_trav, wrangler, weights)
+    pot = drive_fmm(host_trav, wrangler, (weights,))
 
     if filter_kind:
         pot = pot[flags.get() > 0]
@@ -283,7 +283,7 @@ def test_fmm_completeness(ctx_factory, dims, nsources_req, ntargets_req,
         for i in range(nsources):
             unit_vec = np.zeros(nsources, dtype=dtype)
             unit_vec[i] = 1
-            mat[:, i] = drive_fmm(host_trav, wrangler, unit_vec)
+            mat[:, i] = drive_fmm(host_trav, wrangler, (unit_vec,))
             pb.progress()
         pb.finished()
 
@@ -457,7 +457,7 @@ def test_pyfmmlib_fmm(ctx_factory, dims, use_dipoles, helmholtz_k):
     from boxtree.fmm import drive_fmm
 
     timing_data = {}
-    pot = drive_fmm(trav, wrangler, weights, timing_data=timing_data)
+    pot = drive_fmm(trav, wrangler, (weights,), timing_data=timing_data)
     print(timing_data)
     assert timing_data
 
@@ -507,7 +507,7 @@ def test_pyfmmlib_fmm(ctx_factory, dims, use_dipoles, helmholtz_k):
                 exclude_self=False)
 
         evt, (sumpy_ref_pot,) = p2p(
-                queue, targets, sources, [weights],
+                queue, targets, sources, (weights,),
                 out_host=True, **sumpy_extra_kwargs)
 
         sumpy_rel_err = (
@@ -581,7 +581,7 @@ def test_pyfmmlib_numerical_stability(ctx_factory, dims, helmholtz_k, order):
 
     from boxtree.fmm import drive_fmm
 
-    pot = drive_fmm(trav, wrangler, weights)
+    pot = drive_fmm(trav, wrangler, (weights,))
     assert not np.isnan(pot).any()
 
     # {{{ ref fmmlib computation
@@ -657,7 +657,7 @@ def test_interaction_list_particle_count_thresholding(ctx_factory, enable_extent
 
     wrangler = ConstantOneExpansionWrangler(host_tree)
 
-    pot = drive_fmm(host_trav, wrangler, weights)
+    pot = drive_fmm(host_trav, wrangler, (weights,))
 
     assert (pot == weights_sum).all()
 
@@ -714,7 +714,7 @@ def test_fmm_float32(ctx_factory, enable_extents):
 
     wrangler = ConstantOneExpansionWrangler(host_tree)
 
-    pot = drive_fmm(host_trav, wrangler, weights)
+    pot = drive_fmm(host_trav, wrangler, (weights,))
 
     assert (pot == weights_sum).all()
 
@@ -790,11 +790,11 @@ def test_fmm_with_optimized_3d_m2l(ctx_factory, nsrcntgts, helmholtz_k,
 
     baseline_timing_data = {}
     baseline_pot = drive_fmm(
-            trav, baseline_wrangler, weights, timing_data=baseline_timing_data)
+            trav, baseline_wrangler, (weights,), timing_data=baseline_timing_data)
 
     optimized_timing_data = {}
     optimized_pot = drive_fmm(
-            trav, optimized_wrangler, weights, timing_data=optimized_timing_data)
+            trav, optimized_wrangler, (weights,), timing_data=optimized_timing_data)
 
     baseline_time = baseline_timing_data["multipole_to_local"]["process_elapsed"]
     if baseline_time is not None:
