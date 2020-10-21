@@ -518,16 +518,19 @@ class LocalTree(Tree):
         return self._dimensions
 
 
-def generate_local_tree(queue, global_tree, responsible_boxes_list,
-                        responsible_box_query, comm=MPI.COMM_WORLD):
+def generate_local_tree(queue, global_traversal, responsible_boxes_list,
+                        comm=MPI.COMM_WORLD):
+    global_tree = global_traversal.tree
+
     # Get MPI information
     mpi_rank = comm.Get_rank()
     mpi_size = comm.Get_size()
 
     start_time = time.time()
 
+    from boxtree.distributed.partition import get_boxes_mask
     (responsible_boxes_mask, ancestor_boxes, src_boxes_mask, box_mpole_is_used) = \
-        responsible_box_query.get_boxes_mask(responsible_boxes_list[mpi_rank])
+        get_boxes_mask(queue, global_traversal, responsible_boxes_list[mpi_rank])
 
     local_tree = global_tree.copy(
         responsible_boxes_list=responsible_boxes_list[mpi_rank],

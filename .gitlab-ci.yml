@@ -55,6 +55,7 @@ Python 3 POCL K40:
     artifacts:
         reports:
             junit: test/pytest.xml
+    allow_failure: true
 
 Python 3 POCL MPI:
     script:

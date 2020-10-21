@@ -173,14 +173,14 @@ class DistributedExpansionWrangler:
         """Test whether the multipole expansions of the contributing boxes are used
         by at least one box in a range.
 
-        :arg subrange: the range is represented by ``[subrange[0], subrange[1])``.
+        :arg subrange: the range is represented by ``(subrange[0], subrange[1])``.
         :arg box_to_user_start: a :class:`pyopencl.array.Array` object indicating the
             start and end index in *box_to_user_lists* for each box in
             *contributing_boxes_list*.
         :arg box_to_user_lists: a :class:`pyopencl.array.Array` object storing the
             users of each box in *contributing_boxes_list*.
         :returns: a :class:`pyopencl.array.Array` object with the same shape as
-            *contributing_boxes_list*, where the *i*th entry is 1 if
+            *contributing_boxes_list*, where the ith entry is 1 if
             ``contributing_boxes_list[i]`` is used by at least on box in the
             subrange specified.
         """
