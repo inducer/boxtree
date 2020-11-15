@@ -18,6 +18,7 @@ Python 3 POCL Titan V:
     script:
     - export PYOPENCL_TEST=portable:titan
     - CONDA_ENVIRONMENT=.test-conda-env-py3.yml
+    - export MPLBACKEND=Agg
     - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project-within-miniconda.sh
     - ". ./build-and-test-py-project-within-miniconda.sh"
     tags:
@@ -32,6 +33,7 @@ Python 3 POCL Titan X:
     script:
     - export PYOPENCL_TEST=portable:titan
     - CONDA_ENVIRONMENT=.test-conda-env-py3.yml
+    - export MPLBACKEND=Agg
     - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project-within-miniconda.sh
     - ". ./build-and-test-py-project-within-miniconda.sh"
     tags:
@@ -46,6 +48,7 @@ Python 3 POCL K40:
     script:
     - export PYOPENCL_TEST=portable:k40
     - CONDA_ENVIRONMENT=.test-conda-env-py3.yml
+    - export MPLBACKEND=Agg
     - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project-within-miniconda.sh
     - ". ./build-and-test-py-project-within-miniconda.sh"
     tags:
