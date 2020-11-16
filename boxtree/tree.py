@@ -398,6 +398,13 @@ class Tree(DeviceDataRecord):
 
         return super(Tree, self).to_device(queue, frozenset(exclude_fields))
 
+    def to_host_device_array(self, queue, exclude_fields=frozenset()):
+        # level_start_box_nrs should remain in host memory
+        exclude_fields = set(exclude_fields)
+        exclude_fields.add("level_start_box_nrs")
+
+        return super(Tree, self).to_host_device_array(queue, frozenset(exclude_fields))
+
 # }}}
 
 

@@ -18,12 +18,25 @@ logging.basicConfig(level=os.environ.get("LOGLEVEL", "WARNING"))
 logging.getLogger("boxtree.distributed").setLevel(logging.INFO)
 
 
+def set_cache_dir(comm):
+    """Make each rank use a differnt cache location to avoid conflict.
+    """
+    from pathlib import Path
+    from mpi4py import MPI
+    if "XDG_CACHE_HOME" in os.environ:
+        cache_home = Path(os.environ["XDG_CACHE_HOME"])
+    else:
+        cache_home = Path.home() / ".cache"
+    os.environ["XDG_CACHE_HOME"] = str(cache_home / str(comm.Get_rank()))
+
+
 def _test_against_shared(dims, nsources, ntargets, dtype):
     from mpi4py import MPI
 
     # Get the current rank
     comm = MPI.COMM_WORLD
     rank = comm.Get_rank()
+    set_cache_dir(comm)
 
     # Initialize arguments for worker processes
     tree = None
@@ -146,6 +159,7 @@ def _test_constantone(dims, nsources, ntargets, dtype):
     # Get the current rank
     comm = MPI.COMM_WORLD
     rank = comm.Get_rank()
+    set_cache_dir(comm)
 
     # Initialization
     tree = None

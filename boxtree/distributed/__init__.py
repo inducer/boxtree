@@ -173,7 +173,7 @@ class DistributedFMMRunner(object):
         # {{{ Get local wrangler
 
         self.local_wrangler = self.distributed_expansion_wrangler_factory(
-            self.local_tree)
+            self.local_tree.get(None))
 
         # }}}
 
@@ -184,7 +184,7 @@ class DistributedFMMRunner(object):
         """
         from boxtree.fmm import drive_fmm
         return drive_fmm(
-            self.local_trav, self.local_wrangler, source_weights,
+            self.local_trav.get(None), self.local_wrangler, source_weights,
             timing_data=timing_data,
             distributed=True,
             global_wrangler=self.global_wrangler,

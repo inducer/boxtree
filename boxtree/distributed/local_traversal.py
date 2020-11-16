@@ -35,10 +35,9 @@ logger = logging.getLogger(__name__)
 def generate_local_travs(
         queue, local_tree, traversal_builder, box_bounding_box=None,
         merge_close_lists=False):
-
     start_time = time.time()
 
-    d_tree = local_tree.to_device(queue).with_queue(queue)
+    local_tree.with_queue(queue)
 
     # Modify box flags for targets
     from boxtree import box_flags_enum
@@ -73,12 +72,13 @@ def generate_local_travs(
         )
     )
 
-    modify_target_flags_knl(d_tree.box_target_counts_nonchild,
-                            d_tree.box_target_counts_cumul,
-                            d_tree.box_flags)
+    modify_target_flags_knl(local_tree.box_target_counts_nonchild.device,
+                            local_tree.box_target_counts_cumul.device,
+                            local_tree.box_flags.device)
 
     # Generate local source flags
-    local_box_flags = d_tree.box_flags & (255 - box_flags_enum.HAS_OWN_SOURCES)
+    local_box_flags = \
+        local_tree.box_flags.device & (255 - box_flags_enum.HAS_OWN_SOURCES)
     local_box_flags = local_box_flags & (255 - box_flags_enum.HAS_CHILD_SOURCES)
 
     modify_own_sources_knl = cl.elementwise.ElementwiseKernel(
@@ -115,16 +115,16 @@ def generate_local_travs(
         )
     )
 
-    modify_own_sources_knl(d_tree.responsible_boxes_list, local_box_flags)
-    modify_child_sources_knl(d_tree.ancestor_mask, local_box_flags)
+    modify_own_sources_knl(local_tree.responsible_boxes_list.device, local_box_flags)
+    modify_child_sources_knl(local_tree.ancestor_mask.device, local_box_flags)
 
     d_local_trav, _ = traversal_builder(
-        queue, d_tree,
+        queue, local_tree.to_device(queue),
         box_bounding_box=box_bounding_box,
         local_box_flags=local_box_flags
     )
 
-    if merge_close_lists and d_tree.targets_have_extent:
+    if merge_close_lists and local_tree.targets_have_extent:
         d_local_trav = d_local_trav.merge_close_lists(queue)
 
     local_trav = d_local_trav.get(queue=queue)

@@ -304,11 +304,14 @@ class DeviceDataRecord(Record):
 
     def get(self, queue, **kwargs):
         """Return a copy of `self` in which all data lives on the host, i.e.
-        all :class:`pyopencl.array.Array` objects are replaced by corresponding
-        :class:`numpy.ndarray` instances on the host.
+        all :class:`pyopencl.array.Array` and :class:`ImmutableHostDeviceArray`
+        objects are replaced by corresponding :class:`numpy.ndarray` instances on the
+        host.
         """
-
         def try_get(attr):
+            if isinstance(attr, ImmutableHostDeviceArray):
+                return attr.host
+
             try:
                 get_meth = attr.get
             except AttributeError:
@@ -339,7 +342,7 @@ class DeviceDataRecord(Record):
         return self._transform_arrays(try_with_queue)
 
     def to_device(self, queue, exclude_fields=frozenset()):
-        """ Return a copy of `self` in all :class:`numpy.ndarray` arrays are
+        """Return a copy of `self` in all :class:`numpy.ndarray` arrays are
         transferred to device memory as :class:`pyopencl.array.Array` objects.
 
         :arg exclude_fields: a :class:`frozenset` containing fields excluding from
@@ -349,10 +352,32 @@ class DeviceDataRecord(Record):
         def _to_device(attr):
             if isinstance(attr, np.ndarray):
                 return cl.array.to_device(queue, attr).with_queue(None)
+            elif isinstance(attr, ImmutableHostDeviceArray):
+                return attr.device
             else:
                 return attr
 
-        return self._transform_arrays(_to_device, exclude_fields)
+        return self._transform_arrays(_to_device, exclude_fields=exclude_fields)
+
+    def to_host_device_array(self, queue, exclude_fields=frozenset()):
+        """Return a copy of `self` where all device and host arrays are transformed
+        to :class:`ImmutableHostDeviceArray` objects.
+
+        :arg exclude_fields: a :class:`frozenset` containing fields excluding from
+            transformed to :class:`ImmutableHostDeviceArray`.
+        """
+        def _to_host_device_array(attr):
+            if isinstance(attr, np.ndarray):
+                return ImmutableHostDeviceArray(queue, attr)
+            if isinstance(attr, cl.array.Array):
+                host_array = attr.get(queue=queue)
+                return ImmutableHostDeviceArray(queue, host_array)
+            else:
+                return attr
+
+        return self._transform_arrays(
+            _to_host_device_array, exclude_fields=exclude_fields
+        )
 
 # }}}
 
@@ -1056,6 +1081,46 @@ def run_mpi(script, num_processes, env):
         subprocess.run(command, env=env, check=True)
     else:
         raise RuntimeError("Unrecognized MPI implementation")
+
+# }}}
+
+# {{{ HostDeviceArray
+
+class ImmutableHostDeviceArray:
+    def __init__(self, queue, host_array):
+        self.queue = queue
+        self.host_array = host_array
+        self.device_array = None
+
+    def with_queue(self, queue):
+        self.queue = queue
+
+    @property
+    def svm_capable(self):
+        svm_capabilities = self.queue.device.get_info(cl.device_info.SVM_CAPABILITIES)
+        if svm_capabilities & cl.device_svm_capabilities.FINE_GRAIN_BUFFER != 0:
+            return True
+        else:
+            return False
+
+    @property
+    def host(self):
+        return self.host_array
+
+    @property
+    def device(self):
+        if self.device_array is None:
+            # @TODO: Make SVM works with ElementwiseKernel
+            # if self.svm_capable:
+            #     self.device_array = cl.SVM(self.host_array)
+            # else:
+            #    self.device_array = cl.array.to_device(self.queue, self.host_array)
+            self.device_array = cl.array.to_device(self.queue, self.host_array)
+
+            # cl.Array(data=cl.SVM(...))
+
+        self.device_array.with_queue(self.queue)
+        return self.device_array
 
 # }}}
 

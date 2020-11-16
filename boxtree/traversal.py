@@ -1722,6 +1722,18 @@ class FMMTraversalInfo(DeviceDataRecord):
             queue, frozenset(exclude_fields)
         )
 
+    def to_host_device_array(self, queue, exclude_fields=frozenset()):
+        exclude_fields = set(exclude_fields)
+        exclude_fields.add("level_start_source_box_nrs")
+        exclude_fields.add("level_start_target_box_nrs")
+        exclude_fields.add("level_start_target_or_target_parent_box_nrs")
+        exclude_fields.add("level_start_source_parent_box_nrs")
+        exclude_fields.add("tree")
+
+        return super(FMMTraversalInfo, self).to_host_device_array(
+            queue, frozenset(exclude_fields)
+        )
+
 # }}}
 
 

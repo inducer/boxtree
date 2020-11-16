@@ -598,6 +598,9 @@ def generate_local_tree(queue, global_traversal, responsible_boxes_list,
 
     # }}}
 
+    local_tree = local_tree.to_host_device_array(queue)
+    local_tree.with_queue(None)
+
     logger.info("Generate local tree on rank {} in {} sec.".format(
         mpi_rank, str(time.time() - start_time)
     ))
