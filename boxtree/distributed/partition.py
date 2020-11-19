@@ -39,8 +39,8 @@ def partition_work(boxes_time, traversal, total_rank):
     :arg boxes_time: The expected running time of each box.
     :arg traversal: The traversal object built on root containing all particles.
     :arg total_rank: The total number of ranks.
-    :return: A numpy array of shape (total_rank,), where the ith element is an numpy
-        array containing the responsible boxes of process i.
+    :return: A numpy array of shape ``(total_rank,)``, where the ith element is an
+        numpy array containing the responsible boxes of process i.
     """
     tree = traversal.tree
 
@@ -263,19 +263,16 @@ def get_multipole_boxes_mask(
 
 
 def get_boxes_mask(queue, traversal, responsible_boxes_list):
-    """Given a list of responsible boxes for a process, this helper function
-    calculates the following four masks:
+    """Given the responsible boxes for a rank, this helper function calculates the
+    following four masks:
 
-    responsible_box_mask: Current process will evaluate target potentials and
-        multipole expansions in these boxes. Sources and targets in these boxes
-        are needed.
-
-    ancestor_boxes_mask: The the ancestor of the responsible boxes.
-
-    src_boxes_mask: Current process needs sources but not targets in these boxes.
-
-    multipole_boxes_mask: Current process needs multipole expressions in these
-        boxes.
+    * responsible_box_mask: Current process will evaluate target potentials and
+      multipole expansions in these boxes. Sources and targets in these boxes
+      are needed.
+    * ancestor_boxes_mask: The the ancestor of the responsible boxes.
+    * src_boxes_mask: Current process needs sources but not targets in these boxes.
+    * multipole_boxes_mask: Current process needs multipole expressions in these
+      boxes.
 
     :arg responsible_boxes_list: A numpy array of responsible box indices.
 

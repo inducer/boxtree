@@ -22,7 +22,6 @@ def set_cache_dir(comm):
     """Make each rank use a differnt cache location to avoid conflict.
     """
     from pathlib import Path
-    from mpi4py import MPI
     if "XDG_CACHE_HOME" in os.environ:
         cache_home = Path(os.environ["XDG_CACHE_HOME"])
     else:

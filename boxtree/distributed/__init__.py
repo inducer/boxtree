@@ -23,6 +23,84 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+__doc__ = """
+High-level Point FMM Interface
+------------------------------
+
+To perform point-FMM, first construct a
+:class:`boxtree.distributed.DistributedFMMRunner` object. The constructor will
+distribute the necessary information from the root rank to all worker ranks. Then,
+the :meth:`boxtree.distributed.DistributedFMMRunner.drive_dfmm` can be used for
+launching FMM.
+
+.. autoclass:: boxtree.distributed.DistributedFMMRunner
+
+    .. automethod:: drive_dfmm
+
+Distributed Algorithm Overview
+------------------------------
+
+1. Construct the global tree and traversal lists on root rank and broadcast to all
+   worker ranks.
+2. Partition boxes into disjoint sets, where the number of sets is the number of MPI
+   ranks. (See :ref:`partition-boxes`)
+3. Each rank constructs the local tree and traversal lists independently, according
+   to the partition. (See :ref:`construct-local-tree-traversal`)
+4. Distribute source weights from the root rank to all worker ranks. (See
+   :ref:`distribute-source-weights`)
+5. Each rank independently forms multipole expansions from the leaf nodes of the
+   local tree and propagates the partial multipole expansions upwards.
+6. Communicate multipole expansions so that all ranks have the complete multipole
+   expansions needed.
+7. Each ranks indepedently forms local expansions, propagates the local expansions
+   downwards, and evaluate potentials of target points in its partition. The
+   calculated potentials are then assembled on the root rank.
+
+For step 5-7, see :ref:`distributed-fmm-evaluation`.
+
+Note that step 4-7 may be repeated multiple times with the same tree and traversal
+object built from step 1-3. For example, when solving a PDE, step 4-7 is executed
+for each GMRES iteration.
+
+The next sections will cover the interfaces of these steps.
+
+.. _partition-boxes:
+
+Partition Boxes
+---------------
+
+.. autofunction:: boxtree.distributed.partition.partition_work
+
+.. autofunction:: boxtree.distributed.partition.get_boxes_mask
+
+.. _construct-local-tree-traversal:
+
+Construct Local Tree and Traversal
+----------------------------------
+
+.. autofunction:: boxtree.distributed.local_tree.generate_local_tree
+
+.. autofunction:: boxtree.distributed.local_traversal.generate_local_travs
+
+.. _distribute-source-weights:
+
+Distribute source weights
+-------------------------
+
+.. autofunction:: boxtree.distributed.calculation.DistributedExpansionWrangler\
+.distribute_source_weights
+
+.. _distributed-fmm-evaluation:
+
+Distributed FMM Evaluation
+--------------------------
+
+The distributed version of the FMM evaluation shares the same interface as the
+shared-memory version. To evaluate FMM in distributed manner, set ``distributed`` to
+``True`` in :func:`boxtree.fmm.drive_fmm`.
+
+"""
+
 from mpi4py import MPI
 import numpy as np
 from boxtree.cost import FMMCostModel
@@ -145,7 +223,7 @@ class DistributedFMMRunner(object):
 
         from boxtree.distributed.local_tree import generate_local_tree
         self.local_tree, self.src_idx, self.tgt_idx = generate_local_tree(
-            queue, self.global_trav, responsible_boxes_list
+            queue, self.global_trav, responsible_boxes_list[mpi_rank]
         )
 
         # }}}

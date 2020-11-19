@@ -520,6 +520,21 @@ class LocalTree(Tree):
 
 def generate_local_tree(queue, global_traversal, responsible_boxes_list,
                         comm=MPI.COMM_WORLD):
+    """Generate the local tree for the current rank.
+
+    :arg queue: a :class:`pyopencl.CommandQueue` object.
+    :arg global_traversal: Global :class:`boxtree.traversal.FMMTraversalInfo` object
+        on host memory.
+    :arg responsible_boxes_list: a :class:`numpy.ndarray` object containing the
+        responsible boxes of the current rank.
+
+    :return: a tuple of ``(local_tree, src_idx, tgt_idx)``, where ``local_tree`` is
+        a :class:`boxtree.tools.ImmutableHostDeviceArray` of generated local tree,
+        ``src_idx`` is the indices of the local sources in the global tree, and
+        ``tgt_idx`` is the indices of the local targets in the global tree.
+        ``src_idx`` and ``tgt_idx`` are needed for distributing source weights from
+        root rank and assembling calculated potentials on the root rank.
+    """
     global_tree = global_traversal.tree
 
     # Get MPI information
@@ -530,10 +545,10 @@ def generate_local_tree(queue, global_traversal, responsible_boxes_list,
 
     from boxtree.distributed.partition import get_boxes_mask
     (responsible_boxes_mask, ancestor_boxes, src_boxes_mask, box_mpole_is_used) = \
-        get_boxes_mask(queue, global_traversal, responsible_boxes_list[mpi_rank])
+        get_boxes_mask(queue, global_traversal, responsible_boxes_list)
 
     local_tree = global_tree.copy(
-        responsible_boxes_list=responsible_boxes_list[mpi_rank],
+        responsible_boxes_list=responsible_boxes_list,
         ancestor_mask=ancestor_boxes.get(),
         box_to_user_starts=None,
         box_to_user_lists=None,
@@ -550,7 +565,7 @@ def generate_local_tree(queue, global_traversal, responsible_boxes_list,
         global_tree,
         src_boxes_mask,
         responsible_boxes_mask,
-        local_tree,
+        local_tree
     )
 
     local_tree._dimensions = local_tree.dimensions

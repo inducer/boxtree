@@ -35,10 +35,22 @@ logger = logging.getLogger(__name__)
 def generate_local_travs(
         queue, local_tree, traversal_builder, box_bounding_box=None,
         merge_close_lists=False):
+    """Generate local traversal from local tree.
+
+    :arg queue: a :class:`pyopencl.CommandQueue` object.
+    :arg local_tree: the local tree of
+        :class:`boxtree.tools.ImmutableHostDeviceArray` on which the local traversal
+        object will be constructed.
+    :arg traversal_builder: a function, taken a :class:`pyopencl.CommandQueue` and
+        a tree, returns the traversal object based on the tree.
+
+    :return: generated local traversal object in host memory
+    """
     start_time = time.time()
 
     local_tree.with_queue(queue)
 
+    # TODO: Maybe move the logic here to local tree construction?
     # Modify box flags for targets
     from boxtree import box_flags_enum
     box_flag_t = dtype_to_ctype(box_flags_enum.dtype)

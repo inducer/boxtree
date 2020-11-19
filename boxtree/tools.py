@@ -1084,6 +1084,7 @@ def run_mpi(script, num_processes, env):
 
 # }}}
 
+
 # {{{ HostDeviceArray
 
 class ImmutableHostDeviceArray:
@@ -1097,7 +1098,8 @@ class ImmutableHostDeviceArray:
 
     @property
     def svm_capable(self):
-        svm_capabilities = self.queue.device.get_info(cl.device_info.SVM_CAPABILITIES)
+        svm_capabilities = \
+            self.queue.device.get_info(cl.device_info.SVM_CAPABILITIES)
         if svm_capabilities & cl.device_svm_capabilities.FINE_GRAIN_BUFFER != 0:
             return True
         else:
