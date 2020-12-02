@@ -42,6 +42,8 @@ Overview
     lookup
     cost
     misc
+    🚀 Github <https://github.com/inducer/boxtree>
+    💾 Download Releases <https://pypi.python.org/pypi/boxtree>
 
 Indices and tables
 ------------------
