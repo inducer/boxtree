@@ -451,7 +451,7 @@ def test_estimate_calibration_params(ctx_factory):
         timing_data = {}
         from boxtree.fmm import drive_fmm
         src_weights = np.random.rand(tree.nsources).astype(tree.coord_dtype)
-        drive_fmm(trav, wrangler, src_weights, timing_data=timing_data)
+        drive_fmm(trav, wrangler, (src_weights,), timing_data=timing_data)
 
         timing_results.append(timing_data)
 
@@ -581,7 +581,7 @@ def test_cost_model_op_counts_agree_with_constantone_wrangler(
     timing_data = {}
     from boxtree.fmm import drive_fmm
     src_weights = np.random.rand(tree.nsources).astype(tree.coord_dtype)
-    drive_fmm(trav, wrangler, src_weights, timing_data=timing_data)
+    drive_fmm(trav, wrangler, (src_weights,), timing_data=timing_data)
 
     cost_model = FMMCostModel(
         translation_cost_model_factory=OpCountingTranslationCostModel

@@ -894,7 +894,9 @@ class ConstantOneExpansionWrangler(object):
     def timing_future(ops):
         return DummyTimingFuture.from_op_count(ops)
 
-    def form_multipoles(self, level_start_source_box_nrs, source_boxes, src_weights):
+    def form_multipoles(self, level_start_source_box_nrs, source_boxes,
+            src_weight_vecs):
+        src_weights, = src_weight_vecs
         mpoles = self.multipole_expansion_zeros()
         ops = 0
 
@@ -929,7 +931,8 @@ class ConstantOneExpansionWrangler(object):
         return mpoles, self.timing_future(ops)
 
     def eval_direct(self, target_boxes, neighbor_sources_starts,
-            neighbor_sources_lists, src_weights):
+            neighbor_sources_lists, src_weight_vecs):
+        src_weights, = src_weight_vecs
         pot = self.output_zeros()
         ops = 0
 
@@ -995,7 +998,8 @@ class ConstantOneExpansionWrangler(object):
 
     def form_locals(self,
             level_start_target_or_target_parent_box_nrs,
-            target_or_target_parent_boxes, starts, lists, src_weights):
+            target_or_target_parent_boxes, starts, lists, src_weight_vecs):
+        src_weights, = src_weight_vecs
         local_exps = self.local_expansion_zeros()
         ops = 0
 

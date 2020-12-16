@@ -84,7 +84,7 @@ def _test_against_shared(dims, nsources, ntargets, dtype):
 
         # Compute FMM using shared memory parallelism
         from boxtree.fmm import drive_fmm
-        pot_fmm = drive_fmm(trav, wrangler, sources_weights) * 2 * np.pi
+        pot_fmm = drive_fmm(trav, wrangler, [sources_weights]) * 2 * np.pi
 
     # Compute FMM using distributed memory parallelism
 
@@ -102,7 +102,7 @@ def _test_against_shared(dims, nsources, ntargets, dtype):
 
     timing_data = {}
     pot_dfmm = distribued_fmm_info.drive_dfmm(
-        sources_weights, timing_data=timing_data
+        [sources_weights], timing_data=timing_data
     )
     assert timing_data
 
@@ -198,7 +198,7 @@ def _test_constantone(dims, nsources, ntargets, dtype):
     )
 
     pot_dfmm = distributed_fmm_info.drive_dfmm(
-        sources_weights, _communicate_mpoles_via_allreduce=True
+        [sources_weights], _communicate_mpoles_via_allreduce=True
     )
 
     if rank == 0:

@@ -46,7 +46,7 @@ import numpy as np
 from pytools import ProcessLogger
 
 
-def drive_fmm(traversal, expansion_wrangler, src_weights, timing_data=None,
+def drive_fmm(traversal, expansion_wrangler, src_weight_vecs, timing_data=None,
               distributed=False, global_wrangler=None,
               src_idx_all_ranks=None, tgt_idx_all_ranks=None, comm=None,
               _communicate_mpoles_via_allreduce=False):
@@ -69,7 +69,8 @@ def drive_fmm(traversal, expansion_wrangler, src_weights, timing_data=None,
     :arg expansion_wrangler: An object exhibiting the
         :class:`ExpansionWranglerInterface`. For distributed implementation, this
         wrangler should reference the local tree on each rank.
-    :arg src_weights: Source 'density/weights/charges'. For distributed
+    :arg src_weight_vecs: A sequence of source 'density/weights/charges'.
+        Passed unmodified to *expansion_wrangler*. For distributed
         implementation, this argument is only significant on the root rank.
     :arg timing_data: Either *None*, or a :class:`dict` that is populated with
         timing information for the stages of the algorithm (in the form of
@@ -114,13 +115,15 @@ def drive_fmm(traversal, expansion_wrangler, src_weights, timing_data=None,
         mpi_size = comm.Get_size()
 
     if not distributed:
-        src_weights = wrangler.reorder_sources(src_weights)
+        src_weight_vecs = [wrangler.reorder_sources(weight) for
+            weight in src_weight_vecs]
     else:
         if mpi_rank == 0:
-            src_weights = global_wrangler.reorder_sources(src_weights)
+            src_weight_vecs = [global_wrangler.reorder_sources(weight) for
+                weight in src_weight_vecs]
 
-        src_weights = wrangler.distribute_source_weights(
-            src_weights, src_idx_all_ranks, comm=comm
+        src_weight_vecs = wrangler.distribute_source_weights(
+            src_weight_vecs, src_idx_all_ranks, comm=comm
         )
 
     # {{{ "Step 2.1:" Construct local multipoles
@@ -128,7 +131,7 @@ def drive_fmm(traversal, expansion_wrangler, src_weights, timing_data=None,
     mpole_exps, timing_future = wrangler.form_multipoles(
             traversal.level_start_source_box_nrs,
             traversal.source_boxes,
-            src_weights)
+            src_weight_vecs)
 
     recorder.add("form_multipoles", timing_future)
 
@@ -162,7 +165,7 @@ def drive_fmm(traversal, expansion_wrangler, src_weights, timing_data=None,
             traversal.target_boxes,
             traversal.neighbor_source_boxes_starts,
             traversal.neighbor_source_boxes_lists,
-            src_weights)
+            src_weight_vecs)
 
     recorder.add("eval_direct", timing_future)
 
@@ -209,7 +212,7 @@ def drive_fmm(traversal, expansion_wrangler, src_weights, timing_data=None,
                 traversal.target_boxes,
                 traversal.from_sep_close_smaller_starts,
                 traversal.from_sep_close_smaller_lists,
-                src_weights)
+                src_weight_vecs)
 
         recorder.add("eval_direct", timing_future)
 
@@ -224,7 +227,7 @@ def drive_fmm(traversal, expansion_wrangler, src_weights, timing_data=None,
             traversal.target_or_target_parent_boxes,
             traversal.from_sep_bigger_starts,
             traversal.from_sep_bigger_lists,
-            src_weights)
+            src_weight_vecs)
 
     recorder.add("form_locals", timing_future)
 
@@ -235,7 +238,7 @@ def drive_fmm(traversal, expansion_wrangler, src_weights, timing_data=None,
                 traversal.target_boxes,
                 traversal.from_sep_close_bigger_starts,
                 traversal.from_sep_close_bigger_lists,
-                src_weights)
+                src_weight_vecs)
 
         recorder.add("eval_direct", timing_future)
 
@@ -368,11 +371,12 @@ class ExpansionWranglerInterface:
         *source_weights* is in tree target order.
         """
 
-    def form_multipoles(self, level_start_source_box_nrs, source_boxes, src_weights):
+    def form_multipoles(self, level_start_source_box_nrs, source_boxes,
+            src_weight_vecs):
         """Return an expansions array (compatible with
         :meth:`multipole_expansion_zeros`)
         containing multipole expansions in *source_boxes* due to sources
-        with *src_weights*.
+        with *src_weight_vecs*.
         All other expansions must be zero.
 
         :return: A pair (*mpoles*, *timing_future*).
@@ -389,9 +393,9 @@ class ExpansionWranglerInterface:
         """
 
     def eval_direct(self, target_boxes, neighbor_sources_starts,
-            neighbor_sources_lists, src_weights):
+            neighbor_sources_lists, src_weight_vecs):
         """For each box in *target_boxes*, evaluate the influence of the
-        neighbor sources due to *src_weights*, which use :ref:`csr` and are
+        neighbor sources due to *src_weight_vecs*, which use :ref:`csr` and are
         indexed like *target_boxes*.
 
         :returns: A pair (*pot*, *timing_future*), where *pot* is a
@@ -425,7 +429,7 @@ class ExpansionWranglerInterface:
 
     def form_locals(self,
             level_start_target_or_target_parent_box_nrs,
-            target_or_target_parent_boxes, starts, lists, src_weights):
+            target_or_target_parent_boxes, starts, lists, src_weight_vecs):
         """For each box in *target_or_target_parent_boxes*, form local
         expansions due to the sources in the nearby boxes given in *starts* and
         *lists*, and return a new local expansion array.  *starts* and *lists*

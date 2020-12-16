@@ -27,6 +27,7 @@ import pyopencl as cl
 from mako.template import Template
 from pyopencl.tools import dtype_to_ctype
 from boxtree import Tree
+from boxtree.tools import ImmutableHostDeviceArray
 from mpi4py import MPI
 import time
 import numpy as np
@@ -503,7 +504,10 @@ class LocalTree(Tree):
 
     @property
     def nboxes(self):
-        return self.box_source_starts.shape[0]
+        if isinstance(self.box_source_starts, ImmutableHostDeviceArray):
+            return self.box_source_starts.host.shape[0]
+        else:
+            return self.box_source_starts.shape[0]
 
     @property
     def nsources(self):
