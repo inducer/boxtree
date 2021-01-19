@@ -41,6 +41,42 @@ class MaxLevelsExceeded(RuntimeError):
     pass
 
 
+# {{{ box-based tree
+
+class _TreeOfBoxes:
+    def __init__(
+            self, box_centers, root_box_extent,
+            box_parents, box_children, box_levels):
+        self.box_centers = box_centers
+        self.root_box_extent = root_box_extent
+        self.box_parents = box_parents
+        self.box_children = box_children
+        self.box_levels = box_levels
+
+    @property
+    def dim(self):
+        return self.box_centers.shape[0]
+
+    @property
+    def nboxes(self):
+        return self.box_centers.shape[1]
+
+    def is_leaf(self):
+        return np.all(self.box_children == 0, axis=0)
+
+
+def _make_tob_root(dim, bounding_box):
+    return _TreeOfBoxes(
+            box_centers=np.array(dim*[0.5]).reshape(dim, 1),
+            root_box_extent=1,
+            box_parents=np.array([0], np.intp),
+            box_children=np.array([0] * 2**dim, np.intp).reshape(2**dim, 1),
+            box_levels=np.array([0]),
+            )
+
+# }}}
+
+
 class TreeBuilder(object):
     def __init__(self, context):
         """
@@ -76,9 +112,68 @@ class TreeBuilder(object):
             self.morton_nr_dtype, self.box_level_dtype,
             kind=kind)
 
+    def split_boxes(self, tob, refine_flags):
+        nchildren = 2**tob.dim
+        refine_parents, = np.where(refine_flags)
+        n_new_boxes = len(refine_parents) * nchildren
+        nboxes_new = tob.nboxes + n_new_boxes
+
+        if refine_flags[~tob.is_leaf()].any():
+            raise ValueError("attempting to split non-leaf")
+
+        child_box_starts = (
+                tob.nboxes
+                + nchildren * np.arange(len(refine_parents)))
+
+        refine_parents_per_child = np.empty(
+                (nchildren, len(refine_parents)),
+                np.intp)
+        refine_parents_per_child[:] = refine_parents.reshape(-1)
+        refine_parents_per_child = refine_parents_per_child.reshape(-1)
+
+        box_parents = resized_array(tob.box_parents, nboxes_new)
+        box_centers = resized_array(tob.box_centers, nboxes_new)
+        box_children = resized_array(tob.box_children, nboxes_new)
+        box_levels = resized_array(tob.box_levels, nboxes_new)
+
+        box_parents[tob.nboxes:] = refine_parents_per_child
+        box_levels[tob.nboxes:] = tob.box_levels[box_parents[tob.nboxes:]] + 1
+        box_children[:, refine_parents] = (
+            child_box_starts
+            + np.arange(nchildren).reshape(-1, 1))
+
+        for i in range(2**tob.dim):
+            children_i = box_children[i, refine_parents]
+            offsets = (
+                    tob.root_box_extent
+                    * vec_of_signs(tob.dim, i).reshape(-1, 1)
+                    * (1/2**(1+box_levels[children_i])))
+            box_centers[:, children_i] = (
+                    box_centers[:, refine_parents]
+                    + offsets)
+
+        return _TreeOfBoxes(
+                box_centers=box_centers,
+                root_box_extent=tob.root_box_extent,
+                box_parents=box_parents,
+                box_children=box_children,
+                box_levels=box_levels)
+
     # {{{ run control
 
     def __call__(self, queue, particles, kind="adaptive",
+            max_particles_in_box=None, allocator=None, debug=False,
+            targets=None, source_radii=None, target_radii=None,
+            stick_out_factor=None, refine_weights=None,
+            max_leaf_refine_weight=None, wait_for=None,
+            extent_norm=None, bbox=None,
+            **kwargs):
+        tob = _make_tob_root(dim, bounding_box)
+        while True:
+            refine_flags = ...
+            tob = self._split
+
+    def old__call__(self, queue, particles, kind="adaptive",
             max_particles_in_box=None, allocator=None, debug=False,
             targets=None, source_radii=None, target_radii=None,
             stick_out_factor=None, refine_weights=None,
