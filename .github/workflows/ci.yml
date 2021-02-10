@@ -79,7 +79,7 @@ jobs:
                 curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/run-examples.sh
                 . ./run-examples.sh
 
-   downstream_tests:
+    downstream_tests:
         strategy:
             matrix:
                 downstream_project: [pytential]
