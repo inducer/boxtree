@@ -172,8 +172,104 @@ class TreePlotter:
 
 # }}}
 
+# {{{ box tree plotting
+
+
+class BoxTreePlotter(TreePlotter):
+    """Assumes that the tree has data living on the host.
+    See :meth:`boxtree.BoxTree.get`.
+    """
+
+    def __init__(self, tree):
+        self.tree = tree
+
+    def draw_tree(self, **kwargs):
+        if self.tree.dimensions != 2:
+            raise NotImplementedError("can only plot 2D trees for now")
+
+        fill = kwargs.pop("fill", False)
+        edgecolor = kwargs.pop("edgecolor", "black")
+        kwargs["fill"] = fill
+        kwargs["edgecolor"] = edgecolor
+
+        for iabox in range(self.tree.n_active_boxes):
+            ibox = self.tree.box_id_dtype(self.tree.active_boxes[iabox])
+            self.draw_box(ibox, **kwargs)
+
+    def set_bounding_box(self):
+        import matplotlib.pyplot as pt
+        root_center = np.array([self.tree.box_centers[d, 0] for d
+                in range(self.tree.dimensions)])
+        root_extent = self.tree.root_extent
+        pt.xlim(root_center[0] - root_extent / 2,
+                root_center[0] + root_extent / 2)
+        pt.ylim(root_center[1] - root_extent / 2,
+                root_center[1] + root_extent / 2)
+
+        pt.gca().set_aspect("equal")
+
+    def draw_box_numbers(self):
+        import matplotlib.pyplot as pt
+
+        tree = self.tree
+
+        for iabox in range(tree.n_active_boxes):
+            ibox = tree.box_id_dtype(tree.active_boxes[iabox])
+            x, y = tree.box_centers[:, ibox]
+            lev = int(tree.box_levels[ibox])
+            pt.text(x, y, str(ibox), fontsize=20*1.15**(-lev),
+                    ha="center", va="center",
+                    bbox=dict(facecolor='white', alpha=0.5, lw=0))
+
+    def get_tikz_for_tree(self):
+        if self.tree.dimensions != 2:
+            raise NotImplementedError("can only plot 2D trees for now")
+
+        lines = []
+
+        lines.append(r"\def\nboxes{%d}" % self.tree.nboxes)
+        lines.append(r"\def\lastboxnr{%d}" % (self.tree.nboxes-1))
+
+        for iabox in range(self.tree.n_active_boxes):
+            ibox = self.tree.box_id_dtype(self.tree.active_boxes[iabox])
+            el, eh = self.tree.get_box_extent(ibox)
+
+            c = self.tree.box_centers[:, ibox]
+
+            lines.append(
+                    r"\coordinate (boxl%d) at (%r, %r);"
+                    % (ibox, float(el[0]), float(el[1])))
+            lines.append(
+                    r"\coordinate (boxh%d) at (%r, %r);"
+                    % (ibox, float(eh[0]), float(eh[1])))
+            lines.append(
+                    r"\coordinate (boxc%d) at (%r, %r);"
+                    % (ibox, float(c[0]), float(c[1])))
+            lines.append(
+                    r"\def\boxsize%s{%r}"
+                    % (int_to_roman(ibox), float(eh[0]-el[0])))
+            lines.append(
+                    r"\def\boxlevel%s{%r}"
+                    % (int_to_roman(ibox), self.tree.box_levels[ibox]))
+
+        lines.append(
+                r"\def\boxpath#1{(boxl#1) rectangle (boxh#1)}")
+        lines.append(
+                r"\def\drawboxes{"
+                r"\foreach \ibox in {0,...,\lastboxnr}{"
+                r"\draw \boxpath{\ibox};"
+                r"}}")
+        lines.append(
+                r"\def\drawboxnrs{"
+                r"\foreach \ibox in {0,...,\lastboxnr}{"
+                r"\node [font=\tiny] at (boxc\ibox) {\ibox};"
+                r"}}")
+        return "\n".join(lines)
+
+# }}}
 
 # {{{ traversal plotting
+
 
 def _draw_box_list(tree_plotter, ibox, starts, lists, key_to_box=None, **kwargs):
     default_facecolor = "blue"
