@@ -525,8 +525,6 @@ class TreeBuilder(object):
             execution.
         :arg extent_norm: ``"l2"`` or ``"linf"``. Indicates the norm with respect
             to which particle stick-out is measured. See :attr:`Tree.extent_norm`.
-        :arg bbox: Bounding box of the same type as returned by
-            *boxtree.bounding_box.make_bounding_box_dtype*.
         :arg bbox: Bounding box of either type:
             1. A dim-by-2 array, with each row to be [min, max] coordinates
             in its corresponding axis direction.
@@ -536,8 +534,8 @@ class TreeBuilder(object):
             building. Otherwise, the bounding box is determined from particles
             in such a way that it is square and is slightly larger at the top (so
             that scaled coordinates are always < 1).
-            When given, this bounding box is used for tree
-            building. Otherwise, the bounding box is determined from particles.
+            When supplied, the bounding box must be square and have all the
+            particles in its closure.
         :arg kwargs: Used internally for debugging.
 
         :returns: a tuple ``(tree, event)``, where *tree* is an instance of

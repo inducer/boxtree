@@ -44,7 +44,6 @@ def main():
               "pyopencl>=2018.2.2",
               "Mako>=0.7.3",
               "pytest>=2.3",
-              "modepy>=2016.1.2",
               "cgen>=2013.1.2",
               "six",
               ])
