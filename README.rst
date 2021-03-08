@@ -1,12 +1,12 @@
 boxtree: Quad/Octrees, FMM Traversals, Geometric Queries
 ========================================================
 
-.. image:: https://gitlab.tiker.net/inducer/boxtree/badges/master/pipeline.svg
+.. image:: https://gitlab.tiker.net/inducer/boxtree/badges/main/pipeline.svg
     :alt: Gitlab Build Status
-    :target: https://gitlab.tiker.net/inducer/boxtree/commits/master
-.. image:: https://github.com/inducer/boxtree/workflows/CI/badge.svg?branch=master&event=push
+    :target: https://gitlab.tiker.net/inducer/boxtree/commits/main
+.. image:: https://github.com/inducer/boxtree/workflows/CI/badge.svg?branch=main&event=push
     :alt: Github Build Status
-    :target: https://github.com/inducer/boxtree/actions?query=branch%3Amaster+workflow%3ACI+event%3Apush
+    :target: https://github.com/inducer/boxtree/actions?query=branch%3Amain+workflow%3ACI+event%3Apush
 .. image:: https://badge.fury.io/py/boxtree.png
     :alt: Python Package Index Release Page
     :target: https://pypi.org/project/boxtree/
