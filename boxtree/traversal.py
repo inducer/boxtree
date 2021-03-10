@@ -1673,8 +1673,8 @@ class FMMTraversalInfo(DeviceDataRecord):
         cl.wait_for_events([evt])
 
         return self.copy(
-                neighbor_source_boxes_starts=result["starts"],
-                neighbor_source_boxes_lists=result["lists"],
+                neighbor_source_boxes_starts=result["starts"].with_queue(None),
+                neighbor_source_boxes_lists=result["lists"].with_queue(None),
                 from_sep_close_smaller_starts=None,
                 from_sep_close_smaller_lists=None,
                 from_sep_close_bigger_starts=None,

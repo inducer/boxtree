@@ -3,7 +3,7 @@ Python 3 POCL:
     - export PY_EXE=python3
     - export PYOPENCL_TEST=portable:pthread
     - export EXTRA_INSTALL="pybind11 numpy mako matplotlib"
-    - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project.sh
+    - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/main/build-and-test-py-project.sh
     - ". ./build-and-test-py-project.sh"
     tags:
     - python3
@@ -19,7 +19,7 @@ Python 3 POCL Titan V:
     - export PYOPENCL_TEST=portable:titan
     - CONDA_ENVIRONMENT=.test-conda-env-py3.yml
     - export MPLBACKEND=Agg
-    - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project-within-miniconda.sh
+    - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/main/build-and-test-py-project-within-miniconda.sh
     - ". ./build-and-test-py-project-within-miniconda.sh"
     tags:
     - nvidia-titan-v
@@ -34,7 +34,7 @@ Python 3 POCL Titan X:
     - export PYOPENCL_TEST=portable:titan
     - CONDA_ENVIRONMENT=.test-conda-env-py3.yml
     - export MPLBACKEND=Agg
-    - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project-within-miniconda.sh
+    - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/main/build-and-test-py-project-within-miniconda.sh
     - ". ./build-and-test-py-project-within-miniconda.sh"
     tags:
     - nvidia-titan-x
@@ -49,7 +49,7 @@ Python 3 POCL K40:
     - export PYOPENCL_TEST=portable:k40
     - CONDA_ENVIRONMENT=.test-conda-env-py3.yml
     - export MPLBACKEND=Agg
-    - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project-within-miniconda.sh
+    - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/main/build-and-test-py-project-within-miniconda.sh
     - ". ./build-and-test-py-project-within-miniconda.sh"
     tags:
     - nvidia-k40
@@ -79,7 +79,7 @@ Python 3 POCL Examples:
   - export PY_EXE=python3
   - export PYOPENCL_TEST=portable:pthread
   - export EXTRA_INSTALL="pybind11 numpy mako pyvisfile matplotlib"
-  - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-py-project-and-run-examples.sh
+  - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/main/build-py-project-and-run-examples.sh
   - ". ./build-py-project-and-run-examples.sh"
   tags:
   - python3
@@ -95,7 +95,7 @@ Pylint:
   script:
   - export PY_EXE=python3
   - EXTRA_INSTALL="pybind11 numpy mako matplotlib mpi4py"
-  - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/prepare-and-run-pylint.sh
+  - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/main/prepare-and-run-pylint.sh
   - ". ./prepare-and-run-pylint.sh boxtree test/test_*.py"
   tags:
   - python3
@@ -105,14 +105,14 @@ Pylint:
 Documentation:
     script:
     - EXTRA_INSTALL="pybind11 numpy mako mpi4py"
-    - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-docs.sh
+    - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/main/build-docs.sh
     - ". ./build-docs.sh"
     tags:
     - python3
 
 Flake8:
     script:
-    - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/prepare-and-run-flake8.sh
+    - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/main/prepare-and-run-flake8.sh
     - ". ./prepare-and-run-flake8.sh boxtree test examples"
     tags:
     - python3
