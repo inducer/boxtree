@@ -533,9 +533,9 @@ def generate_local_tree(queue, global_traversal, responsible_boxes_list,
         responsible boxes of the current rank.
 
     :return: a tuple of ``(local_tree, src_idx, tgt_idx)``, where ``local_tree`` is
-        a :class:`boxtree.tools.ImmutableHostDeviceArray` of generated local tree,
-        ``src_idx`` is the indices of the local sources in the global tree, and
-        ``tgt_idx`` is the indices of the local targets in the global tree.
+        an object with class `boxtree.tools.ImmutableHostDeviceArray` of generated
+        local tree, ``src_idx`` is the indices of the local sources in the global
+        tree, and ``tgt_idx`` is the indices of the local targets in the global tree.
         ``src_idx`` and ``tgt_idx`` are needed for distributing source weights from
         root rank and assembling calculated potentials on the root rank.
     """

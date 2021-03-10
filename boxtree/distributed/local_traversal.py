@@ -38,8 +38,8 @@ def generate_local_travs(
     """Generate local traversal from local tree.
 
     :arg queue: a :class:`pyopencl.CommandQueue` object.
-    :arg local_tree: the local tree of
-        :class:`boxtree.tools.ImmutableHostDeviceArray` on which the local traversal
+    :arg local_tree: the local tree of class
+        `boxtree.tools.ImmutableHostDeviceArray` on which the local traversal
         object will be constructed.
     :arg traversal_builder: a function, taken a :class:`pyopencl.CommandQueue` and
         a tree, returns the traversal object based on the tree.

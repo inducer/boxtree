@@ -304,9 +304,8 @@ class DeviceDataRecord(Record):
 
     def get(self, queue, **kwargs):
         """Return a copy of `self` in which all data lives on the host, i.e.
-        all :class:`pyopencl.array.Array` and :class:`ImmutableHostDeviceArray`
-        objects are replaced by corresponding :class:`numpy.ndarray` instances on the
-        host.
+        all :class:`pyopencl.array.Array` and `ImmutableHostDeviceArray` objects are
+        replaced by corresponding :class:`numpy.ndarray` instances on the host.
         """
         def try_get(attr):
             if isinstance(attr, ImmutableHostDeviceArray):
@@ -361,10 +360,10 @@ class DeviceDataRecord(Record):
 
     def to_host_device_array(self, queue, exclude_fields=frozenset()):
         """Return a copy of `self` where all device and host arrays are transformed
-        to :class:`ImmutableHostDeviceArray` objects.
+        to `ImmutableHostDeviceArray` objects.
 
         :arg exclude_fields: a :class:`frozenset` containing fields excluding from
-            transformed to :class:`ImmutableHostDeviceArray`.
+            transformed to `ImmutableHostDeviceArray`.
         """
         def _to_host_device_array(attr):
             if isinstance(attr, np.ndarray):
@@ -1092,6 +1091,14 @@ def run_mpi(script, num_processes, env):
 # {{{ HostDeviceArray
 
 class ImmutableHostDeviceArray:
+    """Interface for arrays on both host and device.
+
+    .. note:: This interface assumes the array is immutable. The behavior of
+    modifying the content of either the host array or the device array is undefined.
+
+    @TODO: Once available, replace this implementation with PyOpenCL's in-house
+    implementation.
+    """
     def __init__(self, queue, host_array):
         self.queue = queue
         self.host_array = host_array
@@ -1116,14 +1123,8 @@ class ImmutableHostDeviceArray:
     @property
     def device(self):
         if self.device_array is None:
-            # @TODO: Make SVM works with ElementwiseKernel
-            # if self.svm_capable:
-            #     self.device_array = cl.SVM(self.host_array)
-            # else:
-            #    self.device_array = cl.array.to_device(self.queue, self.host_array)
+            # @TODO: Use SVM
             self.device_array = cl.array.to_device(self.queue, self.host_array)
-
-            # cl.Array(data=cl.SVM(...))
 
         self.device_array.with_queue(self.queue)
         return self.device_array
