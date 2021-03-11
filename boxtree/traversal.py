@@ -1709,30 +1709,27 @@ class FMMTraversalInfo(DeviceDataRecord):
         return len(self.target_or_target_parent_boxes)
 
     def to_device(self, queue, exclude_fields=frozenset()):
-        exclude_fields = set(exclude_fields)
-        exclude_fields.add("level_start_source_box_nrs")
-        exclude_fields.add("level_start_target_box_nrs")
-        exclude_fields.add("level_start_target_or_target_parent_box_nrs")
-        exclude_fields.add("level_start_source_parent_box_nrs")
-        exclude_fields.add("tree")
+        exclude_fields = exclude_fields | {
+            "level_start_source_box_nrs",
+            "level_start_target_box_nrs",
+            "level_start_target_or_target_parent_box_nrs",
+            "level_start_source_parent_box_nrs",
+            "tree"}
 
         self.tree = self.tree.to_device(queue)
 
-        return super(FMMTraversalInfo, self).to_device(
-            queue, frozenset(exclude_fields)
-        )
+        return super(FMMTraversalInfo, self).to_device(queue, exclude_fields)
 
     def to_host_device_array(self, queue, exclude_fields=frozenset()):
-        exclude_fields = set(exclude_fields)
-        exclude_fields.add("level_start_source_box_nrs")
-        exclude_fields.add("level_start_target_box_nrs")
-        exclude_fields.add("level_start_target_or_target_parent_box_nrs")
-        exclude_fields.add("level_start_source_parent_box_nrs")
-        exclude_fields.add("tree")
+        exclude_fields = exclude_fields | {
+            "level_start_source_box_nrs",
+            "level_start_target_box_nrs",
+            "level_start_target_or_target_parent_box_nrs",
+            "level_start_source_parent_box_nrs",
+            "tree"}
 
         return super(FMMTraversalInfo, self).to_host_device_array(
-            queue, frozenset(exclude_fields)
-        )
+            queue, exclude_fields)
 
 # }}}
 

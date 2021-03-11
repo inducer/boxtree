@@ -578,7 +578,7 @@ def generate_local_tree(queue, global_traversal, responsible_boxes_list,
 
     local_tree.__class__ = LocalTree
 
-    # {{{ compute the users of multipole expansions of each box on root rank
+    # {{{ compute the users of multipole expansions of each box on the root rank
 
     box_mpole_is_used_all_ranks = None
     if mpi_rank == 0:

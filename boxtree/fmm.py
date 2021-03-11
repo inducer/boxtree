@@ -34,21 +34,13 @@ except ImportError:
     from collections import Mapping
 
 
-try:
-    from mpi4py import MPI
-    from boxtree.distributed import dtype_to_mpi
-    from boxtree.distributed import MPITags
-except ImportError:
-    pass
-
-
 import numpy as np
 from pytools import ProcessLogger
 
 
 def drive_fmm(traversal, expansion_wrangler, src_weight_vecs, timing_data=None,
-              distributed=False, global_wrangler=None,
-              src_idx_all_ranks=None, tgt_idx_all_ranks=None, comm=None,
+              comm=None, global_wrangler=None,
+              global_src_idx_all_ranks=None, global_tgt_idx_all_ranks=None,
               _communicate_mpoles_via_allreduce=False):
     """Top-level driver routine for a fast multipole calculation.
 
@@ -60,8 +52,9 @@ def drive_fmm(traversal, expansion_wrangler, src_weight_vecs, timing_data=None,
     Nonetheless, many common applications (such as point-to-point FMMs) can be
     covered by supplying the right *expansion_wrangler* to this routine.
 
-    For distributed implementation, this function needs to be called collectively by
-    all ranks in *comm*.
+    To enable distributed computation, set *comm* to a valid MPI communicator, and
+    call this function collectively for all ranks in *comm*. The distributed
+    implementation requires mpi4py.
 
     :arg traversal: A :class:`boxtree.traversal.FMMTraversalInfo` instance. For
         distributed implementation, this argument should be the local traversal
@@ -75,25 +68,20 @@ def drive_fmm(traversal, expansion_wrangler, src_weight_vecs, timing_data=None,
     :arg timing_data: Either *None*, or a :class:`dict` that is populated with
         timing information for the stages of the algorithm (in the form of
         :class:`TimingResult`), if such information is available.
-    :arg distributed: Whether to run the driver in a distributed manner.
-        (Require mpi4py).
     :arg global_wrangler: An object exhibiting the
         :class:`ExpansionWranglerInterface`. This wrangler should reference the
         global tree, which is used for assembling partial results from
         worker ranks together. This argument is only significant for distributed
         implementation and on the root rank.
-    :arg src_idx_all_ranks: a :class:`list` with shape ``(nranks,)``, where the ith
-        entry is a :class:`numpy.ndarray` representing the source indices of the
-        local tree on rank *i*. Each entry can be returned from
-        *generate_local_tree*. This argument is significant only on root rank.
-    :arg tgt_idx_all_ranks: a :class:`list` with shape ``(nranks,)``, where the ith
-        entry is a :class:`numpy.ndarray` representing the target indices of the
-        local tree on rank *i*. Each entry can be returned from
-        *generate_local_tree*. This argument is significant only on root rank.
+    :arg global_src_idx_all_ranks: a :class:`list` of length ``nranks``, where the
+        i-th entry is a :class:`numpy.ndarray` representing the global indices of
+        sources in the local tree on rank *i*. Each entry can be returned from
+        *generate_local_tree*. This argument is significant only on the root rank.
+    :arg global_tgt_idx_all_ranks: a :class:`list` of length ``nranks``, where the
+        i-th entry is a :class:`numpy.ndarray` representing the global indices of
+        targets in the local tree on rank *i*. Each entry can be returned from
+        *generate_local_tree*. This argument is significant only on the root rank.
     :arg comm: MPI communicator. Default to ``MPI_COMM_WORLD``.
-    :arg _communicate_mpoles_via_allreduce: whether to use MPI allreduce for
-        communicating multipole expressions. Using MPI allreduce is slower but might
-        be helpful for debugging purpose.
 
     :return: the potentials computed by *expansion_wrangler*. For the distributed
         implementation, the potentials are gathered and returned on the root rank;
@@ -107,23 +95,18 @@ def drive_fmm(traversal, expansion_wrangler, src_weight_vecs, timing_data=None,
     fmm_proc = ProcessLogger(logger, "fmm")
     recorder = TimingRecorder()
 
-    if distributed:
-        # Get MPI information
-        if comm is None:
-            comm = MPI.COMM_WORLD
-        mpi_rank = comm.Get_rank()
-        mpi_size = comm.Get_size()
-
-    if not distributed:
+    if comm is None:
         src_weight_vecs = [wrangler.reorder_sources(weight) for
             weight in src_weight_vecs]
     else:
+        mpi_rank = comm.Get_rank()
+        mpi_size = comm.Get_size()
         if mpi_rank == 0:
             src_weight_vecs = [global_wrangler.reorder_sources(weight) for
                 weight in src_weight_vecs]
 
         src_weight_vecs = wrangler.distribute_source_weights(
-            src_weight_vecs, src_idx_all_ranks, comm=comm
+            src_weight_vecs, global_src_idx_all_ranks, comm=comm
         )
 
     # {{{ "Step 2.1:" Construct local multipoles
@@ -150,8 +133,10 @@ def drive_fmm(traversal, expansion_wrangler, src_weight_vecs, timing_data=None,
 
     # }}}
 
-    if distributed:
+    if comm is not None:
         if _communicate_mpoles_via_allreduce:
+            # Use MPI allreduce for communicating multipole expressions. It is slower
+            # but might be helpful for debugging purposes.
             mpole_exps_all = np.zeros_like(mpole_exps)
             comm.Allreduce(mpole_exps, mpole_exps_all)
             mpole_exps = mpole_exps_all
@@ -272,20 +257,29 @@ def drive_fmm(traversal, expansion_wrangler, src_weight_vecs, timing_data=None,
 
     # {{{ Worker ranks send calculated potentials to the root rank
 
-    if distributed:
+    if comm is not None:
+        from boxtree.distributed import dtype_to_mpi
+        from boxtree.distributed import MPITags
+        from mpi4py import MPI
+
         potentials_mpi_type = dtype_to_mpi(potentials.dtype)
 
         if mpi_rank == 0:
             potentials_all_ranks = np.empty((mpi_size,), dtype=object)
             potentials_all_ranks[0] = potentials
 
+            recv_reqs = []
+
             for irank in range(1, mpi_size):
                 potentials_all_ranks[irank] = np.empty(
-                    tgt_idx_all_ranks[irank].shape, dtype=potentials.dtype
+                    global_tgt_idx_all_ranks[irank].shape, dtype=potentials.dtype
                 )
 
-                comm.Recv([potentials_all_ranks[irank], potentials_mpi_type],
-                        source=irank, tag=MPITags["GATHER_POTENTIALS"])
+                recv_reqs.append(
+                    comm.Irecv([potentials_all_ranks[irank], potentials_mpi_type],
+                    source=irank, tag=MPITags["GATHER_POTENTIALS"]))
+
+            MPI.Request.Waitall(recv_reqs)
         else:
             comm.Send([potentials, potentials_mpi_type],
                     dest=0, tag=MPITags["GATHER_POTENTIALS"])
@@ -294,15 +288,15 @@ def drive_fmm(traversal, expansion_wrangler, src_weight_vecs, timing_data=None,
 
     # {{{ Assemble potentials from worker ranks together on the root rank
 
-    if distributed and mpi_rank == 0:
+    if comm is not None and mpi_rank == 0:
         potentials = np.empty(global_wrangler.tree.ntargets, dtype=potentials.dtype)
 
         for irank in range(mpi_size):
-            potentials[tgt_idx_all_ranks[irank]] = potentials_all_ranks[irank]
+            potentials[global_tgt_idx_all_ranks[irank]] = potentials_all_ranks[irank]
 
     # }}}
 
-    if distributed:
+    if comm is not None:
         result = None
         if mpi_rank == 0:
             result = global_wrangler.reorder_potentials(potentials)
@@ -464,6 +458,24 @@ class ExpansionWranglerInterface:
         because some derived FMMs (notably the QBX FMM) do their own reordering.
         """
 
+    def distribute_source_weights(self, src_weight_vecs, src_idx_all_ranks, comm):
+        """Used for the distributed implementation. This method transfers needed
+        source weights from root rank to each worker rank in communicator *comm*.
+
+        This method needs to be called collectively by all ranks in communicator
+        *comm*.
+
+        :arg src_weight_vecs: a sequence of :class:`numpy.ndarray` of length
+            ``nsources``, representing the weights of sources on the root rank.
+            ``None`` on worker ranks.
+        :arg src_idx_all_ranks: a :class:`list` of length ``nranks``, where the
+            i-th entry is a :class:`numpy.ndarray` indexed into *source_weights* to
+            be sent from the root rank to rank *i*. Each entry can be generated by
+            *generate_local_tree*. ``None`` on worker ranks.
+
+        :return: Received source weights of the current rank.
+        """
+
 # }}}
 
 
@@ -473,7 +485,15 @@ class TimingResult(Mapping):
     """Interface for returned timing data.
 
     This supports accessing timing results via a mapping interface, along with
-    combining results via :meth:`merge`.
+    combining results via :meth:`merge` or via add operator. For example,
+
+    .. code-block:: python
+
+        t0 = TimingResult(a=1, b=2)
+        t1 = TimingResult(a=3, b=4)
+        t2 = t0 + t1
+        t3 = t0.merge(t1)  # t3 contains the same content as t2
+        t2["a"]  # return 4
 
     .. automethod:: merge
     """

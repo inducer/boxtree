@@ -40,8 +40,8 @@ launching FMM.
 Distributed Algorithm Overview
 ------------------------------
 
-1. Construct the global tree and traversal lists on root rank and broadcast to all
-   worker ranks.
+1. Construct the global tree and traversal lists on the root rank and broadcast to
+   all worker ranks.
 2. Partition boxes into disjoint sets, where the number of sets is the number of MPI
    ranks. (See :ref:`partition-boxes`)
 3. Each rank constructs the local tree and traversal lists independently, according
@@ -264,10 +264,9 @@ class DistributedFMMRunner(object):
         return drive_fmm(
             self.local_trav.get(None), self.local_wrangler, source_weights,
             timing_data=timing_data,
-            distributed=True,
-            global_wrangler=self.global_wrangler,
-            src_idx_all_ranks=self.src_idx_all_ranks,
-            tgt_idx_all_ranks=self.tgt_idx_all_ranks,
             comm=self.comm,
+            global_wrangler=self.global_wrangler,
+            global_src_idx_all_ranks=self.src_idx_all_ranks,
+            global_tgt_idx_all_ranks=self.tgt_idx_all_ranks,
             _communicate_mpoles_via_allreduce=_communicate_mpoles_via_allreduce
         )

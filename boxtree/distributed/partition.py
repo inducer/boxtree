@@ -39,7 +39,7 @@ def partition_work(boxes_time, traversal, total_rank):
     :arg boxes_time: The expected running time of each box.
     :arg traversal: The traversal object built on root containing all particles.
     :arg total_rank: The total number of ranks.
-    :return: A numpy array of shape ``(total_rank,)``, where the ith element is an
+    :return: A numpy array of shape ``(total_rank,)``, where the i-th element is an
         numpy array containing the responsible boxes of process i.
     """
     tree = traversal.tree
@@ -129,9 +129,9 @@ def get_ancestor_boxes_mask(queue, traversal, responsible_boxes_mask):
     """Query the ancestors of responsible boxes.
 
     :arg responsible_boxes_mask: A :class:`pyopencl.array.Array` object of shape
-        ``(tree.nboxes,)`` whose ith entry is 1 if ``i`` is a responsible box.
+        ``(tree.nboxes,)`` whose i-th entry is 1 if ``i`` is a responsible box.
     :return: A :class:`pyopencl.array.Array` object of shape ``(tree.nboxes,)`` whose
-        ith entry is 1 if ``i`` is an ancestor of the responsible boxes specified by
+        i-th entry is 1 if ``i`` is an ancestor of the responsible boxes specified by
         *responsible_boxes_mask*.
     """
     ancestor_boxes = cl.array.zeros(queue, (traversal.tree.nboxes,), dtype=np.int8)
@@ -157,12 +157,12 @@ def get_src_boxes_mask(
     of boxes represented by *responsible_boxes_mask*.
 
     :arg responsible_boxes_mask: A :class:`pyopencl.array.Array` object of shape
-        ``(tree.nboxes,)`` whose ith entry is 1 if ``i`` is a responsible box.
+        ``(tree.nboxes,)`` whose i-th entry is 1 if ``i`` is a responsible box.
     :param ancestor_boxes_mask: A :class:`pyopencl.array.Array` object of shape
-        ``(tree.nboxes,)`` whose ith entry is 1 if ``i`` is either a responsible box
+        ``(tree.nboxes,)`` whose i-th entry is 1 if ``i`` is either a responsible box
         or an ancestor of the responsible boxes.
     :return: A :class:`pyopencl.array.Array` object of shape ``(tree.nboxes,)`` whose
-        ith entry is 1 if souces of box ``i`` are needed for evaluating the
+        i-th entry is 1 if souces of box ``i`` are needed for evaluating the
         potentials of targets in boxes represented by *responsible_boxes_mask*.
     """
     src_boxes_mask = responsible_boxes_mask.copy()
@@ -220,12 +220,12 @@ def get_multipole_boxes_mask(
     potentials of targets in boxes represented by *responsible_boxes_mask*.
 
     :arg responsible_boxes_mask: A :class:`pyopencl.array.Array` object of shape
-        ``(tree.nboxes,)`` whose ith entry is 1 if ``i`` is a responsible box.
+        ``(tree.nboxes,)`` whose i-th entry is 1 if ``i`` is a responsible box.
     :arg ancestor_boxes_mask: A :class:`pyopencl.array.Array` object of shape
-        ``(tree.nboxes,)`` whose ith entry is 1 if ``i`` is either a responsible box
+        ``(tree.nboxes,)`` whose i-th entry is 1 if ``i`` is either a responsible box
         or an ancestor of the responsible boxes.
     :return: A :class:`pyopencl.array.Array` object of shape ``(tree.nboxes,)``
-        whose ith entry is 1 if multipoles of box ``i`` are needed for evaluating
+        whose i-th entry is 1 if multipoles of box ``i`` are needed for evaluating
         the potentials of targets in boxes represented by *responsible_boxes_mask*.
     """
 

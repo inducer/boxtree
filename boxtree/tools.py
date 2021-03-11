@@ -41,7 +41,6 @@ import sys
 
 # Use offsets in VectorArg by default.
 VectorArg = partial(_VectorArg, with_offset=True)
-ScalarArg = ScalarArg
 
 AXIS_NAMES = ("x", "y", "z", "w")
 
@@ -711,8 +710,6 @@ class MaskCompressorKernel(object):
     @memoize_method
     def get_matrix_compressor_kernel(self, mask_dtype, list_dtype):
         from pyopencl.algorithm import ListOfListsBuilder
-        # Reimport VectorArg to use default with_offset
-        from pyopencl.tools import VectorArg
 
         return ListOfListsBuilder(
                 self.context,
@@ -722,7 +719,7 @@ class MaskCompressorKernel(object):
                     ScalarArg(np.int32, "ncols"),
                     ScalarArg(np.int32, "outer_stride"),
                     ScalarArg(np.int32, "inner_stride"),
-                    VectorArg(mask_dtype, "mask"),
+                    _VectorArg(mask_dtype, "mask"),
                 ],
                 name_prefix="compress_matrix")
 

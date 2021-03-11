@@ -1,3 +1,25 @@
+__copyright__ = "Copyright (C) 2021 Hao Gao"
+
+__license__ = """
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+"""
+
 import numpy as np
 import pyopencl as cl
 import numpy.linalg as la
@@ -29,7 +51,8 @@ def set_cache_dir(comm):
     os.environ["XDG_CACHE_HOME"] = str(cache_home / str(comm.Get_rank()))
 
 
-def _test_against_shared(dims, nsources, ntargets, dtype):
+def _test_against_shared(
+        dims, nsources, ntargets, dtype, _communicate_mpoles_via_allreduce=False):
     from mpi4py import MPI
 
     # Get the current rank
@@ -102,7 +125,8 @@ def _test_against_shared(dims, nsources, ntargets, dtype):
 
     timing_data = {}
     pot_dfmm = distribued_fmm_info.drive_dfmm(
-        [sources_weights], timing_data=timing_data
+        [sources_weights], timing_data=timing_data,
+        _communicate_mpoles_via_allreduce=_communicate_mpoles_via_allreduce
     )
     assert timing_data
 
@@ -125,12 +149,14 @@ def _test_against_shared(dims, nsources, ntargets, dtype):
 
 
 @pytest.mark.mpi
-@pytest.mark.parametrize("num_processes, dims, nsources, ntargets", [
-    (4, 3, 10000, 10000)
-])
-@pytest.mark.skipif(sys.version_info < (3, 5),
-                    reason="distributed implementation requires 3.5 or higher")
-def test_against_shared(num_processes, dims, nsources, ntargets):
+@pytest.mark.parametrize(
+    "num_processes, dims, nsources, ntargets, communicate_mpoles_via_allreduce", [
+        (4, 3, 10000, 10000, True),
+        (4, 3, 10000, 10000, False)
+    ]
+)
+def test_against_shared(
+        num_processes, dims, nsources, ntargets, communicate_mpoles_via_allreduce):
     pytest.importorskip("mpi4py")
 
     newenv = os.environ.copy()
@@ -138,6 +164,8 @@ def test_against_shared(num_processes, dims, nsources, ntargets):
     newenv["dims"] = str(dims)
     newenv["nsources"] = str(nsources)
     newenv["ntargets"] = str(ntargets)
+    newenv["communicate_mpoles_via_allreduce"] = \
+        str(communicate_mpoles_via_allreduce)
     newenv["OMP_NUM_THREADS"] = "1"
 
     run_mpi(__file__, num_processes, newenv)
@@ -209,8 +237,6 @@ def _test_constantone(dims, nsources, ntargets, dtype):
 @pytest.mark.parametrize("num_processes, dims, nsources, ntargets", [
     (4, 3, 10000, 10000)
 ])
-@pytest.mark.skipif(sys.version_info < (3, 5),
-                    reason="distributed implementation requires 3.5 or higher")
 def test_constantone(num_processes, dims, nsources, ntargets):
     pytest.importorskip("mpi4py")
 
@@ -235,7 +261,12 @@ if __name__ == "__main__":
             nsources = int(os.environ["nsources"])
             ntargets = int(os.environ["ntargets"])
 
-            _test_against_shared(dims, nsources, ntargets, dtype)
+            from distutils.util import strtobool
+            _communicate_mpoles_via_allreduce = bool(
+                strtobool(os.environ["communicate_mpoles_via_allreduce"]))
+
+            _test_against_shared(
+                dims, nsources, ntargets, dtype, _communicate_mpoles_via_allreduce)
 
         elif os.environ["PYTEST"] == "2":
             # Run "test_constantone" test case

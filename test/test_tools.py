@@ -127,7 +127,6 @@ def test_masked_list_compression(ctx_getter):
     assert set(arr_list) == set(arr.nonzero()[0])
 
 
-import pytest
 from pyopencl.tools import (  # noqa
         pytest_generate_tests_for_pyopencl as pytest_generate_tests)
 
