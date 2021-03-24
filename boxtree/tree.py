@@ -1,5 +1,3 @@
-from __future__ import division
-
 __copyright__ = "Copyright (C) 2013 Andreas Kloeckner"
 
 __license__ = """
@@ -396,7 +394,7 @@ class Tree(DeviceDataRecord):
         exclude_fields = set(exclude_fields)
         exclude_fields.add("level_start_box_nrs")
 
-        return super(Tree, self).to_device(queue, frozenset(exclude_fields))
+        return super().to_device(queue, frozenset(exclude_fields))
 
 # }}}
 
@@ -734,7 +732,7 @@ class FilteredTargetListsInTreeOrder(DeviceDataRecord):
     """
 
 
-class ParticleListFilter(object):
+class ParticleListFilter:
     """
     .. automethod:: filter_target_lists_in_tree_order
     .. automethod:: filter_target_lists_in_user_order

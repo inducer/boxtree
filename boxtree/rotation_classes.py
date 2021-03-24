@@ -1,5 +1,3 @@
-from __future__ import division
-
 __copyright__ = "Copyright (C) 2019 Matt Wala"
 
 __license__ = """
@@ -66,7 +64,7 @@ class RotationClassesInfo(DeviceDataRecord):
         return len(self.from_sep_siblings_rotation_class_to_angle)
 
 
-class RotationClassesBuilder(object):
+class RotationClassesBuilder:
     """Build rotation classes for List 2 translations.
     """
 

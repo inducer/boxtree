@@ -1,5 +1,3 @@
-from __future__ import division
-
 __copyright__ = "Copyright (C) 2019 Matt Wala"
 
 __license__ = """
@@ -203,7 +201,7 @@ class TranslationClassesInfo(DeviceDataRecord):
     """
 
     def __init__(self, traversal, **kwargs):
-        super(TranslationClassesInfo, self).__init__(**kwargs)
+        super().__init__(**kwargs)
         self.traversal = traversal
 
     def copy(self, **kwargs):
@@ -215,7 +213,7 @@ class TranslationClassesInfo(DeviceDataRecord):
         return len(self.from_sep_siblings_translation_class_to_distance_vector)
 
 
-class TranslationClassesBuilder(object):
+class TranslationClassesBuilder:
     """Build translation classes for List 2 translations.
     """
 

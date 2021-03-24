@@ -1,5 +1,3 @@
-from __future__ import division
-
 __copyright__ = "Copyright (C) 2012 Andreas Kloeckner"
 
 __license__ = """
@@ -410,7 +408,7 @@ class TimingResult(Mapping):
 
 # {{{ timing future
 
-class TimingFuture(object):
+class TimingFuture:
     """Returns timing data for a potentially asynchronous operation.
 
     .. automethod:: result
@@ -430,7 +428,7 @@ class TimingFuture(object):
 
 # {{{ timing recorder
 
-class TimingRecorder(object):
+class TimingRecorder:
 
     def __init__(self):
         from collections import defaultdict

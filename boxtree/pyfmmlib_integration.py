@@ -1,5 +1,3 @@
-from __future__ import division
-
 """Integration between boxtree and pyfmmlib."""
 
 __copyright__ = "Copyright (C) 2013 Andreas Kloeckner"
@@ -40,7 +38,7 @@ __doc__ = """Integrates :mod:`boxtree` with
 
 # {{{ rotation data interface
 
-class FMMLibRotationDataInterface(object):
+class FMMLibRotationDataInterface:
     """Abstract interface for additional, optional data for precomputation of
     rotation matrices passed to the expansion wrangler.
 
@@ -102,7 +100,7 @@ class FMMLibRotationDataNotSuppliedWarning(UserWarning):
 # }}}
 
 
-class FMMLibExpansionWrangler(object):
+class FMMLibExpansionWrangler:
     """Implements the :class:`boxtree.fmm.ExpansionWranglerInterface`
     by using pyfmmlib.
 
@@ -249,7 +247,7 @@ class FMMLibExpansionWrangler(object):
 
     def get_routine(self, name, suffix=""):
         import pyfmmlib
-        return getattr(pyfmmlib, "%s%s%s" % (
+        return getattr(pyfmmlib, "{}{}{}".format(
             self.eqn_letter,
             name % self.dim,
             suffix))

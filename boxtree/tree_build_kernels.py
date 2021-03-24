@@ -1,5 +1,3 @@
-from __future__ import division, absolute_import
-
 __copyright__ = "Copyright (C) 2013 Andreas Kloeckner"
 
 __license__ = """
@@ -21,9 +19,6 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
-
-import six
-from six.moves import range
 
 import numpy as np
 import pyopencl as cl
@@ -908,9 +903,9 @@ def build_level_restrict_kernel(context, preamble_with_dtype_decls,
             VectorArg(np.int32, "have_upper_level_split_box"),  # [1]
         ]
         # input, length depends on dim
-        + [VectorArg(box_id_dtype, "box_child_ids_mnr_{mnr}".format(mnr=mnr))
+        + [VectorArg(box_id_dtype, f"box_child_ids_mnr_{mnr}")
              for mnr in range(2**dimensions)]  # [nboxes]
-        + [VectorArg(coord_dtype, "box_centers_{ax}".format(ax=ax))
+        + [VectorArg(coord_dtype, f"box_centers_{ax}")
              for ax in axis_names]  # [nboxes]
         )
 
@@ -1500,9 +1495,9 @@ def get_tree_build_kernel_info(context, dimensions, coord_dtype,
                 VectorArg(np.int32, "box_force_split"),
                 ScalarArg(coord_dtype, "root_extent"),
                 ]
-            + [VectorArg(box_id_dtype, "box_child_ids_mnr_{mnr}".format(mnr=mnr))
+            + [VectorArg(box_id_dtype, f"box_child_ids_mnr_{mnr}")
                           for mnr in range(2**dimensions)]
-            + [VectorArg(coord_dtype, "box_centers_{ax}".format(ax=ax))
+            + [VectorArg(coord_dtype, f"box_centers_{ax}")
                           for ax in axis_names],
             str(box_splitter_kernel_source),
             name="box_splitter",
@@ -1699,7 +1694,7 @@ def get_tree_build_kernel_info(context, dimensions, coord_dtype,
             ("box_flags_t", box_flags_enum.dtype),
             ("box_level_t", box_level_dtype),
             )
-    codegen_args_tuples = tuple(six.iteritems(codegen_args))
+    codegen_args_tuples = tuple(codegen_args.items())
     box_info_kernel = BOX_INFO_KERNEL_TPL.build(
             context,
             type_aliases,

@@ -1,5 +1,3 @@
-from __future__ import division, absolute_import
-
 __copyright__ = "Copyright (C) 2012 Andreas Kloeckner"
 
 __license__ = """
@@ -23,7 +21,6 @@ THE SOFTWARE.
 """
 
 
-from six.moves import range, zip
 
 import numpy as np
 from pytools import memoize_method
@@ -41,7 +38,7 @@ class MaxLevelsExceeded(RuntimeError):
     pass
 
 
-class TreeBuilder(object):
+class TreeBuilder:
     def __init__(self, context):
         """
         :arg context: A :class:`pyopencl.Context`.
@@ -144,7 +141,7 @@ class TreeBuilder(object):
         # {{{ input processing
 
         if kind not in ["adaptive", "adaptive-level-restricted", "non-adaptive"]:
-            raise ValueError("unknown tree kind '{0}'".format(kind))
+            raise ValueError(f"unknown tree kind '{kind}'")
 
         # we'll modify this below, so copy it
         if wait_for is None:

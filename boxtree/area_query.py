@@ -1,6 +1,3 @@
-# -*- coding: utf-8 -*-
-from __future__ import division
-
 __copyright__ = """
 Copyright (C) 2013 Andreas Kloeckner
 Copyright (C) 2016 Matt Wala"""
@@ -468,7 +465,7 @@ STARTS_EXPANDER_TEMPLATE = ElementwiseTemplate(
 
 # {{{ area query elementwise template
 
-class AreaQueryElementwiseTemplate(object):
+class AreaQueryElementwiseTemplate:
     """
     Experimental: Intended as a way to perform operations in the body of an area
     query.
@@ -617,7 +614,7 @@ SPACE_INVADER_QUERY_TEMPLATE = AreaQueryElementwiseTemplate(
 
 # {{{ area query build
 
-class AreaQueryBuilder(object):
+class AreaQueryBuilder:
     r"""Given a set of :math:`l^\infty` "balls", this class helps build a
     look-up table from ball to leaf boxes that intersect with the ball.
 
@@ -768,7 +765,7 @@ class AreaQueryBuilder(object):
 
 # {{{ area query transpose (leaves-to-balls) lookup build
 
-class LeavesToBallsLookupBuilder(object):
+class LeavesToBallsLookupBuilder:
     r"""Given a set of :math:`l^\infty` "balls", this class helps build a
     look-up table from leaf boxes to balls that overlap with each leaf box.
 
@@ -877,7 +874,7 @@ class LeavesToBallsLookupBuilder(object):
 
 # {{{ space invader query build
 
-class SpaceInvaderQueryBuilder(object):
+class SpaceInvaderQueryBuilder:
     r"""
     Given a set of :math:`l^\infty` "balls", this class helps build a look-up
     table which maps leaf boxes to the *outer space invader distance*.
@@ -1009,7 +1006,7 @@ class SpaceInvaderQueryBuilder(object):
 # {{{ peer list build
 
 
-class PeerListFinder(object):
+class PeerListFinder:
     """This class builds a look-up table from box numbers to peer boxes. The
     full definition [1]_ of a peer box is as follows:
 
