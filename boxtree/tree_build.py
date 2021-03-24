@@ -21,7 +21,6 @@ THE SOFTWARE.
 """
 
 
-
 import numpy as np
 from pytools import memoize_method
 import pyopencl as cl

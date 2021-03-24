@@ -21,7 +21,6 @@ THE SOFTWARE.
 """
 
 
-
 import numpy as np
 import numpy.linalg as la
 import pyopencl as cl
