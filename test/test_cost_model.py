@@ -391,7 +391,8 @@ def test_compare_cl_and_py_cost_model(ctx_factory, nsources, ntargets, dims, dty
 
 @pytest.mark.opencl
 def test_estimate_calibration_params(ctx_factory):
-    from boxtree.pyfmmlib_integration import FMMLibExpansionWrangler
+    from boxtree.pyfmmlib_integration import (
+            FMMLibExpansionWrangler, FMMLibTraversalAndWrangler)
 
     nsources_list = [1000, 2000, 3000, 4000]
     ntargets_list = [1000, 2000, 3000, 4000]
@@ -443,13 +444,15 @@ def test_estimate_calibration_params(ctx_factory):
 
         # }}}
 
-        wrangler = FMMLibExpansionWrangler(trav.tree, 0, fmm_level_to_nterms)
-        level_to_orders.append(wrangler.level_nterms)
+        wrangler = FMMLibExpansionWrangler(trav.tree.dimensions, 0)
+        taw = FMMLibTraversalAndWrangler(trav, wrangler,
+                fmm_level_to_nterms=fmm_level_to_nterms)
+        level_to_orders.append(taw.level_nterms)
 
         timing_data = {}
         from boxtree.fmm import drive_fmm
         src_weights = np.random.rand(tree.nsources).astype(tree.coord_dtype)
-        drive_fmm(trav, wrangler, (src_weights,), timing_data=timing_data)
+        drive_fmm(taw, (src_weights,), timing_data=timing_data)
 
         timing_results.append(timing_data)
 
@@ -573,13 +576,15 @@ def test_cost_model_op_counts_agree_with_constantone_wrangler(
     trav_dev, _ = tg(queue, tree, debug=True)
     trav = trav_dev.get(queue=queue)
 
-    from boxtree.tools import ConstantOneExpansionWrangler
-    wrangler = ConstantOneExpansionWrangler(trav.tree)
+    from boxtree.tools import (
+            ConstantOneExpansionWrangler, ConstantOneTraversalAndWrangler)
+    wrangler = ConstantOneExpansionWrangler()
+    taw = ConstantOneTraversalAndWrangler(trav, wrangler)
 
     timing_data = {}
     from boxtree.fmm import drive_fmm
     src_weights = np.random.rand(tree.nsources).astype(tree.coord_dtype)
-    drive_fmm(trav, wrangler, (src_weights,), timing_data=timing_data)
+    drive_fmm(taw, (src_weights,), timing_data=timing_data)
 
     cost_model = FMMCostModel(
         translation_cost_model_factory=OpCountingTranslationCostModel
