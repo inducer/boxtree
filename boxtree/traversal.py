@@ -1,5 +1,3 @@
-from __future__ import division
-
 __copyright__ = "Copyright (C) 2012 Andreas Kloeckner"
 
 __license__ = """
@@ -1234,7 +1232,7 @@ class _IndexStyle:
     TARGET_OR_TARGET_PARENT_BOXES = 1
 
 
-class _ListMerger(object):
+class _ListMerger:
     """Utility class for combining box lists optionally changing indexing style."""
 
     def __init__(self, context, box_id_dtype):

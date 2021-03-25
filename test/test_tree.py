@@ -1,5 +1,3 @@
-from __future__ import division, absolute_import, print_function
-
 __copyright__ = "Copyright (C) 2012 Andreas Kloeckner"
 
 __license__ = """
@@ -21,9 +19,6 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
-
-import six
-from six.moves import range
 
 import numpy as np
 import sys
@@ -56,7 +51,7 @@ def test_bounding_box(ctx_factory, dtype, dims, nparticles):
 
     axis_names = AXIS_NAMES[:dims]
 
-    logger.info("%s - %s %s" % (dtype, dims, nparticles))
+    logger.info(f"{dtype} - {dims} {nparticles}")
 
     particles = make_normal_particle_array(queue, nparticles, dims, dtype)
 
@@ -97,11 +92,11 @@ def run_build_test(builder, queue, dims, dtype, nparticles, do_plot,
     if max_particles_in_box is not None:
         logger.info("%dD %s - %d particles - max %d per box - %s" % (
             dims, dtype.type.__name__, nparticles, max_particles_in_box,
-            " - ".join("%s: %s" % (k, v) for k, v in six.iteritems(kwargs))))
+            " - ".join(f"{k}: {v}" for k, v in kwargs.items())))
     else:
         logger.info("%dD %s - %d particles - max leaf weight %d  - %s" % (
             dims, dtype.type.__name__, nparticles, max_leaf_refine_weight,
-            " - ".join("%s: %s" % (k, v) for k, v in six.iteritems(kwargs))))
+            " - ".join(f"{k}: {v}" for k, v in kwargs.items())))
     logger.info(75*"-")
 
     particles = make_normal_particle_array(queue, nparticles, dims, dtype)
@@ -183,7 +178,7 @@ def run_build_test(builder, queue, dims, dtype, nparticles, do_plot,
             nparticles_in_box = tree.box_source_counts_cumul[ibox]
             if max_particles_in_box is not None:
                 if nparticles_in_box > max_particles_in_box:
-                    print("too many particles ({0} > {1}); box {2}".format(
+                    print("too many particles ({} > {}); box {}".format(
                         nparticles_in_box, max_particles_in_box, ibox))
                     all_good_here = False
             else:
@@ -191,7 +186,7 @@ def run_build_test(builder, queue, dims, dtype, nparticles, do_plot,
                 box_weight = np.sum(
                     refine_weights_reordered[start:start+nparticles_in_box])
                 if box_weight > max_leaf_refine_weight:
-                    print("refine weight exceeded ({0} > {1}); box {2}".format(
+                    print("refine weight exceeded ({} > {}); box {}".format(
                         box_weight, max_leaf_refine_weight, ibox))
                     all_good_here = False
 
