@@ -365,11 +365,8 @@ class DeviceDataRecord(Record):
             transformed to `ImmutableHostDeviceArray`.
         """
         def _to_host_device_array(attr):
-            if isinstance(attr, np.ndarray):
+            if isinstance(attr, (np.ndarray, cl.array.Array)):
                 return ImmutableHostDeviceArray(queue, attr)
-            if isinstance(attr, cl.array.Array):
-                host_array = attr.get(queue=queue)
-                return ImmutableHostDeviceArray(queue, host_array)
             else:
                 return attr
 
@@ -769,8 +766,8 @@ class AllReduceCommPattern(object):
     Communication of multipoles will be break down into stages. At each stage,
     :meth:`sources()` and :meth:`sinks()` obtain the lists of ranks for receiving and
     sending multipoles. :meth:`messages()` can be used for determining boxes whose
-    multipole expansions need to be sent during the current stage. Use :meth:`advance()`
-    to advance to the next stage.
+    multipole expansions need to be sent during the current stage. Use
+    :meth:`advance()` to advance to the next stage.
     """
 
     def __init__(self, rank, size):
@@ -1101,10 +1098,15 @@ class ImmutableHostDeviceArray:
     @TODO: Once available, replace this implementation with PyOpenCL's in-house
     implementation.
     """
-    def __init__(self, queue, host_array):
+    def __init__(self, queue, array):
         self.queue = queue
-        self.host_array = host_array
+        self.host_array = None
         self.device_array = None
+
+        if isinstance(array, np.ndarray):
+            self.host_array = array
+        elif isinstance(array, cl.array.Array):
+            self.device_array = array
 
     def with_queue(self, queue):
         self.queue = queue
@@ -1120,6 +1122,8 @@ class ImmutableHostDeviceArray:
 
     @property
     def host(self):
+        if self.host_array is None:
+            self.host_array = self.device_array.get(self.queue)
         return self.host_array
 
     @property
