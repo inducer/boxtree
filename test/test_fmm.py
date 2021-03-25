@@ -660,11 +660,11 @@ def test_interaction_list_particle_count_thresholding(ctx_factory, enable_extent
     weights_sum = np.sum(weights)
 
     host_trav = trav.get(queue=queue)
-    host_tree = host_trav.tree
 
-    wrangler = ConstantOneExpansionWrangler(host_tree)
+    wrangler = ConstantOneExpansionWrangler()
+    taw = ConstantOneTraversalAndWrangler(host_trav, wrangler)
 
-    pot = drive_fmm(host_trav, wrangler, (weights,))
+    pot = drive_fmm(taw, (weights,))
 
     assert (pot == weights_sum).all()
 
@@ -717,11 +717,11 @@ def test_fmm_float32(ctx_factory, enable_extents):
     weights_sum = np.sum(weights)
 
     host_trav = trav.get(queue=queue)
-    host_tree = host_trav.tree
 
-    wrangler = ConstantOneExpansionWrangler(host_tree)
+    wrangler = ConstantOneExpansionWrangler()
+    taw = ConstantOneTraversalAndWrangler(host_trav, wrangler)
 
-    pot = drive_fmm(host_trav, wrangler, (weights,))
+    pot = drive_fmm(taw, (weights,))
 
     assert (pot == weights_sum).all()
 
