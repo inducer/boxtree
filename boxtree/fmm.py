@@ -88,8 +88,6 @@ class ExpansionWranglerInterface(ABC):
 
         Changed (a subset of) functions to return timing data.
 
-    .. automethod:: tree_dependent_info
-
     .. rubric:: Array creation
 
     .. automethod:: multipole_expansion_zeros
