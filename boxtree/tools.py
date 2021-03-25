@@ -695,15 +695,13 @@ class MaskCompressorKernel(object):
     @memoize_method
     def get_list_compressor_kernel(self, mask_dtype, list_dtype):
         from pyopencl.algorithm import ListOfListsBuilder
-        # Reimport VectorArg to use default with_offset
-        from pyopencl.tools import VectorArg
 
         return ListOfListsBuilder(
                 self.context,
                 [("output", list_dtype)],
                 MASK_LIST_COMPRESSOR_BODY,
                 [
-                    VectorArg(mask_dtype, "mask"),
+                    _VectorArg(mask_dtype, "mask"),
                 ],
                 name_prefix="compress_list")
 
@@ -762,11 +760,17 @@ class MaskCompressorKernel(object):
 # }}}
 
 
-# {{{ all-reduce
+# {{{ Communication pattern for partial multipole expansions
 
 class AllReduceCommPattern(object):
-    """Describes a tree-like communication pattern for allreduce. Supports efficient
-    allreduce between an arbitrary number of processes.
+    """Describes a tree-like communication pattern for exchanging and reducing
+    multipole expansions. Supports an arbitrary number of processes.
+
+    Communication of multipoles will be break down into stages. At each stage,
+    :meth:`sources()` and :meth:`sinks()` obtain the lists of ranks for receiving and
+    sending multipoles. :meth:`messages()` can be used for determining boxes whose
+    multipole expansions need to be sent during the current stage. Use :meth:`advance()`
+    to advance to the next stage.
     """
 
     def __init__(self, rank, size):
@@ -819,8 +823,9 @@ class AllReduceCommPattern(object):
         return set([partner])
 
     def messages(self):
-        """Return the range of relevant messages to send to the sinks.  This is returned
-        as a [start, end) pair. By design, it is a consecutive range.
+        """Return a range of ranks, such that the multipole expansions used by
+        responsible boxes of these ranks are sent to the sinks.  This is returned as
+        a [start, end) pair. By design, it is a consecutive range.
         """
         if self.rank < self.midpoint:
             return (self.midpoint, self.right)
@@ -1080,7 +1085,7 @@ def run_mpi(script, num_processes, env):
 
         subprocess.run(command, env=env, check=True)
     else:
-        raise RuntimeError("Unrecognized MPI implementation")
+        raise NotImplementedError("Unrecognized MPI implementation")
 
 # }}}
 
