@@ -43,6 +43,33 @@ from pytools import ProcessLogger
 
 # {{{ expansion wrangler interface
 
+# Design considerations:
+#
+# - Making the wrangler contain/permit it to depend the tree (which was previously the case)
+#   forces code caches (say, for translations) to be thrown away every time the FMM is run on
+#   a different tree.
+#
+# - Essentially every wrangler had grown some dependency on tree information. Separating
+#   out this information in a more "official" way seemed like a reasonable idea.
+#
+# - Since some of the tree-dependent information in the wrangler also depended on the
+#   traversal (while also being specific to each wrangler type), it seemed to make
+#   to make sense to create this class that explicitly depends on both to host this data.
+#
+# - Since drive_fmm previously took a wrangler and a traversal as an argument, this
+#   object (which contains both) became the natural new argument type to drive_fmm.
+#
+# - Since the expansion wrangler becomes a pure 'code container', every method in
+#   the wrangler is provided access to the TraversalAndWrangler. If the translation
+#   methods existed in TraversalAndWrangler, then at least another set of cooperating
+#   "code getter" methods would be required in the wrangler. This is the chief
+#   downside (to my mind) of the old 'wrangler+code container' design.
+#
+# - The wrangler methods obviously don't need to be told what wrangler to use
+#   (but are told this anyway by way of being passed a 'taw'). This is redundant
+#   and a bit clunky, but I found this to be an acceptable downside.
+#
+# -AK, as part of https://github.com/inducer/boxtree/pull/29
 class TraversalAndWrangler:
     """A base class for objects specific to an implementation of the
     :class:`ExpansionWranglerInterface` that may hold tree-/geometry-dependent
@@ -65,7 +92,7 @@ class TraversalAndWrangler:
     def tree(self):
         return self.traversal.tree
 
-
+    
 class ExpansionWranglerInterface(ABC):
     """Abstract expansion handling interface for use with :func:`drive_fmm`.
 
