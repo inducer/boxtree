@@ -45,16 +45,18 @@ from pytools import ProcessLogger
 
 # Design considerations:
 #
-# - Making the wrangler contain/permit it to depend the tree (which was previously the case)
-#   forces code caches (say, for translations) to be thrown away every time the FMM is run on
-#   a different tree.
+# - Making the wrangler contain/permit it to depend the tree (which was
+#   previously the case) forces code caches (say, for translations) to be thrown
+#   away every time the FMM is run on a different tree.
 #
-# - Essentially every wrangler had grown some dependency on tree information. Separating
-#   out this information in a more "official" way seemed like a reasonable idea.
+# - Essentially every wrangler had grown some dependency on tree information.
+#   Separating out this information in a more "official" way seemed like a
+#   reasonable idea.
 #
 # - Since some of the tree-dependent information in the wrangler also depended on the
 #   traversal (while also being specific to each wrangler type), it seemed to make
-#   to make sense to create this class that explicitly depends on both to host this data.
+#   to make sense to create this class that explicitly depends on both to host
+#   this data.
 #
 # - Since drive_fmm previously took a wrangler and a traversal as an argument, this
 #   object (which contains both) became the natural new argument type to drive_fmm.
@@ -100,7 +102,7 @@ class TraversalAndWrangler:
     def tree(self):
         return self.traversal.tree
 
-    
+
 class ExpansionWranglerInterface(ABC):
     """Abstract expansion handling interface for use with :func:`drive_fmm`.
 
