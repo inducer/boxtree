@@ -60,14 +60,22 @@ from pytools import ProcessLogger
 #   object (which contains both) became the natural new argument type to drive_fmm.
 #
 # - Since the expansion wrangler becomes a pure 'code container', every method in
-#   the wrangler is provided access to the TraversalAndWrangler. If the translation
-#   methods existed in TraversalAndWrangler, then at least another set of cooperating
-#   "code getter" methods would be required in the wrangler. This is the chief
-#   downside (to my mind) of the old 'wrangler+code container' design.
+#   the wrangler is provided access to the TraversalAndWrangler.
 #
 # - The wrangler methods obviously don't need to be told what wrangler to use
 #   (but are told this anyway by way of being passed a 'taw'). This is redundant
 #   and a bit clunky, but I found this to be an acceptable downside.
+#
+# - In many cases (look no further than the fmmlib wrangler), wranglers were
+#   provided tree-specific arguments by the user. As a result,
+#   TraversalAndWrangler (aka the only thing that's allowed to know both
+#   the tree and the wrangler) needs to be created by the user, to retain
+#   the ability to provide these parameters.
+#
+# - Since wranglers (which may depend on the kernel but not the tree)
+#   may also do (kernel-specific) pre-computation, and since the
+#   lifetime of the tree-dependent TraversalAndWrangler and the wrangler are
+#   naturally different, it follows that both must be exposed to the user.
 #
 # -AK, as part of https://github.com/inducer/boxtree/pull/29
 class TraversalAndWrangler:
