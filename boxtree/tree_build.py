@@ -127,40 +127,6 @@ class _TreeOfBoxes:
         boxes = np.arange(self.nboxes)
         return boxes[self.is_leaf()]
 
-    # {{{ instantiate with particles
-
-    def distribute_quadrature_rule(self, quad_rule):
-        """Generate quadrature nodes (`dim x nnodes`) and weights. Within each
-        leaf box, nodes are in lexicographic order, where the last axis varies
-        fastest. For example, `[[0, 0, 1, 1], [0, 1, 0, 1]]`.
-
-        :arg quad_rule: a :class:`modepy.Quadrature`
-        """
-        x, w = quad_rule.nodes, quad_rule.weights  # nodes in [-1, 1]
-        n_box_nodes = len(x)**self.dim
-        box_nodes = np.array(np.meshgrid(*((x,) * self.dim), indexing="ij")
-                             ).reshape([self.dim, -1])
-        if self.dim == 2:
-            box_weights = w[:, None] @ w[None, :]
-        elif self.dim == 3:
-            box_weights = w[:, None, None] @ w[None, :, None] @ w[None, None, :]
-        box_weights = box_weights.reshape(-1)
-        lfboxes = self.leaf_boxes()
-
-        nodes = np.tile(box_nodes, (1, len(lfboxes)))
-        box_shifts = np.repeat(
-            self.box_centers[:, lfboxes], n_box_nodes, axis=1)
-        box_scales = np.repeat(
-            self.get_box_size(lfboxes) / 2, n_box_nodes)
-        nodes = nodes * box_scales[None, :] + box_shifts
-
-        weights = np.tile(box_weights, len(lfboxes))
-        weights = weights * box_scales**self.dim
-
-        return nodes, weights
-
-    # }}} End instantiate with particles
-
     # {{{ refine/coarsen
 
     def refined(self, refine_flags):
@@ -280,6 +246,38 @@ def _make_tob_root(dim, bbox):
             box_children=np.array([0] * 2**dim, np.intp).reshape(2**dim, 1),
             box_levels=np.array([0]),
             )
+
+
+def distribute_quadrature_rule(tob, quad_rule):
+    """Generate quadrature nodes (`dim x nnodes`) and weights. Within each
+    leaf box, nodes are in lexicographic order, where the last axis varies
+    fastest. For example, `[[0, 0, 1, 1], [0, 1, 0, 1]]`.
+
+    :arg tob: a :class:`_TreeOfBoxes`.
+    :arg quad_rule: a :class:`modepy.Quadrature`.
+    """
+    x, w = quad_rule.nodes, quad_rule.weights  # nodes in [-1, 1]
+    n_box_nodes = len(x)**tob.dim
+    box_nodes = np.array(np.meshgrid(*((x,) * tob.dim), indexing="ij")
+                         ).reshape([tob.dim, -1])
+    if tob.dim == 2:
+        box_weights = w[:, None] @ w[None, :]
+    elif tob.dim == 3:
+        box_weights = w[:, None, None] @ w[None, :, None] @ w[None, None, :]
+    box_weights = box_weights.reshape(-1)
+    lfboxes = tob.leaf_boxes()
+
+    nodes = np.tile(box_nodes, (1, len(lfboxes)))
+    box_shifts = np.repeat(
+        tob.box_centers[:, lfboxes], n_box_nodes, axis=1)
+    box_scales = np.repeat(
+        tob.get_box_size(lfboxes) / 2, n_box_nodes)
+    nodes = nodes * box_scales[None, :] + box_shifts
+
+    weights = np.tile(box_weights, len(lfboxes))
+    weights = weights * box_scales**tob.dim
+
+    return nodes, weights
 
 # }}}
 
