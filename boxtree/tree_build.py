@@ -64,7 +64,9 @@ def vec_of_signs(dim, i):
     """
     # e.g. bin(10) = '0b1010'
     binary_digits = [int(bd) for bd in bin(i)[2:]]
-    return np.array(binary_digits) * 2 - 1
+    n = len(binary_digits)
+    assert n <= dim
+    return np.array([0]*(dim-n) + binary_digits) * 2 - 1
 
 
 class _TreeOfBoxes:
@@ -101,9 +103,13 @@ class _TreeOfBoxes:
         highs = lows + self.root_box_extent
         return [lows, highs]
 
+    def get_box_size(self, ibox):
+        lev = self.box_levels[ibox]
+        box_size = self.root_box_extent * 0.5**lev
+        return box_size
+
     def get_box_extent(self, ibox):
-        lev = int(self.box_levels[ibox])
-        box_size = self.root_box_extent / (1 << lev)
+        box_size = self.get_box_size(ibox)
         extent_low = self.box_centers[:, ibox] - 0.5*box_size
         extent_high = extent_low + box_size
         return extent_low, extent_high
@@ -197,10 +203,41 @@ class _TreeOfBoxes:
         """
         raise NotImplementedError
 
+    def distribute_quadrature_rule(self, quad_rule):
+        """Generate quadrature nodes (`dim x nnodes`) and weights. Within each
+        leaf box, nodes are in lexicographic order, where the last axis varies
+        fastest. For example, `[[0, 0, 1, 1], [0, 1, 0, 1]]`.
+
+        :param quad_rule: a :class:`modepy.Quadrature`
+        """
+        x, w = quad_rule.nodes, quad_rule.weights  # nodes in [-1, 1]
+        n_box_nodes = len(x)**self.dim
+        box_nodes = np.array(np.meshgrid(*((x,) * self.dim), indexing='ij')
+                             ).reshape([self.dim, -1])
+        if self.dim == 2:
+            box_weights = w[:, None] @ w[None, :]
+        elif self.dim == 3:
+            box_weights = w[:, None, None] @ w[None, :, None] @ w[None, None, :]
+        box_weights = box_weights.reshape(-1)
+        lfboxes = self.leaf_boxes()
+
+        nodes = np.tile(box_nodes, (1, len(lfboxes)))
+        box_shifts = np.repeat(
+            self.box_centers[:, lfboxes], n_box_nodes, axis=1)
+        box_scales = np.repeat(
+            self.get_box_size(lfboxes) / 2, n_box_nodes)
+        nodes = nodes * box_scales[None, :] + box_shifts
+
+        weights = np.tile(box_weights, len(lfboxes))
+        weights = weights * box_scales**self.dim
+
+        return nodes, weights
+
     def make_quadrature_tree(self, queue, quad):
         """Generate :class:`boxtree.Tree` tree with a given quadrature rule
         where particles are quadrature nodes in each leaf box.
         """
+        # FIXME
         if not np.all(sorted(self.box_levels) == self.box_levels):
             raise ValueError("calling the method requires a normalized tree")
         levs = np.append(self.box_levels, self.nlevels)
@@ -264,6 +301,11 @@ class _TreeOfBoxes:
 
     def refined(self, refine_flags):
         return self.refine_and_coarsened(refine_flags, None)
+
+    def uniformly_refined(self):
+        refine_flags = np.zeros(self.nboxes, bool)
+        refine_flags[self.is_leaf()] = 1
+        return self.refined(refine_flags)
 
     def coarsened(self, coarsen_flags):
         return self.refine_and_coarsened(None, coarsen_flags)
