@@ -178,7 +178,7 @@ class _TreeOfBoxes:
         """Make a refined/coarsened copy. When children of the same parent box
         are marked differently, the refinement flag takes priority.
 
-        Both refinement and coarsening flags can only be set of leafs.
+        Both refinement and coarsening flags can only be set of leaves.
         To prevent drastic mesh change, coarsening is only executed when a leaf
         box is marked for coarsening, and its parent's children are all leaf
         boxes.
