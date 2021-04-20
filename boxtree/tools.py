@@ -1,5 +1,3 @@
-from __future__ import division
-
 __copyright__ = "Copyright (C) 2013 Andreas Kloeckner"
 
 __license__ = """
@@ -502,7 +500,7 @@ MAP_VALUES_TPL = ElementwiseTemplate(
     name="map_values")
 
 
-class MapValuesKernel(object):
+class MapValuesKernel:
 
     def __init__(self, context):
         self.context = context
@@ -624,7 +622,7 @@ inline size_t bsearch(
 """)
 
 
-class InlineBinarySearch(object):
+class InlineBinarySearch:
 
     def __init__(self, elem_type_name):
         self.render_vars = {"elem_t": elem_type_name}
@@ -638,7 +636,7 @@ class InlineBinarySearch(object):
 
 # {{{ constant one wrangler
 
-class ConstantOneExpansionWrangler(object):
+class ConstantOneExpansionWrangler:
     """This implements the 'analytical routines' for a Green's function that is
     constant 1 everywhere. For 'charges' of 'ones', this should get every particle
     a copy of the particle count.

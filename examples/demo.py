@@ -1,8 +1,6 @@
-from __future__ import absolute_import
 # STARTEXAMPLE
 import pyopencl as cl
 import numpy as np
-from six.moves import range
 
 import logging
 logging.basicConfig(level="DEBUG")
