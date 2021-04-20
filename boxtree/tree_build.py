@@ -134,7 +134,7 @@ class _TreeOfBoxes:
         leaf box, nodes are in lexicographic order, where the last axis varies
         fastest. For example, `[[0, 0, 1, 1], [0, 1, 0, 1]]`.
 
-        :param quad_rule: a :class:`modepy.Quadrature`
+        :arg quad_rule: a :class:`modepy.Quadrature`
         """
         x, w = quad_rule.nodes, quad_rule.weights  # nodes in [-1, 1]
         n_box_nodes = len(x)**self.dim
@@ -182,6 +182,9 @@ class _TreeOfBoxes:
         To prevent drastic mesh change, coarsening is only executed when a leaf
         box is marked for coarsening, and its parent's children are all leaf
         boxes.
+
+        :arg refine_flags: a boolean array of size `nboxes`.
+        :arg coarsen_flags: a boolean array of size `nboxes`.
         """
         nchildren = 2**self.dim
 
