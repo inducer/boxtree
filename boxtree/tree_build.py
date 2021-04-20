@@ -245,6 +245,13 @@ class _TreeOfBoxes:
         coarsen_peer_is_leaf = self.is_leaf()[coarsen_peers]
         coarsen_exec_flags = np.all(coarsen_peer_is_leaf, axis=0)
 
+        coarsen_flags_ignored = (coarsen_exec_flags != coarsen_flags)
+        if np.any(coarsen_flags_ignored):
+            import warnings
+            warnings.warn(f"{np.sum(coarsen_flags_ignored)} out of "
+                          f"{np.sum(coarsen_flags)} coarsening flags ignored "
+                          "to prevent removing non-leaf boxes")
+
         coarsen_parents = coarsen_parents[coarsen_exec_flags]
         coarsen_peers = coarsen_peers[:, coarsen_exec_flags]
         box_parents[coarsen_peers] = -1
