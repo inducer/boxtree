@@ -181,7 +181,7 @@ class _TreeOfBoxes:
         Both refinement and coarsening flags can only be set of leaves.
         To prevent drastic mesh change, coarsening is only executed when a leaf
         box is marked for coarsening, and its parent's children are all leaf
-        boxes.
+        boxes (so that change in the number of boxes is bounded per box flagged).
 
         :arg refine_flags: a boolean array of size `nboxes`.
         :arg coarsen_flags: a boolean array of size `nboxes`.
@@ -219,6 +219,7 @@ class _TreeOfBoxes:
         box_children = resized_array(self.box_children, nboxes_new)
         box_levels = resized_array(self.box_levels, nboxes_new)
 
+        # new boxes are appended at the end, so coarsen_flags are still meaningful
         box_parents[self.nboxes:] = refine_parents_per_child
         box_levels[self.nboxes:] = self.box_levels[box_parents[self.nboxes:]] + 1
         box_children[:, refine_parents] = (
