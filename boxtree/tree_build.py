@@ -138,7 +138,7 @@ class _TreeOfBoxes:
         """
         x, w = quad_rule.nodes, quad_rule.weights  # nodes in [-1, 1]
         n_box_nodes = len(x)**self.dim
-        box_nodes = np.array(np.meshgrid(*((x,) * self.dim), indexing='ij')
+        box_nodes = np.array(np.meshgrid(*((x,) * self.dim), indexing="ij")
                              ).reshape([self.dim, -1])
         if self.dim == 2:
             box_weights = w[:, None] @ w[None, :]
@@ -1849,7 +1849,6 @@ class TreeBuilder:
                 wait_for=wait_for)
 
         # }}}
-
 
         del box_has_children
 
