@@ -232,7 +232,7 @@ class _TreeOfBoxes:
                     box_centers[:, refine_parents]
                     + offsets)
 
-        # ------------------- coarsen only if all peers are leafs after refinement
+        # ------------------- coarsen only if all peers are leaves after refinement
 
         coarsen_flags = resized_array(coarsen_flags, nboxes_new)
         coarsen_sources, = np.where(coarsen_flags)
