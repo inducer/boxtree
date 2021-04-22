@@ -1,5 +1,3 @@
-from __future__ import division
-
 __copyright__ = "Copyright (C) 2012 Andreas Kloeckner"
 
 __license__ = """
@@ -1236,7 +1234,7 @@ class _IndexStyle:
     TARGET_OR_TARGET_PARENT_BOXES = 1
 
 
-class _ListMerger(object):
+class _ListMerger:
     """Utility class for combining box lists optionally changing indexing style."""
 
     def __init__(self, context, box_id_dtype):
@@ -1716,9 +1714,10 @@ class FMMTraversalInfo(DeviceDataRecord):
             "level_start_source_parent_box_nrs",
             "tree"}
 
-        self.tree = self.tree.to_device(queue)
+        self_dev = super(FMMTraversalInfo, self).to_device(queue, exclude_fields)
+        self_dev.tree = self.tree.to_device(queue)
 
-        return super(FMMTraversalInfo, self).to_device(queue, exclude_fields)
+        return self_dev
 
     def to_host_device_array(self, queue, exclude_fields=frozenset()):
         exclude_fields = exclude_fields | {

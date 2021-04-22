@@ -23,9 +23,11 @@ THE SOFTWARE.
 import numpy as np
 import pyopencl as cl
 import numpy.linalg as la
-from boxtree.pyfmmlib_integration import FMMLibExpansionWrangler
-from boxtree.tools import ConstantOneExpansionWrangler as \
-    ConstantOneExpansionWranglerBase
+from boxtree.pyfmmlib_integration import \
+    FMMLibExpansionWrangler, FMMLibTraversalAndWrangler
+from boxtree.tools import (
+    ConstantOneExpansionWrangler as ConstantOneExpansionWranglerBase,
+    ConstantOneTraversalAndWrangler as ConstantOneTraversalAndWranglerBase)
 from boxtree.tools import run_mpi
 import logging
 import os
@@ -77,7 +79,6 @@ def _test_against_shared(
 
     # Generate particles and run shared-memory parallelism on rank 0
     if rank == 0:
-
         # Generate random particles and source weights
         from boxtree.tools import make_normal_particle_array as p_normal
         sources = p_normal(queue, nsources, dims, dtype, seed=15)
@@ -102,25 +103,29 @@ def _test_against_shared(
         trav = d_trav.get(queue=queue)
 
         # Get pyfmmlib expansion wrangler
-        wrangler = FMMLibExpansionWrangler(
-            trav.tree, helmholtz_k, fmm_level_to_nterms=fmm_level_to_nterms)
+        wrangler = FMMLibExpansionWrangler(trav.tree.dimensions, helmholtz_k)
+        taw = FMMLibTraversalAndWrangler(
+            trav, wrangler, fmm_level_to_nterms=fmm_level_to_nterms)
 
         # Compute FMM using shared memory parallelism
         from boxtree.fmm import drive_fmm
-        pot_fmm = drive_fmm(trav, wrangler, [sources_weights]) * 2 * np.pi
+        pot_fmm = drive_fmm(taw, [sources_weights]) * 2 * np.pi
 
     # Compute FMM using distributed memory parallelism
 
-    def distributed_expansion_wrangler_factory(tree):
+    def taw_factory(traversal):
         from boxtree.distributed.calculation import \
                 DistributedFMMLibExpansionWrangler
 
-        return DistributedFMMLibExpansionWrangler(
-            queue, tree, helmholtz_k, fmm_level_to_nterms=fmm_level_to_nterms)
+        wrangler = DistributedFMMLibExpansionWrangler(
+            queue, traversal.tree.dimensions, helmholtz_k)
+
+        return FMMLibTraversalAndWrangler(
+            traversal, wrangler, fmm_level_to_nterms=fmm_level_to_nterms)
 
     from boxtree.distributed import DistributedFMMRunner
     distribued_fmm_info = DistributedFMMRunner(
-        queue, tree, tg, distributed_expansion_wrangler_factory, comm=comm
+        queue, tree, tg, taw_factory, comm=comm
     )
 
     timing_data = {}
@@ -176,10 +181,14 @@ def _test_constantone(dims, nsources, ntargets, dtype):
 
     class ConstantOneExpansionWrangler(
             ConstantOneExpansionWranglerBase, DistributedExpansionWrangler):
+        def __init__(self, queue):
+            DistributedExpansionWrangler.__init__(self, queue)
 
-        def __init__(self, tree):
-            super(ConstantOneExpansionWrangler, self).__init__(tree)
-            self.level_nterms = np.ones(tree.nlevels, dtype=np.int32)
+    class ConstantOneTraversalAndWrangler(ConstantOneTraversalAndWranglerBase):
+        def __init__(self, traversal, wrangler):
+            super(ConstantOneTraversalAndWrangler, self).__init__(
+                traversal, wrangler)
+            self.level_nterms = np.ones(traversal.tree.nlevels, dtype=np.int32)
 
     from mpi4py import MPI
 
@@ -217,12 +226,13 @@ def _test_constantone(dims, nsources, ntargets, dtype):
         tree, _ = tb(queue, sources, targets=targets, max_particles_in_box=30,
                      debug=True)
 
-    def constantone_expansion_wrangler_factory(tree):
-        return ConstantOneExpansionWrangler(tree)
+    def taw_factory(traversal):
+        wrangler = ConstantOneExpansionWrangler(queue)
+        return ConstantOneTraversalAndWrangler(traversal, wrangler)
 
     from boxtree.distributed import DistributedFMMRunner
     distributed_fmm_info = DistributedFMMRunner(
-        queue, tree, tg, constantone_expansion_wrangler_factory, comm=MPI.COMM_WORLD
+        queue, tree, tg, taw_factory, comm=MPI.COMM_WORLD
     )
 
     pot_dfmm = distributed_fmm_info.drive_dfmm(

@@ -40,18 +40,11 @@ logger = logging.getLogger(__name__)
 # {{{ Distributed FMM wrangler
 
 class DistributedExpansionWrangler:
-    def __init__(self, queue, tree):
+    def __init__(self, queue):
         self.queue = queue
-        self.tree = tree
-
-    def multipole_expansions_view(self, mpole_exps, level):
-        # should be overwritten in subclasses
-        level_start_box_idx = -1
-        mpoles_current_level = np.array(0)
-        return level_start_box_idx, mpoles_current_level
 
     def distribute_source_weights(
-            self, src_weight_vecs, src_idx_all_ranks, comm=MPI.COMM_WORLD):
+            self, taw, src_weight_vecs, src_idx_all_ranks, comm=MPI.COMM_WORLD):
         mpi_rank = comm.Get_rank()
         mpi_size = comm.Get_size()
 
@@ -77,19 +70,19 @@ class DistributedExpansionWrangler:
 
         return local_src_weight_vecs
 
-    def slice_mpoles(self, mpoles, slice_indices):
+    def slice_mpoles(self, taw, mpoles, slice_indices):
         if len(slice_indices) == 0:
             return np.empty((0,), dtype=mpoles.dtype)
 
         level_start_slice_indices = np.searchsorted(
-            slice_indices, self.tree.level_start_box_nrs)
+            slice_indices, taw.tree.level_start_box_nrs)
         mpoles_list = []
 
-        for ilevel in range(self.tree.nlevels):
+        for ilevel in range(taw.tree.nlevels):
             start, stop = level_start_slice_indices[ilevel:ilevel+2]
             if stop > start:
                 level_start_box_idx, mpoles_current_level = \
-                    self.multipole_expansions_view(mpoles, ilevel)
+                    taw.multipole_expansions_view(mpoles, ilevel)
                 mpoles_list.append(
                     mpoles_current_level[
                         slice_indices[start:stop] - level_start_box_idx
@@ -98,19 +91,19 @@ class DistributedExpansionWrangler:
 
         return np.concatenate(mpoles_list)
 
-    def update_mpoles(self, mpoles, mpole_updates, slice_indices):
+    def update_mpoles(self, taw, mpoles, mpole_updates, slice_indices):
         if len(slice_indices) == 0:
             return
 
         level_start_slice_indices = np.searchsorted(
-            slice_indices, self.tree.level_start_box_nrs)
+            slice_indices, taw.tree.level_start_box_nrs)
         mpole_updates_start = 0
 
-        for ilevel in range(self.tree.nlevels):
+        for ilevel in range(taw.tree.nlevels):
             start, stop = level_start_slice_indices[ilevel:ilevel+2]
             if stop > start:
                 level_start_box_idx, mpoles_current_level = \
-                    self.multipole_expansions_view(mpoles, ilevel)
+                    taw.multipole_expansions_view(mpoles, ilevel)
                 mpoles_shape = (stop - start,) + mpoles_current_level.shape[1:]
 
                 from pytools import product
@@ -125,7 +118,7 @@ class DistributedExpansionWrangler:
                 mpole_updates_start = mpole_updates_end
 
     @memoize_method
-    def find_boxes_used_by_subrange_kernel(self):
+    def find_boxes_used_by_subrange_kernel(self, box_id_dtype):
         return ElementwiseKernel(
             self.queue.context,
             Template(r"""
@@ -136,7 +129,7 @@ class DistributedExpansionWrangler:
                 int *box_to_user_lists,
                 char *box_in_subrange
             """).render(
-                box_id_t=dtype_to_ctype(self.tree.box_id_dtype),
+                box_id_t=dtype_to_ctype(box_id_dtype),
             ),
             Template(r"""
                 ${box_id_t} ibox = contributing_boxes_list[i];
@@ -149,13 +142,13 @@ class DistributedExpansionWrangler:
                     }
                 }
             """).render(
-                box_id_t=dtype_to_ctype(self.tree.box_id_dtype)
+                box_id_t=dtype_to_ctype(box_id_dtype)
             ),
             "find_boxes_used_by_subrange"
         )
 
     def find_boxes_used_by_subrange(
-            self, subrange, box_to_user_starts, box_to_user_lists,
+            self, taw, subrange, box_to_user_starts, box_to_user_lists,
             contributing_boxes_list):
         """Test whether the multipole expansions of the contributing boxes are used
         by at least one box in a range.
@@ -176,7 +169,7 @@ class DistributedExpansionWrangler:
             contributing_boxes_list.shape[0],
             dtype=np.int8
         )
-        knl = self.find_boxes_used_by_subrange_kernel()
+        knl = self.find_boxes_used_by_subrange_kernel(taw.tree.box_id_dtype)
 
         knl(
             contributing_boxes_list,
@@ -189,154 +182,150 @@ class DistributedExpansionWrangler:
 
         return box_in_subrange
 
+    def communicate_mpoles(self, taw, comm, mpole_exps, return_stats=False):
+        """Based on Algorithm 3: Reduce and Scatter in [1].
+
+        The main idea is to mimic a allreduce as done on a hypercube network, but to
+        decrease the bandwidth cost by sending only information that is relevant to
+        the processes receiving the message.
+
+        This function needs to be called collectively by all processes in *comm*.
+
+        .. [1] Lashuk, Ilya, Aparna Chandramowlishwaran, Harper Langston,
+        Tuan-Anh Nguyen, Rahul Sampath, Aashay Shringarpure, Richard Vuduc, Lexing
+        Ying, Denis Zorin, and George Biros. “A massively parallel adaptive fast
+        multipole method on heterogeneous architectures." Communications of the
+        ACM 55, no. 5 (2012): 101-109.
+        """
+        mpi_rank = comm.Get_rank()
+        mpi_size = comm.Get_size()
+        tree = taw.tree
+
+        stats = {}
+
+        # contributing_boxes:
+        #
+        # A mask of the the set of boxes that the current process contributes
+        # to. This process contributes to a box when:
+        #
+        # (a) this process owns sources that contribute to the multipole expansion
+        # in the box (via the upward pass) or
+        # (b) this process has received a portion of the multipole expansion in this
+        # box from another process.
+        #
+        # Initially, this set consists of the boxes satisfying condition (a), which
+        # are precisely the boxes owned by this process and their ancestors.
+        contributing_boxes = tree.ancestor_mask.copy()
+        contributing_boxes[tree.responsible_boxes_list] = 1
+
+        from boxtree.tools import AllReduceCommPattern
+        comm_pattern = AllReduceCommPattern(mpi_rank, mpi_size)
+
+        # Temporary buffers for receiving data
+        mpole_exps_buf = np.empty(mpole_exps.shape, dtype=mpole_exps.dtype)
+        boxes_list_buf = np.empty(tree.nboxes, dtype=tree.box_id_dtype)
+
+        stats["bytes_sent_by_stage"] = []
+        stats["bytes_recvd_by_stage"] = []
+
+        box_to_user_starts_dev = cl.array.to_device(
+            self.queue, tree.box_to_user_starts
+        )
+
+        box_to_user_lists_dev = cl.array.to_device(
+            self.queue, tree.box_to_user_lists
+        )
+
+        while not comm_pattern.done():
+            send_requests = []
+
+            # Send data to other processors.
+            if comm_pattern.sinks():
+                # Compute the subset of boxes to be sent.
+                message_subrange = comm_pattern.messages()
+
+                contributing_boxes_list = np.nonzero(contributing_boxes)[0].astype(
+                    tree.box_id_dtype
+                )
+
+                contributing_boxes_list_dev = cl.array.to_device(
+                    self.queue, contributing_boxes_list
+                )
+
+                box_in_subrange = self.find_boxes_used_by_subrange(
+                    taw,
+                    message_subrange,
+                    box_to_user_starts_dev, box_to_user_lists_dev,
+                    contributing_boxes_list_dev
+                )
+
+                box_in_subrange_host = box_in_subrange.get().astype(bool)
+
+                relevant_boxes_list = contributing_boxes_list[
+                    box_in_subrange_host
+                ].astype(tree.box_id_dtype)
+
+                """
+                # Pure Python version for debugging purpose
+                relevant_boxes_list = []
+                for contrib_box in contributing_boxes_list:
+                    iuser_start, iuser_end = tree.box_to_user_starts[
+                        contrib_box:contrib_box + 2
+                    ]
+                    for user_box in tree.box_to_user_lists[iuser_start:iuser_end]:
+                        if subrange_start <= user_box < subrange_end:
+                            relevant_boxes_list.append(contrib_box)
+                            break
+                """
+
+                relevant_boxes_list = np.array(
+                    relevant_boxes_list, dtype=tree.box_id_dtype
+                )
+
+                relevant_mpole_exps = self.slice_mpoles(
+                    taw, mpole_exps, relevant_boxes_list
+                )
+
+                # Send the box subset to the other processors.
+                for sink in comm_pattern.sinks():
+                    req = comm.Isend(relevant_mpole_exps, dest=sink,
+                                    tag=MPITags["REDUCE_POTENTIALS"])
+                    send_requests.append(req)
+
+                    req = comm.Isend(relevant_boxes_list, dest=sink,
+                                    tag=MPITags["REDUCE_INDICES"])
+                    send_requests.append(req)
+
+            # Receive data from other processors.
+            for source in comm_pattern.sources():
+                comm.Recv(mpole_exps_buf, source=source,
+                        tag=MPITags["REDUCE_POTENTIALS"])
+
+                status = MPI.Status()
+                comm.Recv(
+                    boxes_list_buf, source=source, tag=MPITags["REDUCE_INDICES"],
+                    status=status)
+                nboxes = status.Get_count() // boxes_list_buf.dtype.itemsize
+
+                # Update data structures.
+                self.update_mpoles(taw, mpole_exps, mpole_exps_buf,
+                                    boxes_list_buf[:nboxes])
+
+                contributing_boxes[boxes_list_buf[:nboxes]] = 1
+
+            for req in send_requests:
+                req.wait()
+
+            comm_pattern.advance()
+
+        if return_stats:
+            return stats
+
 
 class DistributedFMMLibExpansionWrangler(
         FMMLibExpansionWrangler, DistributedExpansionWrangler):
-    def __init__(self, queue, tree, helmholtz_k, fmm_level_to_nterms=None):
-        DistributedExpansionWrangler.__init__(self, queue, tree)
-        FMMLibExpansionWrangler.__init__(
-            self, tree, helmholtz_k, fmm_level_to_nterms
-        )
-
-# }}}
-
-
-# {{{ Communicate mpoles
-
-def communicate_mpoles(wrangler, comm, trav, mpole_exps, return_stats=False):
-    """Based on Algorithm 3: Reduce and Scatter in [1].
-
-    The main idea is to mimic a allreduce as done on a hypercube network, but to
-    decrease the bandwidth cost by sending only information that is relevant to
-    the processes receiving the message.
-
-    This function needs to be called collectively by all processes in *comm*.
-
-    .. [1] Lashuk, Ilya, Aparna Chandramowlishwaran, Harper Langston,
-       Tuan-Anh Nguyen, Rahul Sampath, Aashay Shringarpure, Richard Vuduc, Lexing
-       Ying, Denis Zorin, and George Biros. “A massively parallel adaptive fast
-       multipole method on heterogeneous architectures." Communications of the
-       ACM 55, no. 5 (2012): 101-109.
-    """
-    mpi_rank = comm.Get_rank()
-    mpi_size = comm.Get_size()
-
-    stats = {}
-
-    # contributing_boxes:
-    #
-    # A mask of the the set of boxes that the current process contributes
-    # to. This process contributes to a box when:
-    #
-    # (a) this process owns sources that contribute to the multipole expansion
-    # in the box (via the upward pass) or
-    # (b) this process has received a portion of the multipole expansion in this
-    # box from another process.
-    #
-    # Initially, this set consists of the boxes satisfying condition (a), which
-    # are precisely the boxes owned by this process and their ancestors.
-    contributing_boxes = trav.tree.ancestor_mask.copy()
-    contributing_boxes[trav.tree.responsible_boxes_list] = 1
-
-    from boxtree.tools import AllReduceCommPattern
-    comm_pattern = AllReduceCommPattern(mpi_rank, mpi_size)
-
-    # Temporary buffers for receiving data
-    mpole_exps_buf = np.empty(mpole_exps.shape, dtype=mpole_exps.dtype)
-    boxes_list_buf = np.empty(trav.tree.nboxes, dtype=trav.tree.box_id_dtype)
-
-    stats["bytes_sent_by_stage"] = []
-    stats["bytes_recvd_by_stage"] = []
-
-    box_to_user_starts_dev = cl.array.to_device(
-        wrangler.queue, trav.tree.box_to_user_starts
-    )
-
-    box_to_user_lists_dev = cl.array.to_device(
-        wrangler.queue, trav.tree.box_to_user_lists
-    )
-
-    while not comm_pattern.done():
-        send_requests = []
-
-        # Send data to other processors.
-        if comm_pattern.sinks():
-            # Compute the subset of boxes to be sent.
-            message_subrange = comm_pattern.messages()
-
-            contributing_boxes_list = np.nonzero(contributing_boxes)[0].astype(
-                trav.tree.box_id_dtype
-            )
-
-            contributing_boxes_list_dev = cl.array.to_device(
-                wrangler.queue, contributing_boxes_list
-            )
-
-            box_in_subrange = wrangler.find_boxes_used_by_subrange(
-                message_subrange,
-                box_to_user_starts_dev, box_to_user_lists_dev,
-                contributing_boxes_list_dev
-            )
-
-            box_in_subrange_host = box_in_subrange.get().astype(bool)
-
-            relevant_boxes_list = contributing_boxes_list[
-                box_in_subrange_host
-            ].astype(trav.tree.box_id_dtype)
-
-            """
-            # Pure Python version for debugging purpose
-            relevant_boxes_list = []
-            for contrib_box in contributing_boxes_list:
-                iuser_start, iuser_end = trav.tree.box_to_user_starts[
-                    contrib_box:contrib_box + 2
-                ]
-                for user_box in trav.tree.box_to_user_lists[iuser_start:iuser_end]:
-                    if subrange_start <= user_box < subrange_end:
-                        relevant_boxes_list.append(contrib_box)
-                        break
-            """
-
-            relevant_boxes_list = np.array(
-                relevant_boxes_list, dtype=trav.tree.box_id_dtype
-            )
-
-            relevant_mpole_exps = wrangler.slice_mpoles(
-                mpole_exps, relevant_boxes_list
-            )
-
-            # Send the box subset to the other processors.
-            for sink in comm_pattern.sinks():
-                req = comm.Isend(relevant_mpole_exps, dest=sink,
-                                 tag=MPITags["REDUCE_POTENTIALS"])
-                send_requests.append(req)
-
-                req = comm.Isend(relevant_boxes_list, dest=sink,
-                                 tag=MPITags["REDUCE_INDICES"])
-                send_requests.append(req)
-
-        # Receive data from other processors.
-        for source in comm_pattern.sources():
-            comm.Recv(mpole_exps_buf, source=source,
-                      tag=MPITags["REDUCE_POTENTIALS"])
-
-            status = MPI.Status()
-            comm.Recv(boxes_list_buf, source=source, tag=MPITags["REDUCE_INDICES"],
-                      status=status)
-            nboxes = status.Get_count() // boxes_list_buf.dtype.itemsize
-
-            # Update data structures.
-            wrangler.update_mpoles(mpole_exps, mpole_exps_buf,
-                                   boxes_list_buf[:nboxes])
-
-            contributing_boxes[boxes_list_buf[:nboxes]] = 1
-
-        for req in send_requests:
-            req.wait()
-
-        comm_pattern.advance()
-
-    if return_stats:
-        return stats
+    def __init__(self, queue, dim, helmholtz_k):
+        DistributedExpansionWrangler.__init__(self, queue)
+        FMMLibExpansionWrangler.__init__(self, dim, helmholtz_k)
 
 # }}}

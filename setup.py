@@ -44,7 +44,6 @@ def main():
               "Mako>=0.7.3",
               "pytest>=2.3",
               "cgen>=2013.1.2",
-              "six",
               ])
 
 

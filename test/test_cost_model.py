@@ -1,5 +1,3 @@
-from __future__ import division, absolute_import
-
 __copyright__ = """
 Copyright (C) 2013 Andreas Kloeckner
 Copyright (C) 2018 Matt Wala
@@ -121,7 +119,7 @@ def test_compare_cl_and_py_cost_model(ctx_factory, nsources, ntargets, dims, dty
     )
 
     queue.finish()
-    logger.info("OpenCL time for process_form_multipoles: {0}".format(
+    logger.info("OpenCL time for process_form_multipoles: {}".format(
         str(time.time() - start_time)
     ))
 
@@ -131,7 +129,7 @@ def test_compare_cl_and_py_cost_model(ctx_factory, nsources, ntargets, dims, dty
         queue, trav, p2m_cost
     )
 
-    logger.info("Python time for process_form_multipoles: {0}".format(
+    logger.info("Python time for process_form_multipoles: {}".format(
         str(time.time() - start_time)
     ))
 
@@ -156,7 +154,7 @@ def test_compare_cl_and_py_cost_model(ctx_factory, nsources, ntargets, dims, dty
     )
 
     queue.finish()
-    logger.info("OpenCL time for coarsen_multipoles: {0}".format(
+    logger.info("OpenCL time for coarsen_multipoles: {}".format(
         str(time.time() - start_time)
     ))
 
@@ -166,7 +164,7 @@ def test_compare_cl_and_py_cost_model(ctx_factory, nsources, ntargets, dims, dty
         queue, trav, m2m_cost
     )
 
-    logger.info("Python time for coarsen_multipoles: {0}".format(
+    logger.info("Python time for coarsen_multipoles: {}".format(
         str(time.time() - start_time)
     ))
 
@@ -187,7 +185,7 @@ def test_compare_cl_and_py_cost_model(ctx_factory, nsources, ntargets, dims, dty
     )
 
     queue.finish()
-    logger.info("OpenCL time for process_direct: {0}".format(
+    logger.info("OpenCL time for process_direct: {}".format(
         str(time.time() - start_time)
     ))
 
@@ -200,7 +198,7 @@ def test_compare_cl_and_py_cost_model(ctx_factory, nsources, ntargets, dims, dty
         queue, trav, python_ndirect_sources_per_target_box, 5.0
     )
 
-    logger.info("Python time for process_direct: {0}".format(
+    logger.info("Python time for process_direct: {}".format(
         str(time.time() - start_time)
     ))
 
@@ -215,7 +213,7 @@ def test_compare_cl_and_py_cost_model(ctx_factory, nsources, ntargets, dims, dty
     cl_direct_aggregate = cl_cost_model.aggregate_over_boxes(cl_direct)
 
     queue.finish()
-    logger.info("OpenCL time for aggregate_over_boxes: {0}".format(
+    logger.info("OpenCL time for aggregate_over_boxes: {}".format(
         str(time.time() - start_time)
     ))
 
@@ -223,7 +221,7 @@ def test_compare_cl_and_py_cost_model(ctx_factory, nsources, ntargets, dims, dty
 
     python_direct_aggregate = python_cost_model.aggregate_over_boxes(python_direct)
 
-    logger.info("Python time for aggregate_over_boxes: {0}".format(
+    logger.info("Python time for aggregate_over_boxes: {}".format(
         str(time.time() - start_time)
     ))
 
@@ -248,13 +246,13 @@ def test_compare_cl_and_py_cost_model(ctx_factory, nsources, ntargets, dims, dty
     cl_m2l_cost = cl_cost_model.process_list2(queue, trav_dev, m2l_cost_dev)
 
     queue.finish()
-    logger.info("OpenCL time for process_list2: {0}".format(
+    logger.info("OpenCL time for process_list2: {}".format(
         str(time.time() - start_time)
     ))
 
     start_time = time.time()
     python_m2l_cost = python_cost_model.process_list2(queue, trav, m2l_cost)
-    logger.info("Python time for process_list2: {0}".format(
+    logger.info("Python time for process_list2: {}".format(
         str(time.time() - start_time)
     ))
 
@@ -278,13 +276,13 @@ def test_compare_cl_and_py_cost_model(ctx_factory, nsources, ntargets, dims, dty
     cl_m2p_cost = cl_cost_model.process_list3(queue, trav_dev, m2p_cost_dev)
 
     queue.finish()
-    logger.info("OpenCL time for process_list3: {0}".format(
+    logger.info("OpenCL time for process_list3: {}".format(
         str(time.time() - start_time)
     ))
 
     start_time = time.time()
     python_m2p_cost = python_cost_model.process_list3(queue, trav, m2p_cost)
-    logger.info("Python time for process_list3: {0}".format(
+    logger.info("Python time for process_list3: {}".format(
         str(time.time() - start_time)
     ))
 
@@ -308,13 +306,13 @@ def test_compare_cl_and_py_cost_model(ctx_factory, nsources, ntargets, dims, dty
     cl_p2l_cost = cl_cost_model.process_list4(queue, trav_dev, p2l_cost_dev)
 
     queue.finish()
-    logger.info("OpenCL time for process_list4: {0}".format(
+    logger.info("OpenCL time for process_list4: {}".format(
         str(time.time() - start_time)
     ))
 
     start_time = time.time()
     python_p2l_cost = python_cost_model.process_list4(queue, trav, p2l_cost)
-    logger.info("Python time for process_list4: {0}".format(
+    logger.info("Python time for process_list4: {}".format(
         str(time.time() - start_time)
     ))
 
@@ -340,7 +338,7 @@ def test_compare_cl_and_py_cost_model(ctx_factory, nsources, ntargets, dims, dty
     )
 
     queue.finish()
-    logger.info("OpenCL time for refine_locals: {0}".format(
+    logger.info("OpenCL time for refine_locals: {}".format(
         str(time.time() - start_time)
     ))
 
@@ -348,7 +346,7 @@ def test_compare_cl_and_py_cost_model(ctx_factory, nsources, ntargets, dims, dty
     python_refine_locals_cost = python_cost_model.process_refine_locals(
         queue, trav, l2l_cost
     )
-    logger.info("Python time for refine_locals: {0}".format(
+    logger.info("Python time for refine_locals: {}".format(
         str(time.time() - start_time)
     ))
 
@@ -372,13 +370,13 @@ def test_compare_cl_and_py_cost_model(ctx_factory, nsources, ntargets, dims, dty
     cl_l2p_cost = cl_cost_model.process_eval_locals(queue, trav_dev, l2p_cost_dev)
 
     queue.finish()
-    logger.info("OpenCL time for process_eval_locals: {0}".format(
+    logger.info("OpenCL time for process_eval_locals: {}".format(
         str(time.time() - start_time)
     ))
 
     start_time = time.time()
     python_l2p_cost = python_cost_model.process_eval_locals(queue, trav, l2p_cost)
-    logger.info("Python time for process_eval_locals: {0}".format(
+    logger.info("Python time for process_eval_locals: {}".format(
         str(time.time() - start_time)
     ))
 
@@ -393,7 +391,8 @@ def test_compare_cl_and_py_cost_model(ctx_factory, nsources, ntargets, dims, dty
 
 @pytest.mark.opencl
 def test_estimate_calibration_params(ctx_factory):
-    from boxtree.pyfmmlib_integration import FMMLibExpansionWrangler
+    from boxtree.pyfmmlib_integration import (
+            FMMLibExpansionWrangler, FMMLibTraversalAndWrangler)
 
     nsources_list = [1000, 2000, 3000, 4000]
     ntargets_list = [1000, 2000, 3000, 4000]
@@ -445,13 +444,15 @@ def test_estimate_calibration_params(ctx_factory):
 
         # }}}
 
-        wrangler = FMMLibExpansionWrangler(trav.tree, 0, fmm_level_to_nterms)
-        level_to_orders.append(wrangler.level_nterms)
+        wrangler = FMMLibExpansionWrangler(trav.tree.dimensions, 0)
+        taw = FMMLibTraversalAndWrangler(trav, wrangler,
+                fmm_level_to_nterms=fmm_level_to_nterms)
+        level_to_orders.append(taw.level_nterms)
 
         timing_data = {}
         from boxtree.fmm import drive_fmm
         src_weights = np.random.rand(tree.nsources).astype(tree.coord_dtype)
-        drive_fmm(trav, wrangler, (src_weights,), timing_data=timing_data)
+        drive_fmm(taw, (src_weights,), timing_data=timing_data)
 
         timing_results.append(timing_data)
 
@@ -518,7 +519,7 @@ def test_estimate_calibration_params(ctx_factory):
 
 # {{{ test_cost_model_op_counts_agree_with_constantone_wrangler
 
-class OpCountingTranslationCostModel(object):
+class OpCountingTranslationCostModel:
     """A translation cost model which assigns at cost of 1 to each operation."""
 
     def __init__(self, dim, nlevels):
@@ -575,13 +576,15 @@ def test_cost_model_op_counts_agree_with_constantone_wrangler(
     trav_dev, _ = tg(queue, tree, debug=True)
     trav = trav_dev.get(queue=queue)
 
-    from boxtree.tools import ConstantOneExpansionWrangler
-    wrangler = ConstantOneExpansionWrangler(trav.tree)
+    from boxtree.tools import (
+            ConstantOneExpansionWrangler, ConstantOneTraversalAndWrangler)
+    wrangler = ConstantOneExpansionWrangler()
+    taw = ConstantOneTraversalAndWrangler(trav, wrangler)
 
     timing_data = {}
     from boxtree.fmm import drive_fmm
     src_weights = np.random.rand(tree.nsources).astype(tree.coord_dtype)
-    drive_fmm(trav, wrangler, (src_weights,), timing_data=timing_data)
+    drive_fmm(taw, (src_weights,), timing_data=timing_data)
 
     cost_model = FMMCostModel(
         translation_cost_model_factory=OpCountingTranslationCostModel
