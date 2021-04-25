@@ -1105,13 +1105,15 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
         else:
             raise NotImplementedError(
                     "scale factor for pyfmmlib %s for %d dimensions" % (
-                        self.eqn_letter,
+                        self.tree_indep.eqn_letter,
                         self.dim))
 
         if self.tree_indep.eqn_letter == "l" and self.dim == 2:
             potential = potential.real
 
         return potential * scale_factor
+
+# }}}
 
 
 # vim: foldmethod=marker

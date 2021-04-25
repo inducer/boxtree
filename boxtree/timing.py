@@ -168,3 +168,4 @@ def return_timing_data(wrapped):
 # }}}
 
 
+# vim: foldmethod=marker
