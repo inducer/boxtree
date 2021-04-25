@@ -25,7 +25,8 @@ def demo_cost_model():
         )
 
     from boxtree.pyfmmlib_integration import (
-            FMMLibTraversalAndWrangler, FMMLibExpansionWrangler)
+            FMMLibTreeIndependentDataForWrangler,
+            FMMLibExpansionWrangler)
 
     nsources_list = [1000, 2000, 3000, 4000, 5000]
     ntargets_list = [1000, 2000, 3000, 4000, 5000]
@@ -77,15 +78,15 @@ def demo_cost_model():
 
         # }}}
 
-        wrangler = FMMLibExpansionWrangler(trav.tree.dimensions, 0)
-        taw = FMMLibTraversalAndWrangler(trav, wrangler,
+        tree_indep = FMMLibTreeIndependentDataForWrangler(trav.tree.dimensions, 0)
+        wrangler = FMMLibExpansionWrangler(tree_indep, trav,
                 fmm_level_to_nterms=fmm_level_to_nterms)
-        level_to_orders.append(taw.level_nterms)
+        level_to_orders.append(wrangler.level_nterms)
 
         timing_data = {}
         from boxtree.fmm import drive_fmm
         src_weights = np.random.rand(tree.nsources).astype(tree.coord_dtype)
-        drive_fmm(taw, (src_weights,), timing_data=timing_data)
+        drive_fmm(wrangler, (src_weights,), timing_data=timing_data)
 
         timing_results.append(timing_data)
 
