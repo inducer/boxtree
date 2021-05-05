@@ -47,6 +47,14 @@ class TreeIndependentDataForWrangler:
 
     Examples of such data include generated code for carrying out
     translations.
+
+    .. note::
+
+        Instances of this type should not hold a reference (and thereby be
+        specific to) a :class:`boxtree.Tree` instance. Their purpose is to
+        host caches for generated translation code that is reusable across
+        trees. It is OK for these instances to be specific to a given kernel
+        (or set of kernels).
     """
 
 
@@ -59,11 +67,10 @@ class ExpansionWranglerInterface(ABC):
 
     .. note::
 
-        Wranglers should not hold a reference (and thereby be specific to) a
-        :class:`boxtree.Tree` instance. Their purpose is to host caches for
-        generated translation code that is reusable across trees.
-        It is OK for expansion wranglers to be specific to a given kernel
-        (or set of kernels).
+        Wranglers may hold a reference (and thereby be specific to) a
+        :class:`boxtree.Tree` instance.
+        :class:`TreeIndependentDataForWrangler` exists to hold data that
+        is more broadly reusable.
 
     Functions that support returning timing data return a value supporting the
     :class:`~boxtree.timing.TimingFuture` interface.
