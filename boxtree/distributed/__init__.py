@@ -131,21 +131,23 @@ def dtype_to_mpi(dtype):
 
 class DistributedFMMRunner(object):
     """
-    .. attribute:: global_taw
+    .. attribute:: global_wrangler
 
-        An :class:`boxtree.fmm.TraversalAndWrangler` object containing reference to
-        the global tree object on host memory and is used for distributing and
-        collecting density/potential between the root and worker ranks.
+        An :class:`boxtree.fmm.ExpansionWranglerInterface` object containing
+        reference to the global tree object on host memory and is used for
+        distributing and collecting density/potential between the root and worker
+        ranks.
 
-    .. attribute:: local_taw
+    .. attribute:: local_wrangler
 
-        An :class:`boxtree.fmm.TraversalAndWrangler` object containing reference to
-        the local tree object on host memory and is used for local FMM operations.
+        An :class:`boxtree.fmm.ExpansionWranglerInterface` object containing
+        reference to the local tree object on host memory and is used for local FMM
+        operations.
     """
 
     def __init__(self, queue, global_tree_dev,
                  traversal_builder,
-                 taw_factory,
+                 wrangler_factory,
                  calibration_params=None, comm=MPI.COMM_WORLD):
         """Constructor of the ``DistributedFMMRunner`` class.
 
@@ -157,9 +159,9 @@ class DistributedFMMRunner(object):
             :class:`pyopencl.CommandQueue` object and a :class:`boxtree.Tree` object,
             and generates a :class:`boxtree.traversal.FMMTraversalInfo` object from
             the tree using the command queue.
-        :arg taw_factory: an object which, when called, takes a
+        :arg wrangler_factory: an object which, when called, takes a
             :class:`boxtree.traversal.FMMTraversalInfo` object and returns an
-            :class:`boxtree.fmm.TraversalAndWrangler` object.
+            :class:`boxtree.fmm.ExpansionWranglerInterface` object.
         :arg calibration_params: Calibration parameters for the cost model,
             if supplied. The cost model is used for estimating the execution time of
             each box, which is used for improving load balancing.
@@ -184,7 +186,7 @@ class DistributedFMMRunner(object):
 
         # {{{ Get global wrangler
 
-        self.global_taw = taw_factory(self.global_trav)
+        self.global_wrangler = wrangler_factory(self.global_trav)
 
         # }}}
 
@@ -200,7 +202,7 @@ class DistributedFMMRunner(object):
                 FMMCostModel.get_unit_calibration_params()
 
         cost_per_box = cost_model.cost_per_box(
-            queue, global_trav_dev, self.global_taw.level_nterms,
+            queue, global_trav_dev, self.global_wrangler.level_nterms,
             calibration_params
         ).get()
 
@@ -245,7 +247,7 @@ class DistributedFMMRunner(object):
 
         # {{{ Get local wrangler
 
-        self.local_taw = taw_factory(local_trav.get(None))
+        self.local_wrangler = wrangler_factory(local_trav.get(None))
 
         # }}}
 
@@ -256,10 +258,10 @@ class DistributedFMMRunner(object):
         """
         from boxtree.fmm import drive_fmm
         return drive_fmm(
-            self.local_taw, source_weights,
+            self.local_wrangler, source_weights,
             timing_data=timing_data,
             comm=self.comm,
-            global_taw=self.global_taw,
+            global_wrangler=self.global_wrangler,
             global_src_idx_all_ranks=self.src_idx_all_ranks,
             global_tgt_idx_all_ranks=self.tgt_idx_all_ranks,
             _communicate_mpoles_via_allreduce=_communicate_mpoles_via_allreduce

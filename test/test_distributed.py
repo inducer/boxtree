@@ -24,10 +24,10 @@ import numpy as np
 import pyopencl as cl
 import numpy.linalg as la
 from boxtree.pyfmmlib_integration import \
-    FMMLibExpansionWrangler, FMMLibTraversalAndWrangler
-from boxtree.tools import (
+    FMMLibTreeIndependentDataForWrangler, FMMLibExpansionWrangler
+from boxtree.constant_one import (
     ConstantOneExpansionWrangler as ConstantOneExpansionWranglerBase,
-    ConstantOneTraversalAndWrangler as ConstantOneTraversalAndWranglerBase)
+    ConstantOneTreeIndependentDataForWrangler)
 from boxtree.tools import run_mpi
 import logging
 import os
@@ -77,6 +77,8 @@ def _test_against_shared(
     from boxtree.traversal import FMMTraversalBuilder
     tg = FMMTraversalBuilder(ctx, well_sep_is_n_away=2)
 
+    tree_indep = FMMLibTreeIndependentDataForWrangler(dims, helmholtz_k)
+
     # Generate particles and run shared-memory parallelism on rank 0
     if rank == 0:
         # Generate random particles and source weights
@@ -103,29 +105,25 @@ def _test_against_shared(
         trav = d_trav.get(queue=queue)
 
         # Get pyfmmlib expansion wrangler
-        wrangler = FMMLibExpansionWrangler(trav.tree.dimensions, helmholtz_k)
-        taw = FMMLibTraversalAndWrangler(
-            trav, wrangler, fmm_level_to_nterms=fmm_level_to_nterms)
+        wrangler = FMMLibExpansionWrangler(
+                tree_indep, trav, fmm_level_to_nterms=fmm_level_to_nterms)
 
         # Compute FMM using shared memory parallelism
         from boxtree.fmm import drive_fmm
-        pot_fmm = drive_fmm(taw, [sources_weights]) * 2 * np.pi
+        pot_fmm = drive_fmm(wrangler, [sources_weights]) * 2 * np.pi
 
     # Compute FMM using distributed memory parallelism
 
-    def taw_factory(traversal):
+    def wrangler_factory(traversal):
         from boxtree.distributed.calculation import \
                 DistributedFMMLibExpansionWrangler
 
-        wrangler = DistributedFMMLibExpansionWrangler(
-            queue, traversal.tree.dimensions, helmholtz_k)
-
-        return FMMLibTraversalAndWrangler(
-            traversal, wrangler, fmm_level_to_nterms=fmm_level_to_nterms)
+        return DistributedFMMLibExpansionWrangler(
+            queue, tree_indep, traversal, fmm_level_to_nterms=fmm_level_to_nterms)
 
     from boxtree.distributed import DistributedFMMRunner
     distribued_fmm_info = DistributedFMMRunner(
-        queue, tree, tg, taw_factory, comm=comm
+        queue, tree, tg, wrangler_factory, comm=comm
     )
 
     timing_data = {}
@@ -181,13 +179,9 @@ def _test_constantone(dims, nsources, ntargets, dtype):
 
     class ConstantOneExpansionWrangler(
             ConstantOneExpansionWranglerBase, DistributedExpansionWrangler):
-        def __init__(self, queue):
+        def __init__(self, queue, tree_indep, traversal):
             DistributedExpansionWrangler.__init__(self, queue)
-
-    class ConstantOneTraversalAndWrangler(ConstantOneTraversalAndWranglerBase):
-        def __init__(self, traversal, wrangler):
-            super(ConstantOneTraversalAndWrangler, self).__init__(
-                traversal, wrangler)
+            ConstantOneExpansionWranglerBase.__init__(self, tree_indep, traversal)
             self.level_nterms = np.ones(traversal.tree.nlevels, dtype=np.int32)
 
     from mpi4py import MPI
@@ -226,13 +220,14 @@ def _test_constantone(dims, nsources, ntargets, dtype):
         tree, _ = tb(queue, sources, targets=targets, max_particles_in_box=30,
                      debug=True)
 
-    def taw_factory(traversal):
-        wrangler = ConstantOneExpansionWrangler(queue)
-        return ConstantOneTraversalAndWrangler(traversal, wrangler)
+    tree_indep = ConstantOneTreeIndependentDataForWrangler()
+
+    def wrangler_factory(traversal):
+        return ConstantOneExpansionWrangler(queue, tree_indep, traversal)
 
     from boxtree.distributed import DistributedFMMRunner
     distributed_fmm_info = DistributedFMMRunner(
-        queue, tree, tg, taw_factory, comm=MPI.COMM_WORLD
+        queue, tree, tg, wrangler_factory, comm=MPI.COMM_WORLD
     )
 
     pot_dfmm = distributed_fmm_info.drive_dfmm(

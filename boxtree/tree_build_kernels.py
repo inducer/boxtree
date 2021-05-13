@@ -122,7 +122,7 @@ class _KernelInfo(Record):
 refine_weight_dtype = np.dtype(np.int32)
 
 
-@memoize
+@memoize(use_kwargs=True)
 def make_morton_bin_count_type(device, dimensions, particle_id_dtype,
         srcntgts_have_extent):
     fields = []
