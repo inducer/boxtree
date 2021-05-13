@@ -1,6 +1,3 @@
-import numpy as np
-import pyopencl as cl
-
 __copyright__ = "Copyright (C) 2012 Andreas Kloeckner \
                  Copyright (C) 2018 Hao Gao"
 
@@ -29,6 +26,8 @@ import pytest
 from pyopencl.tools import (  # noqa
         pytest_generate_tests_for_pyopencl as pytest_generate_tests)
 
+import numpy as np
+import pyopencl as cl
 
 from boxtree.tools import (  # noqa: F401
         make_normal_particle_array as p_normal,
@@ -36,30 +35,44 @@ from boxtree.tools import (  # noqa: F401
         make_uniform_particle_array as p_uniform)
 
 
-def test_device_record():
-    from boxtree.tools import DeviceDataRecord
-
+def _check_device_data_record(queue, cls, ndim=3):
     array = np.arange(60).reshape((3, 4, 5))
 
-    obj_array = np.empty((3,), dtype=object)
-    for i in range(3):
+    obj_array = np.empty((ndim,), dtype=object)
+    for i in range(ndim):
         obj_array[i] = np.arange((i + 1) * 40).reshape(5, i + 1, 8)
 
-    record = DeviceDataRecord(
-        array=array,
-        obj_array=obj_array
-    )
+    record = cls(array=array, obj_array=obj_array)
 
-    ctx = cl.create_some_context()
+    record_dev = record.to_device(queue)
+    record_host = record_dev.get(queue)
+    assert np.array_equal(record_host.array, record.array)
 
-    with cl.CommandQueue(ctx) as queue:
-        record_dev = record.to_device(queue)
-        record_host = record_dev.get(queue)
+    for i in range(ndim):
+        assert np.array_equal(record_host.obj_array[i], record.obj_array[i])
 
-        assert np.array_equal(record_host.array, record.array)
 
-        for i in range(3):
-            assert np.array_equal(record_host.obj_array[i], record.obj_array[i])
+def test_device_record(ctx_factory):
+    ctx = ctx_factory()
+    queue = cl.CommandQueue(ctx)
+
+    from boxtree.tools import DeviceDataRecord
+    _check_device_data_record(queue, DeviceDataRecord)
+
+
+def test_device_dataclass(ctx_factory):
+    ctx = ctx_factory()
+    queue = cl.CommandQueue(ctx)
+
+    from dataclasses import dataclass
+    from boxtree.tools import DeviceDataclassMixin
+
+    @dataclass
+    class DeviceDataclass(DeviceDataclassMixin):
+        array: object
+        obj_array: np.ndarray
+
+    _check_device_data_record(queue, DeviceDataclass)
 
 
 @pytest.mark.parametrize("array_factory", (p_normal, p_surface, p_uniform))
