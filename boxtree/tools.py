@@ -261,31 +261,116 @@ def particle_array_to_host(parray):
 
 # {{{ host/device data storage
 
-class DeviceDataRecord(Record):
-    """A record of array-type data. Some of this data may live in
-    :class:`pyopencl.array.Array` objects. :meth:`get` can then be
-    called to convert all these device arrays into :mod:`numpy.ndarray`
-    instances on the host.
+def _transform_cl_arrays(f, fields):
+    def _transform_rec(value):
+        from pyopencl.algorithm import BuiltList
+        if isinstance(value, np.ndarray) and value.dtype.char == "O":
+            from pytools.obj_array import obj_array_vectorize
+            return obj_array_vectorize(_transform_rec, value)
+        elif isinstance(value, (tuple, list)):
+            return type(value)(_transform_rec(i) for i in value)
+        elif isinstance(value, BuiltList):
+            result = {}
+            for field in value.__dict__:
+                if field != "count" and not field.startswith("_"):
+                    result[field] = f(getattr(value, field))
+            return BuiltList(count=value.count, **result)
+        else:
+            return f(value)
+
+    return {key: _transform_rec(value) for key, value in fields.items()}
+
+
+class DeviceDataMixin:
+    """
+    .. automethod:: get
+    .. automethod:: with_queue
+    .. automethod:: to_device
     """
 
-    def _transform_arrays(self, f, exclude_fields=frozenset()):
-        result = {}
+    def get(self, queue, **kwargs):
+        """
+        :returns: a copy of `self` in which all data lives on the host, i.e.
+            all :class:`pyopencl.array.Array` objects are replaced by
+            corresponding :class:`numpy.ndarray` instances on the host.
+        """
 
-        def transform_val(val):
-            from pyopencl.algorithm import BuiltList
-            if isinstance(val, np.ndarray) and val.dtype == object:
-                from pytools.obj_array import obj_array_vectorize
-                return obj_array_vectorize(f, val)
-            elif isinstance(val, list):
-                return [transform_val(i) for i in val]
-            elif isinstance(val, BuiltList):
-                transformed_list = {}
-                for field in val.__dict__:
-                    if field != "count" and not field.startswith("_"):
-                        transformed_list[field] = f(getattr(val, field))
-                return BuiltList(count=val.count, **transformed_list)
+        def try_get(attr):
+            try:
+                get = attr.get
+            except AttributeError:
+                return attr
+
+            return get(queue=queue, **kwargs)
+
+        return self.apply(try_get)
+
+    def with_queue(self, queue):
+        """
+        :returns: a copy of `self` in which all :class:`pyopencl.array.Array`
+            objects are assigned to the :class:`pyopencl.CommandQueue` *queue*.
+        """
+
+        def try_with_queue(attr):
+            if isinstance(attr, cl.array.Array):
+                attr.finish()
+
+            try:
+                with_queue = attr.with_queue
+            except AttributeError:
+                return attr
+
+            return with_queue(queue)
+
+        return self.apply(try_with_queue)
+
+    def to_device(self, queue, exclude_fields=None):
+        """
+        :arg exclude_fields: a :class:`frozenset` containing fields excluded from
+            transferring to the device memory.
+        :returns: a copy of `self` in all :class:`numpy.ndarray` arrays are
+            transferred to device memory as :class:`pyopencl.array.Array` objects.
+        """
+
+        def _to_device(attr):
+            if isinstance(attr, np.ndarray):
+                return cl.array.to_device(queue, attr).with_queue(None)
             else:
-                return f(val)
+                return attr
+
+        return self.apply(_to_device, exclude_fields)
+
+
+class DeviceDataclassMixin(DeviceDataMixin):
+    """A mixin to be used with :func:`~dataclasses.dataclass` in the same way
+    as :class:`DeviceDataRecord`.
+    """
+
+    def apply(self, f, exclude_fields=None):
+        if exclude_fields is None:
+            exclude_fields = frozenset()
+
+        from dataclasses import fields, replace
+        return replace(self, **_transform_cl_arrays(
+            f,
+            {f.name: getattr(self, f.name) for f in fields(self)
+                if f.name not in exclude_fields}
+            ))
+
+
+class DeviceDataRecord(DeviceDataMixin, Record):
+    """A record of array-type data that can be easily transfered between host
+    and device.
+
+    For example, some of this data may live in :class:`pyopencl.array.Array`
+    objects and calling :meth:`~DeviceDataMixin.get` can convert all these
+    device arrays into :mod:`~numpy.ndarray` instances on the host.
+    """
+
+    def apply(self, f, exclude_fields=None):
+        if exclude_fields is None:
+            exclude_fields = frozenset()
+        fields = {}
 
         for field_name in self.__class__.fields:
             if field_name in exclude_fields:
@@ -296,61 +381,10 @@ class DeviceDataRecord(Record):
             except AttributeError:
                 pass
             else:
-                result[field_name] = transform_val(attr)
+                fields[field_name] = attr
 
-        return self.copy(**result)
+        return self.copy(**_transform_cl_arrays(f, fields))
 
-    def get(self, queue, **kwargs):
-        """Return a copy of `self` in which all data lives on the host, i.e.
-        all :class:`pyopencl.array.Array` objects are replaced by corresponding
-        :class:`numpy.ndarray` instances on the host.
-        """
-
-        def try_get(attr):
-            try:
-                get_meth = attr.get
-            except AttributeError:
-                return attr
-
-            return get_meth(queue=queue, **kwargs)
-
-        return self._transform_arrays(try_get)
-
-    def with_queue(self, queue):
-        """Return a copy of `self` in
-        all :class:`pyopencl.array.Array` objects are assigned to
-        :class:`pyopencl.CommandQueue` *queue*.
-        """
-
-        def try_with_queue(attr):
-            if isinstance(attr, cl.array.Array):
-                attr.finish()
-
-            try:
-                wq_meth = attr.with_queue
-            except AttributeError:
-                return attr
-
-            ary = wq_meth(queue)
-            return ary
-
-        return self._transform_arrays(try_with_queue)
-
-    def to_device(self, queue, exclude_fields=frozenset()):
-        """ Return a copy of `self` in all :class:`numpy.ndarray` arrays are
-        transferred to device memory as :class:`pyopencl.array.Array` objects.
-
-        :arg exclude_fields: a :class:`frozenset` containing fields excluding from
-            transferring to the device memory.
-        """
-
-        def _to_device(attr):
-            if isinstance(attr, np.ndarray):
-                return cl.array.to_device(queue, attr).with_queue(None)
-            else:
-                return attr
-
-        return self._transform_arrays(_to_device, exclude_fields)
 
 # }}}
 
