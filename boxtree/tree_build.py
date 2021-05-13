@@ -1573,14 +1573,14 @@ class TreeBuilder:
             except NameError:
                 pass
             else:
-                assert False
+                raise AssertionError
 
             try:
                 box_target_counts_nonchild
             except NameError:
                 pass
             else:
-                assert False
+                raise AssertionError
 
             # }}}
 
