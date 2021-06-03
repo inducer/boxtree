@@ -413,10 +413,11 @@ def test_source_target_tree(ctx_factory, dims, do_plot=False):
                 plotter.draw_box(ibox, edgecolor="red")
                 pt.show()
 
-        if not all_good_here:
-            print("BAD BOX %s %d" % (what, ibox))
+            if not all_good_here:
+                print("BAD BOX %s %d" % (what, ibox))
 
-        all_good_so_far = all_good_so_far and all_good_here
+            all_good_so_far = all_good_so_far and all_good_here
+
         assert all_good_so_far
 
     if do_plot:

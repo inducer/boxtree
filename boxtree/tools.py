@@ -48,7 +48,10 @@ def padded_bin(i, nbits):
 
 
 # NOTE: Order of positional args should match GappyCopyAndMapKernel.__call__()
-def realloc_array(queue, allocator, new_shape, ary, zero_fill=False, wait_for=[]):
+def realloc_array(queue, allocator, new_shape, ary, zero_fill=False, wait_for=None):
+    if wait_for is None:
+        wait_for = []
+
     if zero_fill:
         array_maker = cl.array.zeros
     else:
