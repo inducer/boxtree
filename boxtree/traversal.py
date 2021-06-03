@@ -1260,7 +1260,7 @@ class _ListMerger:
 
     def __call__(self, queue, input_starts, input_lists, input_index_style,
             output_index_style, target_boxes, target_or_target_parent_boxes,
-            nboxes, debug=False, wait_for=[]):
+            nboxes, debug=False, wait_for=None):
         """
         :arg input_starts: Starts arrays of input
         :arg input_lists: Lists arrays of input
@@ -1269,6 +1269,8 @@ class _ListMerger:
         :returns: A pair *results_dict, event*, where *results_dict*
             contains entries *starts* and *lists*
         """
+        if wait_for is None:
+            wait_for = []
 
         if (
                 output_index_style == _IndexStyle.TARGET_OR_TARGET_PARENT_BOXES

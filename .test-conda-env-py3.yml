@@ -15,4 +15,4 @@ dependencies:
 - pyfmmlib
 
 # Only needed to make pylint succeed
-- matplotlib
+- matplotlib-base
