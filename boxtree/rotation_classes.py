@@ -1,3 +1,15 @@
+"""
+Rotation classes data structure
+-------------------------------
+
+.. autoclass:: RotationClassesInfo
+
+Build rotation classes
+----------------------
+
+.. autoclass:: RotationClassesBuilder
+"""
+
 __copyright__ = "Copyright (C) 2019 Matt Wala"
 
 __license__ = """
@@ -66,6 +78,9 @@ class RotationClassesInfo(DeviceDataRecord):
 
 class RotationClassesBuilder:
     """Build rotation classes for List 2 translations.
+
+    .. automethod:: __init__
+    .. automethod:: __call__
     """
 
     def __init__(self, context):

@@ -620,6 +620,7 @@ class AreaQueryBuilder:
 
     .. versionadded:: 2016.1
 
+    .. automethod:: __init__
     .. automethod:: __call__
     """
     def __init__(self, context):
@@ -769,6 +770,7 @@ class LeavesToBallsLookupBuilder:
     r"""Given a set of :math:`l^\infty` "balls", this class helps build a
     look-up table from leaf boxes to balls that overlap with each leaf box.
 
+    .. automethod:: __init__
     .. automethod:: __call__
 
     """
@@ -892,6 +894,7 @@ class SpaceInvaderQueryBuilder:
         : b^* \text{ is a ball}, b^* \cap b \neq \varnothing \}
         \cup \{ 0 \} \right)
 
+    .. automethod:: __init__
     .. automethod:: __call__
 
     """
@@ -1025,6 +1028,7 @@ class PeerListFinder:
 
     .. versionadded:: 2016.1
 
+    .. automethod:: __init__
     .. automethod:: __call__
     """
 

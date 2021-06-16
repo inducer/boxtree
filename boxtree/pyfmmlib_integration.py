@@ -1,4 +1,15 @@
-"""Integration between boxtree and pyfmmlib."""
+"""
+Integration with PyFMMLib
+-------------------------
+
+.. autoclass:: FMMLibRotationDataInterface
+
+.. autoclass:: FMMLibRotationData
+
+.. autoclass:: FMMLibRotationDataNotSuppliedWarning
+
+.. autoclass:: FMMLibExpansionWrangler
+"""
 
 __copyright__ = "Copyright (C) 2013 Andreas Kloeckner"
 
@@ -31,11 +42,6 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-__doc__ = """Integrates :mod:`boxtree` with
-`pyfmmlib <http://pypi.python.org/pypi/pyfmmlib>`_.
-"""
-
-
 # {{{ rotation data interface
 
 class FMMLibRotationDataInterface:
@@ -60,7 +66,10 @@ class FMMLibRotationDataInterface:
 
 
 class FMMLibRotationData(FMMLibRotationDataInterface):
-    """An implementation of the :class:`FMMLibRotationDataInterface`."""
+    """An implementation of the :class:`FMMLibRotationDataInterface`.
+
+    .. automethod:: __init__
+    """
 
     def __init__(self, queue, trav):
         self.queue = queue
@@ -107,6 +116,8 @@ class FMMLibExpansionWrangler:
     Timing results returned by this wrangler contains the values *wall_elapsed*
     and (optionally, if supported) *process_elapsed*, which measure wall time
     and process time in seconds, respectively.
+
+    .. automethod:: __init__
     """
 
     # {{{ constructor

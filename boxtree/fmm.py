@@ -1,3 +1,16 @@
+"""
+.. autofunction:: drive_fmm
+
+.. autoclass:: ExpansionWranglerInterface
+    :members:
+    :undoc-members:
+    :member-order: bysource
+
+.. autoclass:: TimingResult
+
+.. autoclass:: TimingFuture
+"""
+
 __copyright__ = "Copyright (C) 2012 Andreas Kloeckner"
 
 __license__ = """
@@ -372,6 +385,7 @@ class TimingResult(Mapping):
     This supports accessing timing results via a mapping interface, along with
     combining results via :meth:`merge`.
 
+    .. automethod:: __init__
     .. automethod:: merge
     """
 
