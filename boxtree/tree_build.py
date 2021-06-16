@@ -1,3 +1,12 @@
+"""
+.. currentmodule:: boxtree
+
+Building Trees
+--------------
+
+.. autoclass:: TreeBuilder
+"""
+
 __copyright__ = "Copyright (C) 2012 Andreas Kloeckner"
 
 __license__ = """
@@ -38,6 +47,11 @@ class MaxLevelsExceeded(RuntimeError):
 
 
 class TreeBuilder:
+    """
+    .. automethod:: __init__
+    .. automethod:: __call__
+    """
+
     def __init__(self, context):
         """
         :arg context: A :class:`pyopencl.Context`.
