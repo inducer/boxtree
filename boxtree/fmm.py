@@ -294,9 +294,6 @@ def drive_fmm(wrangler: ExpansionWranglerInterface, src_weight_vecs,
         :class:`~boxtree.timing.TimingResult`), if such information is available.
 
     Returns the potentials computed by *expansion_wrangler*.
-
-    .. automethod:: __init__
-    .. automethod:: merge
     """
 
     traversal = wrangler.traversal
