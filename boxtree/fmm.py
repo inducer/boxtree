@@ -5,7 +5,6 @@
 .. autoclass:: ExpansionWranglerInterface
 """
 
-
 __copyright__ = "Copyright (C) 2012 Andreas Kloeckner"
 
 __license__ = """

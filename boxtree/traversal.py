@@ -1,3 +1,17 @@
+"""
+Traversal data structure
+------------------------
+
+.. autoclass:: FMMTraversalInfo
+
+Build Entrypoint
+----------------
+
+.. autoclass:: FMMTraversalBuilder
+
+    .. automethod:: __call__
+"""
+
 __copyright__ = "Copyright (C) 2012 Andreas Kloeckner"
 
 __license__ = """
@@ -1635,6 +1649,10 @@ class FMMTraversalInfo(DeviceDataRecord):
         Changed index style of *from_sep_close_bigger_starts* from
         :attr:`target_or_target_parent_boxes` to :attr:`target_boxes`.
 
+
+    .. automethod:: get
+
+    .. automethod:: merge_close_lists
     """
 
     # {{{ "close" list merging -> "unified list 1"
@@ -1740,6 +1758,10 @@ class _KernelInfo(Record):
 
 
 class FMMTraversalBuilder:
+    """
+    .. automethod:: __init__
+    """
+
     def __init__(self, context, well_sep_is_n_away=1, from_sep_smaller_crit=None):
         """
         :arg well_sep_is_n_away: Either An integer 1 or greater.

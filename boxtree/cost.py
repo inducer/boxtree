@@ -83,10 +83,14 @@ else:
 class FMMTranslationCostModel:
     """Provides modeled costs for individual translations or evaluations.
 
-    .. note:: Current implementation assumes the calibration parameters are linear
+    .. note::
+
+        Current implementation assumes the calibration parameters are linear
         in the modeled cost. For example,
         `var("c_p2l") * self.ncoeffs_fmm_by_level[level]` is valid, but
         `var("c_p2l") ** 2 * self.ncoeffs_fmm_by_level[level]` is not.
+
+    .. autoclass:: __init__
     """
 
     def __init__(self, ncoeffs_fmm_by_level, uses_point_and_shoot):
@@ -192,6 +196,8 @@ class AbstractFMMCostModel(ABC):
     * To evaluate the calibrated models, pass the calibration parameters
       from :meth:`estimate_calibration_params` to :meth:`cost_per_stage` or
       :meth:`cost_per_box`.
+
+    .. automethod:: __init__
 
     .. ------------------------------------------------------------------------
     .. rubric:: Evaluation
