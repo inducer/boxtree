@@ -5,7 +5,6 @@
 .. autoclass:: ExpansionWranglerInterface
 """
 
-
 __copyright__ = "Copyright (C) 2012 Andreas Kloeckner"
 
 __license__ = """
@@ -296,6 +295,8 @@ def drive_fmm(wrangler: ExpansionWranglerInterface, src_weight_vecs,
 
     Returns the potentials computed by *expansion_wrangler*.
 
+    .. automethod:: __init__
+    .. automethod:: merge
     """
 
     traversal = wrangler.traversal

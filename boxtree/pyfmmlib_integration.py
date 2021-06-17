@@ -70,7 +70,10 @@ class FMMLibRotationDataInterface:
 
 
 class FMMLibRotationData(FMMLibRotationDataInterface):
-    """An implementation of the :class:`FMMLibRotationDataInterface`."""
+    """An implementation of the :class:`FMMLibRotationDataInterface`.
+
+    .. automethod:: __init__
+    """
 
     def __init__(self, queue, trav):
         self.queue = queue
