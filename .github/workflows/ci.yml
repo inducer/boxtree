@@ -93,7 +93,7 @@ jobs:
                 curl -L -O https://tiker.net/ci-support-v0
                 . ./ci-support-v0
 
-                if [[ "$DOWNSTREAM_PROJECT" = "sumpy" ]] && [[ "$GITHUB_HEAD_REF" = "no-tree-in-wrangler"]]; then
+                if [[ "$DOWNSTREAM_PROJECT" = "sumpy" ]] && [[ "$GITHUB_HEAD_REF" = "no-tree-in-wrangler" ]]; then
                   with_echo git clone "https://github.com/inducer/$DOWNSTREAM_PROJECT.git" -b wrangler-refactor
                 else
                   with_echo git clone "https://github.com/inducer/$DOWNSTREAM_PROJECT.git"
