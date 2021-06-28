@@ -598,16 +598,32 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
             raise ValueError("unsupported dimensionality")
 
     def multipole_expansion_zeros(self):
+        """Return an expansions array (which must support addition)
+        capable of holding one multipole or local expansion for every
+        box in the tree.
+        """
+
         return np.zeros(
                 self.multipole_expansions_level_starts()[-1],
                 dtype=self.tree_indep.dtype)
 
     def local_expansion_zeros(self):
+        """Return an expansions array (which must support addition)
+        capable of holding one multipole or local expansion for every
+        box in the tree.
+        """
         return np.zeros(
                 self.local_expansions_level_starts()[-1],
                 dtype=self.tree_indep.dtype)
 
     def output_zeros(self):
+        """Return a potentials array (which must support addition) capable of
+        holding a potential value for each target in the tree. Note that
+        :func:`drive_fmm` makes no assumptions about *potential* other than
+        that it supports addition--it may consist of potentials, gradients of
+        the potential, or arbitrary other per-target output data.
+        """
+
         if self.tree_indep.ifgrad:
             from pytools.obj_array import make_obj_array
             return make_obj_array([
