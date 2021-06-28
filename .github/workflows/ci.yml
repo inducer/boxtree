@@ -90,6 +90,9 @@ jobs:
             env:
                 DOWNSTREAM_PROJECT: ${{ matrix.downstream_project }}
             run: |
+                curl -L -O https://tiker.net/ci-support-v0
+                . ./ci-support-v0
+
                 if [[ "$DOWNSTREAM_PROJECT" = "sumpy" ]] && [[ "$GITHUB_HEAD_REF" = "no-tree-in-wrangler"]]; then
                   with_echo git clone "https://github.com/inducer/$DOWNSTREAM_PROJECT.git" -b wrangler-refactor
                 else
@@ -102,8 +105,6 @@ jobs:
                 export CONDA_ENVIRONMENT=.test-conda-env-py3.yml
                 # Avoid slow or complicated tests in downstream projects
                 export PYTEST_ADDOPTS="-k 'not (slowtest or octave or mpi)'"
-                curl -L -O https://gitlab.tiker.net/inducer/ci-support/raw/main/ci-support.sh
-                . ./ci-support.sh
                 build_py_project_in_conda_env
                 test_py_project
 
