@@ -90,7 +90,12 @@ jobs:
             env:
                 DOWNSTREAM_PROJECT: ${{ matrix.downstream_project }}
             run: |
-                git clone "https://github.com/inducer/$DOWNSTREAM_PROJECT.git"
+                if [[ "$DOWNSTREAM_PROJECT" = "sumpy" ]] && [[ "$GITHUB_HEAD_REF" = "no-tree-in-wrangler"]]; then
+                  with_echo git clone "https://github.com/inducer/$DOWNSTREAM_PROJECT.git" -b wrangler-refactor
+                else
+                  with_echo git clone "https://github.com/inducer/$DOWNSTREAM_PROJECT.git"
+                fi            
+
                 cd "$DOWNSTREAM_PROJECT"
                 echo "*** $DOWNSTREAM_PROJECT version: $(git rev-parse --short HEAD)"
                 sed -i "/egg=boxtree/ c git+file://$(readlink -f ..)#egg=boxtree" requirements.txt
