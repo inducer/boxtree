@@ -392,6 +392,7 @@ def test_compare_cl_and_py_cost_model(ctx_factory, nsources, ntargets, dims, dty
 @pytest.mark.opencl
 def test_estimate_calibration_params(ctx_factory):
     from boxtree.pyfmmlib_integration import (
+            Kernel,
             FMMLibTreeIndependentDataForWrangler,
             FMMLibExpansionWrangler)
 
@@ -445,7 +446,8 @@ def test_estimate_calibration_params(ctx_factory):
 
         # }}}
 
-        tree_indep = FMMLibTreeIndependentDataForWrangler(trav.tree.dimensions, 0)
+        tree_indep = FMMLibTreeIndependentDataForWrangler(
+                trav.tree.dimensions, Kernel.LAPLACE)
         wrangler = FMMLibExpansionWrangler(tree_indep, trav,
                 fmm_level_to_nterms=fmm_level_to_nterms)
         level_to_orders.append(wrangler.level_nterms)

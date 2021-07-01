@@ -86,8 +86,8 @@ def get_fmmlib_ref_pot(wrangler, weights, sources_host, targets_host,
     return wrangler.finalize_potentials(
             fmmlib_routine(
                 sources=sources_host, targets=targets_host,
-                **kwargs)[0]
-            )
+                **kwargs)[0],
+            template_ary=weights)
 
 # }}}
 
@@ -451,11 +451,14 @@ def test_pyfmmlib_fmm(ctx_factory, dims, use_dipoles, helmholtz_k):
         return result
 
     from boxtree.pyfmmlib_integration import (
-            FMMLibTreeIndependentDataForWrangler, FMMLibExpansionWrangler)
+            Kernel, FMMLibTreeIndependentDataForWrangler, FMMLibExpansionWrangler)
     tree_indep = FMMLibTreeIndependentDataForWrangler(
-            trav.tree.dimensions, helmholtz_k)
+            trav.tree.dimensions,
+            Kernel.HELMHOLTZ if helmholtz_k else Kernel.LAPLACE)
     wrangler = FMMLibExpansionWrangler(
-            tree_indep, trav, fmm_level_to_nterms=fmm_level_to_nterms,
+            tree_indep, trav,
+            helmholtz_k=helmholtz_k,
+            fmm_level_to_nterms=fmm_level_to_nterms,
             dipole_vec=dipole_vec)
 
     from boxtree.fmm import drive_fmm
@@ -573,16 +576,18 @@ def test_pyfmmlib_numerical_stability(ctx_factory, dims, helmholtz_k, order):
     weights = np.ones_like(sources[0])
 
     from boxtree.pyfmmlib_integration import (
-            FMMLibTreeIndependentDataForWrangler,
+            Kernel, FMMLibTreeIndependentDataForWrangler,
             FMMLibExpansionWrangler, FMMLibRotationData)
 
     def fmm_level_to_nterms(tree, lev):
         return order
 
     tree_indep = FMMLibTreeIndependentDataForWrangler(
-            trav.tree.dimensions, helmholtz_k)
+            trav.tree.dimensions,
+            Kernel.HELMHOLTZ if helmholtz_k else Kernel.LAPLACE)
     wrangler = FMMLibExpansionWrangler(
             tree_indep, trav,
+            helmholtz_k=helmholtz_k,
             fmm_level_to_nterms=fmm_level_to_nterms,
             rotation_data=FMMLibRotationData(queue, trav))
 
@@ -781,17 +786,20 @@ def test_fmm_with_optimized_3d_m2l(ctx_factory, nsrcntgts, helmholtz_k,
         return result
 
     from boxtree.pyfmmlib_integration import (
-            FMMLibTreeIndependentDataForWrangler,
+            Kernel, FMMLibTreeIndependentDataForWrangler,
             FMMLibExpansionWrangler, FMMLibRotationData)
 
     tree_indep = FMMLibTreeIndependentDataForWrangler(
-            trav.tree.dimensions, helmholtz_k)
+            trav.tree.dimensions,
+            Kernel.HELMHOLTZ if helmholtz_k else Kernel.LAPLACE)
     baseline_wrangler = FMMLibExpansionWrangler(
             tree_indep, trav,
+            helmholtz_k=helmholtz_k,
             fmm_level_to_nterms=fmm_level_to_nterms)
 
     optimized_wrangler = FMMLibExpansionWrangler(
             tree_indep, trav,
+            helmholtz_k=helmholtz_k,
             fmm_level_to_nterms=fmm_level_to_nterms,
             rotation_data=FMMLibRotationData(queue, trav))
 

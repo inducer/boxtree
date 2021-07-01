@@ -38,6 +38,7 @@ THE SOFTWARE.
 
 import logging
 logger = logging.getLogger(__name__)
+import enum
 
 import numpy as np
 
@@ -113,6 +114,12 @@ class FMMLibRotationDataNotSuppliedWarning(UserWarning):
 # }}}
 
 
+@enum.unique
+class Kernel(enum.Enum):
+    LAPLACE = enum.auto()
+    HELMHOLTZ = enum.auto()
+
+
 # {{{ tree-independent data for wrangler
 
 class FMMLibTreeIndependentDataForWrangler(TreeIndependentDataForWrangler):
@@ -120,19 +127,17 @@ class FMMLibTreeIndependentDataForWrangler(TreeIndependentDataForWrangler):
     .. automethod:: __init__
     """
 
-    def __init__(self, dim, helmholtz_k, ifgrad=False):
+    def __init__(self, dim, kernel, ifgrad=False):
         self.dim = dim
-        self.helmholtz_k = helmholtz_k
         self.ifgrad = ifgrad
+        self.kernel = kernel
 
-        if helmholtz_k == 0:
+        if kernel == Kernel.LAPLACE:
             self.eqn_letter = "l"
-            self.kernel_kwargs = {}
-            self.rscale_factor = 1
-        else:
+        elif kernel == Kernel.HELMHOLTZ:
             self.eqn_letter = "h"
-            self.kernel_kwargs = {"zk": helmholtz_k}
-            self.rscale_factor = abs(helmholtz_k)
+        else:
+            raise ValueError(kernel)
 
         self.dtype = np.complex128
 
@@ -280,7 +285,8 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
 
     # {{{ constructor
 
-    def __init__(self, tree_indep, traversal, fmm_level_to_nterms=None,
+    def __init__(self, tree_indep, traversal, *,
+            helmholtz_k=None, fmm_level_to_nterms=None,
             dipole_vec=None, dipoles_already_reordered=False, nterms=None,
             optimized_m2l_precomputation_memory_cutoff_bytes=10**8,
             rotation_data=None):
@@ -311,6 +317,30 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
 
         super().__init__(tree_indep, traversal)
 
+        if tree_indep.kernel == Kernel.LAPLACE:
+            self.kernel_kwargs = {}
+            self.rscale_factor = 1
+
+            if helmholtz_k:
+                raise ValueError(
+                        "helmholtz_k must be zero or unspecified for Laplace")
+
+            helmholtz_k = 0
+
+        elif tree_indep.kernel == Kernel.HELMHOLTZ:
+            self.kernel_kwargs = {"zk": helmholtz_k}
+
+            if not helmholtz_k:
+                raise ValueError(
+                        "helmholtz_k must be specified and nonzero")
+
+            self.rscale_factor = abs(helmholtz_k)
+
+        else:
+            raise ValueError(tree_indep.kernel)
+
+        self.helmholtz_k = helmholtz_k
+
         tree = traversal.tree
 
         if tree_indep.dim != tree.dimensions:
@@ -321,7 +351,7 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
             fmm_level_to_nterms(tree, lev) for lev in range(tree.nlevels)
             ], dtype=np.int32)
 
-        if tree_indep.helmholtz_k:
+        if tree_indep.kernel == Kernel.HELMHOLTZ:
             logger.info("expansion orders by level used in Helmholtz FMM: %s",
                     self.level_nterms)
 
@@ -366,7 +396,7 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
         return self.tree.dimensions
 
     def level_to_rscale(self, level):
-        result = self.tree.root_extent * 2 ** -level * self.tree_indep.rscale_factor
+        result = self.tree.root_extent * 2 ** -level * self.rscale_factor
         if abs(result) > 1:
             result = 1
         if self.dim == 3 and self.tree_indep.eqn_letter == "l":
@@ -598,16 +628,32 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
             raise ValueError("unsupported dimensionality")
 
     def multipole_expansion_zeros(self):
+        """Return an expansions array (which must support addition)
+        capable of holding one multipole or local expansion for every
+        box in the tree.
+        """
+
         return np.zeros(
                 self.multipole_expansions_level_starts()[-1],
                 dtype=self.tree_indep.dtype)
 
     def local_expansion_zeros(self):
+        """Return an expansions array (which must support addition)
+        capable of holding one multipole or local expansion for every
+        box in the tree.
+        """
         return np.zeros(
                 self.local_expansions_level_starts()[-1],
                 dtype=self.tree_indep.dtype)
 
     def output_zeros(self):
+        """Return a potentials array (which must support addition) capable of
+        holding a potential value for each target in the tree. Note that
+        :func:`drive_fmm` makes no assumptions about *potential* other than
+        that it supports addition--it may consist of potentials, gradients of
+        the potential, or arbitrary other per-target output data.
+        """
+
         if self.tree_indep.ifgrad:
             from pytools.obj_array import make_obj_array
             return make_obj_array([
@@ -659,7 +705,7 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
                     continue
 
                 kwargs = {}
-                kwargs.update(self.tree_indep.kernel_kwargs)
+                kwargs.update(self.kernel_kwargs)
                 kwargs.update(self.get_source_kwargs(src_weights, pslice))
 
                 ier, mpole = formmp(
@@ -713,7 +759,7 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
                         if self.dim == 3 and self.tree_indep.eqn_letter == "h":
                             kwargs["radius"] = tree.root_extent * 2**(-target_level)
 
-                        kwargs.update(self.tree_indep.kernel_kwargs)
+                        kwargs.update(self.kernel_kwargs)
 
                         new_mp = mpmp(
                                 rscale1=source_rscale,
@@ -760,7 +806,7 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
                     continue
 
                 kwargs = {}
-                kwargs.update(self.tree_indep.kernel_kwargs)
+                kwargs.update(self.kernel_kwargs)
                 kwargs.update(self.get_source_kwargs(src_weights, src_pslice))
 
                 tmp_pot, tmp_grad = ev(
@@ -863,7 +909,7 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
                     (ntgt_boxes,) + self.expansion_shape(self.level_nterms[lev]),
                     dtype=self.tree_indep.dtype)
 
-            kwargs.update(self.tree_indep.kernel_kwargs)
+            kwargs.update(self.kernel_kwargs)
 
             expn2 = mploc(
                     rscale1=rscale1,
@@ -924,7 +970,7 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
                             expn=source_mpoles_view[
                                 src_ibox - source_level_start_ibox].T,
                             ztarg=self._get_targets(tgt_pslice),
-                            **self.tree_indep.kernel_kwargs)
+                            **self.kernel_kwargs)
 
                     tgt_pot = tgt_pot + tmp_pot
                     tgt_grad = tgt_grad + tmp_grad
@@ -981,7 +1027,7 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
             nsources_starts = sources_starts
 
             kwargs = {}
-            kwargs.update(self.tree_indep.kernel_kwargs)
+            kwargs.update(self.kernel_kwargs)
             for key, val in source_kwargs.items():
                 kwargs[key] = val
                 # Add CSR lists mapping box centers to lists of starting positions
@@ -1043,7 +1089,7 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
                 if self.dim == 3 and self.tree_indep.eqn_letter == "h":
                     kwargs["radius"] = self.tree.root_extent * 2**(-target_lev)
 
-                kwargs.update(self.tree_indep.kernel_kwargs)
+                kwargs.update(self.kernel_kwargs)
                 tmp_loc_exp = locloc(
                             rscale1=source_rscale,
                             center1=src_center,
@@ -1090,7 +1136,7 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
                             tgt_ibox - source_level_start_ibox].T,
                         ztarg=self._get_targets(tgt_pslice),
 
-                        **self.tree_indep.kernel_kwargs)
+                        **self.kernel_kwargs)
 
                 self.add_potgrad_onto_output(
                         output, tgt_pslice, tmp_pot, tmp_grad)
@@ -1098,7 +1144,7 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
         return output
 
     @log_process(logger)
-    def finalize_potentials(self, potential):
+    def finalize_potentials(self, potential, template_ary):
         if self.tree_indep.eqn_letter == "l" and self.dim == 2:
             scale_factor = -1/(2*np.pi)
         elif self.tree_indep.eqn_letter == "h" and self.dim == 2:

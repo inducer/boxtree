@@ -24,7 +24,7 @@ import numpy as np
 import pyopencl as cl
 import numpy.linalg as la
 from boxtree.pyfmmlib_integration import \
-    FMMLibTreeIndependentDataForWrangler, FMMLibExpansionWrangler
+    Kernel, FMMLibTreeIndependentDataForWrangler, FMMLibExpansionWrangler
 from boxtree.constant_one import (
     ConstantOneExpansionWrangler as ConstantOneExpansionWranglerBase,
     ConstantOneTreeIndependentDataForWrangler)
@@ -77,7 +77,8 @@ def _test_against_shared(
     from boxtree.traversal import FMMTraversalBuilder
     tg = FMMTraversalBuilder(ctx, well_sep_is_n_away=2)
 
-    tree_indep = FMMLibTreeIndependentDataForWrangler(dims, helmholtz_k)
+    tree_indep = FMMLibTreeIndependentDataForWrangler(
+        dims, Kernel.HELMHOLTZ if helmholtz_k else Kernel.LAPLACE)
 
     # Generate particles and run shared-memory parallelism on rank 0
     if rank == 0:

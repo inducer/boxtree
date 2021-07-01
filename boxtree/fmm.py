@@ -93,10 +93,6 @@ class ExpansionWranglerInterface(ABC):
 
     .. rubric:: Array creation
 
-    .. automethod:: multipole_expansion_zeros
-    .. automethod:: local_expansion_zeros
-    .. automethod:: output_zeros
-
     .. rubric:: Particle ordering
 
     .. automethod:: reorder_sources
@@ -125,29 +121,6 @@ class ExpansionWranglerInterface(ABC):
         return self.traversal.tree
 
     @abstractmethod
-    def multipole_expansion_zeros(self):
-        """Return an expansions array (which must support addition)
-        capable of holding one multipole or local expansion for every
-        box in the tree.
-        """
-
-    @abstractmethod
-    def local_expansion_zeros(self):
-        """Return an expansions array (which must support addition)
-        capable of holding one multipole or local expansion for every
-        box in the tree.
-        """
-
-    @abstractmethod
-    def output_zeros(self):
-        """Return a potentials array (which must support addition) capable of
-        holding a potential value for each target in the tree. Note that
-        :func:`drive_fmm` makes no assumptions about *potential* other than
-        that it supports addition--it may consist of potentials, gradients of
-        the potential, or arbitrary other per-target output data.
-        """
-
-    @abstractmethod
     def reorder_sources(self, source_array):
         """Return a copy of *source_array* in
         :ref:`tree source order <particle-orderings>`.
@@ -167,8 +140,7 @@ class ExpansionWranglerInterface(ABC):
     def form_multipoles(self,
             level_start_source_box_nrs, source_boxes,
             src_weight_vecs):
-        """Return an expansions array (compatible with
-        :meth:`multipole_expansion_zeros`)
+        """Return an expansions array
         containing multipole expansions in *source_boxes* due to sources
         with *src_weight_vecs*.
         All other expansions must be zero.
@@ -197,7 +169,7 @@ class ExpansionWranglerInterface(ABC):
         indexed like *target_boxes*.
 
         :returns: A pair (*pot*, *timing_future*), where *pot* is a
-            a new potential array, see :meth:`output_zeros`.
+            a new potential array.
         """
 
     @abstractmethod
@@ -211,7 +183,7 @@ class ExpansionWranglerInterface(ABC):
         *starts* is indexed like *target_or_target_parent_boxes*.
 
         :returns: A pair (*pot*, *timing_future*) where *pot* is
-            a new (local) expansion array, see :meth:`local_expansion_zeros`.
+            a new (local) expansion array.
         """
 
     @abstractmethod
@@ -224,7 +196,7 @@ class ExpansionWranglerInterface(ABC):
         and *starts* is indexed like *target_boxes_by_source_level[i]*.
 
         :returns: A pair (*pot*, *timing_future*) where *pot* is a new potential
-            array, see :meth:`output_zeros`.
+            array.
         """
 
     @abstractmethod
@@ -238,7 +210,7 @@ class ExpansionWranglerInterface(ABC):
         *target_or_target_parent_boxes*.
 
         :returns: A pair (*pot*, *timing_future*) where *pot* is a new
-            local expansion array, see :meth:`local_expansion_zeros`.
+            local expansion array.
         """
 
     @abstractmethod
@@ -259,17 +231,24 @@ class ExpansionWranglerInterface(ABC):
         *local_exps* and return a new potential array.
 
         :returns: A pair (*pot*, *timing_future*) where *pot* is a new potential
-            array, see :meth:`output_zeros`.
+            array.
         """
 
     # }}}
 
     @abstractmethod
-    def finalize_potentials(self, potentials):
+    def finalize_potentials(self, potentials, template_ary):
         """
         Postprocess the reordered potentials. This is where global scaling
         factors could be applied. This is distinct from :meth:`reorder_potentials`
         because some derived FMMs (notably the QBX FMM) do their own reordering.
+
+        :arg template_ary: If the array type used inside of the FMM
+            is different from the array type used by the user (e.g.
+            :class:`boxtree.pyfmmlib_integration.FMMLibExpansionWrangler`
+            uses :class:`numpy.ndarray` internally, this array can be used
+            to help convert the output back to the user's array
+            type (typically :class:`pyopencl.array.Array`).
         """
 
 # }}}
@@ -538,10 +517,12 @@ def drive_fmm(wrangler: ExpansionWranglerInterface, src_weight_vecs,
         result = None
         if mpi_rank == 0:
             result = global_wrangler.reorder_potentials(potentials)
-            result = global_wrangler.finalize_potentials(result)
+            result = global_wrangler.finalize_potentials(
+                result, template_ary=src_weight_vecs[0])
     else:
         result = wrangler.reorder_potentials(potentials)
-        result = wrangler.finalize_potentials(result)
+        result = wrangler.finalize_potentials(
+            result, template_ary=src_weight_vecs[0])
 
     fmm_proc.done()
 
