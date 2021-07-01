@@ -225,7 +225,7 @@ class ConstantOneExpansionWrangler(ExpansionWranglerInterface):
 
         return pot, self.timing_future(ops)
 
-    def finalize_potentials(self, potentials):
+    def finalize_potentials(self, potentials, template_ary):
         return potentials
 
 # }}}

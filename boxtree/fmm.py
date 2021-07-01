@@ -235,11 +235,18 @@ class ExpansionWranglerInterface(ABC):
     # }}}
 
     @abstractmethod
-    def finalize_potentials(self, potentials):
+    def finalize_potentials(self, potentials, template_ary):
         """
         Postprocess the reordered potentials. This is where global scaling
         factors could be applied. This is distinct from :meth:`reorder_potentials`
         because some derived FMMs (notably the QBX FMM) do their own reordering.
+
+        :arg template_ary: If the array type used inside of the FMM
+            is different from the array type used by the user (e.g.
+            :class:`boxtree.pyfmmlib_integration.FMMLibExpansionWrangler`
+            uses :class:`numpy.ndarray` internally, this array can be used
+            to help convert the output back to the user's array
+            type (typically :class:`pyopencl.array.Array`).
         """
 
 # }}}
@@ -417,7 +424,7 @@ def drive_fmm(wrangler: ExpansionWranglerInterface, src_weight_vecs,
 
     result = wrangler.reorder_potentials(potentials)
 
-    result = wrangler.finalize_potentials(result)
+    result = wrangler.finalize_potentials(result, template_ary=src_weight_vecs[0])
 
     fmm_proc.done()
 

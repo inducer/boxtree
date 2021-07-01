@@ -86,8 +86,8 @@ def get_fmmlib_ref_pot(wrangler, weights, sources_host, targets_host,
     return wrangler.finalize_potentials(
             fmmlib_routine(
                 sources=sources_host, targets=targets_host,
-                **kwargs)[0]
-            )
+                **kwargs)[0],
+            template_ary=weights)
 
 # }}}
 
