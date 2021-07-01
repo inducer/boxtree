@@ -25,6 +25,7 @@ def demo_cost_model():
         )
 
     from boxtree.pyfmmlib_integration import (
+            Kernel,
             FMMLibTreeIndependentDataForWrangler,
             FMMLibExpansionWrangler)
 
@@ -78,7 +79,8 @@ def demo_cost_model():
 
         # }}}
 
-        tree_indep = FMMLibTreeIndependentDataForWrangler(trav.tree.dimensions, 0)
+        tree_indep = FMMLibTreeIndependentDataForWrangler(
+                trav.tree.dimensions, Kernel.LAPLACE)
         wrangler = FMMLibExpansionWrangler(tree_indep, trav,
                 fmm_level_to_nterms=fmm_level_to_nterms)
         level_to_orders.append(wrangler.level_nterms)
