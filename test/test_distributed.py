@@ -63,7 +63,7 @@ def _test_against_shared(
     set_cache_dir(comm)
 
     # Initialize arguments for worker processes
-    tree = None
+    global_tree_dev = None
     sources_weights = None
     helmholtz_k = 0
 
@@ -99,15 +99,16 @@ def _test_against_shared(
         # Build the tree and interaction lists
         from boxtree import TreeBuilder
         tb = TreeBuilder(ctx)
-        tree, _ = tb(queue, sources, targets=targets, target_radii=target_radii,
-                     stick_out_factor=0.25, max_particles_in_box=30, debug=True)
+        global_tree_dev, _ = tb(
+            queue, sources, targets=targets, target_radii=target_radii,
+            stick_out_factor=0.25, max_particles_in_box=30, debug=True)
 
-        d_trav, _ = tg(queue, tree, debug=True)
-        trav = d_trav.get(queue=queue)
+        d_trav, _ = tg(queue, global_tree_dev, debug=True)
+        global_traversal_host = d_trav.get(queue=queue)
 
         # Get pyfmmlib expansion wrangler
         wrangler = FMMLibExpansionWrangler(
-                tree_indep, trav, fmm_level_to_nterms=fmm_level_to_nterms)
+                tree_indep, global_traversal_host, fmm_level_to_nterms=fmm_level_to_nterms)
 
         # Compute FMM using shared memory parallelism
         from boxtree.fmm import drive_fmm
@@ -115,16 +116,17 @@ def _test_against_shared(
 
     # Compute FMM using distributed memory parallelism
 
-    def wrangler_factory(traversal):
+    def wrangler_factory(local_traversal, global_traversal):
         from boxtree.distributed.calculation import \
                 DistributedFMMLibExpansionWrangler
 
         return DistributedFMMLibExpansionWrangler(
-            queue, tree_indep, traversal, fmm_level_to_nterms=fmm_level_to_nterms)
+            queue, tree_indep, local_traversal, global_traversal,
+            fmm_level_to_nterms=fmm_level_to_nterms)
 
     from boxtree.distributed import DistributedFMMRunner
     distribued_fmm_info = DistributedFMMRunner(
-        queue, tree, tg, wrangler_factory, comm=comm
+        queue, global_tree_dev, tg, wrangler_factory, comm=comm
     )
 
     timing_data = {}
@@ -180,10 +182,17 @@ def _test_constantone(dims, nsources, ntargets, dtype):
 
     class ConstantOneExpansionWrangler(
             ConstantOneExpansionWranglerBase, DistributedExpansionWrangler):
-        def __init__(self, queue, tree_indep, traversal):
-            DistributedExpansionWrangler.__init__(self, queue)
-            ConstantOneExpansionWranglerBase.__init__(self, tree_indep, traversal)
-            self.level_nterms = np.ones(traversal.tree.nlevels, dtype=np.int32)
+        def __init__(self, queue, tree_indep, local_traversal, global_traversal):
+            DistributedExpansionWrangler.__init__(self, queue, global_traversal)
+            ConstantOneExpansionWranglerBase.__init__(
+                self, tree_indep, local_traversal)
+            self.level_nterms = np.ones(local_traversal.tree.nlevels, dtype=np.int32)
+
+        def reorder_global_sources(self, source_array):
+            return source_array[self.global_traversal.tree.user_source_ids]
+
+        def reorder_global_potentials(self, potentials):
+            return potentials[self.global_traversal.tree.sorted_target_ids]
 
     from mpi4py import MPI
 
@@ -223,8 +232,9 @@ def _test_constantone(dims, nsources, ntargets, dtype):
 
     tree_indep = ConstantOneTreeIndependentDataForWrangler()
 
-    def wrangler_factory(traversal):
-        return ConstantOneExpansionWrangler(queue, tree_indep, traversal)
+    def wrangler_factory(local_traversal, global_traversal):
+        return ConstantOneExpansionWrangler(
+                queue, tree_indep, local_traversal, global_traversal)
 
     from boxtree.distributed import DistributedFMMRunner
     distributed_fmm_info = DistributedFMMRunner(

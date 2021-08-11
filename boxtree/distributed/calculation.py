@@ -39,9 +39,11 @@ logger = logging.getLogger(__name__)
 
 # {{{ Distributed FMM wrangler
 
+# TODO: mark this as abstract, and add distributed specific interfaces
 class DistributedExpansionWrangler:
-    def __init__(self, queue):
+    def __init__(self, queue, global_traversal):
         self.queue = queue
+        self.global_traversal = global_traversal
 
     def distribute_source_weights(
             self, src_weight_vecs, src_idx_all_ranks, comm=MPI.COMM_WORLD):
@@ -340,10 +342,18 @@ class DistributedExpansionWrangler:
 class DistributedFMMLibExpansionWrangler(
         FMMLibExpansionWrangler, DistributedExpansionWrangler):
     def __init__(
-            self, queue, tree_indep, traversal, fmm_level_to_nterms=None, **kwargs):
-        DistributedExpansionWrangler.__init__(self, queue)
+            self, queue, tree_indep, local_traversal, global_traversal,
+            fmm_level_to_nterms=None, **kwargs):
+        DistributedExpansionWrangler.__init__(self, queue, global_traversal)
         FMMLibExpansionWrangler.__init__(
-            self, tree_indep, traversal,
+            self, tree_indep, local_traversal,
             fmm_level_to_nterms=fmm_level_to_nterms, **kwargs)
+
+    #TODO: use log_process like FMMLibExpansionWrangler?
+    def reorder_global_sources(self, source_array):
+        return source_array[..., self.global_traversal.tree.user_source_ids]
+
+    def reorder_global_potentials(self, potentials):
+        return potentials[self.global_traversal.tree.sorted_target_ids]
 
 # }}}

@@ -256,7 +256,6 @@ class ExpansionWranglerInterface(ABC):
 
 def drive_fmm(wrangler: ExpansionWranglerInterface, src_weight_vecs,
               timing_data=None, comm=None,
-              global_wrangler: ExpansionWranglerInterface = None,
               global_src_idx_all_ranks=None, global_tgt_idx_all_ranks=None,
               _communicate_mpoles_via_allreduce=False):
     """Top-level driver routine for a fast multipole calculation.
@@ -275,18 +274,14 @@ def drive_fmm(wrangler: ExpansionWranglerInterface, src_weight_vecs,
 
     :arg expansion_wrangler: An object exhibiting the
         :class:`ExpansionWranglerInterface`. For distributed implementation, this
-        wrangler should reference the local tree on each rank.
+        wrangler should be a subclass of
+        :class:`boxtree.distributed.calculation.DistributedExpansionWrangler`.
     :arg src_weight_vecs: A sequence of source 'density/weights/charges'.
         Passed unmodified to *expansion_wrangler*. For distributed
         implementation, this argument is only significant on the root rank.
     :arg timing_data: Either *None*, or a :class:`dict` that is populated with
         timing information for the stages of the algorithm (in the form of
         :class:`~boxtree.timing.TimingResult`), if such information is available.
-    :arg global_wrangler: An object exhibiting the
-        :class:`ExpansionWranglerInterface`. This wrangler should reference the
-        global tree, which is used for assembling partial results from
-        worker ranks together. This argument is only significant for distributed
-        implementation and on the root rank.
     :arg global_src_idx_all_ranks: a :class:`list` of length ``nranks``, where the
         i-th entry is a :class:`numpy.ndarray` representing the global indices of
         sources in the local tree on rank *i*. Each entry can be returned from
@@ -318,9 +313,7 @@ def drive_fmm(wrangler: ExpansionWranglerInterface, src_weight_vecs,
         mpi_rank = comm.Get_rank()
         mpi_size = comm.Get_size()
         if mpi_rank == 0:
-            global_traversal = global_wrangler.traversal
-
-            src_weight_vecs = [global_wrangler.reorder_sources(weight)
+            src_weight_vecs = [wrangler.reorder_global_sources(weight)
                 for weight in src_weight_vecs]
 
         src_weight_vecs = wrangler.distribute_source_weights(
@@ -506,7 +499,8 @@ def drive_fmm(wrangler: ExpansionWranglerInterface, src_weight_vecs,
     # {{{ Assemble potentials from worker ranks together on the root rank
 
     if comm is not None and mpi_rank == 0:
-        potentials = np.empty(global_traversal.tree.ntargets, dtype=potentials.dtype)
+        potentials = np.empty(
+            wrangler.global_traversal.tree.ntargets, dtype=potentials.dtype)
 
         for irank in range(mpi_size):
             potentials[global_tgt_idx_all_ranks[irank]] = potentials_all_ranks[irank]
@@ -516,9 +510,9 @@ def drive_fmm(wrangler: ExpansionWranglerInterface, src_weight_vecs,
     if comm is not None:
         result = None
         if mpi_rank == 0:
-            result = global_wrangler.reorder_potentials(potentials)
-            result = global_wrangler.finalize_potentials(
-                result, template_ary=src_weight_vecs[0])
+            result = wrangler.reorder_global_potentials(potentials)
+            result = wrangler.finalize_potentials(
+                        result, template_ary=src_weight_vecs[0])
     else:
         result = wrangler.reorder_potentials(potentials)
         result = wrangler.finalize_potentials(

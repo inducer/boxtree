@@ -130,21 +130,6 @@ def dtype_to_mpi(dtype):
 
 
 class DistributedFMMRunner(object):
-    """
-    .. attribute:: global_wrangler
-
-        An :class:`boxtree.fmm.ExpansionWranglerInterface` object containing
-        reference to the global tree object on host memory and is used for
-        distributing and collecting density/potential between the root and worker
-        ranks.
-
-    .. attribute:: local_wrangler
-
-        An :class:`boxtree.fmm.ExpansionWranglerInterface` object containing
-        reference to the local tree object on host memory and is used for local FMM
-        operations.
-    """
-
     def __init__(self, queue, global_tree_dev,
                  traversal_builder,
                  wrangler_factory,
@@ -159,8 +144,8 @@ class DistributedFMMRunner(object):
             :class:`pyopencl.CommandQueue` object and a :class:`boxtree.Tree` object,
             and generates a :class:`boxtree.traversal.FMMTraversalInfo` object from
             the tree using the command queue.
-        :arg wrangler_factory: an object which, when called, takes a
-            :class:`boxtree.traversal.FMMTraversalInfo` object and returns an
+        :arg wrangler_factory: an object which, when called, takes the local
+            traversal and the global traversal objects and returns an
             :class:`boxtree.fmm.ExpansionWranglerInterface` object.
         :arg calibration_params: Calibration parameters for the cost model,
             if supplied. The cost model is used for estimating the execution time of
@@ -180,13 +165,7 @@ class DistributedFMMRunner(object):
         global_tree_dev = global_tree.to_device(queue).with_queue(queue)
 
         global_trav_dev, _ = traversal_builder(queue, global_tree_dev)
-        self.global_trav = global_trav_dev.get(queue)
-
-        # }}}
-
-        # {{{ Get global wrangler
-
-        self.global_wrangler = wrangler_factory(self.global_trav)
+        global_trav = global_trav_dev.get(queue)
 
         # }}}
 
@@ -201,15 +180,19 @@ class DistributedFMMRunner(object):
             calibration_params = \
                 FMMCostModel.get_unit_calibration_params()
 
+        # We need to construct a wrangler in order to access `level_nterms`
+        global_wrangler = wrangler_factory(global_trav, global_trav)
+
         cost_per_box = cost_model.cost_per_box(
-            queue, global_trav_dev, self.global_wrangler.level_nterms,
+            # Currently only pyfmmlib has `level_nterms` field.
+            # See https://gitlab.tiker.net/inducer/boxtree/-/issues/25.
+            queue, global_trav_dev, global_wrangler.level_nterms,
             calibration_params
         ).get()
 
         from boxtree.distributed.partition import partition_work
         responsible_boxes_list = partition_work(
-            cost_per_box, self.global_trav, comm.Get_size()
-        )
+            cost_per_box, global_trav, comm.Get_size())
 
         # It is assumed that, even if each rank computes `responsible_boxes_list`
         # independently, it should be the same across ranks.
@@ -220,8 +203,7 @@ class DistributedFMMRunner(object):
 
         from boxtree.distributed.local_tree import generate_local_tree
         self.local_tree, self.src_idx, self.tgt_idx = generate_local_tree(
-            queue, self.global_trav, responsible_boxes_list[mpi_rank]
-        )
+            queue, global_trav, responsible_boxes_list[mpi_rank])
 
         # }}}
 
@@ -238,18 +220,14 @@ class DistributedFMMRunner(object):
         local_trav = generate_local_travs(
             queue, self.local_tree, traversal_builder,
             box_bounding_box={
-                "min": self.global_trav.box_target_bounding_box_min,
-                "max": self.global_trav.box_target_bounding_box_max
+                "min": global_trav.box_target_bounding_box_min,
+                "max": global_trav.box_target_bounding_box_max
             }
         )
 
         # }}}
 
-        # {{{ Get local wrangler
-
-        self.local_wrangler = wrangler_factory(local_trav.get(None))
-
-        # }}}
+        self.wrangler = wrangler_factory(local_trav.get(None), global_trav)
 
     def drive_dfmm(
             self, source_weights, _communicate_mpoles_via_allreduce=False,
@@ -258,10 +236,9 @@ class DistributedFMMRunner(object):
         """
         from boxtree.fmm import drive_fmm
         return drive_fmm(
-            self.local_wrangler, source_weights,
+            self.wrangler, source_weights,
             timing_data=timing_data,
             comm=self.comm,
-            global_wrangler=self.global_wrangler,
             global_src_idx_all_ranks=self.src_idx_all_ranks,
             global_tgt_idx_all_ranks=self.tgt_idx_all_ranks,
             _communicate_mpoles_via_allreduce=_communicate_mpoles_via_allreduce
