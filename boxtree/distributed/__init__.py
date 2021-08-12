@@ -229,17 +229,12 @@ class DistributedFMMRunner(object):
 
         self.wrangler = wrangler_factory(local_trav.get(None), global_trav)
 
-    def drive_dfmm(
-            self, source_weights, _communicate_mpoles_via_allreduce=False,
-            timing_data=None):
+    def drive_dfmm(self, source_weights, timing_data=None):
         """Calculate potentials at target points.
         """
         from boxtree.fmm import drive_fmm
         return drive_fmm(
             self.wrangler, source_weights,
             timing_data=timing_data,
-            comm=self.comm,
             global_src_idx_all_ranks=self.src_idx_all_ranks,
-            global_tgt_idx_all_ranks=self.tgt_idx_all_ranks,
-            _communicate_mpoles_via_allreduce=_communicate_mpoles_via_allreduce
-        )
+            global_tgt_idx_all_ranks=self.tgt_idx_all_ranks)

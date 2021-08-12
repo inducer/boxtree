@@ -54,7 +54,7 @@ def set_cache_dir(comm):
 
 
 def _test_against_shared(
-        dims, nsources, ntargets, dtype, _communicate_mpoles_via_allreduce=False):
+        dims, nsources, ntargets, dtype, communicate_mpoles_via_allreduce=False):
     from mpi4py import MPI
 
     # Get the current rank
@@ -122,19 +122,17 @@ def _test_against_shared(
                 DistributedFMMLibExpansionWrangler
 
         return DistributedFMMLibExpansionWrangler(
-            queue, tree_indep, local_traversal, global_traversal,
-            fmm_level_to_nterms=fmm_level_to_nterms)
+            queue, comm, tree_indep, local_traversal, global_traversal,
+            fmm_level_to_nterms=fmm_level_to_nterms,
+            communicate_mpoles_via_allreduce=communicate_mpoles_via_allreduce)
 
     from boxtree.distributed import DistributedFMMRunner
     distribued_fmm_info = DistributedFMMRunner(
-        queue, global_tree_dev, tg, wrangler_factory, comm=comm
-    )
+        queue, global_tree_dev, tg, wrangler_factory, comm=comm)
 
     timing_data = {}
     pot_dfmm = distribued_fmm_info.drive_dfmm(
-        [sources_weights], timing_data=timing_data,
-        _communicate_mpoles_via_allreduce=_communicate_mpoles_via_allreduce
-    )
+                [sources_weights], timing_data=timing_data)
     assert timing_data
 
     # Uncomment the following section to print the time taken of each stage
@@ -183,17 +181,26 @@ def _test_constantone(dims, nsources, ntargets, dtype):
 
     class ConstantOneExpansionWrangler(
             ConstantOneExpansionWranglerBase, DistributedExpansionWrangler):
-        def __init__(self, queue, tree_indep, local_traversal, global_traversal):
-            DistributedExpansionWrangler.__init__(self, queue, global_traversal)
+        def __init__(
+                self, queue, comm, tree_indep, local_traversal, global_traversal):
+            DistributedExpansionWrangler.__init__(
+                self, queue, comm, global_traversal,
+                communicate_mpoles_via_allreduce=True)
             ConstantOneExpansionWranglerBase.__init__(
                 self, tree_indep, local_traversal)
             self.level_nterms = np.ones(local_traversal.tree.nlevels, dtype=np.int32)
 
-        def reorder_global_sources(self, source_array):
-            return source_array[self.global_traversal.tree.user_source_ids]
+        def reorder_sources(self, source_array):
+            if self.comm.Get_rank() == 0:
+                return source_array[self.global_traversal.tree.user_source_ids]
+            else:
+                return None
 
-        def reorder_global_potentials(self, potentials):
-            return potentials[self.global_traversal.tree.sorted_target_ids]
+        def reorder_potentials(self, potentials):
+            if self.comm.Get_rank() == 0:
+                return potentials[self.global_traversal.tree.sorted_target_ids]
+            else:
+                return None
 
     from mpi4py import MPI
 
@@ -235,16 +242,13 @@ def _test_constantone(dims, nsources, ntargets, dtype):
 
     def wrangler_factory(local_traversal, global_traversal):
         return ConstantOneExpansionWrangler(
-                queue, tree_indep, local_traversal, global_traversal)
+                queue, comm, tree_indep, local_traversal, global_traversal)
 
     from boxtree.distributed import DistributedFMMRunner
     distributed_fmm_info = DistributedFMMRunner(
-        queue, tree, tg, wrangler_factory, comm=MPI.COMM_WORLD
-    )
+        queue, tree, tg, wrangler_factory, comm=MPI.COMM_WORLD)
 
-    pot_dfmm = distributed_fmm_info.drive_dfmm(
-        [sources_weights], _communicate_mpoles_via_allreduce=True
-    )
+    pot_dfmm = distributed_fmm_info.drive_dfmm([sources_weights])
 
     if rank == 0:
         assert (np.all(pot_dfmm == nsources))
@@ -279,11 +283,11 @@ if __name__ == "__main__":
             ntargets = int(os.environ["ntargets"])
 
             from distutils.util import strtobool
-            _communicate_mpoles_via_allreduce = bool(
+            communicate_mpoles_via_allreduce = bool(
                 strtobool(os.environ["communicate_mpoles_via_allreduce"]))
 
             _test_against_shared(
-                dims, nsources, ntargets, dtype, _communicate_mpoles_via_allreduce)
+                dims, nsources, ntargets, dtype, communicate_mpoles_via_allreduce)
 
         elif os.environ["PYTEST"] == "2":
             # Run "test_constantone" test case
