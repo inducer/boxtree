@@ -108,7 +108,8 @@ def _test_against_shared(
 
         # Get pyfmmlib expansion wrangler
         wrangler = FMMLibExpansionWrangler(
-                tree_indep, global_traversal_host, fmm_level_to_nterms=fmm_level_to_nterms)
+                tree_indep, global_traversal_host,
+                fmm_level_to_nterms=fmm_level_to_nterms)
 
         # Compute FMM using shared memory parallelism
         from boxtree.fmm import drive_fmm

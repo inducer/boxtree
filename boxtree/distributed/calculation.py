@@ -25,6 +25,7 @@ THE SOFTWARE.
 
 import numpy as np
 import pyopencl as cl
+from abc import ABC, abstractmethod
 from boxtree.distributed import MPITags
 from mpi4py import MPI
 from boxtree.pyfmmlib_integration import FMMLibExpansionWrangler
@@ -39,8 +40,7 @@ logger = logging.getLogger(__name__)
 
 # {{{ Distributed FMM wrangler
 
-# TODO: mark this as abstract, and add distributed specific interfaces
-class DistributedExpansionWrangler:
+class DistributedExpansionWrangler(ABC):
     def __init__(self, queue, global_traversal):
         self.queue = queue
         self.global_traversal = global_traversal
@@ -337,6 +337,14 @@ class DistributedExpansionWrangler:
 
         if return_stats:
             return stats
+
+    @abstractmethod
+    def reorder_global_sources(self, source_array):
+        pass
+
+    @abstractmethod
+    def reorder_global_potentials(self, potentials):
+        pass
 
 
 class DistributedFMMLibExpansionWrangler(
