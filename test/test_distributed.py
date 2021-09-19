@@ -122,7 +122,7 @@ def _test_against_shared(
                 DistributedFMMLibExpansionWrangler
 
         return DistributedFMMLibExpansionWrangler(
-            queue, comm, tree_indep, local_traversal, global_traversal,
+            queue.context, comm, tree_indep, local_traversal, global_traversal,
             fmm_level_to_nterms=fmm_level_to_nterms,
             communicate_mpoles_via_allreduce=communicate_mpoles_via_allreduce)
 

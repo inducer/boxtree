@@ -41,9 +41,9 @@ logger = logging.getLogger(__name__)
 # {{{ Distributed FMM wrangler
 
 class DistributedExpansionWrangler(ExpansionWranglerInterface):
-    def __init__(self, queue, comm, global_traversal,
+    def __init__(self, context, comm, global_traversal,
                  communicate_mpoles_via_allreduce=False):
-        self.queue = queue
+        self.context = context
         self.comm = comm
         self.global_traversal = global_traversal
         self.communicate_mpoles_via_allreduce = communicate_mpoles_via_allreduce
@@ -163,7 +163,7 @@ class DistributedExpansionWrangler(ExpansionWranglerInterface):
     @memoize_method
     def find_boxes_used_by_subrange_kernel(self, box_id_dtype):
         return ElementwiseKernel(
-            self.queue.context,
+            self.context,
             Template(r"""
                 ${box_id_t} *contributing_boxes_list,
                 int subrange_start,
@@ -278,13 +278,12 @@ class DistributedExpansionWrangler(ExpansionWranglerInterface):
         stats["bytes_sent_by_stage"] = []
         stats["bytes_recvd_by_stage"] = []
 
-        box_to_user_starts_dev = cl.array.to_device(
-            self.queue, tree.box_to_user_starts
-        )
+        with cl.CommandQueue(self.context) as queue:
+            box_to_user_starts_dev = cl.array.to_device(
+                queue, tree.box_to_user_starts).with_queue(None)
 
-        box_to_user_lists_dev = cl.array.to_device(
-            self.queue, tree.box_to_user_lists
-        )
+            box_to_user_lists_dev = cl.array.to_device(
+                queue, tree.box_to_user_lists).with_queue(None)
 
         while not comm_pattern.done():
             send_requests = []
@@ -298,17 +297,17 @@ class DistributedExpansionWrangler(ExpansionWranglerInterface):
                     tree.box_id_dtype
                 )
 
-                contributing_boxes_list_dev = cl.array.to_device(
-                    self.queue, contributing_boxes_list
-                )
+                with cl.CommandQueue(self.context) as queue:
+                    contributing_boxes_list_dev = cl.array.to_device(
+                        queue, contributing_boxes_list)
 
-                box_in_subrange = self.find_boxes_used_by_subrange(
-                    message_subrange,
-                    box_to_user_starts_dev, box_to_user_lists_dev,
-                    contributing_boxes_list_dev
-                )
+                    box_in_subrange = self.find_boxes_used_by_subrange(
+                        message_subrange,
+                        box_to_user_starts_dev, box_to_user_lists_dev,
+                        contributing_boxes_list_dev
+                    )
 
-                box_in_subrange_host = box_in_subrange.get().astype(bool)
+                    box_in_subrange_host = box_in_subrange.get().astype(bool)
 
                 relevant_boxes_list = contributing_boxes_list[
                     box_in_subrange_host
@@ -379,12 +378,12 @@ class DistributedExpansionWrangler(ExpansionWranglerInterface):
 class DistributedFMMLibExpansionWrangler(
         DistributedExpansionWrangler, FMMLibExpansionWrangler):
     def __init__(
-            self, queue, comm, tree_indep, local_traversal, global_traversal,
+            self, context, comm, tree_indep, local_traversal, global_traversal,
             fmm_level_to_nterms=None,
             communicate_mpoles_via_allreduce=False,
             **kwargs):
         DistributedExpansionWrangler.__init__(
-            self, queue, comm, global_traversal,
+            self, context, comm, global_traversal,
             communicate_mpoles_via_allreduce=communicate_mpoles_via_allreduce)
         FMMLibExpansionWrangler.__init__(
             self, tree_indep, local_traversal,
