@@ -124,8 +124,9 @@ class DistributedExpansionWrangler(ExpansionWranglerInterface):
         for ilevel in range(self.traversal.tree.nlevels):
             start, stop = level_start_slice_indices[ilevel:ilevel+2]
             if stop > start:
-                level_start_box_idx, mpoles_current_level = \
-                    self.multipole_expansions_view(mpoles, ilevel)
+                level_start_box_idx, mpoles_current_level = (
+                    #pylint: disable-next=no-member
+                    self.multipole_expansions_view(mpoles, ilevel))
                 mpoles_list.append(
                     mpoles_current_level[
                         slice_indices[start:stop] - level_start_box_idx
@@ -145,8 +146,9 @@ class DistributedExpansionWrangler(ExpansionWranglerInterface):
         for ilevel in range(self.traversal.tree.nlevels):
             start, stop = level_start_slice_indices[ilevel:ilevel+2]
             if stop > start:
-                level_start_box_idx, mpoles_current_level = \
-                    self.multipole_expansions_view(mpoles, ilevel)
+                level_start_box_idx, mpoles_current_level = (
+                    #pylint: disable-next=no-member
+                    self.multipole_expansions_view(mpoles, ilevel))
                 mpoles_shape = (stop - start,) + mpoles_current_level.shape[1:]
 
                 from pytools import product
