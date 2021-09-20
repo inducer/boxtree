@@ -144,57 +144,6 @@ def fetch_local_targets_kernel(
     )
 
 
-@memoize
-def generate_box_particle_starts_kernel(context, particle_id_dtype):
-    return cl.elementwise.ElementwiseKernel(
-        context,
-        Template("""
-            __global ${particle_id_t} *old_starts,
-            __global ${particle_id_t} *particle_scan,
-            __global ${particle_id_t} *new_starts
-        """, strict_undefined=True).render(
-            particle_id_t=dtype_to_ctype(particle_id_dtype)
-        ),
-        "new_starts[i] = particle_scan[old_starts[i]]",
-        name="generate_box_particle_starts"
-    )
-
-
-@memoize
-def generate_box_particle_counts_nonchild_kernel(context, particle_id_dtype):
-    return cl.elementwise.ElementwiseKernel(
-        context,
-        Template("""
-            __global char *res_boxes,
-            __global ${particle_id_t} *old_counts_nonchild,
-            __global ${particle_id_t} *new_counts_nonchild
-        """, strict_undefined=True).render(
-            particle_id_t=dtype_to_ctype(particle_id_dtype)
-        ),
-        "if(res_boxes[i]) new_counts_nonchild[i] = old_counts_nonchild[i];"
-    )
-
-
-@memoize
-def generate_box_particle_counts_cumul_kernel(context, particle_id_dtype):
-    return cl.elementwise.ElementwiseKernel(
-        context,
-        Template("""
-            __global ${particle_id_t} *old_counts_cumul,
-            __global ${particle_id_t} *old_starts,
-            __global ${particle_id_t} *new_counts_cumul,
-            __global ${particle_id_t} *particle_scan
-        """, strict_undefined=True).render(
-            particle_id_t=dtype_to_ctype(particle_id_dtype)
-        ),
-        """
-        new_counts_cumul[i] =
-            particle_scan[old_starts[i] + old_counts_cumul[i]] -
-            particle_scan[old_starts[i]]
-        """
-    )
-
-
 def fetch_local_particles(
         queue, global_tree, src_box_mask, tgt_box_mask, local_tree):
     """This helper function generates particles of the local tree, and reconstruct
@@ -272,50 +221,30 @@ def fetch_local_particles(
 
     # {{{ box_source_starts
 
-    local_box_source_starts = cl.array.empty(
-        queue, (global_tree.nboxes,),
-        dtype=global_tree.particle_id_dtype
-    )
-
-    generate_box_particle_starts_kernel(
-        queue.context, global_tree.particle_id_dtype)(
-            global_tree_dev.box_source_starts,
-            src_particle_scan,
-            local_box_source_starts
-        )
+    local_box_source_starts = src_particle_scan[global_tree_dev.box_source_starts]
 
     # }}}
 
     # {{{ box_source_counts_nonchild
 
-    local_box_source_counts_nonchild = cl.array.zeros(
+    box_counts_all_zeros = cl.array.zeros(
         queue, (global_tree.nboxes,),
-        dtype=global_tree.particle_id_dtype
-    )
+        dtype=global_tree.particle_id_dtype)
 
-    generate_box_particle_counts_nonchild_kernel(
-        queue.context, global_tree.particle_id_dtype)(
-            src_box_mask,
-            global_tree_dev.box_source_counts_nonchild,
-            local_box_source_counts_nonchild
-        )
+    local_box_source_counts_nonchild = cl.array.if_positive(
+        src_box_mask, global_tree_dev.box_source_counts_nonchild,
+        box_counts_all_zeros)
 
     # }}}
 
     # {{{ box_source_counts_cumul
 
-    local_box_source_counts_cumul = cl.array.empty(
-        queue, (global_tree.nboxes,),
-        dtype=global_tree.particle_id_dtype
-    )
+    box_source_ends_cumul = (
+        global_tree_dev.box_source_starts + global_tree_dev.box_source_counts_cumul)
 
-    generate_box_particle_counts_cumul_kernel(
-        queue.context, global_tree.particle_id_dtype)(
-            global_tree_dev.box_source_counts_cumul,
-            global_tree_dev.box_source_starts,
-            local_box_source_counts_cumul,
-            src_particle_scan
-        )
+    local_box_source_counts_cumul = (
+        src_particle_scan[box_source_ends_cumul]
+        - src_particle_scan[global_tree_dev.box_source_starts])
 
     # }}}
 
@@ -399,49 +328,26 @@ def fetch_local_particles(
 
     # {{{ box_target_starts
 
-    local_box_target_starts = cl.array.empty(
-        queue, (global_tree.nboxes,),
-        dtype=global_tree.particle_id_dtype
-    )
-
-    generate_box_particle_starts_kernel(
-        queue.context, global_tree.particle_id_dtype)(
-            global_tree_dev.box_target_starts,
-            tgt_particle_scan,
-            local_box_target_starts
-        )
+    local_box_target_starts = tgt_particle_scan[global_tree_dev.box_target_starts]
 
     # }}}
 
     # {{{ box_target_counts_nonchild
 
-    local_box_target_counts_nonchild = cl.array.zeros(
-        queue, (global_tree.nboxes,),
-        dtype=global_tree.particle_id_dtype)
-
-    generate_box_particle_counts_nonchild_kernel(
-        queue.context, global_tree.particle_id_dtype)(
-            tgt_box_mask,
-            global_tree_dev.box_target_counts_nonchild,
-            local_box_target_counts_nonchild
-    )
+    local_box_target_counts_nonchild = cl.array.if_positive(
+        tgt_box_mask, global_tree_dev.box_target_counts_nonchild,
+        box_counts_all_zeros)
 
     # }}}
 
     # {{{ box_target_counts_cumul
 
-    local_box_target_counts_cumul = cl.array.empty(
-        queue, (global_tree.nboxes,),
-        dtype=global_tree.particle_id_dtype
-    )
+    box_target_ends_cumul = (
+        global_tree_dev.box_target_starts + global_tree_dev.box_target_counts_cumul)
 
-    generate_box_particle_counts_cumul_kernel(
-        queue.context, global_tree.particle_id_dtype)(
-            global_tree_dev.box_target_counts_cumul,
-            global_tree_dev.box_target_starts,
-            local_box_target_counts_cumul,
-            tgt_particle_scan
-        )
+    local_box_target_counts_cumul = (
+        tgt_particle_scan[box_target_ends_cumul]
+        - tgt_particle_scan[global_tree_dev.box_target_starts])
 
     # }}}
 

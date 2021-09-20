@@ -88,13 +88,15 @@ def partition_work(boxes_time, traversal, comm):
             workload_count += boxes_time[box_idx]
             if (workload_count > (segment_idx + 1) * total_workload / mpi_size
                     or box_idx_dfs_order == tree.nboxes - 1):
-                responsible_boxes_segments[segment_idx, :] = [start, box_idx_dfs_order + 1]
+                responsible_boxes_segments[segment_idx, :] = (
+                    [start, box_idx_dfs_order + 1])
                 start = box_idx_dfs_order + 1
                 segment_idx += 1
 
     comm.Scatter(responsible_boxes_segments, responsible_boxes_current_rank, root=0)
 
-    return dfs_order[responsible_boxes_current_rank[0]:responsible_boxes_current_rank[1]]
+    return dfs_order[
+        responsible_boxes_current_rank[0]:responsible_boxes_current_rank[1]]
 
 
 @memoize
