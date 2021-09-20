@@ -352,6 +352,8 @@ class DeviceDataRecord(Record):
                 return cl.array.to_device(queue, attr).with_queue(None)
             elif isinstance(attr, ImmutableHostDeviceArray):
                 return attr.device
+            elif isinstance(attr, DeviceDataRecord):
+                return attr.to_device(queue)
             else:
                 return attr
 
@@ -367,6 +369,8 @@ class DeviceDataRecord(Record):
         def _to_host_device_array(attr):
             if isinstance(attr, (np.ndarray, cl.array.Array)):
                 return ImmutableHostDeviceArray(queue, attr)
+            elif isinstance(attr, DeviceDataRecord):
+                return attr.to_host_device_array(queue)
             else:
                 return attr
 
@@ -698,6 +702,7 @@ class MaskCompressorKernel(object):
             # for larger ones since the work is partitioned by row.
             knl = self.get_matrix_compressor_kernel(mask.dtype, list_dtype)
             size = mask.dtype.itemsize
+            assert size > 0
             result, evt = knl(queue, mask.shape[0], mask.shape[1],
                               mask.strides[0] // size, mask.strides[1] // size,
                               mask.data)

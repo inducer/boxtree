@@ -28,7 +28,6 @@ from mako.template import Template
 from pyopencl.tools import dtype_to_ctype
 from boxtree import Tree
 from boxtree.tools import ImmutableHostDeviceArray
-from mpi4py import MPI
 import time
 import numpy as np
 from pytools import memoize
@@ -428,8 +427,7 @@ class LocalTree(Tree):
         return self._dimensions
 
 
-def generate_local_tree(queue, global_traversal, responsible_boxes_list,
-                        comm=MPI.COMM_WORLD):
+def generate_local_tree(queue, global_traversal, responsible_boxes_list, comm):
     """Generate the local tree for the current rank.
 
     :arg queue: a :class:`pyopencl.CommandQueue` object.

@@ -202,7 +202,7 @@ class DistributedFMMRunner(object):
 
         from boxtree.distributed.local_tree import generate_local_tree
         self.local_tree, self.src_idx, self.tgt_idx = generate_local_tree(
-            queue, global_trav, responsible_boxes_list)
+            queue, global_trav, responsible_boxes_list, comm)
 
         # }}}
 

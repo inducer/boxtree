@@ -1726,30 +1726,6 @@ class FMMTraversalInfo(DeviceDataRecord):
     def ntarget_or_target_parent_boxes(self):
         return len(self.target_or_target_parent_boxes)
 
-    def to_device(self, queue, exclude_fields=frozenset()):
-        exclude_fields = exclude_fields | {
-            "level_start_source_box_nrs",
-            "level_start_target_box_nrs",
-            "level_start_target_or_target_parent_box_nrs",
-            "level_start_source_parent_box_nrs",
-            "tree"}
-
-        self_dev = super(FMMTraversalInfo, self).to_device(queue, exclude_fields)
-        self_dev.tree = self.tree.to_device(queue)
-
-        return self_dev
-
-    def to_host_device_array(self, queue, exclude_fields=frozenset()):
-        exclude_fields = exclude_fields | {
-            "level_start_source_box_nrs",
-            "level_start_target_box_nrs",
-            "level_start_target_or_target_parent_box_nrs",
-            "level_start_source_parent_box_nrs",
-            "tree"}
-
-        return super(FMMTraversalInfo, self).to_host_device_array(
-            queue, exclude_fields)
-
 # }}}
 
 
