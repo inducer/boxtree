@@ -30,29 +30,29 @@ from mako.template import Template
 from pytools import memoize
 
 
-def partition_work(boxes_time, traversal, total_rank):
+def partition_work(boxes_time, traversal, comm):
     """This function assigns responsible boxes for each rank.
 
-    Each process is responsible for calculating the multiple expansions as well as
-    evaluating target potentials in *responsible_boxes*.
+    If a rank is responsible for a box, it will calculate the multiple expansion of
+    the box and evaluate target potentials in the box.
 
-    :arg boxes_time: The expected running time of each box.
-    :arg traversal: The traversal object built on root containing all particles.
-    :arg total_rank: The total number of ranks.
-    :return: A numpy array of shape ``(total_rank,)``, where the i-th element is an
-        numpy array containing the responsible boxes of process i.
+    :arg boxes_time: The expected running time of each box. This argument is only
+        significant on the root rank.
+    :arg traversal: The global traversal object containing all particles. This
+        argument is significant on all ranks.
+    :arg comm: MPI communicator.
+    :return: A numpy array containing the responsible boxes of the current rank.
     """
     tree = traversal.tree
+    mpi_rank = comm.Get_rank()
+    mpi_size = comm.Get_size()
 
-    if total_rank > tree.nboxes:
+    if mpi_size > tree.nboxes:
         raise RuntimeError("Fail to partition work because the number of boxes is "
                            "less than the number of processes.")
 
-    total_workload = 0
-    for i in range(tree.nboxes):
-        total_workload += boxes_time[i]
-
-    # transform tree from level order to dfs order
+    # transform tree from the level order to the dfs order
+    # dfs_order[i] stores the level-order box index of dfs index i
     dfs_order = np.empty((tree.nboxes,), dtype=tree.box_id_dtype)
     idx = 0
     stack = [0]
@@ -65,25 +65,36 @@ def partition_work(boxes_time, traversal, total_rank):
             if child_box_id > 0:
                 stack.append(child_box_id)
 
-    # partition all boxes in dfs order evenly according to workload
-    responsible_boxes_list = np.empty((total_rank,), dtype=object)
-    rank = 0
-    start = 0
-    workload_count = 0
-    for i in range(tree.nboxes):
-        if rank + 1 == total_rank:
-            responsible_boxes_list[rank] = dfs_order[start:tree.nboxes]
-            break
+    # partition all boxes in dfs order evenly according to workload on the root rank
 
-        box_idx = dfs_order[i]
-        workload_count += boxes_time[box_idx]
-        if (workload_count > (rank + 1)*total_workload/total_rank
-                or i == tree.nboxes - 1):
-            responsible_boxes_list[rank] = dfs_order[start:i+1]
-            start = i + 1
-            rank += 1
+    responsible_boxes_segments = None
+    responsible_boxes_current_rank = np.empty(2, dtype=tree.box_id_dtype)
 
-    return responsible_boxes_list
+    if mpi_rank == 0:
+        total_workload = 0
+        for box_idx in range(tree.nboxes):
+            total_workload += boxes_time[box_idx]
+
+        responsible_boxes_segments = np.empty([mpi_size, 2], dtype=tree.box_id_dtype)
+        segment_idx = 0
+        start = 0
+        workload_count = 0
+        for box_idx_dfs_order in range(tree.nboxes):
+            if segment_idx + 1 == mpi_size:
+                responsible_boxes_segments[segment_idx, :] = [start, tree.nboxes]
+                break
+
+            box_idx = dfs_order[box_idx_dfs_order]
+            workload_count += boxes_time[box_idx]
+            if (workload_count > (segment_idx + 1) * total_workload / mpi_size
+                    or box_idx_dfs_order == tree.nboxes - 1):
+                responsible_boxes_segments[segment_idx, :] = [start, box_idx_dfs_order + 1]
+                start = box_idx_dfs_order + 1
+                segment_idx += 1
+
+    comm.Scatter(responsible_boxes_segments, responsible_boxes_current_rank, root=0)
+
+    return dfs_order[responsible_boxes_current_rank[0]:responsible_boxes_current_rank[1]]
 
 
 @memoize

@@ -171,31 +171,30 @@ class DistributedFMMRunner(object):
 
         # {{{ Partiton work
 
-        cost_model = FMMCostModel()
+        cost_per_box = None
 
-        if calibration_params is None:
-            # Use default calibration parameters if not supplied
-            # TODO: should replace the default calibration params with a more
-            # accurate one
-            calibration_params = \
-                FMMCostModel.get_unit_calibration_params()
+        if mpi_rank == 0:
+            cost_model = FMMCostModel()
 
-        # We need to construct a wrangler in order to access `level_nterms`
-        global_wrangler = wrangler_factory(global_trav, global_trav)
+            if calibration_params is None:
+                # Use default calibration parameters if not supplied
+                # TODO: should replace the default calibration params with a more
+                # accurate one
+                calibration_params = \
+                    FMMCostModel.get_unit_calibration_params()
 
-        cost_per_box = cost_model.cost_per_box(
-            # Currently only pyfmmlib has `level_nterms` field.
-            # See https://gitlab.tiker.net/inducer/boxtree/-/issues/25.
-            queue, global_trav_dev, global_wrangler.level_nterms,
-            calibration_params
-        ).get()
+            # We need to construct a wrangler in order to access `level_nterms`
+            global_wrangler = wrangler_factory(global_trav, global_trav)
+
+            cost_per_box = cost_model.cost_per_box(
+                # Currently only pyfmmlib has `level_nterms` field.
+                # See https://gitlab.tiker.net/inducer/boxtree/-/issues/25.
+                queue, global_trav_dev, global_wrangler.level_nterms,
+                calibration_params
+            ).get()
 
         from boxtree.distributed.partition import partition_work
-        responsible_boxes_list = partition_work(
-            cost_per_box, global_trav, comm.Get_size())
-
-        # It is assumed that, even if each rank computes `responsible_boxes_list`
-        # independently, it should be the same across ranks.
+        responsible_boxes_list = partition_work(cost_per_box, global_trav, comm)
 
         # }}}
 
@@ -203,7 +202,7 @@ class DistributedFMMRunner(object):
 
         from boxtree.distributed.local_tree import generate_local_tree
         self.local_tree, self.src_idx, self.tgt_idx = generate_local_tree(
-            queue, global_trav, responsible_boxes_list[mpi_rank])
+            queue, global_trav, responsible_boxes_list)
 
         # }}}
 
