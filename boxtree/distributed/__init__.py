@@ -35,7 +35,6 @@ launching FMM.
 
 .. autoclass:: boxtree.distributed.DistributedFMMRunner
 
-    .. automethod:: drive_dfmm
 
 Distributed Algorithm Overview
 ------------------------------
@@ -47,7 +46,7 @@ Distributed Algorithm Overview
 3. Each rank constructs the local tree and traversal lists independently, according
    to the partition. (See :ref:`construct-local-tree-traversal`)
 4. Distribute source weights from the root rank to all worker ranks. (See
-   :ref:`distribute-source-weights`)
+   :ref:`distributed-wrangler`)
 5. Each rank independently forms multipole expansions from the leaf nodes of the
    local tree and propagates the partial multipole expansions upwards.
 6. Communicate multipole expansions so that all ranks have the complete multipole
@@ -82,13 +81,12 @@ Construct Local Tree and Traversal
 
 .. autofunction:: boxtree.distributed.local_traversal.generate_local_travs
 
-.. _distribute-source-weights:
+.. _distributed-wrangler:
 
-Distribute source weights
--------------------------
+Distributed Wrangler
+--------------------
 
-.. autofunction:: boxtree.distributed.calculation.DistributedExpansionWrangler\
-.distribute_source_weights
+.. autoclass:: boxtree.distributed.calculation.DistributedExpansionWrangler
 
 .. _distributed-fmm-evaluation:
 
@@ -96,8 +94,9 @@ Distributed FMM Evaluation
 --------------------------
 
 The distributed version of the FMM evaluation shares the same interface as the
-shared-memory version. To evaluate FMM in distributed manner, set ``comm`` to
-a valid communicator in :func:`boxtree.fmm.drive_fmm`.
+shared-memory version. To evaluate FMM in a distributed manner, use a subclass
+of :class:`boxtree.distributed.calculation.DistributedExpansionWrangler` in
+:func:`boxtree.fmm.drive_fmm`.
 
 """
 
@@ -130,6 +129,10 @@ def dtype_to_mpi(dtype):
 
 
 class DistributedFMMRunner(object):
+    """Helper class for setting up and running distributed point FMM.
+
+    .. automethod:: drive_dfmm
+    """
     def __init__(self, queue, global_tree_dev,
                  traversal_builder,
                  wrangler_factory,
@@ -169,7 +172,7 @@ class DistributedFMMRunner(object):
 
         # }}}
 
-        # {{{ Partiton work
+        # {{{ Partition work
 
         cost_per_box = None
 

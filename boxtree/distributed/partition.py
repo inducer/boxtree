@@ -51,7 +51,7 @@ def partition_work(boxes_time, traversal, comm):
         raise RuntimeError("Fail to partition work because the number of boxes is "
                            "less than the number of processes.")
 
-    # transform tree from the level order to the dfs order
+    # transform tree from the level order to the morton dfs order
     # dfs_order[i] stores the level-order box index of dfs index i
     dfs_order = np.empty((tree.nboxes,), dtype=tree.box_id_dtype)
     idx = 0

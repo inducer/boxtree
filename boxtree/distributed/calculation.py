@@ -41,6 +41,16 @@ logger = logging.getLogger(__name__)
 # {{{ Distributed FMM wrangler
 
 class DistributedExpansionWrangler(ExpansionWranglerInterface):
+    """Distributed expansion wrangler base class.
+
+    This is an abstract class and should not be directly instantiated. Instead, it is
+    expected that all distributed wranglers should be subclasses of this class.
+
+    .. automethod:: __init__
+    .. automethod:: distribute_source_weights
+    .. automethod:: gather_potential_results
+    .. automethod:: communicate_mpoles
+    """
     def __init__(self, context, comm, global_traversal,
                  communicate_mpoles_via_allreduce=False):
         self.context = context
@@ -229,17 +239,19 @@ class DistributedExpansionWrangler(ExpansionWranglerInterface):
         return box_in_subrange
 
     def communicate_mpoles(self, mpole_exps, return_stats=False):
-        """Based on Algorithm 3: Reduce and Scatter in [1].
+        """Based on Algorithm 3: Reduce and Scatter in [1]_.
 
         The main idea is to mimic a allreduce as done on a hypercube network, but to
         decrease the bandwidth cost by sending only information that is relevant to
         the processes receiving the message.
 
+        .. rubric:: Footnotes
+
         .. [1] Lashuk, Ilya, Aparna Chandramowlishwaran, Harper Langston,
-        Tuan-Anh Nguyen, Rahul Sampath, Aashay Shringarpure, Richard Vuduc, Lexing
-        Ying, Denis Zorin, and George Biros. “A massively parallel adaptive fast
-        multipole method on heterogeneous architectures." Communications of the
-        ACM 55, no. 5 (2012): 101-109.
+            Tuan-Anh Nguyen, Rahul Sampath, Aashay Shringarpure, Richard Vuduc,
+            Lexing Ying, Denis Zorin, and George Biros. “A massively parallel
+            adaptive fast multipole method on heterogeneous architectures."
+            Communications of the ACM 55, no. 5 (2012): 101-109.
         """
         mpi_rank = self.comm.Get_rank()
         mpi_size = self.comm.Get_size()

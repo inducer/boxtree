@@ -640,7 +640,9 @@ void generate(LIST_ARG_DECL USER_ARG_DECL index_type i)
 
 
 class MaskCompressorKernel(object):
-
+    """
+    .. automethod:: __call__
+    """
     def __init__(self, context):
         self.context = context
 
@@ -720,10 +722,17 @@ class AllReduceCommPattern(object):
     multipole expansions. Supports an arbitrary number of processes.
 
     Communication of multipoles will be break down into stages. At each stage,
-    :meth:`sources()` and :meth:`sinks()` obtain the lists of ranks for receiving and
-    sending multipoles. :meth:`messages()` can be used for determining boxes whose
+    :meth:`sources` and :meth:`sinks` obtain the lists of ranks for receiving and
+    sending multipoles. :meth:`messages` can be used for determining boxes whose
     multipole expansions need to be sent during the current stage. Use
-    :meth:`advance()` to advance to the next stage.
+    :meth:`advance` to advance to the next stage.
+
+    .. automethod:: __init__
+    .. automethod:: sources
+    .. automethod:: sinks
+    .. automethod:: messages
+    .. automethod:: advance
+    .. automethod:: done
     """
 
     def __init__(self, rank, size):
