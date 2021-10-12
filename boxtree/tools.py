@@ -834,13 +834,7 @@ def run_mpi(script, num_processes, env):
     # See https://mpi4py.readthedocs.io/en/stable/mpi4py.run.html for details.
 
     mpi_library_name = MPI.Get_library_version()
-    if mpi_library_name.startswith("MPICH"):
-        subprocess.run(
-            ["mpiexec", "-np", str(num_processes), sys.executable,
-             "-m", "mpi4py", script],
-            env=env, check=True
-        )
-    elif mpi_library_name.startswith("Open MPI"):
+    if mpi_library_name.startswith("Open MPI"):
         command = ["mpiexec", "-np", str(num_processes), "--oversubscribe"]
         for env_variable_name in env:
             command.append("-x")
@@ -849,7 +843,11 @@ def run_mpi(script, num_processes, env):
 
         subprocess.run(command, env=env, check=True)
     else:
-        raise NotImplementedError("Unrecognized MPI implementation")
+        subprocess.run(
+            ["mpiexec", "-np", str(num_processes), sys.executable,
+             "-m", "mpi4py", script],
+            env=env, check=True
+        )
 
 # }}}
 
