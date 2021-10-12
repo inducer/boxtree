@@ -78,18 +78,6 @@ jobs:
                 curl -L -O https://gitlab.tiker.net/inducer/ci-support/raw/main/run-examples.sh
                 . ./run-examples.sh
 
-    distributed:
-        name: Python 3 POCL MPI
-        runs-on: ubuntu-latest
-        steps:
-        -   uses: actions/checkout@v2
-        -   name: "Main Script"
-            run: |
-                export EXTRA_INSTALL="numpy mako mpi4py pybind11"
-                export PYTEST_ADDOPTS="-k mpi --capture=no"
-                curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project.sh
-                . ./build-and-test-py-project.sh
-
     downstream_tests:
         strategy:
             matrix:
