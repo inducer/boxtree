@@ -1,5 +1,3 @@
-from __future__ import division
-
 __copyright__ = "Copyright (C) 2012 Andreas Kloeckner \
                  Copyright (C) 2018 Hao Gao"
 
@@ -53,7 +51,7 @@ def partition_work(boxes_time, traversal, comm):
 
     # transform tree from the level order to the morton dfs order
     # dfs_order[i] stores the level-order box index of dfs index i
-    # TODO: optimize the performance with OpenCL
+    # FIXME: optimize the performance with OpenCL
     dfs_order = np.empty((tree.nboxes,), dtype=tree.box_id_dtype)
     idx = 0
     stack = [0]
@@ -71,6 +69,10 @@ def partition_work(boxes_time, traversal, comm):
     responsible_boxes_segments = None
     responsible_boxes_current_rank = np.empty(2, dtype=tree.box_id_dtype)
 
+    # FIXME: Right now, the responsible boxes assigned to all ranks are computed
+    # centrally on the root rank to avoid inconsistency risks of floating point
+    # operations. We could improve the efficiency by letting each rank compute the
+    # costs of a subset of boxes, and use MPI_Scan to aggregate the results.
     if mpi_rank == 0:
         total_workload = 0
         for box_idx in range(tree.nboxes):

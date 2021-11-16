@@ -74,14 +74,13 @@ class DistributedExpansionWrangler(ExpansionWranglerInterface):
                 if irank != 0:
                     distribute_weight_req.append(self.comm.isend(
                         local_src_weight_vecs[irank], dest=irank,
-                        tag=MPITags["DIST_WEIGHT"]
+                        tag=MPITags.DIST_WEIGHT
                     ))
 
             MPI.Request.Waitall(distribute_weight_req)
             local_src_weight_vecs = local_src_weight_vecs[0]
         else:
-            local_src_weight_vecs = self.comm.recv(
-                source=0, tag=MPITags["DIST_WEIGHT"])
+            local_src_weight_vecs = self.comm.recv(source=0, tag=MPITags.DIST_WEIGHT)
 
         return local_src_weight_vecs
 
@@ -91,6 +90,8 @@ class DistributedExpansionWrangler(ExpansionWranglerInterface):
 
         from boxtree.distributed import dtype_to_mpi
         potentials_mpi_type = dtype_to_mpi(potentials.dtype)
+
+        gathered_potentials = None
 
         if mpi_rank == 0:
             # The root rank received calculated potentials from all worker ranks
@@ -106,24 +107,25 @@ class DistributedExpansionWrangler(ExpansionWranglerInterface):
                 recv_reqs.append(
                     self.comm.Irecv(
                         [potentials_all_ranks[irank], potentials_mpi_type],
-                        source=irank, tag=MPITags["GATHER_POTENTIALS"]))
+                        source=irank, tag=MPITags.GATHER_POTENTIALS))
 
             MPI.Request.Waitall(recv_reqs)
 
             # Assemble potentials from worker ranks together on the root rank
-            potentials = np.empty(
+            gathered_potentials = np.empty(
                 self.global_traversal.tree.ntargets, dtype=potentials.dtype)
 
             for irank in range(mpi_size):
-                potentials[tgt_idx_all_ranks[irank]] = potentials_all_ranks[irank]
+                gathered_potentials[tgt_idx_all_ranks[irank]] = (
+                    potentials_all_ranks[irank])
         else:
             # Worker ranks send calculated potentials to the root rank
             self.comm.Send([potentials, potentials_mpi_type],
-                           dest=0, tag=MPITags["GATHER_POTENTIALS"])
+                           dest=0, tag=MPITags.GATHER_POTENTIALS)
 
-        return potentials
+        return gathered_potentials
 
-    def slice_mpoles(self, mpoles, slice_indices):
+    def _slice_mpoles(self, mpoles, slice_indices):
         if len(slice_indices) == 0:
             return np.empty((0,), dtype=mpoles.dtype)
 
@@ -144,7 +146,7 @@ class DistributedExpansionWrangler(ExpansionWranglerInterface):
 
         return np.concatenate(mpoles_list)
 
-    def update_mpoles(self, mpoles, mpole_updates, slice_indices):
+    def _update_mpoles(self, mpoles, mpole_updates, slice_indices):
         if len(slice_indices) == 0:
             return
 
@@ -237,13 +239,11 @@ class DistributedExpansionWrangler(ExpansionWranglerInterface):
         return box_in_subrange
 
     def communicate_mpoles(self, mpole_exps, return_stats=False):
-        """Based on Algorithm 3: Reduce and Scatter in [1]_.
+        """Based on Algorithm 3: Reduce and Scatter in Lashuk et al. [1]_.
 
-        The main idea is to mimic a allreduce as done on a hypercube network, but to
+        The main idea is to mimic an allreduce as done on a hypercube network, but to
         decrease the bandwidth cost by sending only information that is relevant to
-        the processes receiving the message.
-
-        .. rubric:: Footnotes
+        the rank receiving the message.
 
         .. [1] Lashuk, Ilya, Aparna Chandramowlishwaran, Harper Langston,
             Tuan-Anh Nguyen, Rahul Sampath, Aashay Shringarpure, Richard Vuduc,
@@ -342,32 +342,32 @@ class DistributedExpansionWrangler(ExpansionWranglerInterface):
                     relevant_boxes_list, dtype=tree.box_id_dtype
                 )
 
-                relevant_mpole_exps = self.slice_mpoles(
+                relevant_mpole_exps = self._slice_mpoles(
                     mpole_exps, relevant_boxes_list)
 
                 # Send the box subset to the other processors.
                 for sink in comm_pattern.sinks():
                     req = self.comm.Isend(relevant_mpole_exps, dest=sink,
-                                          tag=MPITags["REDUCE_POTENTIALS"])
+                                          tag=MPITags.REDUCE_POTENTIALS)
                     send_requests.append(req)
 
                     req = self.comm.Isend(relevant_boxes_list, dest=sink,
-                                          tag=MPITags["REDUCE_INDICES"])
+                                          tag=MPITags.REDUCE_INDICES)
                     send_requests.append(req)
 
             # Receive data from other processors.
             for source in comm_pattern.sources():
                 self.comm.Recv(mpole_exps_buf, source=source,
-                               tag=MPITags["REDUCE_POTENTIALS"])
+                               tag=MPITags.REDUCE_POTENTIALS)
 
                 status = MPI.Status()
                 self.comm.Recv(
-                    boxes_list_buf, source=source, tag=MPITags["REDUCE_INDICES"],
+                    boxes_list_buf, source=source, tag=MPITags.REDUCE_INDICES,
                     status=status)
                 nboxes = status.Get_count() // boxes_list_buf.dtype.itemsize
 
                 # Update data structures.
-                self.update_mpoles(
+                self._update_mpoles(
                         mpole_exps, mpole_exps_buf, boxes_list_buf[:nboxes])
 
                 contributing_boxes[boxes_list_buf[:nboxes]] = 1

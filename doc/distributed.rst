@@ -1,4 +1,4 @@
 Distributed Computation
 =======================
 
-.. automodule:: boxtree.distributed.__init__
+.. automodule:: boxtree.distributed

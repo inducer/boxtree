@@ -1,5 +1,3 @@
-from __future__ import division
-
 __copyright__ = "Copyright (C) 2013 Andreas Kloeckner \
                  Copyright (C) 2018 Hao Gao"
 
@@ -58,8 +56,8 @@ Distributed Algorithm Overview
 For step 5-7, see :ref:`distributed-fmm-evaluation`.
 
 Note that step 4-7 may be repeated multiple times with the same tree and traversal
-object built from step 1-3. For example, when solving a PDE, step 4-7 is executed
-for each GMRES iteration.
+object built from step 1-3. For example, when iteratively solving a PDE, step 4-7 is
+executed for each iteration of the linear solver.
 
 The next sections will cover the interfaces of these steps.
 
@@ -102,16 +100,18 @@ of :class:`boxtree.distributed.calculation.DistributedExpansionWrangler` in
 
 from mpi4py import MPI
 import numpy as np
+from enum import IntEnum
+import warnings
 from boxtree.cost import FMMCostModel
 
 __all__ = ["DistributedFMMRunner"]
 
-MPITags = dict(
-    DIST_WEIGHT=1,
-    GATHER_POTENTIALS=2,
-    REDUCE_POTENTIALS=3,
-    REDUCE_INDICES=4
-)
+
+class MPITags(IntEnum):
+    DIST_WEIGHT = 1
+    GATHER_POTENTIALS = 2
+    REDUCE_POTENTIALS = 3
+    REDUCE_INDICES = 4
 
 
 def dtype_to_mpi(dtype):
@@ -128,19 +128,17 @@ def dtype_to_mpi(dtype):
     return mpi_type
 
 
-class DistributedFMMRunner(object):
+class DistributedFMMRunner:
     """Helper class for setting up and running distributed point FMM.
 
+    .. automethod:: __init__
     .. automethod:: drive_dfmm
     """
     def __init__(self, queue, global_tree_dev,
                  traversal_builder,
                  wrangler_factory,
                  calibration_params=None, comm=MPI.COMM_WORLD):
-        """Constructor of the ``DistributedFMMRunner`` class.
-
-        This constructor distributes the global tree from the root rank to each
-        worker rank.
+        """Distributes the global tree from the root rank to each worker rank.
 
         :arg global_tree_dev: a :class:`boxtree.Tree` object in device memory.
         :arg traversal_builder: an object which, when called, takes a
@@ -155,7 +153,6 @@ class DistributedFMMRunner(object):
             each box, which is used for improving load balancing.
         :arg comm: MPI communicator.
         """
-
         self.comm = comm
         mpi_rank = comm.Get_rank()
 
@@ -183,6 +180,8 @@ class DistributedFMMRunner(object):
                 # Use default calibration parameters if not supplied
                 # TODO: should replace the default calibration params with a more
                 # accurate one
+                warnings.warn("Calibration parameters for the cost model are not "
+                              "supplied. The default one will be used.")
                 calibration_params = \
                     FMMCostModel.get_unit_calibration_params()
 

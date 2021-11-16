@@ -639,7 +639,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL index_type i)
 """
 
 
-class MaskCompressorKernel(object):
+class MaskCompressorKernel:
     """
     .. automethod:: __call__
     """
@@ -717,15 +717,20 @@ class MaskCompressorKernel(object):
 
 # {{{ Communication pattern for partial multipole expansions
 
-class AllReduceCommPattern(object):
+class AllReduceCommPattern:
     """Describes a tree-like communication pattern for exchanging and reducing
     multipole expansions. Supports an arbitrary number of processes.
 
-    Communication of multipoles will be break down into stages. At each stage,
-    :meth:`sources` and :meth:`sinks` obtain the lists of ranks for receiving and
-    sending multipoles. :meth:`messages` can be used for determining boxes whose
-    multipole expansions need to be sent during the current stage. Use
-    :meth:`advance` to advance to the next stage.
+    A user must instantiate a version of this with identical *size* and varying
+    *rank* on each rank. During each stage, each rank sends its contribution to
+    the reduction results on ranks returned by :meth:`sinks` and listens for
+    contributions from :meth:`source`. :meth:`messages` can be used for determining
+    array indices whose partial results need to be sent during the current stage.
+    Then, all ranks call :meth:`advance` and use :meth:`done` to check whether the
+    communication is complete. In the use case of multipole communication, the
+    reduction result is a vector of multipole expansions to which all ranks add
+    contribution. These contributions are communicated sparsely via arrays of box
+    indices and expansions.
 
     .. automethod:: __init__
     .. automethod:: sources
@@ -737,8 +742,8 @@ class AllReduceCommPattern(object):
 
     def __init__(self, rank, size):
         """
-        :arg rank: My rank
-        :arg size: Total number of processors
+        :arg rank: Current rank.
+        :arg size: Total number of ranks.
         """
         assert 0 <= rank < size
         self.rank = rank
@@ -747,31 +752,31 @@ class AllReduceCommPattern(object):
         self.midpoint = size // 2
 
     def sources(self):
-        """Return the set of source nodes at this communication stage. The current
-        process receives messages from these processes.
+        """Return the set of source nodes at the current communication stage. The
+        current rank receives messages from these ranks.
         """
         if self.rank < self.midpoint:
             partner = self.midpoint + (self.rank - self.left)
             if self.rank == self.midpoint - 1 and partner == self.right:
                 partners = set()
             elif self.rank == self.midpoint - 1 and partner == self.right - 2:
-                partners = set([partner, partner + 1])
+                partners = {partner, partner + 1}
             else:
-                partners = set([partner])
+                partners = {partner}
         else:
             partner = self.left + (self.rank - self.midpoint)
             if self.rank == self.right - 1 and partner == self.midpoint:
                 partners = set()
             elif self.rank == self.right - 1 and partner == self.midpoint - 2:
-                partners = set([partner, partner + 1])
+                partners = {partner, partner + 1}
             else:
-                partners = set([partner])
+                partners = {partner}
 
         return partners
 
     def sinks(self):
-        """Return the set of sink nodes at this communication stage. The current process
-        sends a message to these processes.
+        """Return the set of sink nodes at this communication stage. The current rank
+        sends a message to these ranks.
         """
         if self.rank < self.midpoint:
             partner = self.midpoint + (self.rank - self.left)
@@ -782,12 +787,12 @@ class AllReduceCommPattern(object):
             if partner == self.midpoint:
                 partner -= 1
 
-        return set([partner])
+        return {partner}
 
     def messages(self):
-        """Return a range of ranks, such that the multipole expansions used by
-        responsible boxes of these ranks are sent to the sinks.  This is returned as
-        a [start, end) pair. By design, it is a consecutive range.
+        """Return a range of ranks, such that the partial results of array indices
+        used by these ranks are sent to the sinks.  This is returned as a
+        [start, end) pair. By design, it is a consecutive range.
         """
         if self.rank < self.midpoint:
             return (self.midpoint, self.right)
@@ -808,7 +813,7 @@ class AllReduceCommPattern(object):
             self.midpoint = (self.midpoint + self.right) // 2
 
     def done(self):
-        """Return whether this process is finished communicating.
+        """Return whether the current rank is finished communicating.
         """
         return self.left + 1 == self.right
 
