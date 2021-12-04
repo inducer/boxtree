@@ -132,6 +132,6 @@ This indexing scheme has the following properties:
 """
 
 # allow namespace packages
-__path__ = __import__('pkgutil').extend_path(__path__, __name__)
+__path__ = __import__("pkgutil").extend_path(__path__, __name__)
 
 # vim: filetype=pyopencl:fdm=marker
