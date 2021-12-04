@@ -131,4 +131,7 @@ This indexing scheme has the following properties:
   is automatically the end of the previous one.
 """
 
+# allow namespace packages
+__path__ = __import__('pkgutil').extend_path(__path__, __name__)
+
 # vim: filetype=pyopencl:fdm=marker
