@@ -11,8 +11,8 @@ nparticles = 500
 # -----------------------------------------------------------------------------
 # generate some random particle positions
 # -----------------------------------------------------------------------------
-from pyopencl.clrandom import RanluxGenerator
-rng = RanluxGenerator(queue, seed=15)
+from pyopencl.clrandom import PhiloxGenerator
+rng = PhiloxGenerator(queue, seed=15)
 
 from pytools.obj_array import make_obj_array
 particles = make_obj_array([
