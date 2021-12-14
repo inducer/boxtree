@@ -81,7 +81,7 @@ jobs:
     downstream_tests:
         strategy:
             matrix:
-                downstream_project: [pytential]
+                downstream_project: [sumpy, pytential]
         name: Tests for downstream project ${{ matrix.downstream_project }}
         runs-on: ubuntu-latest
         steps:
@@ -93,7 +93,13 @@ jobs:
                 curl -L -O https://tiker.net/ci-support-v0
                 . ./ci-support-v0
 
-                git clone "https://github.com/inducer/$DOWNSTREAM_PROJECT.git"
+                #if [[ "$DOWNSTREAM_PROJECT" = "sumpy" ]] && [[ "$GITHUB_HEAD_REF" = "no-tree-in-wrangler" ]]; then
+                if [[ "$GITHUB_HEAD_REF" = "no-tree-in-wrangler" ]]; then
+                  with_echo git clone "https://github.com/inducer/$DOWNSTREAM_PROJECT.git" -b wrangler-refactor
+                else
+                  with_echo git clone "https://github.com/inducer/$DOWNSTREAM_PROJECT.git"
+                fi
+
                 cd "$DOWNSTREAM_PROJECT"
                 echo "*** $DOWNSTREAM_PROJECT version: $(git rev-parse --short HEAD)"
                 edit_requirements_txt_for_downstream_in_subdir
