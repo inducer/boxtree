@@ -25,7 +25,7 @@ import numpy as np
 import pyopencl as cl
 from pyopencl.tools import dtype_to_ctype
 from mako.template import Template
-from pytools import memoize
+from pytools import memoize_method
 
 
 def partition_work(boxes_time, traversal, comm):
@@ -102,42 +102,12 @@ def partition_work(boxes_time, traversal, comm):
         responsible_boxes_current_rank[0]:responsible_boxes_current_rank[1]]
 
 
-@memoize
 def mark_parent_kernel(context, box_id_dtype):
     return cl.elementwise.ElementwiseKernel(
         context,
         "__global char *current, __global char *parent, "
         "__global %s *box_parent_ids" % dtype_to_ctype(box_id_dtype),
         "if(i != 0 && current[i]) parent[box_parent_ids[i]] = 1"
-    )
-
-
-# helper kernel for adding boxes from interaction list 1 and 4
-@memoize
-def add_interaction_list_boxes_kernel(context, box_id_dtype):
-    return cl.elementwise.ElementwiseKernel(
-        context,
-        Template("""
-            __global ${box_id_t} *box_list,
-            __global char *responsible_boxes_mask,
-            __global ${box_id_t} *interaction_boxes_starts,
-            __global ${box_id_t} *interaction_boxes_lists,
-            __global char *src_boxes_mask
-        """, strict_undefined=True).render(
-            box_id_t=dtype_to_ctype(box_id_dtype)
-        ),
-        Template(r"""
-            typedef ${box_id_t} box_id_t;
-            box_id_t current_box = box_list[i];
-            if(responsible_boxes_mask[current_box]) {
-                for(box_id_t box_idx = interaction_boxes_starts[i];
-                    box_idx < interaction_boxes_starts[i + 1];
-                    ++box_idx)
-                    src_boxes_mask[interaction_boxes_lists[box_idx]] = 1;
-            }
-        """, strict_undefined=True).render(
-            box_id_t=dtype_to_ctype(box_id_dtype)
-        ),
     )
 
 
@@ -167,8 +137,42 @@ def get_ancestor_boxes_mask(queue, traversal, responsible_boxes_mask):
     return ancestor_boxes
 
 
+class GetBoxesMaskCodeContainer:
+    def __init__(self, cl_context, box_id_dtype):
+        self.cl_context = cl_context
+        self.box_id_dtype = box_id_dtype
+
+    # helper kernel for adding boxes from interaction list 1 and 4
+    @memoize_method
+    def add_interaction_list_boxes_kernel(self):
+        return cl.elementwise.ElementwiseKernel(
+            self.cl_context,
+            Template("""
+                __global ${box_id_t} *box_list,
+                __global char *responsible_boxes_mask,
+                __global ${box_id_t} *interaction_boxes_starts,
+                __global ${box_id_t} *interaction_boxes_lists,
+                __global char *src_boxes_mask
+            """, strict_undefined=True).render(
+                box_id_t=dtype_to_ctype(self.box_id_dtype)
+            ),
+            Template(r"""
+                typedef ${box_id_t} box_id_t;
+                box_id_t current_box = box_list[i];
+                if(responsible_boxes_mask[current_box]) {
+                    for(box_id_t box_idx = interaction_boxes_starts[i];
+                        box_idx < interaction_boxes_starts[i + 1];
+                        ++box_idx)
+                        src_boxes_mask[interaction_boxes_lists[box_idx]] = 1;
+                }
+            """, strict_undefined=True).render(
+                box_id_t=dtype_to_ctype(self.box_id_dtype)
+            ),
+        )
+
+
 def get_src_boxes_mask(
-        queue, traversal, responsible_boxes_mask, ancestor_boxes_mask):
+        queue, code, traversal, responsible_boxes_mask, ancestor_boxes_mask):
     """Query the boxes whose sources are needed in order to evaluate potentials
     of boxes represented by *responsible_boxes_mask*.
 
@@ -181,10 +185,11 @@ def get_src_boxes_mask(
         i-th entry is 1 if souces of box ``i`` are needed for evaluating the
         potentials of targets in boxes represented by *responsible_boxes_mask*.
     """
+
     src_boxes_mask = responsible_boxes_mask.copy()
 
     # Add list 1 of responsible boxes
-    add_interaction_list_boxes_kernel(queue.context, traversal.tree.box_id_dtype)(
+    code.add_interaction_list_boxes_kernel()(
         traversal.target_boxes, responsible_boxes_mask,
         traversal.neighbor_source_boxes_starts,
         traversal.neighbor_source_boxes_lists, src_boxes_mask,
@@ -193,7 +198,7 @@ def get_src_boxes_mask(
     )
 
     # Add list 4 of responsible boxes or ancestor boxes
-    add_interaction_list_boxes_kernel(queue.context, traversal.tree.box_id_dtype)(
+    code.add_interaction_list_boxes_kernel()(
         traversal.target_or_target_parent_boxes,
         responsible_boxes_mask | ancestor_boxes_mask,
         traversal.from_sep_bigger_starts, traversal.from_sep_bigger_lists,
@@ -205,8 +210,7 @@ def get_src_boxes_mask(
     if traversal.tree.targets_have_extent:
         # Add list 3 close of responsible boxes
         if traversal.from_sep_close_smaller_starts is not None:
-            add_interaction_list_boxes_kernel(
-                    queue.context, traversal.tree.box_id_dtype)(
+            code.add_interaction_list_boxes_kernel()(
                 traversal.target_boxes,
                 responsible_boxes_mask,
                 traversal.from_sep_close_smaller_starts,
@@ -217,8 +221,7 @@ def get_src_boxes_mask(
 
         # Add list 4 close of responsible boxes
         if traversal.from_sep_close_bigger_starts is not None:
-            add_interaction_list_boxes_kernel(
-                    queue.context, traversal.tree.box_id_dtype)(
+            code.add_interaction_list_boxes_kernel()(
                 traversal.target_boxes,
                 responsible_boxes_mask | ancestor_boxes_mask,
                 traversal.from_sep_close_bigger_starts,
@@ -231,7 +234,7 @@ def get_src_boxes_mask(
 
 
 def get_multipole_boxes_mask(
-        queue, traversal, responsible_boxes_mask, ancestor_boxes_mask):
+        queue, code, traversal, responsible_boxes_mask, ancestor_boxes_mask):
     """Query the boxes whose multipoles are used in order to evaluate
     potentials of targets in boxes represented by *responsible_boxes_mask*.
 
@@ -251,7 +254,7 @@ def get_multipole_boxes_mask(
 
     # A mpole is used by process p if it is in the List 2 of either a box
     # owned by p or one of its ancestors.
-    add_interaction_list_boxes_kernel(queue.context, traversal.tree.box_id_dtype)(
+    code.add_interaction_list_boxes_kernel()(
         traversal.target_or_target_parent_boxes,
         responsible_boxes_mask | ancestor_boxes_mask,
         traversal.from_sep_siblings_starts,
@@ -263,8 +266,7 @@ def get_multipole_boxes_mask(
 
     # A mpole is used by process p if it is in the List 3 of a box owned by p.
     for ilevel in range(traversal.tree.nlevels):
-        add_interaction_list_boxes_kernel(
-                queue.context, traversal.tree.box_id_dtype)(
+        code.add_interaction_list_boxes_kernel()(
             traversal.target_boxes_sep_smaller_by_source_level[ilevel],
             responsible_boxes_mask,
             traversal.from_sep_smaller_by_level[ilevel].starts,
@@ -295,6 +297,8 @@ def get_boxes_mask(queue, traversal, responsible_boxes_list):
     :returns: responsible_box_mask, ancestor_boxes_mask, src_boxes_mask and
         multipole_boxes_mask, as described above.
     """
+    code = GetBoxesMaskCodeContainer(queue.context, traversal.tree.box_id_dtype)
+
     traversal = traversal.to_device(queue)
 
     responsible_boxes_mask = np.zeros((traversal.tree.nboxes,), dtype=np.int8)
@@ -306,11 +310,11 @@ def get_boxes_mask(queue, traversal, responsible_boxes_list):
     )
 
     src_boxes_mask = get_src_boxes_mask(
-        queue, traversal, responsible_boxes_mask, ancestor_boxes_mask
+        queue, code, traversal, responsible_boxes_mask, ancestor_boxes_mask
     )
 
     multipole_boxes_mask = get_multipole_boxes_mask(
-        queue, traversal, responsible_boxes_mask, ancestor_boxes_mask
+        queue, code, traversal, responsible_boxes_mask, ancestor_boxes_mask
     )
 
     return (responsible_boxes_mask, ancestor_boxes_mask, src_boxes_mask,

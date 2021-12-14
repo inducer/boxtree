@@ -28,117 +28,125 @@ from boxtree import Tree
 from boxtree.tools import ImmutableHostDeviceArray
 import time
 import numpy as np
-from pytools import memoize
+from pytools import memoize_method
 
 import logging
 logger = logging.getLogger(__name__)
 
 
-@memoize
-def particle_mask_kernel(context, particle_id_dtype):
-    return cl.elementwise.ElementwiseKernel(
-        context,
-        arguments=Template("""
-            __global char *responsible_boxes,
-            __global ${particle_id_t} *box_particle_starts,
-            __global ${particle_id_t} *box_particle_counts_nonchild,
-            __global ${particle_id_t} *particle_mask
-        """, strict_undefined=True).render(
-            particle_id_t=dtype_to_ctype(particle_id_dtype)
-        ),
-        operation=Template("""
-            if(responsible_boxes[i]) {
-                for(${particle_id_t} pid = box_particle_starts[i];
-                    pid < box_particle_starts[i] + box_particle_counts_nonchild[i];
-                    ++pid) {
-                    particle_mask[pid] = 1;
-                }
-            }
-        """).render(particle_id_t=dtype_to_ctype(particle_id_dtype))
-    )
+class FetchLocalParticlesCodeContainer:
+    """Objects of this type serve as a place to keep the code needed for
+    :func:`fetch_local_particles`.
+    """
+    def __init__(self, cl_context, dimensions, particle_id_dtype, coord_dtype,
+                 sources_have_extent, targets_have_extent):
+        self.cl_context = cl_context
+        self.dimensions = dimensions
+        self.particle_id_dtype = particle_id_dtype
+        self.coord_dtype = coord_dtype
+        self.sources_have_extent = sources_have_extent
+        self.targets_have_extent = targets_have_extent
 
-
-@memoize
-def mask_scan_kernel(context, particle_id_dtype):
-    from pyopencl.scan import GenericScanKernel
-    return GenericScanKernel(
-        context, particle_id_dtype,
-        arguments=Template("""
-            __global ${mask_t} *ary,
-            __global ${mask_t} *scan
+    @memoize_method
+    def particle_mask_kernel(self):
+        return cl.elementwise.ElementwiseKernel(
+            self.cl_context,
+            arguments=Template("""
+                __global char *responsible_boxes,
+                __global ${particle_id_t} *box_particle_starts,
+                __global ${particle_id_t} *box_particle_counts_nonchild,
+                __global ${particle_id_t} *particle_mask
             """, strict_undefined=True).render(
-            mask_t=dtype_to_ctype(particle_id_dtype)
-        ),
-        input_expr="ary[i]",
-        scan_expr="a+b", neutral="0",
-        output_statement="scan[i + 1] = item;"
-    )
+                particle_id_t=dtype_to_ctype(self.particle_id_dtype)
+            ),
+            operation=Template("""
+                if(responsible_boxes[i]) {
+                    for(${particle_id_t} pid = box_particle_starts[i];
+                        pid < box_particle_starts[i]
+                              + box_particle_counts_nonchild[i];
+                        ++pid) {
+                        particle_mask[pid] = 1;
+                    }
+                }
+            """).render(particle_id_t=dtype_to_ctype(self.particle_id_dtype))
+        )
 
+    @memoize_method
+    def mask_scan_kernel(self):
+        from pyopencl.scan import GenericScanKernel
+        return GenericScanKernel(
+            self.cl_context, self.particle_id_dtype,
+            arguments=Template("""
+                __global ${mask_t} *ary,
+                __global ${mask_t} *scan
+                """, strict_undefined=True).render(
+                mask_t=dtype_to_ctype(self.particle_id_dtype)
+            ),
+            input_expr="ary[i]",
+            scan_expr="a+b", neutral="0",
+            output_statement="scan[i + 1] = item;"
+        )
 
-fetch_local_paticles_arguments = Template("""
-    __global const ${mask_t} *particle_mask,
-    __global const ${mask_t} *particle_scan
-    % for dim in range(ndims):
-        , __global const ${coord_t} *particles_${dim}
-    % endfor
-    % for dim in range(ndims):
-        , __global ${coord_t} *local_particles_${dim}
-    % endfor
-    % if particles_have_extent:
-        , __global const ${coord_t} *particle_radii
-        , __global ${coord_t} *local_particle_radii
-    % endif
-""", strict_undefined=True)
-
-fetch_local_particles_prg = Template("""
-    if(particle_mask[i]) {
-        ${particle_id_t} des = particle_scan[i];
+    fetch_local_paticles_arguments = Template("""
+        __global const ${mask_t} *particle_mask,
+        __global const ${mask_t} *particle_scan
         % for dim in range(ndims):
-            local_particles_${dim}[des] = particles_${dim}[i];
+            , __global const ${coord_t} *particles_${dim}
+        % endfor
+        % for dim in range(ndims):
+            , __global ${coord_t} *local_particles_${dim}
         % endfor
         % if particles_have_extent:
-            local_particle_radii[des] = particle_radii[i];
+            , __global const ${coord_t} *particle_radii
+            , __global ${coord_t} *local_particle_radii
         % endif
-    }
-""", strict_undefined=True)
+    """, strict_undefined=True)
 
+    fetch_local_particles_prg = Template("""
+        if(particle_mask[i]) {
+            ${particle_id_t} des = particle_scan[i];
+            % for dim in range(ndims):
+                local_particles_${dim}[des] = particles_${dim}[i];
+            % endfor
+            % if particles_have_extent:
+                local_particle_radii[des] = particle_radii[i];
+            % endif
+        }
+    """, strict_undefined=True)
 
-@memoize
-def fetch_local_sources_kernel(
-        context, particle_id_dtype, coord_dtype, dimensions, sources_have_extent):
-    return cl.elementwise.ElementwiseKernel(
-        context,
-        fetch_local_paticles_arguments.render(
-            mask_t=dtype_to_ctype(particle_id_dtype),
-            coord_t=dtype_to_ctype(coord_dtype),
-            ndims=dimensions,
-            particles_have_extent=sources_have_extent
-        ),
-        fetch_local_particles_prg.render(
-            particle_id_t=dtype_to_ctype(particle_id_dtype),
-            ndims=dimensions,
-            particles_have_extent=sources_have_extent
+    @memoize_method
+    def fetch_local_sources_kernel(self):
+        return cl.elementwise.ElementwiseKernel(
+            self.cl_context,
+            self.fetch_local_paticles_arguments.render(
+                mask_t=dtype_to_ctype(self.particle_id_dtype),
+                coord_t=dtype_to_ctype(self.coord_dtype),
+                ndims=self.dimensions,
+                particles_have_extent=self.sources_have_extent
+            ),
+            self.fetch_local_particles_prg.render(
+                particle_id_t=dtype_to_ctype(self.particle_id_dtype),
+                ndims=self.dimensions,
+                particles_have_extent=self.sources_have_extent
+            )
         )
-    )
 
-
-@memoize
-def fetch_local_targets_kernel(
-        context, particle_id_dtype, coord_dtype, dimensions, targets_have_extent):
-    return cl.elementwise.ElementwiseKernel(
-        context,
-        fetch_local_paticles_arguments.render(
-            mask_t=dtype_to_ctype(particle_id_dtype),
-            coord_t=dtype_to_ctype(coord_dtype),
-            ndims=dimensions,
-            particles_have_extent=targets_have_extent
-        ),
-        fetch_local_particles_prg.render(
-            particle_id_t=dtype_to_ctype(particle_id_dtype),
-            ndims=dimensions,
-            particles_have_extent=targets_have_extent
+    @memoize_method
+    def fetch_local_targets_kernel(self):
+        return cl.elementwise.ElementwiseKernel(
+            self.cl_context,
+            self.fetch_local_paticles_arguments.render(
+                mask_t=dtype_to_ctype(self.particle_id_dtype),
+                coord_t=dtype_to_ctype(self.coord_dtype),
+                ndims=self.dimensions,
+                particles_have_extent=self.targets_have_extent
+            ),
+            self.fetch_local_particles_prg.render(
+                particle_id_t=dtype_to_ctype(self.particle_id_dtype),
+                ndims=self.dimensions,
+                particles_have_extent=self.targets_have_extent
+            )
         )
-    )
 
 
 def fetch_local_particles(
@@ -153,6 +161,11 @@ def fetch_local_particles(
 
     These generated fields are stored directly into *local_tree*.
     """
+    code = FetchLocalParticlesCodeContainer(
+            queue.context, global_tree.dimensions,
+            global_tree.particle_id_dtype, global_tree.coord_dtype,
+            global_tree.sources_have_extent, global_tree.targets_have_extent)
+
     global_tree_dev = global_tree.to_device(queue).with_queue(queue)
     nsources = global_tree.nsources
 
@@ -163,7 +176,7 @@ def fetch_local_particles(
         dtype=global_tree.particle_id_dtype
     )
 
-    particle_mask_kernel(queue.context, global_tree.particle_id_dtype)(
+    code.particle_mask_kernel()(
         src_box_mask,
         global_tree_dev.box_source_starts,
         global_tree_dev.box_source_counts_nonchild,
@@ -180,9 +193,7 @@ def fetch_local_particles(
     )
 
     src_particle_scan[0] = 0
-    mask_scan_kernel(queue.context, global_tree.particle_id_dtype)(
-        src_particle_mask, src_particle_scan
-    )
+    code.mask_scan_kernel()(src_particle_mask, src_particle_scan)
 
     # }}}
 
@@ -202,13 +213,7 @@ def fetch_local_particles(
 
     assert global_tree.sources_have_extent is False
 
-    fetch_local_sources_kernel(
-        queue.context,
-        global_tree.particle_id_dtype,
-        global_tree.coord_dtype,
-        global_tree.dimensions,
-        global_tree.sources_have_extent
-    )(
+    code.fetch_local_sources_kernel()(
         src_particle_mask, src_particle_scan,
         *global_tree_dev.sources.tolist(),
         *local_sources_list
@@ -254,7 +259,7 @@ def fetch_local_particles(
         dtype=global_tree.particle_id_dtype
     )
 
-    particle_mask_kernel(queue.context, global_tree.particle_id_dtype)(
+    code.particle_mask_kernel()(
         tgt_box_mask,
         global_tree_dev.box_target_starts,
         global_tree_dev.box_target_counts_nonchild,
@@ -271,9 +276,7 @@ def fetch_local_particles(
     )
 
     tgt_particle_scan[0] = 0
-    mask_scan_kernel(queue.context, global_tree.particle_id_dtype)(
-        tgt_particle_mask, tgt_particle_scan
-    )
+    code.mask_scan_kernel()(tgt_particle_mask, tgt_particle_scan)
 
     # }}}
 
@@ -297,13 +300,7 @@ def fetch_local_particles(
             dtype=global_tree.coord_dtype
         )
 
-        fetch_local_targets_kernel(
-            queue.context,
-            global_tree.particle_id_dtype,
-            global_tree.coord_dtype,
-            global_tree.dimensions,
-            True
-        )(
+        code.fetch_local_targets_kernel()(
             tgt_particle_mask, tgt_particle_scan,
             *global_tree_dev.targets.tolist(),
             *local_targets_list,
@@ -311,13 +308,7 @@ def fetch_local_particles(
             local_target_radii
         )
     else:
-        fetch_local_targets_kernel(
-            queue.context,
-            global_tree.particle_id_dtype,
-            global_tree.coord_dtype,
-            global_tree.dimensions,
-            False
-        )(
+        code.fetch_local_targets_kernel()(
             tgt_particle_mask, tgt_particle_scan,
             *global_tree_dev.targets.tolist(),
             *local_targets_list
