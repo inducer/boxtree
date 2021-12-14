@@ -71,6 +71,14 @@ class ConstantOneExpansionWrangler(ExpansionWranglerInterface):
     def reorder_potentials(self, potentials):
         return potentials[self.tree.sorted_target_ids]
 
+    def multipole_expansions_view(self, mpole_exps, level):
+        # FIXME
+        raise NotImplementedError
+
+    def local_expansions_view(self, local_exps, level):
+        # FIXME
+        raise NotImplementedError
+
     @staticmethod
     def timing_future(ops):
         return DummyTimingFuture.from_op_count(ops)
