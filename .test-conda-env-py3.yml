@@ -7,10 +7,7 @@ dependencies:
 - python=3
 - git
 - numpy
-
-# https://github.com/pocl/pocl/issues/955
-- pocl<=1.6
-
+- pocl
 - pocl-cuda
 - mako
 - pyopencl
