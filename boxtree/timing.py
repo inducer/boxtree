@@ -36,15 +36,7 @@ class TimingResult(Mapping):
     """Interface for returned timing data.
 
     This supports accessing timing results via a mapping interface, along with
-    combining results via :meth:`merge`. For example,
-
-    .. code-block:: python
-
-        t0 = TimingResult(a=1, b=2)
-        t1 = TimingResult(a=3, b=4)
-        t2 = t0 + t1
-        t3 = t0.merge(t1)  # t3 contains the same content as t2
-        t2["a"]  # return 4
+    combining results via :meth:`merge`.
 
     .. automethod:: merge
     """

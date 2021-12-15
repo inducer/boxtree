@@ -89,12 +89,15 @@ class ExpansionWranglerInterface(ABC):
 
     .. autoattribute:: tree
 
-    .. rubric:: Array creation
-
     .. rubric:: Particle ordering
 
     .. automethod:: reorder_sources
     .. automethod:: reorder_potentials
+
+    .. rubric:: Views into arrays of expansions
+
+    .. automethod:: multipole_expansions_view
+    .. automethod:: local_expansions_view
 
     .. rubric:: Translations
 
@@ -131,6 +134,20 @@ class ExpansionWranglerInterface(ABC):
         :ref:`user target order <particle-orderings>`.
         *source_weights* is in tree target order.
         """
+
+    # {{{ views into arrays of expansions
+
+    # Included here for the benefit of the distributed-memory FMM
+
+    @abstractmethod
+    def multipole_expansions_view(self, mpole_exps, level):
+        pass
+
+    @abstractmethod
+    def local_expansions_view(self, local_exps, level):
+        pass
+
+    # }}}
 
     # {{{ translations
 

@@ -137,7 +137,7 @@ class DistributedExpansionWrangler(ExpansionWranglerInterface):
             start, stop = level_start_slice_indices[ilevel:ilevel+2]
             if stop > start:
                 level_start_box_idx, mpoles_current_level = (
-                    self.multipole_expansions_view(mpoles, ilevel))  # noqa pylint: disable=no-member
+                    self.multipole_expansions_view(mpoles, ilevel))
                 mpoles_list.append(
                     mpoles_current_level[
                         slice_indices[start:stop] - level_start_box_idx
@@ -158,7 +158,7 @@ class DistributedExpansionWrangler(ExpansionWranglerInterface):
             start, stop = level_start_slice_indices[ilevel:ilevel+2]
             if stop > start:
                 level_start_box_idx, mpoles_current_level = (
-                    self.multipole_expansions_view(mpoles, ilevel))  # noqa pylint: disable=no-member
+                    self.multipole_expansions_view(mpoles, ilevel))
                 mpoles_shape = (stop - start,) + mpoles_current_level.shape[1:]
 
                 from pytools import product
