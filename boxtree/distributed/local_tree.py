@@ -440,13 +440,12 @@ def generate_local_tree(queue, global_traversal, responsible_boxes_list, comm):
 
     start_time = time.time()
 
-    from boxtree.distributed.partition import get_boxes_mask
-    (responsible_boxes_mask, ancestor_boxes, src_boxes_mask, box_mpole_is_used) = \
-        get_boxes_mask(queue, global_traversal, responsible_boxes_list)
+    from boxtree.distributed.partition import get_box_masks
+    box_masks = get_box_masks(queue, global_traversal, responsible_boxes_list)
 
     local_tree = global_tree.copy(
         responsible_boxes_list=responsible_boxes_list,
-        ancestor_mask=ancestor_boxes.get(),
+        ancestor_mask=box_masks.ancestor_boxes.get(),
         box_to_user_starts=None,
         box_to_user_lists=None,
         _dimensions=None,
@@ -460,8 +459,8 @@ def generate_local_tree(queue, global_traversal, responsible_boxes_list, comm):
     local_tree, src_idx, tgt_idx = fetch_local_particles(
         queue,
         global_tree,
-        src_boxes_mask,
-        responsible_boxes_mask,
+        box_masks.point_src_boxes,
+        box_masks.responsible_boxes,
         local_tree
     )
 
@@ -473,29 +472,28 @@ def generate_local_tree(queue, global_traversal, responsible_boxes_list, comm):
 
     # {{{ compute the users of multipole expansions of each box on the root rank
 
-    box_mpole_is_used_all_ranks = None
+    multipole_src_boxes_all_ranks = None
     if mpi_rank == 0:
-        box_mpole_is_used_all_ranks = np.empty(
-            (mpi_size, global_tree.nboxes), dtype=box_mpole_is_used.dtype
-        )
-    comm.Gather(box_mpole_is_used.get(), box_mpole_is_used_all_ranks, root=0)
+        multipole_src_boxes_all_ranks = np.empty(
+            (mpi_size, global_tree.nboxes),
+            dtype=box_masks.multipole_src_boxes.dtype)
+    comm.Gather(
+        box_masks.multipole_src_boxes.get(), multipole_src_boxes_all_ranks, root=0)
 
     box_to_user_starts = None
     box_to_user_lists = None
 
     if mpi_rank == 0:
-        box_mpole_is_used_all_ranks = cl.array.to_device(
-            queue, box_mpole_is_used_all_ranks
-        )
+        multipole_src_boxes_all_ranks = cl.array.to_device(
+            queue, multipole_src_boxes_all_ranks)
 
         from boxtree.tools import MaskCompressorKernel
         matcompr = MaskCompressorKernel(queue.context)
         (box_to_user_starts, box_to_user_lists, evt) = \
-            matcompr(queue, box_mpole_is_used_all_ranks.transpose(),
+            matcompr(queue, multipole_src_boxes_all_ranks.transpose(),
                      list_dtype=np.int32)
 
         cl.wait_for_events([evt])
-        del box_mpole_is_used
 
         box_to_user_starts = box_to_user_starts.get()
         box_to_user_lists = box_to_user_lists.get()

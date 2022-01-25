@@ -68,7 +68,9 @@ Partition Boxes
 
 .. autofunction:: boxtree.distributed.partition.partition_work
 
-.. autofunction:: boxtree.distributed.partition.get_boxes_mask
+.. autoclass:: boxtree.distributed.partition.BoxMasks
+
+.. autofunction:: boxtree.distributed.partition.get_box_masks
 
 .. _construct-local-tree-traversal:
 
