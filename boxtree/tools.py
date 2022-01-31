@@ -870,6 +870,7 @@ class ImmutableHostDeviceArray:
     """
     def __init__(self, queue, array):
         self.queue = queue
+        self.shape = array.shape
         self.host_array = None
         self.device_array = None
 

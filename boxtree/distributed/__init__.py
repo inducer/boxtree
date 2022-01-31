@@ -77,6 +77,8 @@ Partition Boxes
 Construct Local Tree and Traversal
 ----------------------------------
 
+.. autoclass:: boxtree.distributed.local_tree.LocalTree
+
 .. autofunction:: boxtree.distributed.local_tree.generate_local_tree
 
 .. autofunction:: boxtree.distributed.local_traversal.generate_local_travs

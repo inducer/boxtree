@@ -180,18 +180,18 @@ class DistributedExpansionWrangler(ExpansionWranglerInterface):
                 ${box_id_t} *contributing_boxes_list,
                 int subrange_start,
                 int subrange_end,
-                ${box_id_t} *box_to_user_starts,
-                int *box_to_user_lists,
+                ${box_id_t} *box_to_user_rank_starts,
+                int *box_to_user_rank_lists,
                 char *box_in_subrange
             """).render(
                 box_id_t=dtype_to_ctype(box_id_dtype),
             ),
             Template(r"""
                 ${box_id_t} ibox = contributing_boxes_list[i];
-                ${box_id_t} iuser_start = box_to_user_starts[ibox];
-                ${box_id_t} iuser_end = box_to_user_starts[ibox + 1];
+                ${box_id_t} iuser_start = box_to_user_rank_starts[ibox];
+                ${box_id_t} iuser_end = box_to_user_rank_starts[ibox + 1];
                 for(${box_id_t} iuser = iuser_start; iuser < iuser_end; iuser++) {
-                    int useri = box_to_user_lists[iuser];
+                    int useri = box_to_user_rank_lists[iuser];
                     if(subrange_start <= useri && useri < subrange_end) {
                         box_in_subrange[i] = 1;
                     }
@@ -203,17 +203,17 @@ class DistributedExpansionWrangler(ExpansionWranglerInterface):
         )
 
     def find_boxes_used_by_subrange(
-            self, subrange, box_to_user_starts, box_to_user_lists,
+            self, subrange, box_to_user_rank_starts, box_to_user_rank_lists,
             contributing_boxes_list):
         """Test whether the multipole expansions of the contributing boxes are used
         by at least one box in a range.
 
         :arg subrange: the range is represented by ``(subrange[0], subrange[1])``.
-        :arg box_to_user_start: a :class:`pyopencl.array.Array` object indicating the
-            start and end index in *box_to_user_lists* for each box in
-            *contributing_boxes_list*.
-        :arg box_to_user_lists: a :class:`pyopencl.array.Array` object storing the
-            users of each box in *contributing_boxes_list*.
+        :arg box_to_user_rank_starts: a :class:`pyopencl.array.Array` object
+            indicating the start and end index in *box_to_user_rank_lists* for each
+            box in *contributing_boxes_list*.
+        :arg box_to_user_rank_lists: a :class:`pyopencl.array.Array` object storing
+            the users of each box in *contributing_boxes_list*.
         :returns: a :class:`pyopencl.array.Array` object with the same shape as
             *contributing_boxes_list*, where the i-th entry is 1 if
             ``contributing_boxes_list[i]`` is used by at least on box in the
@@ -231,8 +231,8 @@ class DistributedExpansionWrangler(ExpansionWranglerInterface):
             contributing_boxes_list,
             subrange[0],
             subrange[1],
-            box_to_user_starts,
-            box_to_user_lists,
+            box_to_user_rank_starts,
+            box_to_user_rank_lists,
             box_in_subrange
         )
 
@@ -291,11 +291,11 @@ class DistributedExpansionWrangler(ExpansionWranglerInterface):
         stats["bytes_recvd_by_stage"] = []
 
         with cl.CommandQueue(self.context) as queue:
-            box_to_user_starts_dev = cl.array.to_device(
-                queue, tree.box_to_user_starts).with_queue(None)
+            box_to_user_rank_starts_dev = cl.array.to_device(
+                queue, tree.box_to_user_rank_starts).with_queue(None)
 
-            box_to_user_lists_dev = cl.array.to_device(
-                queue, tree.box_to_user_lists).with_queue(None)
+            box_to_user_rank_lists_dev = cl.array.to_device(
+                queue, tree.box_to_user_rank_lists).with_queue(None)
 
         while not comm_pattern.done():
             send_requests = []
@@ -315,7 +315,7 @@ class DistributedExpansionWrangler(ExpansionWranglerInterface):
 
                     box_in_subrange = self.find_boxes_used_by_subrange(
                         message_subrange,
-                        box_to_user_starts_dev, box_to_user_lists_dev,
+                        box_to_user_rank_starts_dev, box_to_user_rank_lists_dev,
                         contributing_boxes_list_dev
                     )
 
@@ -329,10 +329,11 @@ class DistributedExpansionWrangler(ExpansionWranglerInterface):
                 # Pure Python version for debugging purpose
                 relevant_boxes_list = []
                 for contrib_box in contributing_boxes_list:
-                    iuser_start, iuser_end = tree.box_to_user_starts[
+                    iuser_start, iuser_end = tree.box_to_user_rank_starts[
                         contrib_box:contrib_box + 2
                     ]
-                    for user_box in tree.box_to_user_lists[iuser_start:iuser_end]:
+                    for user_box in tree.box_to_user_rank_lists[
+                            iuser_start:iuser_end]:
                         if subrange_start <= user_box < subrange_end:
                             relevant_boxes_list.append(contrib_box)
                             break
