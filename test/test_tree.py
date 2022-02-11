@@ -1124,11 +1124,9 @@ def test_max_levels_error(ctx_factory):
 
 # {{{ test_tree_of_boxes
 
-def test_tree_of_boxes(ctx_factory):
-    ctx = ctx_factory()
-    queue = cl.CommandQueue(ctx)
-
-    from boxtree.tree_build import make_tob_root, uniformly_refined, distribute_quadrature_rule
+def test_tree_of_boxes():
+    from boxtree.tree_build import (
+        make_tob_root, uniformly_refined, distribute_quadrature_rule)
     tob = make_tob_root(dim=2, bbox=[[-1, -1], [1, 1]])
 
     n_levels = 1
