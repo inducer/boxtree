@@ -1,4 +1,17 @@
-"""Integration between boxtree and pyfmmlib."""
+"""
+Integrates :mod:`boxtree` with
+`pyfmmlib <http://pypi.python.org/pypi/pyfmmlib>`_.
+
+.. autoclass:: FMMLibTreeIndependentDataForWrangler
+.. autoclass:: FMMLibExpansionWrangler
+
+Internal bits
+^^^^^^^^^^^^^
+
+.. autoclass:: FMMLibRotationDataInterface
+.. autoclass:: FMMLibRotationData
+.. autoclass:: FMMLibRotationDataNotSuppliedWarning
+"""
 
 __copyright__ = "Copyright (C) 2013 Andreas Kloeckner"
 
@@ -23,17 +36,15 @@ THE SOFTWARE.
 """
 
 
-import numpy as np
-from pytools import memoize_method, log_process
-from boxtree.tools import return_timing_data
-
 import logging
 logger = logging.getLogger(__name__)
+import enum
 
+import numpy as np
 
-__doc__ = """Integrates :mod:`boxtree` with
-`pyfmmlib <http://pypi.python.org/pypi/pyfmmlib>`_.
-"""
+from pytools import memoize_method, log_process
+from boxtree.timing import return_timing_data
+from boxtree.fmm import TreeIndependentDataForWrangler, ExpansionWranglerInterface
 
 
 # {{{ rotation data interface
@@ -60,7 +71,10 @@ class FMMLibRotationDataInterface:
 
 
 class FMMLibRotationData(FMMLibRotationDataInterface):
-    """An implementation of the :class:`FMMLibRotationDataInterface`."""
+    """An implementation of the :class:`FMMLibRotationDataInterface`.
+
+    .. automethod:: __init__
+    """
 
     def __init__(self, queue, trav):
         self.queue = queue
@@ -100,148 +114,32 @@ class FMMLibRotationDataNotSuppliedWarning(UserWarning):
 # }}}
 
 
-class FMMLibExpansionWrangler:
-    """Implements the :class:`boxtree.fmm.ExpansionWranglerInterface`
-    by using pyfmmlib.
+@enum.unique
+class Kernel(enum.Enum):
+    LAPLACE = enum.auto()
+    HELMHOLTZ = enum.auto()
 
-    Timing results returned by this wrangler contains the values *wall_elapsed*
-    and (optionally, if supported) *process_elapsed*, which measure wall time
-    and process time in seconds, respectively.
+
+# {{{ tree-independent data for wrangler
+
+class FMMLibTreeIndependentDataForWrangler(TreeIndependentDataForWrangler):
+    """
+    .. automethod:: __init__
     """
 
-    # {{{ constructor
+    def __init__(self, dim, kernel, ifgrad=False):
+        self.dim = dim
+        self.ifgrad = ifgrad
+        self.kernel = kernel
 
-    def __init__(self, tree, helmholtz_k, fmm_level_to_nterms=None, ifgrad=False,
-            dipole_vec=None, dipoles_already_reordered=False, nterms=None,
-            optimized_m2l_precomputation_memory_cutoff_bytes=10**8,
-            rotation_data=None):
-        """
-        :arg fmm_level_to_nterms: A callable that, upon being passed the tree
-            and the tree level as an integer, returns the value of *nterms* for the
-            multipole and local expansions on that level.
-        :arg rotation_data: Either *None* or an instance of the
-            :class:`FMMLibRotationDataInterface`. In three dimensions, passing
-            *rotation_data* enables optimized M2L (List 2) translations.
-            In two dimensions, this does nothing.
-        :arg optimized_m2l_precomputation_memory_cutoff_bytes: When using
-            optimized List 2 translations, an upper bound in bytes on the
-            amount of storage to use for a precomputed rotation matrix.
-        """
-
-        if nterms is not None and fmm_level_to_nterms is not None:
-            raise TypeError("may specify either fmm_level_to_nterms or nterms, "
-                    "but not both")
-
-        if nterms is not None:
-            from warnings import warn
-            warn("Passing nterms is deprecated. Pass fmm_level_to_nterms instead.",
-                    DeprecationWarning, stacklevel=2)
-
-            def fmm_level_to_nterms(tree, level):  # noqa pylint:disable=function-redefined
-                return nterms
-
-        self.tree = tree
-
-        if helmholtz_k == 0:
+        if kernel == Kernel.LAPLACE:
             self.eqn_letter = "l"
-            self.kernel_kwargs = {}
-            self.rscale_factor = 1
-        else:
+        elif kernel == Kernel.HELMHOLTZ:
             self.eqn_letter = "h"
-            self.kernel_kwargs = {"zk": helmholtz_k}
-            self.rscale_factor = abs(helmholtz_k)
-
-        self.level_nterms = np.array([
-            fmm_level_to_nterms(tree, lev) for lev in range(tree.nlevels)
-            ], dtype=np.int32)
-
-        if helmholtz_k:
-            logger.info("expansion orders by level used in Helmholtz FMM: %s",
-                    self.level_nterms)
+        else:
+            raise ValueError(kernel)
 
         self.dtype = np.complex128
-
-        self.ifgrad = ifgrad
-
-        self.dim = tree.dimensions
-
-        self.rotation_data = rotation_data
-        self.rotmat_cutoff_bytes = optimized_m2l_precomputation_memory_cutoff_bytes
-
-        if self.dim == 3:
-            if rotation_data is None:
-                from warnings import warn
-                warn(
-                        "List 2 (multipole-to-local) translations will be "
-                        "unoptimized. Supply a rotation_data argument to "
-                        "the wrangler for optimized List 2.",
-                        FMMLibRotationDataNotSuppliedWarning,
-                        stacklevel=2)
-
-            self.supports_optimized_m2l = rotation_data is not None
-        else:
-            self.supports_optimized_m2l = False
-
-        if dipole_vec is not None:
-            assert dipole_vec.shape == (self.dim, self.tree.nsources)
-
-            if not dipoles_already_reordered:
-                dipole_vec = self.reorder_sources(dipole_vec)
-
-            self.dipole_vec = dipole_vec.copy(order="F")
-            self.dp_suffix = "_dp"
-        else:
-            self.dipole_vec = None
-            self.dp_suffix = ""
-
-    # }}}
-
-    def level_to_rscale(self, level):
-        result = self.tree.root_extent * 2 ** -level * self.rscale_factor
-        if abs(result) > 1:
-            result = 1
-        if self.dim == 3 and self.eqn_letter == "l":
-            # Laplace 3D uses the opposite convention compared to
-            # all other cases.
-            # https://gitlab.tiker.net/inducer/boxtree/merge_requests/81
-            result = 1 / result
-        return result
-
-    @memoize_method
-    def projection_quad_extra_kwargs(self, level=None, nterms=None):
-        if level is None and nterms is None:
-            raise TypeError("must pass exactly one of level or nterms")
-        if level is not None and nterms is not None:
-            raise TypeError("must pass exactly one of level or nterms")
-        if level is not None:
-            nterms = self.level_nterms[level]
-
-        common_extra_kwargs = {}
-
-        if self.dim == 3 and self.eqn_letter == "h":
-            nquad = max(6, int(2.5*nterms))
-            from pyfmmlib import legewhts
-            xnodes, weights = legewhts(nquad, ifwhts=1)
-
-            common_extra_kwargs = {
-                    "xnodes": xnodes,
-                    "wts": weights,
-                    }
-
-        return common_extra_kwargs
-
-    # {{{ overridable target lists for the benefit of the QBX FMM
-
-    def box_target_starts(self):
-        return self.tree.box_target_starts
-
-    def box_target_counts_nonchild(self):
-        return self.tree.box_target_counts_nonchild
-
-    def targets(self):
-        return self.tree.targets
-
-    # }}}
 
     # {{{ routine getters
 
@@ -255,7 +153,7 @@ class FMMLibExpansionWrangler:
     def get_vec_routine(self, name):
         return self.get_routine(name, "_vec")
 
-    def get_translation_routine(self, name, vec_suffix="_vec"):
+    def get_translation_routine(self, wrangler, name, vec_suffix="_vec"):
         suffix = ""
         if self.dim == 3:
             suffix = "quadu"
@@ -274,7 +172,7 @@ class FMMLibExpansionWrangler:
             def wrapper(*args, **kwargs):
                 kwargs.pop("level_for_projection", None)
                 nterms2 = kwargs["nterms2"]
-                kwargs.update(self.projection_quad_extra_kwargs(nterms=nterms2))
+                kwargs.update(wrangler.projection_quad_extra_kwargs(nterms=nterms2))
 
                 val, ier = rout(*args, **kwargs)
                 if (ier != 0).any():
@@ -287,9 +185,10 @@ class FMMLibExpansionWrangler:
         # update_wrapper(wrapper, rout)
         return wrapper
 
-    def get_direct_eval_routine(self):
+    def get_direct_eval_routine(self, use_dipoles):
         if self.dim == 2:
-            rout = self.get_vec_routine("potgrad%ddall" + self.dp_suffix)
+            rout = self.get_vec_routine(
+                    "potgrad%ddall" + ("_dp" if use_dipoles else ""))
 
             def wrapper(*args, **kwargs):
                 kwargs["ifgrad"] = self.ifgrad
@@ -307,7 +206,8 @@ class FMMLibExpansionWrangler:
             return wrapper
 
         elif self.dim == 3:
-            rout = self.get_vec_routine("potfld%ddall" + self.dp_suffix)
+            rout = self.get_vec_routine(
+                    "potfld%ddall" + ("_dp" if use_dipoles else ""))
 
             def wrapper(*args, **kwargs):
                 kwargs["iffld"] = self.ifgrad
@@ -369,19 +269,180 @@ class FMMLibExpansionWrangler:
 
     # }}}
 
-    # {{{ data vector utilities
+# }}}
 
-    def expansion_shape(self, nterms):
-        if self.dim == 2 and self.eqn_letter == "l":
-            return (nterms+1,)
-        elif self.dim == 2 and self.eqn_letter == "h":
-            return (2*nterms+1,)
-        elif self.dim == 3:
-            # This is the transpose of the Fortran format, to
-            # minimize mismatch between C and Fortran orders.
-            return (2*nterms+1, nterms+1,)
+
+# {{{ wrangler
+
+class FMMLibExpansionWrangler(ExpansionWranglerInterface):
+    """Implements the :class:`boxtree.fmm.ExpansionWranglerInterface`
+    by using pyfmmlib.
+
+    Timing results returned by this wrangler contains the values *wall_elapsed*
+    and (optionally, if supported) *process_elapsed*, which measure wall time
+    and process time in seconds, respectively.
+    """
+
+    # {{{ constructor
+
+    def __init__(self, tree_indep, traversal, *,
+            helmholtz_k=None, fmm_level_to_nterms=None,
+            dipole_vec=None, dipoles_already_reordered=False, nterms=None,
+            optimized_m2l_precomputation_memory_cutoff_bytes=10**8,
+            rotation_data=None):
+        """
+        :arg fmm_level_to_nterms: A callable that, upon being passed the tree
+            and the tree level as an integer, returns the value of *nterms* for the
+            multipole and local expansions on that level.
+        :arg rotation_data: Either *None* or an instance of the
+            :class:`FMMLibRotationDataInterface`. In three dimensions, passing
+            *rotation_data* enables optimized M2L (List 2) translations.
+            In two dimensions, this does nothing.
+        :arg optimized_m2l_precomputation_memory_cutoff_bytes: When using
+            optimized List 2 translations, an upper bound in bytes on the
+            amount of storage to use for a precomputed rotation matrix.
+        """
+
+        if nterms is not None and fmm_level_to_nterms is not None:
+            raise TypeError("may specify either fmm_level_to_nterms or nterms, "
+                    "but not both")
+
+        if nterms is not None:
+            from warnings import warn
+            warn("Passing nterms is deprecated. Pass fmm_level_to_nterms instead.",
+                    DeprecationWarning, stacklevel=2)
+
+            def fmm_level_to_nterms(tree, level):  # noqa pylint:disable=function-redefined
+                return nterms
+
+        super().__init__(tree_indep, traversal)
+
+        if tree_indep.kernel == Kernel.LAPLACE:
+            self.kernel_kwargs = {}
+            self.rscale_factor = 1
+
+            if helmholtz_k:
+                raise ValueError(
+                        "helmholtz_k must be zero or unspecified for Laplace")
+
+            helmholtz_k = 0
+
+        elif tree_indep.kernel == Kernel.HELMHOLTZ:
+            self.kernel_kwargs = {"zk": helmholtz_k}
+
+            if not helmholtz_k:
+                raise ValueError(
+                        "helmholtz_k must be specified and nonzero")
+
+            self.rscale_factor = abs(helmholtz_k)
+
         else:
-            raise ValueError("unsupported dimensionality")
+            raise ValueError(tree_indep.kernel)
+
+        self.helmholtz_k = helmholtz_k
+
+        tree = traversal.tree
+
+        if tree_indep.dim != tree.dimensions:
+            raise ValueError(f"Kernel dim ({tree_indep.dim}) "
+                    f"does not match tree dim ({tree.dimensions})")
+
+        self.level_nterms = np.array([
+            fmm_level_to_nterms(tree, lev) for lev in range(tree.nlevels)
+            ], dtype=np.int32)
+
+        if tree_indep.kernel == Kernel.HELMHOLTZ:
+            logger.info("expansion orders by level used in Helmholtz FMM: %s",
+                    self.level_nterms)
+
+        self.rotation_data = rotation_data
+        self.rotmat_cutoff_bytes = optimized_m2l_precomputation_memory_cutoff_bytes
+
+        if self.dim == 3:
+            if rotation_data is None:
+                from warnings import warn
+                warn(
+                        "List 2 (multipole-to-local) translations will be "
+                        "unoptimized. Supply a rotation_data argument to "
+                        "FMMLibExpansionWrangler for optimized List 2.",
+                        FMMLibRotationDataNotSuppliedWarning,
+                        stacklevel=2)
+
+            self.supports_optimized_m2l = rotation_data is not None
+        else:
+            self.supports_optimized_m2l = False
+
+        # FIXME: dipole_vec shouldn't be stored here! Otherwise, we'll recompute
+        # bunches of tree-dependent stuff for every new dipole vector.
+
+        # It's not super bad because the dipole vectors are typically geometry
+        # normals and thus change about at the same time as the tree... but there's
+        # still no reason for them to be here.
+        self.use_dipoles = dipole_vec is not None
+        if self.use_dipoles:
+            assert dipole_vec.shape == (self.dim, self.tree.nsources)
+
+            if not dipoles_already_reordered:
+                dipole_vec = self.reorder_sources(dipole_vec)
+
+            self.dipole_vec = dipole_vec.copy(order="F")
+        else:
+            self.dipole_vec = None
+
+    # }}}
+
+    @property
+    def dim(self):
+        return self.tree.dimensions
+
+    def level_to_rscale(self, level):
+        result = self.tree.root_extent * 2 ** -level * self.rscale_factor
+        if abs(result) > 1:
+            result = 1
+        if self.dim == 3 and self.tree_indep.eqn_letter == "l":
+            # Laplace 3D uses the opposite convention compared to
+            # all other cases.
+            # https://gitlab.tiker.net/inducer/boxtree/merge_requests/81
+            result = 1 / result
+        return result
+
+    @memoize_method
+    def projection_quad_extra_kwargs(self, level=None, nterms=None):
+        if level is None and nterms is None:
+            raise TypeError("must pass exactly one of level or nterms")
+        if level is not None and nterms is not None:
+            raise TypeError("must pass exactly one of level or nterms")
+        if level is not None:
+            nterms = self.level_nterms[level]
+
+        common_extra_kwargs = {}
+
+        if self.dim == 3 and self.tree_indep.eqn_letter == "h":
+            nquad = max(6, int(2.5*nterms))
+            from pyfmmlib import legewhts
+            xnodes, weights = legewhts(nquad, ifwhts=1)
+
+            common_extra_kwargs = {
+                    "xnodes": xnodes,
+                    "wts": weights,
+                    }
+
+        return common_extra_kwargs
+
+    # {{{ overridable target lists for the benefit of the QBX FMM
+
+    def box_target_starts(self):
+        return self.tree.box_target_starts
+
+    def box_target_counts_nonchild(self):
+        return self.tree.box_target_counts_nonchild
+
+    def targets(self):
+        return self.tree.targets
+
+    # }}}
+
+    # {{{ level starts
 
     def _expansions_level_starts(self, order_to_size):
         result = [0]
@@ -401,13 +462,19 @@ class FMMLibExpansionWrangler:
     def multipole_expansions_level_starts(self):
         from pytools import product
         return self._expansions_level_starts(
-                lambda nterms: product(self.expansion_shape(nterms)))
+                lambda nterms: product(
+                    self.expansion_shape(nterms)))
 
     @memoize_method
     def local_expansions_level_starts(self):
         from pytools import product
         return self._expansions_level_starts(
-                lambda nterms: product(self.expansion_shape(nterms)))
+                lambda nterms: product(
+                    self.expansion_shape(nterms)))
+
+    # }}}
+
+    # {{{ views into arrays of expansions
 
     def multipole_expansions_view(self, mpole_exps, level):
         box_start, box_stop = self.tree.level_start_box_nrs[level:level+2]
@@ -429,33 +496,25 @@ class FMMLibExpansionWrangler:
                     box_stop-box_start,
                     *self.expansion_shape(self.level_nterms[level])))
 
-    def multipole_expansion_zeros(self):
-        return np.zeros(
-                self.multipole_expansions_level_starts()[-1],
-                dtype=self.dtype)
-
-    def local_expansion_zeros(self):
-        return np.zeros(
-                self.local_expansions_level_starts()[-1],
-                dtype=self.dtype)
-
-    def output_zeros(self):
-        if self.ifgrad:
-            from pytools.obj_array import make_obj_array
-            return make_obj_array([
-                    np.zeros(self.tree.ntargets, self.dtype)
-                    for i in range(1 + self.dim)])
-        else:
-            return np.zeros(self.tree.ntargets, self.dtype)
-
-    def add_potgrad_onto_output(self, output, output_slice, pot, grad):
-        if self.ifgrad:
-            output[0, output_slice] += pot
-            output[1:, output_slice] += grad
-        else:
-            output[output_slice] += pot
-
     # }}}
+
+    def get_source_kwargs(self, src_weights, pslice):
+        if self.dipole_vec is None:
+            return {
+                    "charge": src_weights[pslice],
+                    }
+        else:
+            if self.tree_indep.eqn_letter == "l" and self.dim == 2:
+                return {
+                        "dipstr": -src_weights[pslice] * (
+                            self.dipole_vec[0, pslice]
+                            + 1j * self.dipole_vec[1, pslice])
+                        }
+            else:
+                return {
+                        "dipstr": src_weights[pslice],
+                        "dipvec": self.dipole_vec[:, pslice],
+                        }
 
     # {{{ source/target particle wrangling
 
@@ -497,173 +556,6 @@ class FMMLibExpansionWrangler:
             ], order="F")
 
     # }}}
-
-    @log_process(logger)
-    def reorder_sources(self, source_array):
-        return source_array[..., self.tree.user_source_ids]
-
-    @log_process(logger)
-    def reorder_potentials(self, potentials):
-        return potentials[self.tree.sorted_target_ids]
-
-    def get_source_kwargs(self, src_weights, pslice):
-        if self.dipole_vec is None:
-            return {
-                    "charge": src_weights[pslice],
-                    }
-        else:
-            if self.eqn_letter == "l" and self.dim == 2:
-                return {
-                        "dipstr": -src_weights[pslice] * (
-                            self.dipole_vec[0, pslice]
-                            + 1j * self.dipole_vec[1, pslice])
-                        }
-            else:
-                return {
-                        "dipstr": src_weights[pslice],
-                        "dipvec": self.dipole_vec[:, pslice],
-                        }
-
-    @log_process(logger)
-    @return_timing_data
-    def form_multipoles(self, level_start_source_box_nrs, source_boxes,
-            src_weight_vecs):
-        src_weights, = src_weight_vecs
-        formmp = self.get_routine("%ddformmp" + self.dp_suffix)
-
-        mpoles = self.multipole_expansion_zeros()
-        for lev in range(self.tree.nlevels):
-            start, stop = level_start_source_box_nrs[lev:lev+2]
-            if start == stop:
-                continue
-
-            level_start_ibox, mpoles_view = self.multipole_expansions_view(
-                    mpoles, lev)
-
-            rscale = self.level_to_rscale(lev)
-
-            for src_ibox in source_boxes[start:stop]:
-                pslice = self._get_source_slice(src_ibox)
-
-                if pslice.stop - pslice.start == 0:
-                    continue
-
-                kwargs = {}
-                kwargs.update(self.kernel_kwargs)
-                kwargs.update(self.get_source_kwargs(src_weights, pslice))
-
-                ier, mpole = formmp(
-                        rscale=rscale,
-                        source=self._get_sources(pslice),
-                        center=self.tree.box_centers[:, src_ibox],
-                        nterms=self.level_nterms[lev],
-                        **kwargs)
-
-                if ier:
-                    raise RuntimeError("formmp failed")
-
-                mpoles_view[src_ibox-level_start_ibox] = mpole.T
-
-        return mpoles
-
-    @log_process(logger)
-    @return_timing_data
-    def coarsen_multipoles(self, level_start_source_parent_box_nrs,
-            source_parent_boxes, mpoles):
-        tree = self.tree
-
-        mpmp = self.get_translation_routine("%ddmpmp")
-
-        # nlevels-1 is the last valid level index
-        # nlevels-2 is the last valid level that could have children
-        #
-        # 3 is the last relevant source_level.
-        # 2 is the last relevant target_level.
-        # (because no level 1 box will be well-separated from another)
-        for source_level in range(tree.nlevels-1, 2, -1):
-            target_level = source_level - 1
-            start, stop = level_start_source_parent_box_nrs[
-                            target_level:target_level+2]
-
-            source_level_start_ibox, source_mpoles_view = \
-                    self.multipole_expansions_view(mpoles, source_level)
-            target_level_start_ibox, target_mpoles_view = \
-                    self.multipole_expansions_view(mpoles, target_level)
-
-            source_rscale = self.level_to_rscale(source_level)
-            target_rscale = self.level_to_rscale(target_level)
-
-            for ibox in source_parent_boxes[start:stop]:
-                parent_center = tree.box_centers[:, ibox]
-                for child in tree.box_child_ids[:, ibox]:
-                    if child:
-                        child_center = tree.box_centers[:, child]
-
-                        kwargs = {}
-                        if self.dim == 3 and self.eqn_letter == "h":
-                            kwargs["radius"] = tree.root_extent * 2**(-target_level)
-
-                        kwargs.update(self.kernel_kwargs)
-
-                        new_mp = mpmp(
-                                rscale1=source_rscale,
-                                center1=child_center,
-                                expn1=source_mpoles_view[
-                                    child - source_level_start_ibox].T,
-
-                                rscale2=target_rscale,
-                                center2=parent_center,
-                                nterms2=self.level_nterms[target_level],
-
-                                **kwargs)
-
-                        target_mpoles_view[
-                                ibox - target_level_start_ibox] += new_mp[..., 0].T
-
-        return mpoles
-
-    @log_process(logger)
-    @return_timing_data
-    def eval_direct(self, target_boxes, neighbor_sources_starts,
-            neighbor_sources_lists, src_weight_vecs):
-        src_weights, = src_weight_vecs
-        output = self.output_zeros()
-
-        ev = self.get_direct_eval_routine()
-
-        for itgt_box, tgt_ibox in enumerate(target_boxes):
-            tgt_pslice = self._get_target_slice(tgt_ibox)
-
-            if tgt_pslice.stop - tgt_pslice.start == 0:
-                continue
-
-            #tgt_result = np.zeros(tgt_pslice.stop - tgt_pslice.start, self.dtype)
-            tgt_pot_result = 0
-            tgt_grad_result = 0
-
-            start, end = neighbor_sources_starts[itgt_box:itgt_box+2]
-            for src_ibox in neighbor_sources_lists[start:end]:
-                src_pslice = self._get_source_slice(src_ibox)
-
-                if src_pslice.stop - src_pslice.start == 0:
-                    continue
-
-                kwargs = {}
-                kwargs.update(self.kernel_kwargs)
-                kwargs.update(self.get_source_kwargs(src_weights, src_pslice))
-
-                tmp_pot, tmp_grad = ev(
-                        sources=self._get_sources(src_pslice),
-                        targets=self._get_targets(tgt_pslice),
-                        **kwargs)
-
-                tgt_pot_result += tmp_pot
-                tgt_grad_result += tmp_grad
-
-            self.add_potgrad_onto_output(
-                    output, tgt_pslice, tgt_pot_result, tgt_grad_result)
-
-        return output
 
     # {{{ precompute rotation matrices for optimized m2l
 
@@ -721,6 +613,215 @@ class FMMLibExpansionWrangler:
 
     # }}}
 
+    # {{{ data vector utilities
+
+    def expansion_shape(self, nterms):
+        if self.dim == 2 and self.tree_indep.eqn_letter == "l":
+            return (nterms+1,)
+        elif self.dim == 2 and self.tree_indep.eqn_letter == "h":
+            return (2*nterms+1,)
+        elif self.dim == 3:
+            # This is the transpose of the Fortran format, to
+            # minimize mismatch between C and Fortran orders.
+            return (2*nterms+1, nterms+1,)
+        else:
+            raise ValueError("unsupported dimensionality")
+
+    def multipole_expansion_zeros(self):
+        """Return an expansions array (which must support addition)
+        capable of holding one multipole or local expansion for every
+        box in the tree.
+        """
+
+        return np.zeros(
+                self.multipole_expansions_level_starts()[-1],
+                dtype=self.tree_indep.dtype)
+
+    def local_expansion_zeros(self):
+        """Return an expansions array (which must support addition)
+        capable of holding one multipole or local expansion for every
+        box in the tree.
+        """
+        return np.zeros(
+                self.local_expansions_level_starts()[-1],
+                dtype=self.tree_indep.dtype)
+
+    def output_zeros(self):
+        """Return a potentials array (which must support addition) capable of
+        holding a potential value for each target in the tree. Note that
+        :func:`drive_fmm` makes no assumptions about *potential* other than
+        that it supports addition--it may consist of potentials, gradients of
+        the potential, or arbitrary other per-target output data.
+        """
+
+        if self.tree_indep.ifgrad:
+            from pytools.obj_array import make_obj_array
+            return make_obj_array([
+                    np.zeros(self.tree.ntargets, self.tree_indep.dtype)
+                    for i in range(1 + self.dim)])
+        else:
+            return np.zeros(self.tree.ntargets, self.tree_indep.dtype)
+
+    def add_potgrad_onto_output(self, output, output_slice, pot, grad):
+        if self.tree_indep.ifgrad:
+            output[0, output_slice] += pot
+            output[1:, output_slice] += grad
+        else:
+            output[output_slice] += pot
+
+    # }}}
+
+    @log_process(logger)
+    def reorder_sources(self, source_array):
+        return source_array[..., self.tree.user_source_ids]
+
+    @log_process(logger)
+    def reorder_potentials(self, potentials):
+        return potentials[self.tree.sorted_target_ids]
+
+    @log_process(logger)
+    @return_timing_data
+    def form_multipoles(self, level_start_source_box_nrs, source_boxes,
+            src_weight_vecs):
+        src_weights, = src_weight_vecs
+        formmp = self.tree_indep.get_routine(
+                "%ddformmp" + ("_dp" if self.use_dipoles else ""))
+
+        mpoles = self.multipole_expansion_zeros()
+        for lev in range(self.tree.nlevels):
+            start, stop = level_start_source_box_nrs[lev:lev+2]
+            if start == stop:
+                continue
+
+            level_start_ibox, mpoles_view = self.multipole_expansions_view(
+                    mpoles, lev)
+
+            rscale = self.level_to_rscale(lev)
+
+            for src_ibox in source_boxes[start:stop]:
+                pslice = self._get_source_slice(src_ibox)
+
+                if pslice.stop - pslice.start == 0:
+                    continue
+
+                kwargs = {}
+                kwargs.update(self.kernel_kwargs)
+                kwargs.update(self.get_source_kwargs(src_weights, pslice))
+
+                ier, mpole = formmp(
+                        rscale=rscale,
+                        source=self._get_sources(pslice),
+                        center=self.tree.box_centers[:, src_ibox],
+                        nterms=self.level_nterms[lev],
+                        **kwargs)
+
+                if ier:
+                    raise RuntimeError("formmp failed")
+
+                mpoles_view[src_ibox-level_start_ibox] = mpole.T
+
+        return mpoles
+
+    @log_process(logger)
+    @return_timing_data
+    def coarsen_multipoles(self, level_start_source_parent_box_nrs,
+            source_parent_boxes, mpoles):
+        tree = self.tree
+
+        mpmp = self.tree_indep.get_translation_routine(self, "%ddmpmp")
+
+        # nlevels-1 is the last valid level index
+        # nlevels-2 is the last valid level that could have children
+        #
+        # 3 is the last relevant source_level.
+        # 2 is the last relevant target_level.
+        # (because no level 1 box will be well-separated from another)
+        for source_level in range(tree.nlevels-1, 2, -1):
+            target_level = source_level - 1
+            start, stop = level_start_source_parent_box_nrs[
+                            target_level:target_level+2]
+
+            source_level_start_ibox, source_mpoles_view = \
+                    self.multipole_expansions_view(mpoles, source_level)
+            target_level_start_ibox, target_mpoles_view = \
+                    self.multipole_expansions_view(mpoles, target_level)
+
+            source_rscale = self.level_to_rscale(source_level)
+            target_rscale = self.level_to_rscale(target_level)
+
+            for ibox in source_parent_boxes[start:stop]:
+                parent_center = tree.box_centers[:, ibox]
+                for child in tree.box_child_ids[:, ibox]:
+                    if child:
+                        child_center = tree.box_centers[:, child]
+
+                        kwargs = {}
+                        if self.dim == 3 and self.tree_indep.eqn_letter == "h":
+                            kwargs["radius"] = tree.root_extent * 2**(-target_level)
+
+                        kwargs.update(self.kernel_kwargs)
+
+                        new_mp = mpmp(
+                                rscale1=source_rscale,
+                                center1=child_center,
+                                expn1=source_mpoles_view[
+                                    child - source_level_start_ibox].T,
+
+                                rscale2=target_rscale,
+                                center2=parent_center,
+                                nterms2=self.level_nterms[target_level],
+
+                                **kwargs)
+
+                        target_mpoles_view[
+                                ibox - target_level_start_ibox] += new_mp[..., 0].T
+
+        return mpoles
+
+    @log_process(logger)
+    @return_timing_data
+    def eval_direct(self, target_boxes, neighbor_sources_starts,
+            neighbor_sources_lists, src_weight_vecs):
+        src_weights, = src_weight_vecs
+        output = self.output_zeros()
+
+        ev = self.tree_indep.get_direct_eval_routine(self.use_dipoles)
+
+        for itgt_box, tgt_ibox in enumerate(target_boxes):
+            tgt_pslice = self._get_target_slice(tgt_ibox)
+
+            if tgt_pslice.stop - tgt_pslice.start == 0:
+                continue
+
+            # tgt_result = np.zeros(
+            #         tgt_pslice.stop - tgt_pslice.start, self.tree_indep.dtype)
+            tgt_pot_result = 0
+            tgt_grad_result = 0
+
+            start, end = neighbor_sources_starts[itgt_box:itgt_box+2]
+            for src_ibox in neighbor_sources_lists[start:end]:
+                src_pslice = self._get_source_slice(src_ibox)
+
+                if src_pslice.stop - src_pslice.start == 0:
+                    continue
+
+                kwargs = {}
+                kwargs.update(self.kernel_kwargs)
+                kwargs.update(self.get_source_kwargs(src_weights, src_pslice))
+
+                tmp_pot, tmp_grad = ev(
+                        sources=self._get_sources(src_pslice),
+                        targets=self._get_targets(tgt_pslice),
+                        **kwargs)
+
+                tgt_pot_result += tmp_pot
+                tgt_grad_result += tmp_grad
+
+            self.add_potgrad_onto_output(
+                    output, tgt_pslice, tgt_pot_result, tgt_grad_result)
+
+        return output
+
     @log_process(logger)
     @return_timing_data
     def multipole_to_local(self,
@@ -741,7 +842,8 @@ class FMMLibExpansionWrangler:
 
             starts_on_lvl = starts[lstart:lstop+1]
 
-            mploc = self.get_translation_routine("%ddmploc", vec_suffix="_imany")
+            mploc = self.tree_indep.get_translation_routine(
+                    self, "%ddmploc", vec_suffix="_imany")
 
             kwargs = {}
 
@@ -751,8 +853,8 @@ class FMMLibExpansionWrangler:
                 m2l_rotation_lists = self.rotation_data.m2l_rotation_lists()
                 assert len(m2l_rotation_lists) == len(lists)
 
-                mploc = self.get_translation_routine(
-                        "%ddmploc", vec_suffix="2_trunc_imany")
+                mploc = self.tree_indep.get_translation_routine(
+                        self, "%ddmploc", vec_suffix="2_trunc_imany")
 
                 kwargs["ldm"] = rotmat_order
                 kwargs["nterms"] = self.level_nterms[lev]
@@ -791,7 +893,7 @@ class FMMLibExpansionWrangler:
             rscale1 = np.ones(nsrc_boxes) * rscale
             rscale1_offsets = np.arange(nsrc_boxes)
 
-            if self.dim == 3 and self.eqn_letter == "h":
+            if self.dim == 3 and self.tree_indep.eqn_letter == "h":
                 kwargs["radius"] = (
                         tree.root_extent * 2**(-lev)
                         * np.ones(ntgt_boxes))
@@ -805,7 +907,7 @@ class FMMLibExpansionWrangler:
 
             expn2 = np.zeros(
                     (ntgt_boxes,) + self.expansion_shape(self.level_nterms[lev]),
-                    dtype=self.dtype)
+                    dtype=self.tree_indep.dtype)
 
             kwargs.update(self.kernel_kwargs)
 
@@ -842,7 +944,7 @@ class FMMLibExpansionWrangler:
             mpole_exps):
         output = self.output_zeros()
 
-        mpeval = self.get_expn_eval_routine("mp")
+        mpeval = self.tree_indep.get_expn_eval_routine("mp")
 
         for isrc_level, ssn in enumerate(sep_smaller_nonsiblings_by_level):
             source_level_start_ibox, source_mpoles_view = \
@@ -886,7 +988,8 @@ class FMMLibExpansionWrangler:
         src_weights, = src_weight_vecs
         local_exps = self.local_expansion_zeros()
 
-        formta = self.get_routine("%ddformta" + self.dp_suffix, suffix="_imany")
+        formta = self.tree_indep.get_routine(
+                "%ddformta" + ("_dp" if self.use_dipoles else ""), suffix="_imany")
 
         sources = self._get_single_sources_array()
         # sources_starts / sources_lists is a CSR list mapping box centers to
@@ -962,7 +1065,7 @@ class FMMLibExpansionWrangler:
     def refine_locals(self, level_start_target_or_target_parent_box_nrs,
             target_or_target_parent_boxes, local_exps):
 
-        locloc = self.get_translation_routine("%ddlocloc")
+        locloc = self.tree_indep.get_translation_routine(self, "%ddlocloc")
 
         for target_lev in range(1, self.tree.nlevels):
             start, stop = level_start_target_or_target_parent_box_nrs[
@@ -983,7 +1086,7 @@ class FMMLibExpansionWrangler:
                 src_center = self.tree.box_centers[:, src_ibox]
 
                 kwargs = {}
-                if self.dim == 3 and self.eqn_letter == "h":
+                if self.dim == 3 and self.tree_indep.eqn_letter == "h":
                     kwargs["radius"] = self.tree.root_extent * 2**(-target_lev)
 
                 kwargs.update(self.kernel_kwargs)
@@ -1008,7 +1111,7 @@ class FMMLibExpansionWrangler:
     @return_timing_data
     def eval_locals(self, level_start_target_box_nrs, target_boxes, local_exps):
         output = self.output_zeros()
-        taeval = self.get_expn_eval_routine("ta")
+        taeval = self.tree_indep.get_expn_eval_routine("ta")
 
         for lev in range(self.tree.nlevels):
             start, stop = level_start_target_box_nrs[lev:lev+2]
@@ -1041,23 +1144,25 @@ class FMMLibExpansionWrangler:
         return output
 
     @log_process(logger)
-    def finalize_potentials(self, potential):
-        if self.eqn_letter == "l" and self.dim == 2:
+    def finalize_potentials(self, potential, template_ary):
+        if self.tree_indep.eqn_letter == "l" and self.dim == 2:
             scale_factor = -1/(2*np.pi)
-        elif self.eqn_letter == "h" and self.dim == 2:
+        elif self.tree_indep.eqn_letter == "h" and self.dim == 2:
             scale_factor = 1
-        elif self.eqn_letter in ["l", "h"] and self.dim == 3:
+        elif self.tree_indep.eqn_letter in ["l", "h"] and self.dim == 3:
             scale_factor = 1/(4*np.pi)
         else:
             raise NotImplementedError(
                     "scale factor for pyfmmlib %s for %d dimensions" % (
-                        self.eqn_letter,
+                        self.tree_indep.eqn_letter,
                         self.dim))
 
-        if self.eqn_letter == "l" and self.dim == 2:
+        if self.tree_indep.eqn_letter == "l" and self.dim == 2:
             potential = potential.real
 
         return potential * scale_factor
+
+# }}}
 
 
 # vim: foldmethod=marker

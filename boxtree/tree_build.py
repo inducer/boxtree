@@ -1,3 +1,12 @@
+"""
+.. currentmodule:: boxtree
+
+Building Trees
+--------------
+
+.. autoclass:: TreeBuilder
+"""
+
 __copyright__ = "Copyright (C) 2012 Andreas Kloeckner"
 
 __license__ = """
@@ -283,6 +292,11 @@ def distribute_quadrature_rule(tob, quad_rule):
 
 
 class TreeBuilder:
+    """
+    .. automethod:: __init__
+    .. automethod:: __call__
+    """
+
     def __init__(self, context):
         """
         :arg context: A :class:`pyopencl.Context`.
@@ -1818,14 +1832,14 @@ class TreeBuilder:
             except NameError:
                 pass
             else:
-                assert False
+                raise AssertionError
 
             try:
                 box_target_counts_nonchild
             except NameError:
                 pass
             else:
-                assert False
+                raise AssertionError
 
             # }}}
 

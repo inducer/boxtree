@@ -1,3 +1,15 @@
+"""
+Translation classes data structure
+----------------------------------
+
+.. autoclass:: TranslationClassesInfo
+
+Build translation classes
+-------------------------
+
+.. autoclass:: TranslationClassesBuilder
+"""
+
 __copyright__ = "Copyright (C) 2019 Matt Wala"
 
 __license__ = """
@@ -215,6 +227,9 @@ class TranslationClassesInfo(DeviceDataRecord):
 
 class TranslationClassesBuilder:
     """Build translation classes for List 2 translations.
+
+    .. automethod:: __init__
+    .. automethod:: __call__
     """
 
     def __init__(self, context):

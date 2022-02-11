@@ -35,7 +35,9 @@ from boxtree.tools import (  # noqa: F401
         make_normal_particle_array as p_normal,
         make_surface_particle_array as p_surface,
         make_uniform_particle_array as p_uniform,
-        particle_array_to_host,
+        particle_array_to_host)
+from boxtree.constant_one import (
+        ConstantOneTreeIndependentDataForWrangler,
         ConstantOneExpansionWrangler)
 
 import logging
@@ -84,8 +86,8 @@ def get_fmmlib_ref_pot(wrangler, weights, sources_host, targets_host,
     return wrangler.finalize_potentials(
             fmmlib_routine(
                 sources=sources_host, targets=targets_host,
-                **kwargs)[0]
-            )
+                **kwargs)[0],
+            template_ary=weights)
 
 # }}}
 
@@ -94,18 +96,19 @@ def get_fmmlib_ref_pot(wrangler, weights, sources_host, targets_host,
 
 class ConstantOneExpansionWranglerWithFilteredTargetsInTreeOrder(
         ConstantOneExpansionWrangler):
-    def __init__(self, tree, filtered_targets):
-        ConstantOneExpansionWrangler.__init__(self, tree)
-        self.filtered_targets = filtered_targets
 
-    def output_zeros(self):
-        return np.zeros(self.filtered_targets.nfiltered_targets, dtype=np.float64)
+    def __init__(self, tree_indep, traversal, filtered_targets):
+        super().__init__(tree_indep, traversal)
+        self.filtered_targets = filtered_targets
 
     def _get_target_slice(self, ibox):
         pstart = self.filtered_targets.box_target_starts[ibox]
         return slice(
                 pstart, pstart
                 + self.filtered_targets.box_target_counts_nonchild[ibox])
+
+    def output_zeros(self):
+        return np.zeros(self.filtered_targets.nfiltered_targets, dtype=np.float64)
 
     def reorder_potentials(self, potentials):
         tree_order_all_potentials = np.zeros(self.tree.ntargets, potentials.dtype)
@@ -118,8 +121,8 @@ class ConstantOneExpansionWranglerWithFilteredTargetsInTreeOrder(
 
 class ConstantOneExpansionWranglerWithFilteredTargetsInUserOrder(
         ConstantOneExpansionWrangler):
-    def __init__(self, tree, filtered_targets):
-        ConstantOneExpansionWrangler.__init__(self, tree)
+    def __init__(self, tree_indep, traversal, filtered_targets):
+        super().__init__(tree_indep, traversal)
         self.filtered_targets = filtered_targets
 
     def _get_target_slice(self, ibox):
@@ -234,6 +237,8 @@ def test_fmm_completeness(ctx_factory, dims, nsources_req, ntargets_req,
     from boxtree.tree import ParticleListFilter
     plfilt = ParticleListFilter(ctx)
 
+    tree_indep = ConstantOneTreeIndependentDataForWrangler()
+
     if filter_kind:
         flags = rng.uniform(queue, ntargets or nsources, np.int32, a=0, b=2) \
                 .astype(np.int8)
@@ -241,16 +246,16 @@ def test_fmm_completeness(ctx_factory, dims, nsources_req, ntargets_req,
             filtered_targets = plfilt.filter_target_lists_in_user_order(
                     queue, tree, flags)
             wrangler = ConstantOneExpansionWranglerWithFilteredTargetsInUserOrder(
-                    host_tree, filtered_targets.get(queue=queue))
+                    tree_indep, host_trav, filtered_targets.get(queue=queue))
         elif filter_kind == "tree":
             filtered_targets = plfilt.filter_target_lists_in_tree_order(
                     queue, tree, flags)
             wrangler = ConstantOneExpansionWranglerWithFilteredTargetsInTreeOrder(
-                    host_tree, filtered_targets.get(queue=queue))
+                    tree_indep, host_trav, filtered_targets.get(queue=queue))
         else:
             raise ValueError("unsupported value of 'filter_kind'")
     else:
-        wrangler = ConstantOneExpansionWrangler(host_tree)
+        wrangler = ConstantOneExpansionWrangler(tree_indep, host_trav)
         flags = cl.array.empty(queue, ntargets or nsources, dtype=np.int8)
         flags.fill(1)
 
@@ -260,7 +265,7 @@ def test_fmm_completeness(ctx_factory, dims, nsources_req, ntargets_req,
                 wrangler.reorder_sources(weights)) == weights).all()
 
     from boxtree.fmm import drive_fmm
-    pot = drive_fmm(host_trav, wrangler, (weights,))
+    pot = drive_fmm(wrangler, (weights,))
 
     if filter_kind:
         pot = pot[flags.get() > 0]
@@ -445,16 +450,21 @@ def test_pyfmmlib_fmm(ctx_factory, dims, use_dipoles, helmholtz_k):
 
         return result
 
-    from boxtree.pyfmmlib_integration import FMMLibExpansionWrangler
+    from boxtree.pyfmmlib_integration import (
+            Kernel, FMMLibTreeIndependentDataForWrangler, FMMLibExpansionWrangler)
+    tree_indep = FMMLibTreeIndependentDataForWrangler(
+            trav.tree.dimensions,
+            Kernel.HELMHOLTZ if helmholtz_k else Kernel.LAPLACE)
     wrangler = FMMLibExpansionWrangler(
-            trav.tree, helmholtz_k,
+            tree_indep, trav,
+            helmholtz_k=helmholtz_k,
             fmm_level_to_nterms=fmm_level_to_nterms,
             dipole_vec=dipole_vec)
 
     from boxtree.fmm import drive_fmm
 
     timing_data = {}
-    pot = drive_fmm(trav, wrangler, (weights,), timing_data=timing_data)
+    pot = drive_fmm(wrangler, (weights,), timing_data=timing_data)
     print(timing_data)
     assert timing_data
 
@@ -566,19 +576,23 @@ def test_pyfmmlib_numerical_stability(ctx_factory, dims, helmholtz_k, order):
     weights = np.ones_like(sources[0])
 
     from boxtree.pyfmmlib_integration import (
+            Kernel, FMMLibTreeIndependentDataForWrangler,
             FMMLibExpansionWrangler, FMMLibRotationData)
 
     def fmm_level_to_nterms(tree, lev):
         return order
 
+    tree_indep = FMMLibTreeIndependentDataForWrangler(
+            trav.tree.dimensions,
+            Kernel.HELMHOLTZ if helmholtz_k else Kernel.LAPLACE)
     wrangler = FMMLibExpansionWrangler(
-            trav.tree, helmholtz_k,
+            tree_indep, trav,
+            helmholtz_k=helmholtz_k,
             fmm_level_to_nterms=fmm_level_to_nterms,
             rotation_data=FMMLibRotationData(queue, trav))
 
     from boxtree.fmm import drive_fmm
-
-    pot = drive_fmm(trav, wrangler, (weights,))
+    pot = drive_fmm(wrangler, (weights,))
     assert not np.isnan(pot).any()
 
     # {{{ ref fmmlib computation
@@ -650,11 +664,11 @@ def test_interaction_list_particle_count_thresholding(ctx_factory, enable_extent
     weights_sum = np.sum(weights)
 
     host_trav = trav.get(queue=queue)
-    host_tree = host_trav.tree
 
-    wrangler = ConstantOneExpansionWrangler(host_tree)
+    tree_indep = ConstantOneTreeIndependentDataForWrangler()
+    wrangler = ConstantOneExpansionWrangler(tree_indep, host_trav)
 
-    pot = drive_fmm(host_trav, wrangler, (weights,))
+    pot = drive_fmm(wrangler, (weights,))
 
     assert (pot == weights_sum).all()
 
@@ -707,11 +721,11 @@ def test_fmm_float32(ctx_factory, enable_extents):
     weights_sum = np.sum(weights)
 
     host_trav = trav.get(queue=queue)
-    host_tree = host_trav.tree
 
-    wrangler = ConstantOneExpansionWrangler(host_tree)
+    tree_indep = ConstantOneTreeIndependentDataForWrangler()
+    wrangler = ConstantOneExpansionWrangler(tree_indep, host_trav)
 
-    pot = drive_fmm(host_trav, wrangler, (weights,))
+    pot = drive_fmm(wrangler, (weights,))
 
     assert (pot == weights_sum).all()
 
@@ -772,14 +786,20 @@ def test_fmm_with_optimized_3d_m2l(ctx_factory, nsrcntgts, helmholtz_k,
         return result
 
     from boxtree.pyfmmlib_integration import (
+            Kernel, FMMLibTreeIndependentDataForWrangler,
             FMMLibExpansionWrangler, FMMLibRotationData)
 
+    tree_indep = FMMLibTreeIndependentDataForWrangler(
+            trav.tree.dimensions,
+            Kernel.HELMHOLTZ if helmholtz_k else Kernel.LAPLACE)
     baseline_wrangler = FMMLibExpansionWrangler(
-            trav.tree, helmholtz_k,
+            tree_indep, trav,
+            helmholtz_k=helmholtz_k,
             fmm_level_to_nterms=fmm_level_to_nterms)
 
     optimized_wrangler = FMMLibExpansionWrangler(
-            trav.tree, helmholtz_k,
+            tree_indep, trav,
+            helmholtz_k=helmholtz_k,
             fmm_level_to_nterms=fmm_level_to_nterms,
             rotation_data=FMMLibRotationData(queue, trav))
 
@@ -787,11 +807,11 @@ def test_fmm_with_optimized_3d_m2l(ctx_factory, nsrcntgts, helmholtz_k,
 
     baseline_timing_data = {}
     baseline_pot = drive_fmm(
-            trav, baseline_wrangler, (weights,), timing_data=baseline_timing_data)
+            baseline_wrangler, (weights,), timing_data=baseline_timing_data)
 
     optimized_timing_data = {}
     optimized_pot = drive_fmm(
-            trav, optimized_wrangler, (weights,), timing_data=optimized_timing_data)
+            optimized_wrangler, (weights,), timing_data=optimized_timing_data)
 
     baseline_time = baseline_timing_data["multipole_to_local"]["process_elapsed"]
     if baseline_time is not None:
