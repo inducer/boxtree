@@ -1,5 +1,3 @@
-from __future__ import division, absolute_import
-
 __copyright__ = """
 Copyright (C) 2013 Andreas Kloeckner
 Copyright (C) 2018 Matt Wala
@@ -71,10 +69,7 @@ from pymbolic import var, evaluate
 from pytools import memoize_method
 import sys
 
-if sys.version_info >= (3, 0):
-    Template = partial(Template, strict_undefined=True)
-else:
-    Template = partial(Template, strict_undefined=True, disable_unicode=True)
+Template = partial(Template, strict_undefined=True)
 
 if sys.version_info >= (3, 4):
     from abc import ABC, abstractmethod
@@ -85,7 +80,7 @@ else:
 
 # {{{ FMMTranslationCostModel
 
-class FMMTranslationCostModel(object):
+class FMMTranslationCostModel:
     """Provides modeled costs for individual translations or evaluations.
 
     .. note:: Current implementation assumes the calibration parameters are linear
