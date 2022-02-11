@@ -1122,6 +1122,30 @@ def test_max_levels_error(ctx_factory):
 # }}}
 
 
+# {{{ test_tree_of_boxes
+
+def test_tree_of_boxes(ctx_factory):
+    ctx = ctx_factory()
+    queue = cl.CommandQueue(ctx)
+
+    from boxtree.tree_build import make_tob_root, uniformly_refined, distribute_quadrature_rule
+    tob = make_tob_root(dim=2, bbox=[[-1, -1], [1, 1]])
+
+    n_levels = 1
+    for lev in range(n_levels):
+        tob = uniformly_refined(tob)
+
+    import modepy as mp
+    deg = 0
+    quad = mp.LegendreGaussQuadrature(deg)
+    x, q = distribute_quadrature_rule(tob, quad)
+
+    # print(x)
+    assert np.isclose(sum(q), 4)
+
+# }}}
+
+
 # You can test individual routines by typing
 # $ python test_tree.py 'test_routine(cl.create_some_context)'
 

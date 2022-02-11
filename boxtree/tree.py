@@ -111,6 +111,82 @@ class box_flags_enum(Enum):  # noqa
 # }}}
 
 
+# {{{ tree of boxes
+
+class TreeOfBoxes:
+    """
+    Tree of boxes are lightweight trees handled with numpy, intended for mesh adaptivity.
+    .. automethod:: __init__
+    .. automethod:: copy
+    .. automethod:: get_leaf_flags
+    .. automethod:: leaf_boxes
+    """
+    def __init__(
+            self, box_centers, root_box_extent,
+            box_parents, box_children, box_levels):
+        self.box_centers = box_centers
+        self.root_box_extent = root_box_extent
+        self.box_parents = box_parents
+        self.box_children = box_children
+        self.box_levels = box_levels
+
+    def copy(self):
+        return TreeOfBoxes(
+                box_centers=self.box_centers.copy(),
+                root_box_extent=self.root_box_extent.copy(),
+                box_parents=self.box_parents.copy(),
+                box_children=self.box_children.copy(),
+                box_levels=self.box_levels.copy())
+
+    @property
+    def dim(self):
+        return self.box_centers.shape[0]
+
+    # {{{ dummy interface for TreePlotter
+
+    @property
+    def dimensions(self):
+        return self.dim
+
+    @property
+    def bounding_box(self):
+        lows = self.box_centers[:, 0] - 0.5*self.root_box_extent
+        highs = lows + self.root_box_extent
+        return [lows, highs]
+
+    def get_box_size(self, ibox):
+        lev = self.box_levels[ibox]
+        box_size = self.root_box_extent * 0.5**lev
+        return box_size
+
+    def get_box_extent(self, ibox):
+        box_size = self.get_box_size(ibox)
+        extent_low = self.box_centers[:, ibox] - 0.5*box_size
+        extent_high = extent_low + box_size
+        return extent_low, extent_high
+
+    # }}} End dummy interface for TreePlotter
+
+    @property
+    def nboxes(self):
+        return self.box_centers.shape[1]
+
+    @property
+    def nlevels(self):
+        return max(self.box_levels) + 1  # level starts from 0
+
+    def get_leaf_flags(self):
+        # box_id -> whether the box is leaf
+        return np.all(self.box_children == 0, axis=0)
+
+    def leaf_boxes(self):
+        boxes = np.arange(self.nboxes)
+        return boxes[self.get_leaf_flags()]
+
+
+# }}}
+
+
 # {{{ tree data structure
 
 class Tree(DeviceDataRecord):
