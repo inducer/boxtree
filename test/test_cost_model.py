@@ -391,7 +391,10 @@ def test_compare_cl_and_py_cost_model(ctx_factory, nsources, ntargets, dims, dty
 
 @pytest.mark.opencl
 def test_estimate_calibration_params(ctx_factory):
-    from boxtree.pyfmmlib_integration import FMMLibExpansionWrangler
+    from boxtree.pyfmmlib_integration import (
+            Kernel,
+            FMMLibTreeIndependentDataForWrangler,
+            FMMLibExpansionWrangler)
 
     nsources_list = [1000, 2000, 3000, 4000]
     ntargets_list = [1000, 2000, 3000, 4000]
@@ -443,13 +446,16 @@ def test_estimate_calibration_params(ctx_factory):
 
         # }}}
 
-        wrangler = FMMLibExpansionWrangler(trav.tree, 0, fmm_level_to_nterms)
+        tree_indep = FMMLibTreeIndependentDataForWrangler(
+                trav.tree.dimensions, Kernel.LAPLACE)
+        wrangler = FMMLibExpansionWrangler(tree_indep, trav,
+                fmm_level_to_nterms=fmm_level_to_nterms)
         level_to_orders.append(wrangler.level_nterms)
 
         timing_data = {}
         from boxtree.fmm import drive_fmm
         src_weights = np.random.rand(tree.nsources).astype(tree.coord_dtype)
-        drive_fmm(trav, wrangler, (src_weights,), timing_data=timing_data)
+        drive_fmm(wrangler, (src_weights,), timing_data=timing_data)
 
         timing_results.append(timing_data)
 
@@ -573,13 +579,16 @@ def test_cost_model_op_counts_agree_with_constantone_wrangler(
     trav_dev, _ = tg(queue, tree, debug=True)
     trav = trav_dev.get(queue=queue)
 
-    from boxtree.tools import ConstantOneExpansionWrangler
-    wrangler = ConstantOneExpansionWrangler(trav.tree)
+    from boxtree.constant_one import (
+            ConstantOneTreeIndependentDataForWrangler,
+            ConstantOneExpansionWrangler)
+    tree_indep = ConstantOneTreeIndependentDataForWrangler()
+    wrangler = ConstantOneExpansionWrangler(tree_indep, trav)
 
     timing_data = {}
     from boxtree.fmm import drive_fmm
     src_weights = np.random.rand(tree.nsources).astype(tree.coord_dtype)
-    drive_fmm(trav, wrangler, (src_weights,), timing_data=timing_data)
+    drive_fmm(wrangler, (src_weights,), timing_data=timing_data)
 
     cost_model = FMMCostModel(
         translation_cost_model_factory=OpCountingTranslationCostModel

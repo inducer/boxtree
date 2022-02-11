@@ -1,3 +1,12 @@
+"""
+.. currentmodule:: boxtree
+
+Building Trees
+--------------
+
+.. autoclass:: TreeBuilder
+"""
+
 __copyright__ = "Copyright (C) 2012 Andreas Kloeckner"
 
 __license__ = """
@@ -26,7 +35,7 @@ from pytools import memoize_method
 import pyopencl as cl
 import pyopencl.array  # noqa
 from functools import partial
-from boxtree.tree import Tree
+from boxtree.tree import Tree, TreeOfBoxes
 from pytools import ProcessLogger, DebugProcessLogger
 
 import logging
@@ -37,7 +46,7 @@ class MaxLevelsExceeded(RuntimeError):
     pass
 
 
-# {{{ box-based tree
+# {{{ utils for tree of boxes
 
 def resized_array(arr, new_size):
     """Return a resized copy of the array. The new_size is a scalar which is
@@ -65,150 +74,98 @@ def vec_of_signs(dim, i):
     return np.array([0]*(dim-n) + binary_digits) * 2 - 1
 
 
-class _TreeOfBoxes:
-    def __init__(
-            self, box_centers, root_box_extent,
-            box_parents, box_children, box_levels):
-        self.box_centers = box_centers
-        self.root_box_extent = root_box_extent
-        self.box_parents = box_parents
-        self.box_children = box_children
-        self.box_levels = box_levels
+# {{{ refine/coarsen a tree of boxes
 
-    def copy(self):
-        return _TreeOfBoxes(
-                box_centers=self.box_centers.copy(),
-                root_box_extent=self.root_box_extent.copy(),
-                box_parents=self.box_parents.copy(),
-                box_children=self.box_children.copy(),
-                box_levels=self.box_levels.copy())
+def refined(tob, refine_flags):
+    """
+    Make a refined copy of tob.
+    """
+    return refine_and_coarsened(tob, refine_flags, None)
 
-    @property
-    def dim(self):
-        return self.box_centers.shape[0]
 
-    # {{{ dummy interface for TreePlotter
+def uniformly_refined(tob):
+    refine_flags = np.zeros(tob.nboxes, bool)
+    refine_flags[tob.get_leaf_flags()] = 1
+    return refined(tob, refine_flags)
 
-    @property
-    def dimensions(self):
-        return self.dim
 
-    @property
-    def bounding_box(self):
-        lows = self.box_centers[:, 0] - 0.5*self.root_box_extent
-        highs = lows + self.root_box_extent
-        return [lows, highs]
+def coarsened(tob, coarsen_flags):
+    return refine_and_coarsened(tob, None, coarsen_flags)
 
-    def get_box_size(self, ibox):
-        lev = self.box_levels[ibox]
-        box_size = self.root_box_extent * 0.5**lev
-        return box_size
 
-    def get_box_extent(self, ibox):
-        box_size = self.get_box_size(ibox)
-        extent_low = self.box_centers[:, ibox] - 0.5*box_size
-        extent_high = extent_low + box_size
-        return extent_low, extent_high
+def refine_and_coarsened(tob, refine_flags=None, coarsen_flags=None):
+    """Make a refined/coarsened copy. When children of the same parent box
+    are marked differently, the refinement flag takes priority.
 
-    # }}} End dummy interface for TreePlotter
+    Both refinement and coarsening flags can only be set of leaves.
+    To prevent drastic mesh change, coarsening is only executed when a leaf
+    box is marked for coarsening, and its parent's children are all leaf
+    boxes (so that change in the number of boxes is bounded per box flagged).
 
-    @property
-    def nboxes(self):
-        return self.box_centers.shape[1]
+    :arg refine_flags: a boolean array of size `nboxes`.
+    :arg coarsen_flags: a boolean array of size `nboxes`.
+    :returns: a processed copy of the tree.
+    """
+    nchildren = 2**tob.dim
 
-    def nlevels(self):
-        return max(self.box_levels) + 1  # level starts from 0
+    if refine_flags is None:
+        refine_flags = np.zeros(tob.nboxes, bool)
+    if refine_flags[~tob.get_leaf_flags()].any():
+        raise ValueError("attempting to split non-leaf")
 
-    def is_leaf(self):
-        # box_id -> whether the box is leaf
-        return np.all(self.box_children == 0, axis=0)
+    if coarsen_flags is None:
+        coarsen_flags = np.zeros(tob.nboxes, bool)
+    if coarsen_flags[~tob.get_leaf_flags()].any():
+        raise ValueError("attempting to coarsen non-leaf")
 
-    def leaf_boxes(self):
-        boxes = np.arange(self.nboxes)
-        return boxes[self.is_leaf()]
+    # ------------------- refinement always respects the flags
 
-    # {{{ refine/coarsen
+    refine_parents, = np.where(refine_flags)
+    n_new_boxes = len(refine_parents) * nchildren
+    nboxes_new = tob.nboxes + n_new_boxes
 
-    def refined(self, refine_flags):
-        return self.refine_and_coarsened(refine_flags, None)
+    child_box_starts = (
+            tob.nboxes
+            + nchildren * np.arange(len(refine_parents)))
 
-    def uniformly_refined(self):
-        refine_flags = np.zeros(self.nboxes, bool)
-        refine_flags[self.is_leaf()] = 1
-        return self.refined(refine_flags)
+    refine_parents_per_child = np.empty(
+            (nchildren, len(refine_parents)),
+            np.intp)
+    refine_parents_per_child[:] = refine_parents.reshape(-1)
+    refine_parents_per_child = refine_parents_per_child.reshape(-1)
 
-    def coarsened(self, coarsen_flags):
-        return self.refine_and_coarsened(None, coarsen_flags)
+    box_parents = resized_array(tob.box_parents, nboxes_new)
+    box_centers = resized_array(tob.box_centers, nboxes_new)
+    box_children = resized_array(tob.box_children, nboxes_new)
+    box_levels = resized_array(tob.box_levels, nboxes_new)
 
-    def refine_and_coarsened(self, refine_flags=None, coarsen_flags=None):
-        """Make a refined/coarsened copy. When children of the same parent box
-        are marked differently, the refinement flag takes priority.
+    # new boxes are appended at the end, so coarsen_flags are still meaningful
+    box_parents[tob.nboxes:] = refine_parents_per_child
+    box_levels[tob.nboxes:] = tob.box_levels[box_parents[tob.nboxes:]] + 1
+    box_children[:, refine_parents] = (
+        child_box_starts
+        + np.arange(nchildren).reshape(-1, 1))
 
-        Both refinement and coarsening flags can only be set of leaves.
-        To prevent drastic mesh change, coarsening is only executed when a leaf
-        box is marked for coarsening, and its parent's children are all leaf
-        boxes (so that change in the number of boxes is bounded per box flagged).
+    for i in range(2**tob.dim):
+        children_i = box_children[i, refine_parents]
+        offsets = (
+                tob.root_box_extent
+                * vec_of_signs(tob.dim, i).reshape(-1, 1)
+                * (1/2**(1+box_levels[children_i])))
+        box_centers[:, children_i] = (
+                box_centers[:, refine_parents]
+                + offsets)
 
-        :arg refine_flags: a boolean array of size `nboxes`.
-        :arg coarsen_flags: a boolean array of size `nboxes`.
-        """
-        nchildren = 2**self.dim
+    # ------------------- coarsen only if all peers are leaves after refinement
 
-        if refine_flags is None:
-            refine_flags = np.zeros(self.nboxes, bool)
-        if refine_flags[~self.is_leaf()].any():
-            raise ValueError("attempting to split non-leaf")
-
-        if coarsen_flags is None:
-            coarsen_flags = np.zeros(self.nboxes, bool)
-        if coarsen_flags[~self.is_leaf()].any():
-            raise ValueError("attempting to coarsen non-leaf")
-
-        # ------------------- refinement always respects the flags
-
-        refine_parents, = np.where(refine_flags)
-        n_new_boxes = len(refine_parents) * nchildren
-        nboxes_new = self.nboxes + n_new_boxes
-
-        child_box_starts = (
-                self.nboxes
-                + nchildren * np.arange(len(refine_parents)))
-
-        refine_parents_per_child = np.empty(
-                (nchildren, len(refine_parents)),
-                np.intp)
-        refine_parents_per_child[:] = refine_parents.reshape(-1)
-        refine_parents_per_child = refine_parents_per_child.reshape(-1)
-
-        box_parents = resized_array(self.box_parents, nboxes_new)
-        box_centers = resized_array(self.box_centers, nboxes_new)
-        box_children = resized_array(self.box_children, nboxes_new)
-        box_levels = resized_array(self.box_levels, nboxes_new)
-
-        # new boxes are appended at the end, so coarsen_flags are still meaningful
-        box_parents[self.nboxes:] = refine_parents_per_child
-        box_levels[self.nboxes:] = self.box_levels[box_parents[self.nboxes:]] + 1
-        box_children[:, refine_parents] = (
-            child_box_starts
-            + np.arange(nchildren).reshape(-1, 1))
-
-        for i in range(2**self.dim):
-            children_i = box_children[i, refine_parents]
-            offsets = (
-                    self.root_box_extent
-                    * vec_of_signs(self.dim, i).reshape(-1, 1)
-                    * (1/2**(1+box_levels[children_i])))
-            box_centers[:, children_i] = (
-                    box_centers[:, refine_parents]
-                    + offsets)
-
-        # ------------------- coarsen only if all peers are leaves after refinement
-
-        coarsen_flags = resized_array(coarsen_flags, nboxes_new)
-        coarsen_sources, = np.where(coarsen_flags)
-        coarsen_parents = self.box_parents[coarsen_sources]
-        coarsen_peers = self.box_children[:, coarsen_parents]
-        coarsen_peer_is_leaf = self.is_leaf()[coarsen_peers]
+    coarsen_flags = resized_array(coarsen_flags, nboxes_new)
+    coarsen_sources, = np.where(coarsen_flags)
+    if coarsen_sources:
+        # FIXME
+        raise NotImplementedError
+        coarsen_parents = tob.box_parents[coarsen_sources]
+        coarsen_peers = tob.box_children[:, coarsen_parents]
+        coarsen_peer_is_leaf = tob.get_leaf_flags()[coarsen_peers]
         coarsen_exec_flags = np.all(coarsen_peer_is_leaf, axis=0)
 
         coarsen_flags_ignored = (coarsen_exec_flags != coarsen_flags)
@@ -223,23 +180,27 @@ class _TreeOfBoxes:
         box_parents[coarsen_peers] = -1
         box_children[coarsen_parents] = 0
 
-        return _TreeOfBoxes(
-                box_centers=box_centers,
-                root_box_extent=self.root_box_extent,
-                box_parents=box_parents,
-                box_children=box_children,
-                box_levels=box_levels)
-
-    # }}} End refine/coarsen
+    return TreeOfBoxes(
+            box_centers=box_centers,
+            root_box_extent=tob.root_box_extent,
+            box_parents=box_parents,
+            box_children=box_children,
+            box_levels=box_levels)
 
 
-def _make_tob_root(dim, bbox):
+# }}} End refine/coarsen
+
+
+def make_tob_root(dim, bbox):
+    """
+    Make the minimal tree of boxes.
+    """
     center = np.array(
         [(bbox[0][iaxis] + bbox[1][iaxis]) * 0.5 for iaxis in range(dim)])
     extents = np.array(
         [(bbox[1][iaxis] - bbox[0][iaxis]) for iaxis in range(dim)])
     from pytools import single_valued
-    return _TreeOfBoxes(
+    return TreeOfBoxes(
             box_centers=center.reshape(dim, 1),
             root_box_extent=single_valued(extents, np.allclose),
             box_parents=np.array([0], np.intp),
@@ -253,7 +214,7 @@ def distribute_quadrature_rule(tob, quad_rule):
     leaf box, nodes are in lexicographic order, where the last axis varies
     fastest. For example, `[[0, 0, 1, 1], [0, 1, 0, 1]]`.
 
-    :arg tob: a :class:`_TreeOfBoxes`.
+    :arg tob: a :class:`TreeOfBoxes`.
     :arg quad_rule: a :class:`modepy.Quadrature`.
     """
     x, w = quad_rule.nodes, quad_rule.weights  # nodes in [-1, 1]
@@ -283,6 +244,11 @@ def distribute_quadrature_rule(tob, quad_rule):
 
 
 class TreeBuilder:
+    """
+    .. automethod:: __init__
+    .. automethod:: __call__
+    """
+
     def __init__(self, context):
         """
         :arg context: A :class:`pyopencl.Context`.
@@ -1818,14 +1784,14 @@ class TreeBuilder:
             except NameError:
                 pass
             else:
-                assert False
+                raise AssertionError
 
             try:
                 box_target_counts_nonchild
             except NameError:
                 pass
             else:
-                assert False
+                raise AssertionError
 
             # }}}
 

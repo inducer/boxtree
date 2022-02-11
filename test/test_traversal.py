@@ -265,7 +265,7 @@ def test_tree_connectivity(ctx_factory, dims, sources_are_targets):
         ext_low, ext_high = tree.get_box_extent(ibox)
         center = tree.box_centers[:, ibox]
 
-        for which, bbox_min, bbox_max in [
+        for _, bbox_min, bbox_max in [
                 (
                     "source",
                     trav.box_source_bounding_box_min[:, ibox],

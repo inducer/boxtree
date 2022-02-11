@@ -413,10 +413,11 @@ def test_source_target_tree(ctx_factory, dims, do_plot=False):
                 plotter.draw_box(ibox, edgecolor="red")
                 pt.show()
 
-        if not all_good_here:
-            print("BAD BOX %s %d" % (what, ibox))
+            if not all_good_here:
+                print("BAD BOX %s %d" % (what, ibox))
 
-        all_good_so_far = all_good_so_far and all_good_here
+            all_good_so_far = all_good_so_far and all_good_here
+
         assert all_good_so_far
 
     if do_plot:
@@ -1117,6 +1118,28 @@ def test_max_levels_error(ctx_factory):
     from boxtree.tree_build import MaxLevelsExceeded
     with pytest.raises(MaxLevelsExceeded):
         tree, _ = tb(queue, sources, max_particles_in_box=10, debug=True)
+
+# }}}
+
+
+# {{{ test_tree_of_boxes
+
+def test_tree_of_boxes():
+    from boxtree.tree_build import (
+        make_tob_root, uniformly_refined, distribute_quadrature_rule)
+    tob = make_tob_root(dim=2, bbox=[[-1, -1], [1, 1]])
+
+    n_levels = 1
+    for lev in range(n_levels):
+        tob = uniformly_refined(tob)
+
+    import modepy as mp
+    deg = 0
+    quad = mp.LegendreGaussQuadrature(deg)
+    x, q = distribute_quadrature_rule(tob, quad)
+
+    # print(x)
+    assert np.isclose(sum(q), 4)
 
 # }}}
 

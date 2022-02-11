@@ -1,3 +1,17 @@
+"""
+Traversal data structure
+------------------------
+
+.. autoclass:: FMMTraversalInfo
+
+Build Entrypoint
+----------------
+
+.. autoclass:: FMMTraversalBuilder
+
+    .. automethod:: __call__
+"""
+
 __copyright__ = "Copyright (C) 2012 Andreas Kloeckner"
 
 __license__ = """
@@ -1260,7 +1274,7 @@ class _ListMerger:
 
     def __call__(self, queue, input_starts, input_lists, input_index_style,
             output_index_style, target_boxes, target_or_target_parent_boxes,
-            nboxes, debug=False, wait_for=[]):
+            nboxes, debug=False, wait_for=None):
         """
         :arg input_starts: Starts arrays of input
         :arg input_lists: Lists arrays of input
@@ -1269,6 +1283,8 @@ class _ListMerger:
         :returns: A pair *results_dict, event*, where *results_dict*
             contains entries *starts* and *lists*
         """
+        if wait_for is None:
+            wait_for = []
 
         if (
                 output_index_style == _IndexStyle.TARGET_OR_TARGET_PARENT_BOXES
@@ -1631,6 +1647,10 @@ class FMMTraversalInfo(DeviceDataRecord):
         Changed index style of *from_sep_close_bigger_starts* from
         :attr:`target_or_target_parent_boxes` to :attr:`target_boxes`.
 
+
+    .. automethod:: get
+
+    .. automethod:: merge_close_lists
     """
 
     # {{{ "close" list merging -> "unified list 1"
@@ -1712,6 +1732,10 @@ class _KernelInfo(Record):
 
 
 class FMMTraversalBuilder:
+    """
+    .. automethod:: __init__
+    """
+
     def __init__(self, context, well_sep_is_n_away=1, from_sep_smaller_crit=None):
         """
         :arg well_sep_is_n_away: Either An integer 1 or greater.
