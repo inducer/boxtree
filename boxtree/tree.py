@@ -115,7 +115,8 @@ class box_flags_enum(Enum):  # noqa
 
 class TreeOfBoxes:
     """
-    Tree of boxes are lightweight trees handled with numpy, intended for mesh adaptivity.
+    Tree of boxes are lightweight trees handled with numpy, intended for mesh
+    adaptivity.
     .. automethod:: __init__
     .. automethod:: copy
     .. automethod:: get_leaf_flags

@@ -1130,7 +1130,7 @@ def test_tree_of_boxes():
     tob = make_tob_root(dim=2, bbox=[[-1, -1], [1, 1]])
 
     n_levels = 1
-    for lev in range(n_levels):
+    for _ in range(n_levels):
         tob = uniformly_refined(tob)
 
     import modepy as mp
