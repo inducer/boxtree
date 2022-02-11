@@ -221,10 +221,14 @@ def distribute_quadrature_rule(tob, quad_rule):
     n_box_nodes = len(x)**tob.dim
     box_nodes = np.array(np.meshgrid(*((x,) * tob.dim), indexing="ij")
                          ).reshape([tob.dim, -1])
-    if tob.dim == 2:
+    if tob.dim == 1:
+        box_weights = w
+    elif tob.dim == 2:
         box_weights = w[:, None] @ w[None, :]
     elif tob.dim == 3:
-        box_weights = w[:, None, None] @ w[None, :, None] @ w[None, None, :]
+        box_weights = (w[:, None] @ w[None, :]).reshape(-1)[:, None] @ w[None, :]
+    else:
+        raise ValueError
     box_weights = box_weights.reshape(-1)
     lfboxes = tob.leaf_boxes()
 

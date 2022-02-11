@@ -1124,22 +1124,81 @@ def test_max_levels_error(ctx_factory):
 
 # {{{ test_tree_of_boxes
 
-def test_tree_of_boxes():
+@pytest.mark.parametrize("dim", [1, 2, 3])
+@pytest.mark.parametrize("deg", [0, 1, 2])
+@pytest.mark.parametrize("nlevels", [1, 4])
+def test_uniform_tree_of_boxes(dim, deg, nlevels):
     from boxtree.tree_build import (
         make_tob_root, uniformly_refined, distribute_quadrature_rule)
-    tob = make_tob_root(dim=2, bbox=[[-1, -1], [1, 1]])
+    lower_bounds = np.random.rand(dim)
+    radius = np.random.rand()
+    upper_bounds = lower_bounds + radius
+    tob = make_tob_root(dim=dim, bbox=[lower_bounds, upper_bounds])
 
     n_levels = 1
     for _ in range(n_levels):
         tob = uniformly_refined(tob)
 
     import modepy as mp
-    deg = 0
     quad = mp.LegendreGaussQuadrature(deg)
     x, q = distribute_quadrature_rule(tob, quad)
 
-    # print(x)
-    assert np.isclose(sum(q), 4)
+    # integrates 1 exactly
+    assert np.isclose(sum(q), radius**dim)
+
+
+@pytest.mark.parametrize("dim", [1, 2, 3])
+@pytest.mark.parametrize("deg", [0, 1, 2, 3])
+def test_uniform_tree_of_boxes_convergence(dim, deg):
+    from boxtree.tree_build import (
+        make_tob_root, uniformly_refined, distribute_quadrature_rule)
+    radius = np.pi
+    lower_bounds = np.zeros(dim) - radius/2
+    upper_bounds = lower_bounds + radius
+    tob = make_tob_root(dim=dim, bbox=[lower_bounds, upper_bounds])
+
+    min_level = 0
+    max_level = 1
+
+    for _ in range(min_level):
+        tob = uniformly_refined(tob)
+
+    # integrate cos(0.1*x + 0.2*y + 0.3*z + e) over [-pi/2, pi/2]**dim
+    qexact_table = {
+        1: 20 * np.sin(np.pi/20) * np.cos(np.e),
+        2: 50 * (np.sqrt(5) - 1) * np.sin(np.pi/20) * np.cos(np.e),
+        3: 250/3 * (np.sqrt(10 - 2*np.sqrt(5)) - 2) * np.cos(np.e)
+    }
+    qexact = qexact_table[dim]
+
+    from pytools.convergence import EOCRecorder
+    eoc_rec = EOCRecorder()
+
+    for _ in range(min_level, max_level + 1):
+        import modepy as mp
+        quad = mp.LegendreGaussQuadrature(deg)
+        x, q = distribute_quadrature_rule(tob, quad)
+        inner = np.ones_like(q) * np.e
+        for iaxis in range(dim):
+            inner += (iaxis + 1) * 0.1 * x[iaxis]
+        f = np.cos(inner)
+        qh = np.sum(f * q)
+        err = abs(qexact - qh)
+
+        if err < 1e-14:
+            break  # eoc will be off after hitting machine epsilon
+
+        # under uniform refinement, last box is always leaf
+        eoc_rec.add_data_point(tob.get_box_size(-1), err)
+        tob = uniformly_refined(tob)
+
+    if len(eoc_rec.history) > 1:
+        # Gauss quadrature is exact up to degree 2q+1
+        eps = 0.01
+        assert eoc_rec.order_estimate() >= 2*deg + 2 - eps
+    else:
+        print(err)
+        assert err < 1e-14
 
 # }}}
 
