@@ -287,7 +287,6 @@ def generate_local_tree(queue, global_traversal, responsible_boxes_list, comm):
             queue.context, global_tree.dimensions,
             global_tree.particle_id_dtype, global_tree.coord_dtype)
 
-    # Get MPI information
     mpi_rank = comm.Get_rank()
     mpi_size = comm.Get_size()
 
@@ -295,19 +294,6 @@ def generate_local_tree(queue, global_traversal, responsible_boxes_list, comm):
 
     from boxtree.distributed.partition import get_box_masks
     box_masks = get_box_masks(queue, global_traversal, responsible_boxes_list)
-
-    local_tree = global_tree.copy(
-        responsible_boxes_list=responsible_boxes_list,
-        ancestor_mask=box_masks.ancestor_boxes.get(),
-        box_to_user_rank_starts=None,
-        box_to_user_rank_lists=None,
-        _dimensions=None,
-        _ntargets=None,
-        _nsources=None,
-    )
-
-    local_tree.user_source_ids = None
-    local_tree.sorted_target_ids = None
 
     global_tree_dev = global_tree.to_device(queue).with_queue(queue)
 
@@ -334,48 +320,6 @@ def generate_local_tree(queue, global_traversal, responsible_boxes_list, comm):
         global_tree_dev.box_target_starts,
         global_tree_dev.box_target_counts_nonchild,
         global_tree_dev.box_target_counts_cumul)
-
-    # {{{ Fetch fields to local_tree
-
-    local_sources = local_sources_and_lists.particles.get(queue=queue)
-    local_tree.sources = local_sources
-
-    local_targets = local_targets_and_lists.particles.get(queue=queue)
-    local_tree.targets = local_targets
-
-    if global_tree.sources_have_extent:
-        local_tree.source_radii = \
-            local_sources_and_lists.particle_radii.get(queue=queue)
-
-    if global_tree.targets_have_extent:
-        local_tree.target_radii = \
-            local_targets_and_lists.particle_radii.get(queue=queue)
-
-    local_tree.box_source_starts = \
-        local_sources_and_lists.box_particle_starts.get(queue=queue)
-
-    local_tree.box_source_counts_nonchild = \
-        local_sources_and_lists.box_particle_counts_nonchild.get(queue=queue)
-
-    local_tree.box_source_counts_cumul = \
-        local_sources_and_lists.box_particle_counts_cumul.get(queue=queue)
-
-    local_tree.box_target_starts = \
-        local_targets_and_lists.box_particle_starts.get(queue=queue)
-
-    local_tree.box_target_counts_nonchild = \
-        local_targets_and_lists.box_particle_counts_nonchild.get(queue=queue)
-
-    local_tree.box_target_counts_cumul = \
-        local_targets_and_lists.box_particle_counts_cumul.get(queue=queue)
-
-    # }}}
-
-    local_tree._dimensions = local_tree.dimensions
-    local_tree._ntargets = local_tree.targets[0].shape[0]
-    local_tree._nsources = local_tree.sources[0].shape[0]
-
-    local_tree.__class__ = LocalTree
 
     # {{{ compute the users of multipole expansions of each box on the root rank
 
@@ -410,10 +354,69 @@ def generate_local_tree(queue, global_traversal, responsible_boxes_list, comm):
     box_to_user_rank_starts = comm.bcast(box_to_user_rank_starts, root=0)
     box_to_user_rank_lists = comm.bcast(box_to_user_rank_lists, root=0)
 
-    local_tree.box_to_user_rank_starts = box_to_user_rank_starts
-    local_tree.box_to_user_rank_lists = box_to_user_rank_lists
-
     # }}}
+
+    local_sources = local_sources_and_lists.particles.get(queue=queue)
+    local_targets = local_targets_and_lists.particles.get(queue=queue)
+
+    local_tree = LocalTree(
+        sources_are_targets=global_tree.sources_are_targets,
+        sources_have_extent=global_tree.sources_have_extent,
+        targets_have_extent=global_tree.targets_have_extent,
+
+        particle_id_dtype=global_tree.particle_id_dtype,
+        box_id_dtype=global_tree.box_id_dtype,
+        coord_dtype=global_tree.coord_dtype,
+        box_level_dtype=global_tree.box_level_dtype,
+
+        root_extent=global_tree.root_extent,
+        stick_out_factor=global_tree.stick_out_factor,
+        extent_norm=global_tree.extent_norm,
+
+        bounding_box=global_tree.bounding_box,
+        level_start_box_nrs=global_tree.level_start_box_nrs,
+        level_start_box_nrs_dev=global_tree.level_start_box_nrs_dev,
+
+        sources=local_sources,
+        targets=local_targets,
+        source_radii=(local_sources_and_lists.particle_radii.get(queue=queue)
+                if global_tree.sources_have_extent else None),
+        target_radii=(local_targets_and_lists.particle_radii.get(queue=queue)
+                if global_tree.targets_have_extent else None),
+
+        box_source_starts=(
+            local_sources_and_lists.box_particle_starts.get(queue=queue)),
+        box_source_counts_nonchild=(
+            local_sources_and_lists.box_particle_counts_nonchild.get(queue=queue)),
+        box_source_counts_cumul=(
+            local_sources_and_lists.box_particle_counts_cumul.get(queue=queue)),
+        box_target_starts=(
+            local_targets_and_lists.box_particle_starts.get(queue=queue)),
+        box_target_counts_nonchild=(
+            local_targets_and_lists.box_particle_counts_nonchild.get(queue=queue)),
+        box_target_counts_cumul=(
+            local_targets_and_lists.box_particle_counts_cumul.get(queue=queue)),
+
+        box_parent_ids=global_tree.box_parent_ids,
+        box_child_ids=global_tree.box_child_ids,
+        box_centers=global_tree.box_centers,
+        box_levels=global_tree.box_levels,
+        box_flags=global_tree.box_flags,
+
+        user_source_ids=None,
+        sorted_target_ids=None,
+
+        _is_pruned=global_tree._is_pruned,
+
+        responsible_boxes_list=responsible_boxes_list,
+        ancestor_mask=box_masks.ancestor_boxes.get(),
+        box_to_user_rank_starts=box_to_user_rank_starts,
+        box_to_user_rank_lists=box_to_user_rank_lists,
+
+        _dimensions=global_tree.dimensions,
+        _ntargets=local_targets[0].shape[0],
+        _nsources=local_sources[0].shape[0]
+    )
 
     local_tree = local_tree.to_host_device_array(queue)
     local_tree.with_queue(None)
