@@ -135,6 +135,11 @@ class LocalTreeGeneratorCodeContainer:
             )
         )
 
+    @memoize_method
+    def mask_compressor_kernel(self):
+        from boxtree.tools import MaskCompressorKernel
+        return MaskCompressorKernel(self.cl_context)
+
 
 @dataclass
 class LocalParticlesAndLists:
@@ -269,6 +274,8 @@ class LocalTree(Tree):
 def generate_local_tree(queue, global_traversal, responsible_boxes_list, comm):
     """Generate the local tree for the current rank.
 
+    This is an MPI-collective routine on *comm*.
+
     :arg queue: a :class:`pyopencl.CommandQueue` object.
     :arg global_traversal: Global :class:`boxtree.traversal.FMMTraversalInfo` object
         on host memory.
@@ -338,11 +345,10 @@ def generate_local_tree(queue, global_traversal, responsible_boxes_list, comm):
         multipole_src_boxes_all_ranks = cl.array.to_device(
             queue, multipole_src_boxes_all_ranks)
 
-        from boxtree.tools import MaskCompressorKernel
-        matcompr = MaskCompressorKernel(queue.context)
         (box_to_user_rank_starts, box_to_user_rank_lists, evt) = \
-            matcompr(queue, multipole_src_boxes_all_ranks.transpose(),
-                     list_dtype=np.int32)
+            code.mask_compressor_kernel()(
+                queue, multipole_src_boxes_all_ranks.transpose(),
+                list_dtype=np.int32)
 
         cl.wait_for_events([evt])
 
