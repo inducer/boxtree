@@ -149,9 +149,9 @@ def refined_and_coarsened(tob, refine_flags=None, coarsen_flags=None):
     refine_parents_per_child[:] = refine_parents.reshape(-1)
     refine_parents_per_child = refine_parents_per_child.reshape(-1)
 
-    box_parents = resized_array(tob.box_parents, nboxes_new)
+    box_parents = resized_array(tob.box_parent_ids, nboxes_new)
     box_centers = resized_array(tob.box_centers, nboxes_new)
-    box_children = resized_array(tob.box_children, nboxes_new)
+    box_children = resized_array(tob.box_child_ids, nboxes_new)
     box_levels = resized_array(tob.box_levels, nboxes_new)
 
     # new boxes are appended at the end, so coarsen_flags are still meaningful
@@ -164,7 +164,7 @@ def refined_and_coarsened(tob, refine_flags=None, coarsen_flags=None):
     for i in range(2**tob.dim):
         children_i = box_children[i, refine_parents]
         offsets = (
-                tob.root_box_extent
+                tob.root_extent
                 * vec_of_signs(tob.dim, i).reshape(-1, 1)
                 * (1/2**(1+box_levels[children_i])))
         box_centers[:, children_i] = (
@@ -178,8 +178,8 @@ def refined_and_coarsened(tob, refine_flags=None, coarsen_flags=None):
     if coarsen_sources:
         # FIXME
         raise NotImplementedError
-        coarsen_parents = tob.box_parents[coarsen_sources]
-        coarsen_peers = tob.box_children[:, coarsen_parents]
+        coarsen_parents = tob.box_parent_ids[coarsen_sources]
+        coarsen_peers = tob.box_child_ids[:, coarsen_parents]
         coarsen_peer_is_leaf = tob.get_leaf_flags()[coarsen_peers]
         coarsen_exec_flags = np.all(coarsen_peer_is_leaf, axis=0)
 
@@ -197,9 +197,9 @@ def refined_and_coarsened(tob, refine_flags=None, coarsen_flags=None):
 
     return TreeOfBoxes(
             box_centers=box_centers,
-            root_box_extent=tob.root_box_extent,
-            box_parents=box_parents,
-            box_children=box_children,
+            root_extent=tob.root_extent,
+            box_parent_ids=box_parents,
+            box_child_ids=box_children,
             box_levels=box_levels)
 
 
@@ -217,9 +217,9 @@ def make_tob_root(dim, bbox):
     from pytools import single_valued
     return TreeOfBoxes(
             box_centers=center.reshape(dim, 1),
-            root_box_extent=single_valued(extents, np.allclose),
-            box_parents=np.array([0], np.intp),
-            box_children=np.array([0] * 2**dim, np.intp).reshape(2**dim, 1),
+            root_extent=single_valued(extents, np.allclose),
+            box_parent_ids=np.array([0], np.intp),
+            box_child_ids=np.array([0] * 2**dim, np.intp).reshape(2**dim, 1),
             box_levels=np.array([0]),
             )
 

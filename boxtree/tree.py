@@ -115,24 +115,30 @@ class box_flags_enum(Enum):  # noqa
 # {{{ tree of boxes
 
 class TreeOfBoxes:
-    """Tree of boxes are lightweight trees handled with numpy, intended for mesh
-    adaptivity.
+    """A quad/octree tree of abstract boxes. Lightweight trees handled with
+    :mod:`numpy`, intended for mesh adaptivity.
 
-    .. attribute:: box_centers
+    .. attribute:: dimensions
 
-        dim-by-n :mod:`numpy` array of the centers of the boxes.
+    .. attribute:: nlevels
 
-    .. attribute:: root_box_extent
+    .. attribute:: nboxes
+
+    .. attribute:: root_extent
 
         (Scalar) extent of the root box.
 
-    .. attribute:: box_parents
+    .. attribute:: box_centers
+
+        dim-by-nboxes :mod:`numpy` array of the centers of the boxes.
+
+    .. attribute:: box_parent_ids
 
         :mod:`numpy` vector of parent box ids.
 
-    .. attribute:: box_children
+    .. attribute:: box_child_ids
 
-        (2**dim)-by-n :mod:`numpy` array of children box ids.
+        (2**dim)-by-nboxes :mod:`numpy` array of children box ids.
 
     .. attribute:: box_levels
 
@@ -147,25 +153,27 @@ class TreeOfBoxes:
     .. automethod:: leaf_boxes
     """
     def __init__(
-            self, box_centers, root_box_extent,
-            box_parents, box_children, box_levels):
+            self, box_centers, root_extent,
+            box_parent_ids, box_child_ids, box_levels):
         self.box_centers = box_centers
-        self.root_box_extent = root_box_extent
-        self.box_parents = box_parents
-        self.box_children = box_children
+        self.root_extent = root_extent
+        self.box_parent_ids = box_parent_ids
+        self.box_child_ids = box_child_ids
         self.box_levels = box_levels
+
+        lows = self.box_centers[:, 0] - 0.5*self.root_extent
+        highs = lows + self.root_extent
+        self.bounding_box = [lows, highs]
+
+        self.dim = self.box_centers.shape[0]
 
     def copy(self):
         return TreeOfBoxes(
                 box_centers=self.box_centers.copy(),
-                root_box_extent=self.root_box_extent.copy(),
-                box_parents=self.box_parents.copy(),
-                box_children=self.box_children.copy(),
+                root_extent=self.root_extent.copy(),
+                box_parent_ids=self.box_parent_ids.copy(),
+                box_child_ids=self.box_child_ids.copy(),
                 box_levels=self.box_levels.copy())
-
-    @property
-    def dim(self):
-        return self.box_centers.shape[0]
 
     # {{{ dummy interface for TreePlotter
 
@@ -173,15 +181,9 @@ class TreeOfBoxes:
     def dimensions(self):
         return self.dim
 
-    @property
-    def bounding_box(self):
-        lows = self.box_centers[:, 0] - 0.5*self.root_box_extent
-        highs = lows + self.root_box_extent
-        return [lows, highs]
-
     def get_box_size(self, ibox):
         lev = self.box_levels[ibox]
-        box_size = self.root_box_extent * 0.5**lev
+        box_size = self.root_extent * 0.5**lev
         return box_size
 
     def get_box_extent(self, ibox):
@@ -202,7 +204,7 @@ class TreeOfBoxes:
 
     def get_leaf_flags(self):
         # box_id -> whether the box is leaf
-        return np.all(self.box_children == 0, axis=0)
+        return np.all(self.box_child_ids == 0, axis=0)
 
     def leaf_boxes(self):
         boxes = np.arange(self.nboxes)
@@ -214,7 +216,7 @@ class TreeOfBoxes:
 
 # {{{ tree data structure
 
-class Tree(DeviceDataRecord):
+class Tree(DeviceDataRecord, TreeOfBoxes):
     r"""A quad/octree consisting of particles sorted into a hierarchy of boxes.
     Optionally, particles may be designated 'sources' and 'targets'. They
     may also be assigned radii which restrict the minimum size of the box
@@ -467,6 +469,9 @@ class Tree(DeviceDataRecord):
 
     .. automethod:: get
     """
+
+    def __init__(self, *args, **kwargs):
+        super(DeviceDataRecord, self).__init__(*args, **kwargs)
 
     @property
     def dimensions(self):
