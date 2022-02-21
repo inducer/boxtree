@@ -5,6 +5,16 @@ Building Trees
 --------------
 
 .. autoclass:: TreeBuilder
+
+Manipulating Trees of Boxes
+---------------------------
+
+.. currentmodule:: boxtree.tree_build
+
+.. autofunction:: refined
+.. autofunction:: uniformly_refined
+.. autofunction:: coarsened
+.. autofunction:: refined_and_coarsened
 """
 
 __copyright__ = "Copyright (C) 2012 Andreas Kloeckner"
@@ -77,23 +87,28 @@ def vec_of_signs(dim, i):
 # {{{ refine/coarsen a tree of boxes
 
 def refined(tob, refine_flags):
+    """Make a refined copy of `tob` where boxes flagged with `refine_flags` are
+    refined.
     """
-    Make a refined copy of tob.
-    """
-    return refine_and_coarsened(tob, refine_flags, None)
+    return refined_and_coarsened(tob, refine_flags, None)
 
 
 def uniformly_refined(tob):
+    """Make a uniformly refined copy of `tob`.
+    """
     refine_flags = np.zeros(tob.nboxes, bool)
     refine_flags[tob.get_leaf_flags()] = 1
     return refined(tob, refine_flags)
 
 
 def coarsened(tob, coarsen_flags):
-    return refine_and_coarsened(tob, None, coarsen_flags)
+    """Make a coarsened copy of `tob` where boxes flagged with `coarsen_flags`
+    are coarsened.
+    """
+    return refined_and_coarsened(tob, None, coarsen_flags)
 
 
-def refine_and_coarsened(tob, refine_flags=None, coarsen_flags=None):
+def refined_and_coarsened(tob, refine_flags=None, coarsen_flags=None):
     """Make a refined/coarsened copy. When children of the same parent box
     are marked differently, the refinement flag takes priority.
 

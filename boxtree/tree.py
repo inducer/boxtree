@@ -28,10 +28,11 @@ Tree data structure
 
 .. autoclass:: Tree
 
+.. currentmodule:: boxtree.tree
+.. autoclass:: TreeOfBoxes
+
 Tree with linked point sources
 ------------------------------
-
-.. currentmodule:: boxtree.tree
 
 .. autoclass:: TreeWithLinkedPointSources
 
@@ -114,12 +115,35 @@ class box_flags_enum(Enum):  # noqa
 # {{{ tree of boxes
 
 class TreeOfBoxes:
-    """
-    Tree of boxes are lightweight trees handled with numpy, intended for mesh
+    """Tree of boxes are lightweight trees handled with numpy, intended for mesh
     adaptivity.
+
+    .. attribute:: box_centers
+
+        dim-by-n :mod:`numpy` array of the centers of the boxes.
+
+    .. attribute:: root_box_extent
+
+        (Scalar) extent of the root box.
+
+    .. attribute:: box_parents
+
+        :mod:`numpy` vector of parent box ids.
+
+    .. attribute:: box_children
+
+        (2**dim)-by-n :mod:`numpy` array of children box ids.
+
+    .. attribute:: box_levels
+
+        :mod:`numpy` vector of box levels.
+
     .. automethod:: __init__
+
     .. automethod:: copy
+
     .. automethod:: get_leaf_flags
+
     .. automethod:: leaf_boxes
     """
     def __init__(
