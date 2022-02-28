@@ -379,11 +379,11 @@ class Tree(DeviceDataRecord):
 
     @property
     def nsources(self):
-        return len(self.user_source_ids)
+        return len(self.sources[0])
 
     @property
     def ntargets(self):
-        return len(self.sorted_target_ids)
+        return len(self.targets[0])
 
     @property
     def nlevels(self):

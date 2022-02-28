@@ -254,22 +254,6 @@ class LocalTree(Tree):
         propagated from an ancestor) List 2.
     """
 
-    @property
-    def nboxes(self):
-        return self.box_source_starts.shape[0]
-
-    @property
-    def nsources(self):
-        return self._nsources
-
-    @property
-    def ntargets(self):
-        return self._ntargets
-
-    @property
-    def dimensions(self):
-        return self._dimensions
-
 
 def generate_local_tree(queue, global_traversal, responsible_boxes_list, comm):
     """Generate the local tree for the current rank.
@@ -417,11 +401,7 @@ def generate_local_tree(queue, global_traversal, responsible_boxes_list, comm):
         responsible_boxes_list=responsible_boxes_list,
         ancestor_mask=box_masks.ancestor_boxes.get(),
         box_to_user_rank_starts=box_to_user_rank_starts,
-        box_to_user_rank_lists=box_to_user_rank_lists,
-
-        _dimensions=global_tree.dimensions,
-        _ntargets=local_targets[0].shape[0],
-        _nsources=local_sources[0].shape[0]
+        box_to_user_rank_lists=box_to_user_rank_lists
     )
 
     local_tree = local_tree.to_host_device_array(queue)
