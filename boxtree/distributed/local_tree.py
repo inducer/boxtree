@@ -399,6 +399,7 @@ def generate_local_tree(queue, global_traversal, responsible_boxes_list, comm):
         _is_pruned=global_tree._is_pruned,
 
         responsible_boxes_list=responsible_boxes_list,
+        responsible_boxes_mask=box_masks.responsible_boxes.get(),
         ancestor_mask=box_masks.ancestor_boxes.get(),
         box_to_user_rank_starts=box_to_user_rank_starts,
         box_to_user_rank_lists=box_to_user_rank_lists

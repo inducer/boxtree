@@ -86,52 +86,15 @@ def generate_local_travs(
                             local_tree.box_target_counts_cumul.device,
                             local_tree.box_flags.device)
 
-    # Generate local source flags
-    local_box_flags = \
-        local_tree.box_flags.device & (255 - box_flags_enum.HAS_OWN_SOURCES)
-    local_box_flags = local_box_flags & (255 - box_flags_enum.HAS_CHILD_SOURCES)
-
-    modify_own_sources_knl = cl.elementwise.ElementwiseKernel(
-        queue.context,
-        Template(r"""
-            __global ${box_id_t} *responsible_box_list,
-            __global ${box_flag_t} *box_flags
-        """).render(
-            box_id_t=dtype_to_ctype(local_tree.box_id_dtype),
-            box_flag_t=box_flag_t
-        ),
-        Template(r"""
-            box_flags[responsible_box_list[i]] |= ${HAS_OWN_SOURCES};
-        """).render(
-            HAS_OWN_SOURCES=(
-                "(" + box_flag_t + ") " + str(box_flags_enum.HAS_OWN_SOURCES))
-            )
-        )
-
-    modify_child_sources_knl = cl.elementwise.ElementwiseKernel(
-        queue.context,
-        Template("""
-            __global char *ancestor_box_mask,
-            __global ${box_flag_t} *box_flags
-        """).render(
-            box_flag_t=box_flag_t
-        ),
-        Template("""
-            if(ancestor_box_mask[i]) box_flags[i] |= ${HAS_CHILD_SOURCES};
-        """).render(
-            HAS_CHILD_SOURCES=(
-                "(" + box_flag_t + ") " + str(box_flags_enum.HAS_CHILD_SOURCES)
-            )
-        )
-    )
-
-    modify_own_sources_knl(local_tree.responsible_boxes_list.device, local_box_flags)
-    modify_child_sources_knl(local_tree.ancestor_mask.device, local_box_flags)
-
+    # We need `source_boxes_mask` and `source_parent_boxes_mask` here to restrict the
+    # multipole formation and upward propagation within the rank's responsible boxes
+    # region. Had there not been such restrictions, some sources might be distributed
+    # to more than 1 rank and counted multiple times.
     d_local_trav, _ = traversal_builder(
         queue, local_tree.to_device(queue),
         box_bounding_box=box_bounding_box,
-        local_box_flags=local_box_flags
+        source_boxes_mask=local_tree.responsible_boxes_mask.device,
+        source_parent_boxes_mask=local_tree.ancestor_mask.device
     )
 
     if merge_close_lists and local_tree.targets_have_extent:
