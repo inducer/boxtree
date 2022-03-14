@@ -21,7 +21,7 @@ jobs:
         -   name: "Main Script"
             run: |
                 curl -L -O https://gitlab.tiker.net/inducer/ci-support/raw/main/prepare-and-run-flake8.sh
-                . ./prepare-and-run-flake8.sh boxtree test examples
+                . ./prepare-and-run-flake8.sh "$(basename $GITHUB_REPOSITORY)" test examples
 
     pylint:
         name: Pylint
@@ -30,11 +30,9 @@ jobs:
         -   uses: actions/checkout@v2
         -   name: "Main Script"
             run: |
-                sed 's/python=3/python=3.7/' .test-conda-env-py3.yml > .test-conda-env.yml
-                CONDA_ENVIRONMENT=.test-conda-env.yml
                 USE_CONDA_BUILD=1
                 curl -L -O https://gitlab.tiker.net/inducer/ci-support/raw/main/prepare-and-run-pylint.sh
-                . ./prepare-and-run-pylint.sh boxtree test/test_*.py
+                . ./prepare-and-run-pylint.sh "$(basename $GITHUB_REPOSITORY)" test/test_*.py
 
     docs:
         name: Documentation
@@ -47,7 +45,6 @@ jobs:
                 python-version: '3.x'
         -   name: "Main Script"
             run: |
-                CONDA_ENVIRONMENT=.test-conda-env-py3.yml
                 curl -L -O https://tiker.net/ci-support-v0
                 . ci-support-v0
                 build_py_project_in_conda_env
@@ -60,7 +57,6 @@ jobs:
         -   uses: actions/checkout@v2
         -   name: "Main Script"
             run: |
-                CONDA_ENVIRONMENT=.test-conda-env-py3.yml
                 export MPLBACKEND=Agg
                 curl -L -O https://gitlab.tiker.net/inducer/ci-support/raw/main/build-and-test-py-project-within-miniconda.sh
                 . ./build-and-test-py-project-within-miniconda.sh
@@ -72,7 +68,6 @@ jobs:
         -   uses: actions/checkout@v2
         -   name: "Main Script"
             run: |
-                CONDA_ENVIRONMENT=.test-conda-env-py3.yml
                 curl -L -O https://gitlab.tiker.net/inducer/ci-support/raw/main/build-py-project-within-miniconda.sh
                 . ./build-py-project-within-miniconda.sh
                 curl -L -O https://gitlab.tiker.net/inducer/ci-support/raw/main/run-examples.sh
