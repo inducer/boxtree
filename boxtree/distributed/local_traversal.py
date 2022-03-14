@@ -22,11 +22,8 @@ THE SOFTWARE.
 """
 
 import time
-from pyopencl.tools import dtype_to_ctype
-import pyopencl as cl
-from mako.template import Template
-
 import logging
+
 logger = logging.getLogger(__name__)
 
 
@@ -47,44 +44,6 @@ def generate_local_travs(
     start_time = time.time()
 
     local_tree.with_queue(queue)
-
-    # TODO: Maybe move the logic here to local tree construction?
-    # Modify box flags for targets
-    from boxtree import box_flags_enum
-    box_flag_t = dtype_to_ctype(box_flags_enum.dtype)
-    modify_target_flags_knl = cl.elementwise.ElementwiseKernel(
-        queue.context,
-        Template("""
-            __global ${particle_id_t} *box_target_counts_nonchild,
-            __global ${particle_id_t} *box_target_counts_cumul,
-            __global ${box_flag_t} *box_flags
-        """).render(
-            particle_id_t=dtype_to_ctype(local_tree.particle_id_dtype),
-            box_flag_t=box_flag_t
-        ),
-        Template(r"""
-            // reset HAS_OWN_TARGETS and HAS_CHILD_TARGETS bits in the flag of each
-            // box
-            box_flags[i] &= (~${HAS_OWN_TARGETS});
-            box_flags[i] &= (~${HAS_CHILD_TARGETS});
-
-            // rebuild HAS_OWN_TARGETS and HAS_CHILD_TARGETS bits
-            if(box_target_counts_nonchild[i]) box_flags[i] |= ${HAS_OWN_TARGETS};
-            if(box_target_counts_nonchild[i] < box_target_counts_cumul[i])
-                box_flags[i] |= ${HAS_CHILD_TARGETS};
-        """).render(
-            HAS_OWN_TARGETS=(
-                "(" + box_flag_t + ") " + str(box_flags_enum.HAS_OWN_TARGETS)
-            ),
-            HAS_CHILD_TARGETS=(
-                "(" + box_flag_t + ") " + str(box_flags_enum.HAS_CHILD_TARGETS)
-            )
-        )
-    )
-
-    modify_target_flags_knl(local_tree.box_target_counts_nonchild.device,
-                            local_tree.box_target_counts_cumul.device,
-                            local_tree.box_flags.device)
 
     # We need `source_boxes_mask` and `source_parent_boxes_mask` here to restrict the
     # multipole formation and upward propagation within the rank's responsible boxes

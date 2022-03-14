@@ -140,6 +140,41 @@ class LocalTreeGeneratorCodeContainer:
         from boxtree.tools import MaskCompressorKernel
         return MaskCompressorKernel(self.cl_context)
 
+    @memoize_method
+    def modify_target_flags_kernel(self):
+        from boxtree import box_flags_enum
+        box_flag_t = dtype_to_ctype(box_flags_enum.dtype)
+
+        return cl.elementwise.ElementwiseKernel(
+            self.cl_context,
+            Template("""
+                __global ${particle_id_t} *box_target_counts_nonchild,
+                __global ${particle_id_t} *box_target_counts_cumul,
+                __global ${box_flag_t} *box_flags
+            """).render(
+                particle_id_t=dtype_to_ctype(self.particle_id_dtype),
+                box_flag_t=box_flag_t
+            ),
+            Template(r"""
+                // reset HAS_OWN_TARGETS and HAS_CHILD_TARGETS bits in the flag of
+                // each box
+                box_flags[i] &= (~${HAS_OWN_TARGETS});
+                box_flags[i] &= (~${HAS_CHILD_TARGETS});
+
+                // rebuild HAS_OWN_TARGETS and HAS_CHILD_TARGETS bits
+                if(box_target_counts_nonchild[i]) box_flags[i] |= ${HAS_OWN_TARGETS};
+                if(box_target_counts_nonchild[i] < box_target_counts_cumul[i])
+                    box_flags[i] |= ${HAS_CHILD_TARGETS};
+            """).render(
+                HAS_OWN_TARGETS=(
+                    "(" + box_flag_t + ") " + str(box_flags_enum.HAS_OWN_TARGETS)
+                ),
+                HAS_CHILD_TARGETS=(
+                    "(" + box_flag_t + ") " + str(box_flags_enum.HAS_CHILD_TARGETS)
+                )
+            )
+        )
+
 
 @dataclass
 class LocalParticlesAndLists:
@@ -346,6 +381,22 @@ def generate_local_tree(queue, global_traversal, responsible_boxes_list, comm):
 
     # }}}
 
+    # {{{ Reconstruct the target box flags
+
+    # Note: We do not change the source box flags despite the local tree may only
+    # contain a subset of sources. This is because evaluating target potentials in
+    # the responsible boxes of the current rank may depend on the multipole
+    # expansions formed by souces in other ranks. Modifying the source box flags
+    # could result in incomplete interaction lists.
+
+    local_box_flags = global_tree_dev.box_flags.copy(queue=queue)
+    code.modify_target_flags_kernel()(
+        local_targets_and_lists.box_particle_counts_nonchild,
+        local_targets_and_lists.box_particle_counts_cumul,
+        local_box_flags)
+
+    # }}}
+
     local_sources = local_sources_and_lists.particles.get(queue=queue)
     local_targets = local_targets_and_lists.particles.get(queue=queue)
 
@@ -391,7 +442,7 @@ def generate_local_tree(queue, global_traversal, responsible_boxes_list, comm):
         box_child_ids=global_tree.box_child_ids,
         box_centers=global_tree.box_centers,
         box_levels=global_tree.box_levels,
-        box_flags=global_tree.box_flags,
+        box_flags=local_box_flags.get(queue=queue),
 
         user_source_ids=None,
         sorted_target_ids=None,
