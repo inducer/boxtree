@@ -215,49 +215,47 @@ def make_tob_root(dim, bbox):
     extents = np.array(
         [(bbox[1][iaxis] - bbox[0][iaxis]) for iaxis in range(dim)])
     from pytools import single_valued
+    parents = np.array([0], np.intp)
+    parents[0] = -1  # root has no parent
     return TreeOfBoxes(
             box_centers=center.reshape(dim, 1),
             root_extent=single_valued(extents, np.allclose),
-            box_parent_ids=np.array([0], np.intp),
+            box_parent_ids=parents,
             box_child_ids=np.array([0] * 2**dim, np.intp).reshape(2**dim, 1),
             box_levels=np.array([0]),
             )
 
 
-def distribute_quadrature_rule(tob, quad_rule):
-    """Generate quadrature nodes (`dim x nnodes`) and weights. Within each
-    leaf box, nodes are in lexicographic order, where the last axis varies
-    fastest. For example, `[[0, 0, 1, 1], [0, 1, 0, 1]]`.
+def make_mesh_from_leaves(tob):
+    """Make a :mod:`meshmode` mesh from the leaf boxes.
 
     :arg tob: a :class:`TreeOfBoxes`.
-    :arg quad_rule: a :class:`modepy.Quadrature`.
     """
-    x, w = quad_rule.nodes, quad_rule.weights  # nodes in [-1, 1]
-    n_box_nodes = len(x)**tob.dim
-    box_nodes = np.array(np.meshgrid(*((x,) * tob.dim), indexing="ij")
-                         ).reshape([tob.dim, -1])
-    if tob.dim == 1:
-        box_weights = w
-    elif tob.dim == 2:
-        box_weights = w[:, None] @ w[None, :]
-    elif tob.dim == 3:
-        box_weights = (w[:, None] @ w[None, :]).reshape(-1)[:, None] @ w[None, :]
-    else:
-        raise ValueError
-    box_weights = box_weights.reshape(-1)
     lfboxes = tob.leaf_boxes()
+    lfcenters = tob.box_centers[:, lfboxes]
+    lflevels = tob.box_levels[lfboxes]
+    lfradii = tob.root_extent / (2**lflevels)
 
-    nodes = np.tile(box_nodes, (1, len(lfboxes)))
-    box_shifts = np.repeat(
-        tob.box_centers[:, lfboxes], n_box_nodes, axis=1)
-    box_scales = np.repeat(
-        tob.get_box_size(lfboxes) / 2, n_box_nodes)
-    nodes = nodes * box_scales[None, :] + box_shifts
+    # use tensor product nodes ordering
+    import modepy.nodes as nd
+    cell_nodes_1d = np.array([-1, 1])
+    cell_nodes = nd.tensor_product_nodes(tob.dim, cell_nodes_1d)
 
-    weights = np.tile(box_weights, len(lfboxes))
-    weights = weights * box_scales**tob.dim
+    lfvertices = (
+        np.repeat(lfcenters, 2**tob.dim, axis=1)
+        + np.repeat(lfradii, 2**tob.dim) * np.tile(cell_nodes, (1, len(lfboxes)))
+    )
 
-    return nodes, weights
+    from meshmode.mesh import Mesh, TensorProductElementGroup
+    from meshmode.mesh.generation import make_group_from_vertices
+    group = make_group_from_vertices(
+        lfvertices,
+        np.arange(len(lfboxes) * 2**tob.dim, dtype=np.int32).reshape([tob.dim, -1]),
+        1,
+        group_cls=TensorProductElementGroup,
+        unit_nodes=None)
+    return Mesh(vertices=lfvertices, groups=[group])
+
 
 # }}}
 

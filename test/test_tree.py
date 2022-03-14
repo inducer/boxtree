@@ -1129,17 +1129,18 @@ def test_max_levels_error(ctx_factory):
 @pytest.mark.parametrize("nlevels", [1, 4])
 def test_uniform_tree_of_boxes(dim, deg, nlevels):
     from boxtree.tree_build import (
-        make_tob_root, uniformly_refined, distribute_quadrature_rule)
+        make_tob_root, uniformly_refined, make_mesh_from_leaves)
     lower_bounds = np.random.rand(dim)
     radius = np.random.rand()
     upper_bounds = lower_bounds + radius
     tob = make_tob_root(dim=dim, bbox=[lower_bounds, upper_bounds])
 
-    n_levels = 1
-    for _ in range(n_levels):
+    for _ in range(nlevels):
         tob = uniformly_refined(tob)
 
     import modepy as mp
+    mesh = make_mesh_from_leaves(tob)
+
     quad = mp.LegendreGaussQuadrature(deg)
     x, q = distribute_quadrature_rule(tob, quad)
 
