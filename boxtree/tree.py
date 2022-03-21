@@ -366,12 +366,10 @@ class Tree(DeviceDataRecord):
     .. rubric:: Particle-adaptive box extents
     .. ------------------------------------------------------------------------
 
-    The attributes in this section are only available if the respective
-    particle type (source/target) has extents. These capture the maximum extent
-    of particles (including the particle's extents) inside of the box.  If the
-    box is empty, both *min* and *max* will reflect the box center.  The
-    purpose of this information is to reduce the cost of some interactions
-    through knowledge that some boxes are partially empty.
+    These attributes capture the maximum extent of particles (including the
+    particle's extents) inside of the box.  If the box is empty, both *min* and *max*
+    will reflect the box center.  The purpose of this information is to reduce the
+    cost of some interactions through knowledge that some boxes are partially empty.
     (See the *from_sep_smaller_crit* argument to the constructor of
     :class:`boxtree.traversal.FMMTraversalBuilder` for an example.)
 
