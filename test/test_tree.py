@@ -147,6 +147,24 @@ def run_build_test(builder, queue, dims, dtype, nparticles, do_plot,
         assert (extent_high <= tree.bounding_box[1] + scaled_tol).all(), (
                 ibox, extent_high, tree.bounding_box[1])
 
+        center = tree.box_centers[:, ibox]
+
+        for _, bbox_min, bbox_max in [
+                (
+                    "source",
+                    tree.box_source_bounding_box_min[:, ibox],
+                    tree.box_source_bounding_box_max[:, ibox]),
+                (
+                    "target",
+                    tree.box_target_bounding_box_min[:, ibox],
+                    tree.box_target_bounding_box_max[:, ibox]),
+                ]:
+            assert (extent_low - scaled_tol <= bbox_min).all()
+            assert (bbox_min - scaled_tol <= center).all()
+
+            assert (bbox_max - scaled_tol <= extent_high).all()
+            assert (center - scaled_tol <= bbox_max).all()
+
         start = tree.box_source_starts[ibox]
 
         box_children = tree.box_child_ids[:, ibox]
