@@ -1273,6 +1273,98 @@ BOX_INFO_KERNEL_TPL = ElementwiseTemplate(
 
 # }}}
 
+# {{{ box extents
+
+BOX_EXTENTS_FINDER_TEMPLATE = ElementwiseTemplate(
+    arguments="""//CL:mako//
+    box_id_t aligned_nboxes,
+    box_id_t *box_child_ids,
+    coord_t *box_centers,
+    particle_id_t *box_particle_starts,
+    particle_id_t *box_particle_counts_nonchild
+
+    %for iaxis in range(dimensions):
+        , const coord_t *particle_${AXIS_NAMES[iaxis]}
+    %endfor
+    ,
+    const coord_t *particle_radii,
+    int enable_radii,
+
+    coord_t *box_particle_bounding_box_min,
+    coord_t *box_particle_bounding_box_max,
+    """,
+
+    operation=TRAVERSAL_PREAMBLE_MAKO_DEFS + r"""//CL:mako//
+        box_id_t ibox = i;
+
+        ${load_center("box_center", "ibox")}
+
+        <% axis_names = AXIS_NAMES[:dimensions] %>
+
+        // incorporate own particles
+        %for iaxis, ax in enumerate(axis_names):
+            coord_t min_particle_${ax} = box_center.s${iaxis};
+            coord_t max_particle_${ax} = box_center.s${iaxis};
+        %endfor
+
+        particle_id_t start = box_particle_starts[ibox];
+        particle_id_t stop = start + box_particle_counts_nonchild[ibox];
+
+        for (particle_id_t iparticle = start; iparticle < stop; ++iparticle)
+        {
+            coord_t particle_rad = 0;
+            %if srcntgts_have_extent:
+                // If only one has extent, then the radius array for the other
+                // may well be a null pointer.
+                if (enable_radii)
+                    particle_rad = particle_radii[iparticle];
+            %endif
+
+            %for iaxis, ax in enumerate(axis_names):
+                coord_t particle_coord_${ax} = particle_${ax}[iparticle];
+
+                min_particle_${ax} = min(
+                    min_particle_${ax},
+                    particle_coord_${ax} - particle_rad);
+                max_particle_${ax} = max(
+                    max_particle_${ax},
+                    particle_coord_${ax} + particle_rad);
+            %endfor
+        }
+
+        // incorporate child boxes
+        for (int morton_nr = 0; morton_nr < ${2**dimensions}; ++morton_nr)
+        {
+            box_id_t child_id = box_child_ids[
+                    morton_nr * aligned_nboxes + ibox];
+
+            if (child_id == 0)
+                continue;
+
+            %for iaxis, ax in enumerate(axis_names):
+                min_particle_${ax} = min(
+                    min_particle_${ax},
+                    box_particle_bounding_box_min[
+                        ${iaxis} * aligned_nboxes + child_id]);
+                max_particle_${ax} = max(
+                    max_particle_${ax},
+                    box_particle_bounding_box_max[
+                        ${iaxis} * aligned_nboxes + child_id]);
+            %endfor
+        }
+
+        // write result
+        %for iaxis, ax in enumerate(axis_names):
+            box_particle_bounding_box_min[
+                ${iaxis} * aligned_nboxes + ibox] = min_particle_${ax};
+            box_particle_bounding_box_max[
+                ${iaxis} * aligned_nboxes + ibox] = max_particle_${ax};
+        %endfor
+    """,
+    name="find_box_extents")
+
+# }}}
+
 # {{{ kernel creation top-level
 
 
@@ -1704,6 +1796,25 @@ def get_tree_build_kernel_info(context, dimensions, coord_dtype,
 
     # }}}
 
+    # {{{ box extent
+
+    box_extents_finder_kernel = BOX_EXTENTS_FINDER_TEMPLATE.build(context,
+        type_aliases=(
+            ("box_id_t", box_id_dtype),
+            ("coord_t", coord_dtype),
+            ("coord_vec_t", cl.cltypes.vec_types[
+                coord_dtype, dimensions]),
+            ("particle_id_t", particle_id_dtype),
+            ),
+        var_values=(
+            ("dimensions", dimensions),
+            ("AXIS_NAMES", AXIS_NAMES),
+            ("srcntgts_have_extent", srcntgts_extent_norm is not None),
+            ),
+    )
+
+    # }}}
+
     return _KernelInfo(
             particle_id_dtype=particle_id_dtype,
             box_id_dtype=box_id_dtype,
@@ -1724,6 +1835,7 @@ def get_tree_build_kernel_info(context, dimensions, coord_dtype,
             source_counter=source_counter,
             source_and_target_index_finder=source_and_target_index_finder,
             box_info_kernel=box_info_kernel,
+            box_extents_finder_kernel=box_extents_finder_kernel,
             )
 
 # }}}
