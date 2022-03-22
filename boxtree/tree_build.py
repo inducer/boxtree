@@ -1844,6 +1844,91 @@ class TreeBuilder:
         # }}}
 
         del box_has_children
+        wait_for = [evt]
+
+        # {{{ compute box bounding box
+
+        fin_debug("finding box extents")
+
+        box_source_bounding_box_min = cl.array.empty(
+                queue, (dimensions, aligned_nboxes),
+                dtype=coord_dtype)
+        box_source_bounding_box_max = cl.array.empty(
+                queue, (dimensions, aligned_nboxes),
+                dtype=coord_dtype)
+
+        if sources_are_targets:
+            box_target_bounding_box_min = box_source_bounding_box_min
+            box_target_bounding_box_max = box_source_bounding_box_max
+        else:
+            box_target_bounding_box_min = cl.array.empty(
+                    queue, (dimensions, aligned_nboxes),
+                    dtype=coord_dtype)
+            box_target_bounding_box_max = cl.array.empty(
+                    queue, (dimensions, aligned_nboxes),
+                    dtype=coord_dtype)
+
+        bogus_radii_array = cl.array.empty(queue, 1, dtype=coord_dtype)
+
+        # nlevels-1 is the highest valid level index
+        for level in range(nlevels-1, -1, -1):
+            start, stop = level_start_box_nrs[level:level+2]
+
+            for (skip, enable_radii, box_bounding_box_min, box_bounding_box_max,
+                    pstarts, pcounts, particle_radii, particles) in [
+                    (
+                        # never skip
+                        False,
+
+                        sources_have_extent,
+                        box_source_bounding_box_min,
+                        box_source_bounding_box_max,
+                        box_source_starts,
+                        box_source_counts_nonchild,
+                        source_radii if sources_have_extent else bogus_radii_array,
+                        sources),
+                    (
+                        # skip the 'target' round if sources and targets
+                        # are the same.
+                        sources_are_targets,
+
+                        targets_have_extent,
+                        box_target_bounding_box_min,
+                        box_target_bounding_box_max,
+                        box_target_starts,
+                        box_target_counts_nonchild,
+                        target_radii if targets_have_extent else bogus_radii_array,
+                        targets),
+                    ]:
+
+                if skip:
+                    continue
+
+                args = (
+                        (
+                            aligned_nboxes,
+                            box_child_ids,
+                            box_centers,
+                            pstarts, pcounts,)
+                        + tuple(particles)
+                        + (
+                            particle_radii,
+                            enable_radii,
+
+                            box_bounding_box_min,
+                            box_bounding_box_max))
+
+                evt = knl_info.box_extents_finder_kernel(
+                        *args,
+
+                        range=slice(start, stop),
+                        queue=queue, wait_for=wait_for)
+
+            wait_for = [evt]
+
+        del bogus_radii_array
+
+        # }}}
 
         # {{{ build output
 
@@ -1898,6 +1983,11 @@ class TreeBuilder:
 
                 user_source_ids=user_source_ids,
                 sorted_target_ids=sorted_target_ids,
+
+                box_source_bounding_box_min=box_source_bounding_box_min,
+                box_source_bounding_box_max=box_source_bounding_box_max,
+                box_target_bounding_box_min=box_target_bounding_box_min,
+                box_target_bounding_box_max=box_target_bounding_box_max,
 
                 _is_pruned=prune_empty_leaves,
 
