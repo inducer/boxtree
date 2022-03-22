@@ -246,6 +246,7 @@ def make_mesh_from_leaves(tob):
         + np.repeat(lfradii, 2**tob.dim) * np.tile(cell_nodes, (1, len(lfboxes)))
     )
 
+    # FIXME: purge redundant vertices
     from meshmode.mesh import Mesh, TensorProductElementGroup
     from meshmode.mesh.generation import make_group_from_vertices
     group = make_group_from_vertices(
