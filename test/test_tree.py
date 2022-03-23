@@ -1142,35 +1142,36 @@ def test_max_levels_error(ctx_factory):
 
 # {{{ test_tree_of_boxes
 
+
 @pytest.mark.parametrize("dim", [1, 2, 3])
-@pytest.mark.parametrize("deg", [0, 1, 2])
+@pytest.mark.parametrize("order", [1, 2, 3])
 @pytest.mark.parametrize("nlevels", [1, 4])
-def test_uniform_tree_of_boxes(dim, deg, nlevels):
-    from boxtree.tree_build import (
-        make_tob_root, uniformly_refined, make_mesh_from_leaves)
+def test_uniform_tree_of_boxes(ctx_factory, dim, order, nlevels):
+    from boxtree.tree_build import make_tob_root, uniformly_refined
     lower_bounds = np.random.rand(dim)
-    radius = np.random.rand()
+    radius = np.random.rand() + 0.1
     upper_bounds = lower_bounds + radius
     tob = make_tob_root(dim=dim, bbox=[lower_bounds, upper_bounds])
 
-    for _ in range(nlevels):
+    for _ in range(nlevels - 1):
         tob = uniformly_refined(tob)
 
-    import modepy as mp
-    mesh = make_mesh_from_leaves(tob)
+    from arraycontext import PyOpenCLArrayContext
+    queue = cl.CommandQueue(ctx_factory())
+    actx = PyOpenCLArrayContext(queue, force_device_scalars=True)
 
-    quad = mp.LegendreGaussQuadrature(deg)
-    x, q = distribute_quadrature_rule(tob, quad)
+    from boxtree.tree_build import make_global_leaf_quadrature
+    x, q = make_global_leaf_quadrature(actx, tob, order)
 
     # integrates 1 exactly
-    assert np.isclose(sum(q), radius**dim)
+    assert np.isclose(sum(q.get()), radius**dim)
 
 
 @pytest.mark.parametrize("dim", [1, 2, 3])
-@pytest.mark.parametrize("deg", [0, 1, 2, 3])
-def test_uniform_tree_of_boxes_convergence(dim, deg):
+@pytest.mark.parametrize("order", [1, 2, 3, 4])
+def test_uniform_tree_of_boxes_convergence(ctx_factory, dim, order):
     from boxtree.tree_build import (
-        make_tob_root, uniformly_refined, distribute_quadrature_rule)
+        make_tob_root, uniformly_refined, make_global_leaf_quadrature)
     radius = np.pi
     lower_bounds = np.zeros(dim) - radius/2
     upper_bounds = lower_bounds + radius
@@ -1193,10 +1194,14 @@ def test_uniform_tree_of_boxes_convergence(dim, deg):
     from pytools.convergence import EOCRecorder
     eoc_rec = EOCRecorder()
 
+    from arraycontext import PyOpenCLArrayContext
+    queue = cl.CommandQueue(ctx_factory())
+    actx = PyOpenCLArrayContext(queue, force_device_scalars=True)
+
     for _ in range(min_level, max_level + 1):
-        import modepy as mp
-        quad = mp.LegendreGaussQuadrature(deg)
-        x, q = distribute_quadrature_rule(tob, quad)
+        x, q = make_global_leaf_quadrature(actx, tob, order)
+        x, q = (np.array([xx.get() for xx in x]), q.get())
+
         inner = np.ones_like(q) * np.e
         for iaxis in range(dim):
             inner += (iaxis + 1) * 0.1 * x[iaxis]
@@ -1214,7 +1219,7 @@ def test_uniform_tree_of_boxes_convergence(dim, deg):
     if len(eoc_rec.history) > 1:
         # Gauss quadrature is exact up to degree 2q+1
         eps = 0.01
-        assert eoc_rec.order_estimate() >= 2*deg + 2 - eps
+        assert eoc_rec.order_estimate() >= 2*order + 2 - eps
     else:
         print(err)
         assert err < 1e-14

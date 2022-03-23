@@ -234,7 +234,7 @@ def make_mesh_from_leaves(tob):
     lfboxes = tob.leaf_boxes()
     lfcenters = tob.box_centers[:, lfboxes]
     lflevels = tob.box_levels[lfboxes]
-    lfradii = tob.root_extent / (2**lflevels)
+    lfradii = tob.root_extent / 2 / (2**lflevels)
 
     # use tensor product nodes ordering
     import modepy.nodes as nd
@@ -249,14 +249,43 @@ def make_mesh_from_leaves(tob):
     # FIXME: purge redundant vertices
     from meshmode.mesh import Mesh, TensorProductElementGroup
     from meshmode.mesh.generation import make_group_from_vertices
+
+    vertex_indices = np.arange(
+        len(lfboxes) * 2**tob.dim, dtype=np.int32).reshape([2**tob.dim, -1]).T
     group = make_group_from_vertices(
-        lfvertices,
-        np.arange(len(lfboxes) * 2**tob.dim, dtype=np.int32).reshape([tob.dim, -1]),
-        1,
+        lfvertices, vertex_indices, 1,
         group_cls=TensorProductElementGroup,
         unit_nodes=None)
+
     return Mesh(vertices=lfvertices, groups=[group])
 
+
+def make_global_leaf_quadrature(actx, tob, order):
+    from meshmode.discretization.poly_element import \
+        GaussLegendreTensorProductGroupFactory
+    group_factory = GaussLegendreTensorProductGroupFactory(order=order)
+
+    mesh = make_mesh_from_leaves(tob)
+
+    from meshmode.discretization import Discretization
+    discr = Discretization(actx, mesh, group_factory)
+
+    lflevels = tob.box_levels[tob.leaf_boxes()]
+    lfmeasures = (tob.root_extent / (2**lflevels))**tob.dim
+
+    from arraycontext import flatten
+    weights = flatten(discr.quad_weights(), actx).with_queue(actx.queue)
+    jacobians = cl.array.to_device(
+        actx.queue,
+        np.repeat(lfmeasures/(2**tob.dim), discr.groups[0].nunit_dofs))
+    q = weights * jacobians
+
+    from pytools.obj_array import make_obj_array
+    nodes = discr.nodes()
+    x = make_obj_array([flatten(coords, actx).with_queue(actx.queue)
+                        for coords in nodes])
+
+    return x, q
 
 # }}}
 
