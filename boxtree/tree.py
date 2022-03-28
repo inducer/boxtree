@@ -362,6 +362,40 @@ class Tree(DeviceDataRecord):
 
         A bitwise combination of :class:`box_flags_enum` constants.
 
+    .. ------------------------------------------------------------------------
+    .. rubric:: Particle-adaptive box extents
+    .. ------------------------------------------------------------------------
+
+    These attributes capture the maximum extent of particles (including the
+    particle's extents) inside of the box.  If the box is empty, both *min* and *max*
+    will reflect the box center.  The purpose of this information is to reduce the
+    cost of some interactions through knowledge that some boxes are partially empty.
+    (See the *from_sep_smaller_crit* argument to the constructor of
+    :class:`boxtree.traversal.FMMTraversalBuilder` for an example.)
+
+    .. note::
+
+        To obtain the overall, non-adaptive box extent, use
+        :attr:`boxtree.Tree.box_centers` along with :attr:`boxtree.Tree.box_levels`.
+
+    If they are not available, the corresponding attributes will be *None*.
+
+    .. attribute:: box_source_bounding_box_min
+
+        ``coordt_t [dimensions, aligned_nboxes]``
+
+    .. attribute:: box_source_bounding_box_max
+
+        ``coordt_t [dimensions, aligned_nboxes]``
+
+    .. attribute:: box_target_bounding_box_min
+
+        ``coordt_t [dimensions, aligned_nboxes]``
+
+    .. attribute:: box_target_bounding_box_max
+
+        ``coordt_t [dimensions, aligned_nboxes]``
+
     .. rubric:: Methods
 
     .. automethod:: get

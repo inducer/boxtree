@@ -447,6 +447,11 @@ def generate_local_tree(queue, global_traversal, responsible_boxes_list, comm):
         user_source_ids=None,
         sorted_target_ids=None,
 
+        box_source_bounding_box_min=global_tree.box_source_bounding_box_min,
+        box_source_bounding_box_max=global_tree.box_source_bounding_box_max,
+        box_target_bounding_box_min=global_tree.box_target_bounding_box_min,
+        box_target_bounding_box_max=global_tree.box_target_bounding_box_max,
+
         _is_pruned=global_tree._is_pruned,
 
         responsible_boxes_list=responsible_boxes_list,

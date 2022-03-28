@@ -222,13 +222,7 @@ class DistributedFMMRunner:
         # {{{ Compute traversal object on each rank
 
         from boxtree.distributed.local_traversal import generate_local_travs
-        local_trav = generate_local_travs(
-            queue, self.local_tree, traversal_builder,
-            box_bounding_box={
-                "min": global_trav.box_target_bounding_box_min,
-                "max": global_trav.box_target_bounding_box_max
-            }
-        )
+        local_trav = generate_local_travs(queue, self.local_tree, traversal_builder)
 
         # }}}
 

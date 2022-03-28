@@ -28,8 +28,7 @@ logger = logging.getLogger(__name__)
 
 
 def generate_local_travs(
-        queue, local_tree, traversal_builder, box_bounding_box=None,
-        merge_close_lists=False):
+        queue, local_tree, traversal_builder, merge_close_lists=False):
     """Generate local traversal from local tree.
 
     :arg queue: a :class:`pyopencl.CommandQueue` object.
@@ -51,7 +50,6 @@ def generate_local_travs(
     # to more than 1 rank and counted multiple times.
     d_local_trav, _ = traversal_builder(
         queue, local_tree.to_device(queue),
-        box_bounding_box=box_bounding_box,
         source_boxes_mask=local_tree.responsible_boxes_mask.device,
         source_parent_boxes_mask=local_tree.ancestor_mask.device
     )
