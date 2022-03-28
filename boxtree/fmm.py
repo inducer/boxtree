@@ -345,14 +345,16 @@ def drive_fmm(wrangler: ExpansionWranglerInterface, src_weight_vecs,
     :arg timing_data: Either *None*, or a :class:`dict` that is populated with
         timing information for the stages of the algorithm (in the form of
         :class:`~boxtree.timing.TimingResult`), if such information is available.
-    :arg global_src_idx_all_ranks: a :class:`list` of length ``nranks``, where the
-        i-th entry is a :class:`numpy.ndarray` representing the global indices of
-        sources in the local tree on rank *i*. Each entry can be returned from
-        *generate_local_tree*. This argument is significant only on the root rank.
-    :arg global_tgt_idx_all_ranks: a :class:`list` of length ``nranks``, where the
-        i-th entry is a :class:`numpy.ndarray` representing the global indices of
-        targets in the local tree on rank *i*. Each entry can be returned from
-        *generate_local_tree*. This argument is significant only on the root rank.
+    :arg global_src_idx_all_ranks: Only used in the distributed implementation. A
+        :class:`list` of length ``nranks``, where the i-th entry is a
+        :class:`numpy.ndarray` representing the global indices of sources in the
+        local tree on rank *i*. Each entry can be returned from
+        *generate_local_tree*. This argument is only significant on the root rank.
+    :arg global_tgt_idx_all_ranks: Only used in the distributed implementation. A
+        :class:`list` of length ``nranks``, where the i-th entry is a
+        :class:`numpy.ndarray` representing the global indices of targets in the
+        local tree on rank *i*. Each entry can be returned from
+        *generate_local_tree*. This argument is only significant on the root rank.
 
     :return: the potentials computed by *expansion_wrangler*. For the distributed
         implementation, the potentials are gathered and returned on the root rank;

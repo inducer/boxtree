@@ -90,7 +90,6 @@ Python 3 POCL Examples:
     reports:
       junit: test/pytest.xml
 
-
 Pylint:
   script:
   - export PY_EXE=python3
