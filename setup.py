@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 
 
 def main():
@@ -14,7 +13,7 @@ def main():
         name="boxtree",
         version=version_dict["VERSION_TEXT"],
         description="Quadtree/octree building in Python and OpenCL",
-        long_description=open("README.rst", "rt").read(),
+        long_description=open("README.rst").read(),
         author="Andreas Kloeckner",
         author_email="inform@tiker.net",
         license="MIT",

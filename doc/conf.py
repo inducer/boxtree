@@ -5,7 +5,7 @@ _conf_url = \
 with urlopen(_conf_url) as _inf:
     exec(compile(_inf.read(), _conf_url, "exec"), globals())
 
-copyright = u"2013-21, Andreas Kloeckner"
+copyright = "2013-21, Andreas Kloeckner"
 
 ver_dic = {}
 exec(compile(open("../boxtree/version.py").read(), "../boxtree/version.py", "exec"),
