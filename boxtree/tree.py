@@ -170,7 +170,7 @@ class Tree(DeviceDataRecord):
         Each box in the tree can be thought of as being surrounded by a
         fictitious box whose :math:`l^\infty` radius is `1 + stick_out_factor`
         larger. Particles with extent are allowed to extend inside (a) the
-        ficitious box or (b) a disk surrounding the fictious box, depending on
+        fictitious box or (b) a disk surrounding the fictitious box, depending on
         :attr:`extent_norm`.
 
     .. attribute:: extent_norm
@@ -589,7 +589,7 @@ def link_point_sources(queue, tree, point_source_starts, point_sources,
         original (extent-having) source number *isrc*. *isrc* is in :ref:`user
         source order <particle-orderings>`.
 
-        All the particles linked to *isrc* shoud fall within the :math:`l^\infty`
+        All the particles linked to *isrc* should fall within the :math:`l^\infty`
         'circle' around particle number *isrc* with the radius drawn from
         :attr:`boxtree.Tree.source_radii`.
 

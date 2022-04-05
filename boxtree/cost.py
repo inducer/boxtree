@@ -35,7 +35,7 @@ multipole expansion to a single target.
 parameter to compute the total cost of each step of FMM in each box. There is an
 :class:`AbstractFMMCostModel`, implemented by :class:`FMMCostModel`.
 
-:file:`examples/cost_model.py` demostrates how the calibration and evaluation
+:file:`examples/cost_model.py` demonstrates how the calibration and evaluation
 are performed.
 
 A similar module in *pytential* extends the functionality of his module to
@@ -67,15 +67,10 @@ from mako.template import Template
 from functools import partial
 from pymbolic import var, evaluate
 from pytools import memoize_method
-import sys
 
 Template = partial(Template, strict_undefined=True)
 
-if sys.version_info >= (3, 4):
-    from abc import ABC, abstractmethod
-else:
-    from abc import ABCMeta, abstractmethod
-    ABC = ABCMeta("ABC", (), {})
+from abc import ABC, abstractmethod
 
 
 # {{{ FMMTranslationCostModel
@@ -373,8 +368,9 @@ class AbstractFMMCostModel(ABC):
         :arg queue: a :class:`pyopencl.CommandQueue` object.
         :arg traversal: a :class:`boxtree.traversal.FMMTraversalInfo` object.
         :arg l2l_cost: a :class:`numpy.ndarray` or :class:`pyopencl.array.Array`
-            of shape (nlevels-1,), where the ith entry represents the cost of
-            tranlating local expansion from level i to level i+1.
+            of shape ``(nlevels-1,)``, where the :math:`i`th entry represents
+            the cost of translating local expansion from level :math:`i` to
+            level :math:`i+1`.
         :return: a :class:`float`, the overall cost of downward propagation.
 
         .. note:: This method returns a number instead of an array, because it is not
@@ -1195,7 +1191,7 @@ class FMMCostModel(AbstractFMMCostModel):
 
     # }}}
 
-    # {{{ propogate locals downward
+    # {{{ propagate locals downward
 
     @memoize_method
     def process_refine_locals_knl(self, context, box_id_dtype):

@@ -1298,7 +1298,7 @@ class FMMTraversalInfo(DeviceDataRecord):
 
     .. attribute:: nboxes
 
-        Number of boxe in the tree.
+        Number of boxes in the tree.
 
     .. attribute:: nlevels
 
