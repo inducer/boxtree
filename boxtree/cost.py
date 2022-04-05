@@ -67,15 +67,10 @@ from mako.template import Template
 from functools import partial
 from pymbolic import var, evaluate
 from pytools import memoize_method
-import sys
 
 Template = partial(Template, strict_undefined=True)
 
-if sys.version_info >= (3, 4):
-    from abc import ABC, abstractmethod
-else:
-    from abc import ABCMeta, abstractmethod
-    ABC = ABCMeta("ABC", (), {})
+from abc import ABC, abstractmethod
 
 
 # {{{ FMMTranslationCostModel
