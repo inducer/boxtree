@@ -1158,7 +1158,7 @@ def test_uniform_tree_of_boxes(ctx_factory, dim, order, nlevels):
 
     from arraycontext import PyOpenCLArrayContext
     queue = cl.CommandQueue(ctx_factory())
-    actx = PyOpenCLArrayContext(queue, force_device_scalars=True)
+    actx = PyOpenCLArrayContext(queue)
 
     from boxtree.tree_build import make_global_leaf_quadrature
     x, q = make_global_leaf_quadrature(actx, tob, order)
@@ -1196,7 +1196,7 @@ def test_uniform_tree_of_boxes_convergence(ctx_factory, dim, order):
 
     from arraycontext import PyOpenCLArrayContext
     queue = cl.CommandQueue(ctx_factory())
-    actx = PyOpenCLArrayContext(queue, force_device_scalars=True)
+    actx = PyOpenCLArrayContext(queue)
 
     for _ in range(min_level, max_level + 1):
         x, q = make_global_leaf_quadrature(actx, tob, order)
