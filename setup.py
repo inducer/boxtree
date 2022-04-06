@@ -2,7 +2,7 @@
 
 
 def main():
-    from setuptools import setup
+    from setuptools import setup, find_packages
 
     version_dict = {}
     version_filename = "boxtree/version.py"
@@ -34,7 +34,7 @@ def main():
             "Topic :: Software Development :: Libraries",
             "Topic :: Utilities",
         ],
-        packages=["boxtree"],
+        packages=find_packages(),
         python_requires="~=3.6",
         install_requires=[
             "pytools>=2018.4",

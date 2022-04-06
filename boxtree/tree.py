@@ -413,11 +413,11 @@ class Tree(DeviceDataRecord):
 
     @property
     def nsources(self):
-        return len(self.user_source_ids)
+        return len(self.sources[0])
 
     @property
     def ntargets(self):
-        return len(self.sorted_target_ids)
+        return len(self.targets[0])
 
     @property
     def nlevels(self):
@@ -493,6 +493,14 @@ class Tree(DeviceDataRecord):
         exclude_fields.add("level_start_box_nrs")
 
         return super().to_device(queue, frozenset(exclude_fields))
+
+    def to_host_device_array(self, queue, exclude_fields=frozenset()):
+        # level_start_box_nrs should remain in host memory
+        exclude_fields = set(exclude_fields)
+        exclude_fields.add("level_start_box_nrs")
+
+        return super(Tree, self).to_host_device_array(
+            queue, frozenset(exclude_fields))
 
 # }}}
 
