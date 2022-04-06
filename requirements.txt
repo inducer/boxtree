@@ -4,6 +4,7 @@ git+https://github.com/inducer/pymbolic#egg=pymbolic
 git+https://github.com/inducer/islpy#egg=islpy
 git+https://github.com/inducer/loopy#egg=loopy
 git+https://github.com/inducer/modepy#egg=modepy
+git+https://github.com/inducer/meshmode#egg=meshmode
 git+https://gitlab.tiker.net/inducer/pyfmmlib#egg=pyfmmlib
 
 # only for reference values for the fmmlib test
