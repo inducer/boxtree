@@ -41,6 +41,7 @@ Overview
     fmm
     lookup
     cost
+    distributed
     tools
     misc
     🚀 Github <https://github.com/inducer/boxtree>

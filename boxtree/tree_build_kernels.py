@@ -71,7 +71,7 @@ logger = logging.getLogger(__name__)
 # -----------------------------
 #
 # This code sorts particles into an nD-tree of boxes.  It does this by doing two
-# succesive (parallel) scans and a postprocessing step.
+# successive (parallel) scans and a postprocessing step.
 #
 # The following information is being pushed around by the scans, which
 # proceed over particles:

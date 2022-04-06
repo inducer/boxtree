@@ -273,7 +273,7 @@ class Tree(DeviceDataRecord, TreeOfBoxes):
         Each box in the tree can be thought of as being surrounded by a
         fictitious box whose :math:`l^\infty` radius is `1 + stick_out_factor`
         larger. Particles with extent are allowed to extend inside (a) the
-        ficitious box or (b) a disk surrounding the fictious box, depending on
+        fictitious box or (b) a disk surrounding the fictitious box, depending on
         :attr:`extent_norm`.
 
     .. attribute:: extent_norm
@@ -519,11 +519,11 @@ class Tree(DeviceDataRecord, TreeOfBoxes):
 
     @property
     def nsources(self):
-        return len(self.user_source_ids)
+        return len(self.sources[0])
 
     @property
     def ntargets(self):
-        return len(self.sorted_target_ids)
+        return len(self.targets[0])
 
     @property
     def nlevels(self):
@@ -599,6 +599,14 @@ class Tree(DeviceDataRecord, TreeOfBoxes):
         exclude_fields.add("level_start_box_nrs")
 
         return super().to_device(queue, frozenset(exclude_fields))
+
+    def to_host_device_array(self, queue, exclude_fields=frozenset()):
+        # level_start_box_nrs should remain in host memory
+        exclude_fields = set(exclude_fields)
+        exclude_fields.add("level_start_box_nrs")
+
+        return super(Tree, self).to_host_device_array(
+            queue, frozenset(exclude_fields))
 
 # }}}
 
@@ -687,7 +695,7 @@ def link_point_sources(queue, tree, point_source_starts, point_sources,
         original (extent-having) source number *isrc*. *isrc* is in :ref:`user
         source order <particle-orderings>`.
 
-        All the particles linked to *isrc* shoud fall within the :math:`l^\infty`
+        All the particles linked to *isrc* should fall within the :math:`l^\infty`
         'circle' around particle number *isrc* with the radius drawn from
         :attr:`boxtree.Tree.source_radii`.
 

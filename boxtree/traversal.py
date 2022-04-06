@@ -285,11 +285,21 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t box_id)
 {
     box_flags_t flags = box_flags[box_id];
 
-    if (flags & BOX_HAS_OWN_SOURCES)
-    { APPEND_source_boxes(box_id); }
+    %if source_boxes_has_mask:
+        if (flags & BOX_HAS_OWN_SOURCES && source_boxes_mask[box_id])
+        { APPEND_source_boxes(box_id); }
+    %else:
+        if (flags & BOX_HAS_OWN_SOURCES)
+        { APPEND_source_boxes(box_id); }
+    %endif
 
-    if (flags & BOX_HAS_CHILD_SOURCES)
-    { APPEND_source_parent_boxes(box_id); }
+    %if source_parent_boxes_has_mask:
+        if (flags & BOX_HAS_CHILD_SOURCES && source_parent_boxes_mask[box_id])
+        { APPEND_source_parent_boxes(box_id); }
+    %else:
+        if (flags & BOX_HAS_CHILD_SOURCES)
+        { APPEND_source_parent_boxes(box_id); }
+    %endif
 
     %if not sources_are_targets:
         if (flags & BOX_HAS_OWN_TARGETS)
@@ -1288,7 +1298,7 @@ class FMMTraversalInfo(DeviceDataRecord):
 
     .. attribute:: nboxes
 
-        Number of boxe in the tree.
+        Number of boxes in the tree.
 
     .. attribute:: nlevels
 
@@ -1635,7 +1645,9 @@ class FMMTraversalBuilder:
     def get_kernel_info(self, dimensions, particle_id_dtype, box_id_dtype,
             coord_dtype, box_level_dtype, max_levels,
             sources_are_targets, sources_have_extent, targets_have_extent,
-            extent_norm):
+            extent_norm,
+            source_boxes_has_mask,
+            source_parent_boxes_has_mask):
 
         # {{{ process from_sep_smaller_crit
 
@@ -1698,6 +1710,8 @@ class FMMTraversalBuilder:
                 targets_have_extent=targets_have_extent,
                 well_sep_is_n_away=self.well_sep_is_n_away,
                 from_sep_smaller_crit=from_sep_smaller_crit,
+                source_boxes_has_mask=source_boxes_has_mask,
+                source_parent_boxes_has_mask=source_parent_boxes_has_mask
                 )
         from pyopencl.algorithm import ListOfListsBuilder
         from boxtree.tools import VectorArg, ScalarArg
@@ -1711,6 +1725,12 @@ class FMMTraversalBuilder:
                 + SOURCES_PARENTS_AND_TARGETS_TEMPLATE,
                 strict_undefined=True).render(**render_vars)
 
+        arg_decls = [VectorArg(box_flags_enum.dtype, "box_flags")]
+        if source_boxes_has_mask:
+            arg_decls.append(VectorArg(np.int8, "source_boxes_mask"))
+        if source_parent_boxes_has_mask:
+            arg_decls.append(VectorArg(np.int8, "source_parent_boxes_mask"))
+
         result["sources_parents_and_targets_builder"] = \
                 ListOfListsBuilder(self.context,
                         [
@@ -1722,9 +1742,7 @@ class FMMTraversalBuilder:
                                 if not sources_are_targets
                                 else []),
                         str(src),
-                        arg_decls=[
-                            VectorArg(box_flags_enum.dtype, "box_flags"),
-                            ],
+                        arg_decls=arg_decls,
                         debug=debug,
                         name_prefix="sources_parents_and_targets")
 
@@ -1826,18 +1844,24 @@ class FMMTraversalBuilder:
     # {{{ driver
 
     def __call__(self, queue, tree, wait_for=None, debug=False,
-            _from_sep_smaller_min_nsources_cumul=None):
+                 _from_sep_smaller_min_nsources_cumul=None,
+                 source_boxes_mask=None,
+                 source_parent_boxes_mask=None):
         """
         :arg queue: A :class:`pyopencl.CommandQueue` instance.
         :arg tree: A :class:`boxtree.Tree` instance.
         :arg wait_for: may either be *None* or a list of :class:`pyopencl.Event`
             instances for whose completion this command waits before starting
             exeuction.
+        :arg source_boxes_mask: Only boxes passing this mask will be considered for
+            `source_boxes`. Used by the distributed implementation.
+        :arg source_parent_boxes_mask: Only boxes passing this mask will be
+            considered for `source_parent_boxes`. Used by the distributed
+            implementation.
         :return: A tuple *(trav, event)*, where *trav* is a new instance of
             :class:`FMMTraversalInfo` and *event* is a :class:`pyopencl.Event`
             for dependency management.
         """
-
         if _from_sep_smaller_min_nsources_cumul is None:
             # default to old no-threshold behavior
             _from_sep_smaller_min_nsources_cumul = 0
@@ -1861,7 +1885,9 @@ class FMMTraversalBuilder:
                 tree.coord_dtype, tree.box_level_dtype, max_levels,
                 tree.sources_are_targets,
                 tree.sources_have_extent, tree.targets_have_extent,
-                tree.extent_norm)
+                tree.extent_norm,
+                source_boxes_mask is not None,
+                source_parent_boxes_mask is not None)
 
         def fin_debug(s):
             if debug:
@@ -1875,8 +1901,16 @@ class FMMTraversalBuilder:
 
         fin_debug("building list of source boxes, their parents, and target boxes")
 
+        extra_args = []
+        if source_boxes_mask is not None:
+            extra_args.append(source_boxes_mask)
+        if source_parent_boxes_mask is not None:
+            extra_args.append(source_parent_boxes_mask)
+
         result, evt = knl_info.sources_parents_and_targets_builder(
-                queue, tree.nboxes, tree.box_flags, wait_for=wait_for)
+            queue, tree.nboxes, tree.box_flags, *extra_args, wait_for=wait_for
+        )
+
         wait_for = [evt]
 
         source_parent_boxes = result["source_parent_boxes"].lists

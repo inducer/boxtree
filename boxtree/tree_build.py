@@ -757,7 +757,7 @@ class TreeBuilder:
         box_srcntgt_counts_cumul, evt = zeros(nboxes_guess, dtype=particle_id_dtype)
         prep_events.append(evt)
 
-        # Initalize box 0 to contain all particles
+        # Initialize box 0 to contain all particles
         box_srcntgt_counts_cumul[0].fill(
                 nsrcntgts, queue=queue, wait_for=[evt])
 

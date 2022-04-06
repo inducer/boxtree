@@ -549,7 +549,7 @@ class AreaQueryElementwiseTemplate:
 
         preamble = Template(
             # HACK: box_flags_t and coord_t are defined here and
-            # in the template below, so disable typedef redifinition warnings.
+            # in the template below, so disable typedef redefinition warnings.
             """
             #pragma clang diagnostic push
             #pragma clang diagnostic ignored "-Wtypedef-redefinition"

@@ -59,6 +59,20 @@ Python 3 POCL K40:
         reports:
             junit: test/pytest.xml
 
+Python 3 POCL MPI:
+    script:
+    - export PY_EXE=python3
+    - export PYOPENCL_TEST=portable
+    - export EXTRA_INSTALL="numpy mako mpi4py pybind11"
+    - export PYTEST_ADDOPTS="-k mpi --capture=no"
+    - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project.sh
+    - ". ./build-and-test-py-project.sh"
+    tags:
+    - python3
+    - pocl
+    except:
+    - tags
+
 Python 3 POCL Examples:
   script:
   - test -n "$SKIP_EXAMPLES" && exit
@@ -79,7 +93,7 @@ Python 3 POCL Examples:
 Pylint:
   script:
   - export PY_EXE=python3
-  - EXTRA_INSTALL="pybind11 numpy mako matplotlib"
+  - EXTRA_INSTALL="pybind11 numpy mako matplotlib mpi4py"
   - curl -L -O https://gitlab.tiker.net/inducer/ci-support/raw/main/prepare-and-run-pylint.sh
   - ". ./prepare-and-run-pylint.sh boxtree test/test_*.py"
   tags:
@@ -89,7 +103,7 @@ Pylint:
 
 Documentation:
     script:
-    - EXTRA_INSTALL="pybind11 numpy mako"
+    - EXTRA_INSTALL="pybind11 numpy mako mpi4py"
     - curl -L -O https://gitlab.tiker.net/inducer/ci-support/raw/main/build-docs.sh
     - ". ./build-docs.sh"
     tags:
@@ -103,3 +117,17 @@ Flake8:
     - python3
     except:
     - tags
+
+Downstream:
+  parallel:
+    matrix:
+    - DOWNSTREAM_PROJECT: [sumpy, pytential]
+  tags:
+  - large-node
+  - "docker-runner"
+  script: |
+    curl -L -O https://tiker.net/ci-support-v0
+    . ./ci-support-v0
+
+    export PYTEST_ADDOPTS="-k 'not slowtest'"
+    test_downstream "$DOWNSTREAM_PROJECT"

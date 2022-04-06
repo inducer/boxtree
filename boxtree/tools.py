@@ -25,8 +25,7 @@ import numpy as np
 from pytools import Record, memoize_method
 import pyopencl as cl
 import pyopencl.array  # noqa
-from pyopencl.tools import dtype_to_c_struct, VectorArg as _VectorArg
-from pyopencl.tools import ScalarArg  # noqa
+from pyopencl.tools import dtype_to_c_struct, ScalarArg, VectorArg as _VectorArg
 from mako.template import Template
 from pytools.obj_array import make_obj_array
 import loopy as lp
@@ -34,11 +33,11 @@ import loopy as lp
 from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2  # noqa
 
 from functools import partial
+import sys
 
 
 # Use offsets in VectorArg by default.
 VectorArg = partial(_VectorArg, with_offset=True)
-
 
 AXIS_NAMES = ("x", "y", "z", "w")
 
@@ -304,11 +303,13 @@ class DeviceDataRecord(Record):
 
     def get(self, queue, **kwargs):
         """Return a copy of `self` in which all data lives on the host, i.e.
-        all :class:`pyopencl.array.Array` objects are replaced by corresponding
-        :class:`numpy.ndarray` instances on the host.
+        all :class:`pyopencl.array.Array` and `ImmutableHostDeviceArray` objects are
+        replaced by corresponding :class:`numpy.ndarray` instances on the host.
         """
-
         def try_get(attr):
+            if isinstance(attr, ImmutableHostDeviceArray):
+                return attr.host
+
             try:
                 get_meth = attr.get
             except AttributeError:
@@ -339,7 +340,7 @@ class DeviceDataRecord(Record):
         return self._transform_arrays(try_with_queue)
 
     def to_device(self, queue, exclude_fields=frozenset()):
-        """ Return a copy of `self` in all :class:`numpy.ndarray` arrays are
+        """Return a copy of `self` in all :class:`numpy.ndarray` arrays are
         transferred to device memory as :class:`pyopencl.array.Array` objects.
 
         :arg exclude_fields: a :class:`frozenset` containing fields excluding from
@@ -349,10 +350,33 @@ class DeviceDataRecord(Record):
         def _to_device(attr):
             if isinstance(attr, np.ndarray):
                 return cl.array.to_device(queue, attr).with_queue(None)
+            elif isinstance(attr, ImmutableHostDeviceArray):
+                return attr.device
+            elif isinstance(attr, DeviceDataRecord):
+                return attr.to_device(queue)
             else:
                 return attr
 
-        return self._transform_arrays(_to_device, exclude_fields)
+        return self._transform_arrays(_to_device, exclude_fields=exclude_fields)
+
+    def to_host_device_array(self, queue, exclude_fields=frozenset()):
+        """Return a copy of `self` where all device and host arrays are transformed
+        to `ImmutableHostDeviceArray` objects.
+
+        :arg exclude_fields: a :class:`frozenset` containing fields excluding from
+            transformed to `ImmutableHostDeviceArray`.
+        """
+        def _to_host_device_array(attr):
+            if isinstance(attr, (np.ndarray, cl.array.Array)):
+                return ImmutableHostDeviceArray(queue, attr)
+            elif isinstance(attr, DeviceDataRecord):
+                return attr.to_host_device_array(queue)
+            else:
+                return attr
+
+        return self._transform_arrays(
+            _to_host_device_array, exclude_fields=exclude_fields
+        )
 
 # }}}
 
@@ -586,5 +610,302 @@ class InlineBinarySearch:
 
 # }}}
 
+
+# {{{ compress a masked array into a list / list of lists
+
+
+MASK_LIST_COMPRESSOR_BODY = r"""
+void generate(LIST_ARG_DECL USER_ARG_DECL index_type i)
+{
+    if (mask[i])
+    {
+        APPEND_output(i);
+    }
+}
+"""
+
+
+MASK_MATRIX_COMPRESSOR_BODY = r"""
+void generate(LIST_ARG_DECL USER_ARG_DECL index_type i)
+{
+    for (int j = 0; j < ncols; ++j)
+    {
+        if (mask[outer_stride * i + j * inner_stride])
+        {
+            APPEND_output(j);
+        }
+    }
+}
+"""
+
+
+class MaskCompressorKernel:
+    """
+    .. automethod:: __call__
+    """
+    def __init__(self, context):
+        self.context = context
+
+    @memoize_method
+    def get_list_compressor_kernel(self, mask_dtype, list_dtype):
+        from pyopencl.algorithm import ListOfListsBuilder
+
+        return ListOfListsBuilder(
+                self.context,
+                [("output", list_dtype)],
+                MASK_LIST_COMPRESSOR_BODY,
+                [
+                    _VectorArg(mask_dtype, "mask"),
+                ],
+                name_prefix="compress_list")
+
+    @memoize_method
+    def get_matrix_compressor_kernel(self, mask_dtype, list_dtype):
+        from pyopencl.algorithm import ListOfListsBuilder
+
+        return ListOfListsBuilder(
+                self.context,
+                [("output", list_dtype)],
+                MASK_MATRIX_COMPRESSOR_BODY,
+                [
+                    ScalarArg(np.int32, "ncols"),
+                    ScalarArg(np.int32, "outer_stride"),
+                    ScalarArg(np.int32, "inner_stride"),
+                    _VectorArg(mask_dtype, "mask"),
+                ],
+                name_prefix="compress_matrix")
+
+    def __call__(self, queue, mask, list_dtype=None):
+        """Convert a mask to a list in :ref:`csr` format.
+
+        :arg mask: Either a 1D or 2D array.
+            * If *mask* is 1D, it should represent a masked list, where
+              *mask[i]* is true if and only if *i* is in the list.
+            * If *mask* is 2D, it should represent a list of masked lists,
+              so that *mask[i,j]* is true if and only if *j* is in list *i*.
+
+        :arg list_dtype: The dtype for the output list(s). Defaults to the mask
+            dtype.
+
+        :returns: The return value depends on the type of the input.
+            * If mask* is 1D, returns a tuple *(list, evt)*.
+            * If *mask* is 2D, returns a tuple *(starts, lists, event)*, as a
+              :ref:`csr` list.
+        """
+        if list_dtype is None:
+            list_dtype = mask.dtype
+
+        if len(mask.shape) == 1:
+            knl = self.get_list_compressor_kernel(mask.dtype, list_dtype)
+            result, evt = knl(queue, mask.shape[0], mask.data)
+            return (result["output"].lists, evt)
+        elif len(mask.shape) == 2:
+            # FIXME: This is efficient for small column sizes but may not be
+            # for larger ones since the work is partitioned by row.
+            knl = self.get_matrix_compressor_kernel(mask.dtype, list_dtype)
+            size = mask.dtype.itemsize
+            assert size > 0
+            result, evt = knl(queue, mask.shape[0], mask.shape[1],
+                              mask.strides[0] // size, mask.strides[1] // size,
+                              mask.data)
+            return (result["output"].starts, result["output"].lists, evt)
+        else:
+            raise ValueError("unsupported dimensionality")
+
+# }}}
+
+
+# {{{ Communication pattern for partial multipole expansions
+
+class AllReduceCommPattern:
+    """Describes a tree-like communication pattern for exchanging and reducing
+    multipole expansions. Supports an arbitrary number of processes.
+
+    A user must instantiate a version of this with identical *size* and varying
+    *rank* on each rank. During each stage, each rank sends its contribution to
+    the reduction results on ranks returned by :meth:`sinks` and listens for
+    contributions from :meth:`source`. :meth:`messages` can be used for determining
+    array indices whose partial results need to be sent during the current stage.
+    Then, all ranks call :meth:`advance` and use :meth:`done` to check whether the
+    communication is complete. In the use case of multipole communication, the
+    reduction result is a vector of multipole expansions to which all ranks add
+    contribution. These contributions are communicated sparsely via arrays of box
+    indices and expansions.
+
+    .. automethod:: __init__
+    .. automethod:: sources
+    .. automethod:: sinks
+    .. automethod:: messages
+    .. automethod:: advance
+    .. automethod:: done
+    """
+
+    def __init__(self, rank, size):
+        """
+        :arg rank: Current rank.
+        :arg size: Total number of ranks.
+        """
+        assert 0 <= rank < size
+        self.rank = rank
+        self.left = 0
+        self.right = size
+        self.midpoint = size // 2
+
+    def sources(self):
+        """Return the set of source nodes at the current communication stage. The
+        current rank receives messages from these ranks.
+        """
+        if self.rank < self.midpoint:
+            partner = self.midpoint + (self.rank - self.left)
+            if self.rank == self.midpoint - 1 and partner == self.right:
+                partners = set()
+            elif self.rank == self.midpoint - 1 and partner == self.right - 2:
+                partners = {partner, partner + 1}
+            else:
+                partners = {partner}
+        else:
+            partner = self.left + (self.rank - self.midpoint)
+            if self.rank == self.right - 1 and partner == self.midpoint:
+                partners = set()
+            elif self.rank == self.right - 1 and partner == self.midpoint - 2:
+                partners = {partner, partner + 1}
+            else:
+                partners = {partner}
+
+        return partners
+
+    def sinks(self):
+        """Return the set of sink nodes at this communication stage. The current rank
+        sends a message to these ranks.
+        """
+        if self.rank < self.midpoint:
+            partner = self.midpoint + (self.rank - self.left)
+            if partner == self.right:
+                partner -= 1
+        else:
+            partner = self.left + (self.rank - self.midpoint)
+            if partner == self.midpoint:
+                partner -= 1
+
+        return {partner}
+
+    def messages(self):
+        """Return a range of ranks, such that the partial results of array indices
+        used by these ranks are sent to the sinks.  This is returned as a
+        [start, end) pair. By design, it is a consecutive range.
+        """
+        if self.rank < self.midpoint:
+            return (self.midpoint, self.right)
+        else:
+            return (self.left, self.midpoint)
+
+    def advance(self):
+        """Advance to the next stage in the communication pattern.
+        """
+        if self.done():
+            raise RuntimeError("finished communicating")
+
+        if self.rank < self.midpoint:
+            self.right = self.midpoint
+            self.midpoint = (self.midpoint + self.left) // 2
+        else:
+            self.left = self.midpoint
+            self.midpoint = (self.midpoint + self.right) // 2
+
+    def done(self):
+        """Return whether the current rank is finished communicating.
+        """
+        return self.left + 1 == self.right
+
+# }}}
+
+
+# {{{ MPI launcher
+
+def run_mpi(script, num_processes, env):
+    """Launch MPI processes.
+
+    This function forks another process and uses mpiexec to launch *num_processes*
+    copies of program *script*.
+
+    :arg script: the Python script to run
+    :arg num_processes: the number of copies of program to launch
+    :arg env: a Python `dict` of environment variables
+    """
+    import subprocess
+    from mpi4py import MPI
+
+    # Using "-m mpi4py" is necessary for avoiding deadlocks on exception cleanup
+    # See https://mpi4py.readthedocs.io/en/stable/mpi4py.run.html for details.
+
+    mpi_library_name = MPI.Get_library_version()
+    if mpi_library_name.startswith("Open MPI"):
+        command = ["mpiexec", "-np", str(num_processes), "--oversubscribe"]
+        for env_variable_name in env:
+            command.append("-x")
+            command.append(env_variable_name)
+        command.extend([sys.executable, "-m", "mpi4py", script])
+
+        subprocess.run(command, env=env, check=True)
+    else:
+        subprocess.run(
+            ["mpiexec", "-np", str(num_processes), sys.executable,
+             "-m", "mpi4py", script],
+            env=env, check=True
+        )
+
+# }}}
+
+
+# {{{ HostDeviceArray
+
+class ImmutableHostDeviceArray:
+    """Interface for arrays on both host and device.
+
+    .. note:: This interface assumes the array is immutable. The behavior of
+    modifying the content of either the host array or the device array is undefined.
+
+    @TODO: Once available, replace this implementation with PyOpenCL's in-house
+    implementation.
+    """
+    def __init__(self, queue, array):
+        self.queue = queue
+        self.shape = array.shape
+        self.host_array = None
+        self.device_array = None
+
+        if isinstance(array, np.ndarray):
+            self.host_array = array
+        elif isinstance(array, cl.array.Array):
+            self.device_array = array
+
+    def with_queue(self, queue):
+        self.queue = queue
+
+    @property
+    def svm_capable(self):
+        svm_capabilities = \
+            self.queue.device.get_info(cl.device_info.SVM_CAPABILITIES)
+        if svm_capabilities & cl.device_svm_capabilities.FINE_GRAIN_BUFFER != 0:
+            return True
+        else:
+            return False
+
+    @property
+    def host(self):
+        if self.host_array is None:
+            self.host_array = self.device_array.get(self.queue)
+        return self.host_array
+
+    @property
+    def device(self):
+        if self.device_array is None:
+            # @TODO: Use SVM
+            self.device_array = cl.array.to_device(self.queue, self.host_array)
+
+        self.device_array.with_queue(self.queue)
+        return self.device_array
+
+# }}}
 
 # vim: foldmethod=marker:filetype=pyopencl
