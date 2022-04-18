@@ -104,16 +104,20 @@ def uniformly_refined(tob: TreeOfBoxes) -> TreeOfBoxes:
     return refined(tob, refine_flags)
 
 
-def coarsened(tob: TreeOfBoxes, coarsen_flags: npt.NDArray) -> TreeOfBoxes:
+def coarsened(tob: TreeOfBoxes, coarsen_flags: npt.NDArray,
+              error_on_ignored_flags: bool = True
+              ) -> TreeOfBoxes:
     """Make a coarsened copy of `tob` where boxes flagged with `coarsen_flags`
     are coarsened.
     """
-    return refined_and_coarsened(tob, None, coarsen_flags)
+    return refined_and_coarsened(
+        tob, None, coarsen_flags, error_on_ignored_flags)
 
 
 def refined_and_coarsened(tob: TreeOfBoxes,
                           refine_flags: Union[None, npt.NDArray] = None,
-                          coarsen_flags: Union[None, npt.NDArray] = None
+                          coarsen_flags: Union[None, npt.NDArray] = None,
+                          error_on_ignored_flags: bool = True
                           ) -> TreeOfBoxes:
     """Make a refined/coarsened copy. When children of the same parent box
     are marked differently, the refinement flag takes priority.
@@ -125,6 +129,8 @@ def refined_and_coarsened(tob: TreeOfBoxes,
 
     :arg refine_flags: a boolean array of size `nboxes`.
     :arg coarsen_flags: a boolean array of size `nboxes`.
+    :arg error_on_ignored_flags: if true, an exception is raised when enforcing
+        level restriction requires ignoring some coarsening flags.
     :returns: a processed copy of the tree.
     """
     nchildren = 2**tob.dim
@@ -191,10 +197,14 @@ def refined_and_coarsened(tob: TreeOfBoxes,
 
         coarsen_flags_ignored = (coarsen_exec_flags != coarsen_flags)
         if np.any(coarsen_flags_ignored):
-            import warnings
-            warnings.warn(f"{np.sum(coarsen_flags_ignored)} out of "
-                          f"{np.sum(coarsen_flags)} coarsening flags ignored "
-                          "to prevent removing non-leaf boxes")
+            msg = (f"{np.sum(coarsen_flags_ignored)} out of "
+                   f"{np.sum(coarsen_flags)} coarsening flags ignored "
+                   "to prevent removing non-leaf boxes")
+            if error_on_ignored_flags:
+                raise RuntimeError(msg)
+            else:
+                import warnings
+                warnings.warn(msg)
 
         coarsen_parents = coarsen_parents[coarsen_exec_flags]
         coarsen_peers = coarsen_peers[:, coarsen_exec_flags]
