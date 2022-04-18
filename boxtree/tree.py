@@ -84,9 +84,11 @@ THE SOFTWARE.
 
 import pyopencl as cl
 import numpy as np
+import numpy.typing as npt
 from boxtree.tools import DeviceDataRecord
 from cgen import Enum
 from pytools import memoize_method
+from dataclasses import dataclass
 
 import logging
 logger = logging.getLogger(__name__)
@@ -114,6 +116,7 @@ class box_flags_enum(Enum):  # noqa
 
 # {{{ tree of boxes
 
+@dataclass
 class TreeOfBoxes:
     """A quad/octree tree of abstract boxes. Lightweight trees handled with
     :mod:`numpy`, intended for mesh adaptivity.
@@ -152,19 +155,16 @@ class TreeOfBoxes:
 
     .. automethod:: leaf_boxes
     """
-    def __init__(
-            self, box_centers, root_extent,
-            box_parent_ids, box_child_ids, box_levels):
-        self.box_centers = box_centers
-        self.root_extent = root_extent
-        self.box_parent_ids = box_parent_ids
-        self.box_child_ids = box_child_ids
-        self.box_levels = box_levels
+    box_centers: npt.NDArray
+    root_extent: npt.NDArray
+    box_parent_ids: npt.NDArray
+    box_child_ids: npt.NDArray
+    box_levels: npt.NDArray
 
+    def __post_init__(self):
         lows = self.box_centers[:, 0] - 0.5*self.root_extent
         highs = lows + self.root_extent
         self.bounding_box = [lows, highs]
-
         self.dim = self.box_centers.shape[0]
 
     def copy(self):
@@ -503,10 +503,6 @@ class Tree(DeviceDataRecord, TreeOfBoxes):
 
     .. automethod:: get
     """
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
     @property
     def dimensions(self):
         return len(self.sources)

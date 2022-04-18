@@ -41,6 +41,9 @@ THE SOFTWARE.
 
 
 import numpy as np
+import numpy.typing as npt
+from typing import Union
+from meshmode.mesh import Mesh
 from pytools import memoize_method
 import pyopencl as cl
 import pyopencl.array  # noqa
@@ -58,7 +61,7 @@ class MaxLevelsExceeded(RuntimeError):
 
 # {{{ utils for tree of boxes
 
-def resized_array(arr, new_size):
+def _resized_array(arr: npt.NDArray, new_size: int) -> npt.NDArray:
     """Return a resized copy of the array. The new_size is a scalar which is
     applied to the last dimension.
     """
@@ -74,7 +77,7 @@ def resized_array(arr, new_size):
         return new_arr
 
 
-def vec_of_signs(dim, i):
+def _vec_of_signs(dim: int, i: int) -> npt.NDArray:
     """The sign vector is obtained by converting i to a dim-bit binary.
     """
     # e.g. bin(10) = '0b1010'
@@ -86,14 +89,14 @@ def vec_of_signs(dim, i):
 
 # {{{ refine/coarsen a tree of boxes
 
-def refined(tob, refine_flags):
+def refined(tob: TreeOfBoxes, refine_flags: npt.NDArray) -> TreeOfBoxes:
     """Make a refined copy of `tob` where boxes flagged with `refine_flags` are
     refined.
     """
     return refined_and_coarsened(tob, refine_flags, None)
 
 
-def uniformly_refined(tob):
+def uniformly_refined(tob: TreeOfBoxes) -> TreeOfBoxes:
     """Make a uniformly refined copy of `tob`.
     """
     refine_flags = np.zeros(tob.nboxes, bool)
@@ -101,14 +104,17 @@ def uniformly_refined(tob):
     return refined(tob, refine_flags)
 
 
-def coarsened(tob, coarsen_flags):
+def coarsened(tob: TreeOfBoxes, coarsen_flags: npt.NDArray) -> TreeOfBoxes:
     """Make a coarsened copy of `tob` where boxes flagged with `coarsen_flags`
     are coarsened.
     """
     return refined_and_coarsened(tob, None, coarsen_flags)
 
 
-def refined_and_coarsened(tob, refine_flags=None, coarsen_flags=None):
+def refined_and_coarsened(tob: TreeOfBoxes,
+                          refine_flags: Union[None, npt.NDArray] = None,
+                          coarsen_flags: Union[None, npt.NDArray] = None
+                          ) -> TreeOfBoxes:
     """Make a refined/coarsened copy. When children of the same parent box
     are marked differently, the refinement flag takes priority.
 
@@ -149,10 +155,10 @@ def refined_and_coarsened(tob, refine_flags=None, coarsen_flags=None):
     refine_parents_per_child[:] = refine_parents.reshape(-1)
     refine_parents_per_child = refine_parents_per_child.reshape(-1)
 
-    box_parents = resized_array(tob.box_parent_ids, nboxes_new)
-    box_centers = resized_array(tob.box_centers, nboxes_new)
-    box_children = resized_array(tob.box_child_ids, nboxes_new)
-    box_levels = resized_array(tob.box_levels, nboxes_new)
+    box_parents = _resized_array(tob.box_parent_ids, nboxes_new)
+    box_centers = _resized_array(tob.box_centers, nboxes_new)
+    box_children = _resized_array(tob.box_child_ids, nboxes_new)
+    box_levels = _resized_array(tob.box_levels, nboxes_new)
 
     # new boxes are appended at the end, so coarsen_flags are still meaningful
     box_parents[tob.nboxes:] = refine_parents_per_child
@@ -165,7 +171,7 @@ def refined_and_coarsened(tob, refine_flags=None, coarsen_flags=None):
         children_i = box_children[i, refine_parents]
         offsets = (
                 tob.root_extent
-                * vec_of_signs(tob.dim, i).reshape(-1, 1)
+                * _vec_of_signs(tob.dim, i).reshape(-1, 1)
                 * (1/2**(1+box_levels[children_i])))
         box_centers[:, children_i] = (
                 box_centers[:, refine_parents]
@@ -173,7 +179,7 @@ def refined_and_coarsened(tob, refine_flags=None, coarsen_flags=None):
 
     # ------------------- coarsen only if all peers are leaves after refinement
 
-    coarsen_flags = resized_array(coarsen_flags, nboxes_new)
+    coarsen_flags = _resized_array(coarsen_flags, nboxes_new)
     coarsen_sources, = np.where(coarsen_flags)
     if coarsen_sources:
         # FIXME
@@ -206,7 +212,8 @@ def refined_and_coarsened(tob, refine_flags=None, coarsen_flags=None):
 # }}} End refine/coarsen
 
 
-def make_tob_root(dim, bbox):
+def make_tob_root(dim: int,
+                  bbox: Union[npt.NDArray, list[list[float]]]) -> TreeOfBoxes:
     """
     Make the minimal tree of boxes.
     """
@@ -226,7 +233,7 @@ def make_tob_root(dim, bbox):
             )
 
 
-def make_mesh_from_leaves(tob):
+def make_mesh_from_leaves(tob: TreeOfBoxes) -> Mesh:
     """Make a :mod:`meshmode` mesh from the leaf boxes.
 
     :arg tob: a :class:`TreeOfBoxes`.
@@ -247,7 +254,7 @@ def make_mesh_from_leaves(tob):
     )
 
     # FIXME: purge redundant vertices
-    from meshmode.mesh import Mesh, TensorProductElementGroup
+    from meshmode.mesh import TensorProductElementGroup
     from meshmode.mesh.generation import make_group_from_vertices
 
     vertex_indices = np.arange(
@@ -259,33 +266,6 @@ def make_mesh_from_leaves(tob):
 
     return Mesh(vertices=lfvertices, groups=[group])
 
-
-def make_global_leaf_quadrature(actx, tob, order):
-    from meshmode.discretization.poly_element import \
-        GaussLegendreTensorProductGroupFactory
-    group_factory = GaussLegendreTensorProductGroupFactory(order=order)
-
-    mesh = make_mesh_from_leaves(tob)
-
-    from meshmode.discretization import Discretization
-    discr = Discretization(actx, mesh, group_factory)
-
-    lflevels = tob.box_levels[tob.leaf_boxes()]
-    lfmeasures = (tob.root_extent / (2**lflevels))**tob.dim
-
-    from arraycontext import flatten
-    weights = flatten(discr.quad_weights(), actx).with_queue(actx.queue)
-    jacobians = cl.array.to_device(
-        actx.queue,
-        np.repeat(lfmeasures/(2**tob.dim), discr.groups[0].nunit_dofs))
-    q = weights * jacobians
-
-    from pytools.obj_array import make_obj_array
-    nodes = discr.nodes()
-    x = make_obj_array([flatten(coords, actx).with_queue(actx.queue)
-                        for coords in nodes])
-
-    return x, q
 
 # }}}
 

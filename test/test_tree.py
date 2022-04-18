@@ -1143,6 +1143,35 @@ def test_max_levels_error(ctx_factory):
 # {{{ test_tree_of_boxes
 
 
+def make_global_leaf_quadrature(actx, tob, order):
+    from meshmode.discretization.poly_element import \
+        GaussLegendreTensorProductGroupFactory
+    group_factory = GaussLegendreTensorProductGroupFactory(order=order)
+
+    from boxtree.tree_build import make_mesh_from_leaves
+    mesh = make_mesh_from_leaves(tob)
+
+    from meshmode.discretization import Discretization
+    discr = Discretization(actx, mesh, group_factory)
+
+    lflevels = tob.box_levels[tob.leaf_boxes()]
+    lfmeasures = (tob.root_extent / (2**lflevels))**tob.dim
+
+    from arraycontext import flatten
+    weights = flatten(discr.quad_weights(), actx).with_queue(actx.queue)
+    jacobians = cl.array.to_device(
+        actx.queue,
+        np.repeat(lfmeasures/(2**tob.dim), discr.groups[0].nunit_dofs))
+    q = weights * jacobians
+
+    from pytools.obj_array import make_obj_array
+    nodes = discr.nodes()
+    x = make_obj_array([flatten(coords, actx).with_queue(actx.queue)
+                        for coords in nodes])
+
+    return x, q
+
+
 @pytest.mark.parametrize("dim", [1, 2, 3])
 @pytest.mark.parametrize("order", [1, 2, 3])
 @pytest.mark.parametrize("nlevels", [1, 4])
@@ -1160,7 +1189,6 @@ def test_uniform_tree_of_boxes(ctx_factory, dim, order, nlevels):
     queue = cl.CommandQueue(ctx_factory())
     actx = PyOpenCLArrayContext(queue)
 
-    from boxtree.tree_build import make_global_leaf_quadrature
     x, q = make_global_leaf_quadrature(actx, tob, order)
 
     # integrates 1 exactly
@@ -1170,8 +1198,7 @@ def test_uniform_tree_of_boxes(ctx_factory, dim, order, nlevels):
 @pytest.mark.parametrize("dim", [1, 2, 3])
 @pytest.mark.parametrize("order", [1, 2, 3, 4])
 def test_uniform_tree_of_boxes_convergence(ctx_factory, dim, order):
-    from boxtree.tree_build import (
-        make_tob_root, uniformly_refined, make_global_leaf_quadrature)
+    from boxtree.tree_build import make_tob_root, uniformly_refined
     radius = np.pi
     lower_bounds = np.zeros(dim) - radius/2
     upper_bounds = lower_bounds + radius
