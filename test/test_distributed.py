@@ -20,38 +20,45 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+import os
+import sys
+import pytest
+
+from arraycontext import pytest_generate_tests_for_array_contexts
+from boxtree.array_context import (                                 # noqa: F401
+        PytestPyOpenCLArrayContextFactory, _acf)
+
 import numpy as np
-import pyopencl as cl
 import numpy.linalg as la
-from boxtree.pyfmmlib_integration import \
-    Kernel, FMMLibTreeIndependentDataForWrangler, FMMLibExpansionWrangler
+
+from boxtree.pyfmmlib_integration import (
+    Kernel, FMMLibTreeIndependentDataForWrangler,
+    FMMLibExpansionWrangler)
 from boxtree.constant_one import (
     ConstantOneExpansionWrangler as ConstantOneExpansionWranglerBase,
     ConstantOneTreeIndependentDataForWrangler)
-from boxtree.tools import run_mpi
+
 import logging
-import os
-import pytest
-import sys
+logger = logging.getLogger(__name__)
 
-# Note: Do not import mpi4py.MPI object at the module level, because OpenMPI does not
-# support recursive invocations.
+pytest_generate_tests = pytest_generate_tests_for_array_contexts([
+    PytestPyOpenCLArrayContextFactory,
+    ])
 
-# Configure logging
-logging.basicConfig(level=os.environ.get("LOGLEVEL", "WARNING"))
-logging.getLogger("boxtree.distributed").setLevel(logging.INFO)
+# NOTE: Do not import mpi4py.MPI object at the module level, because OpenMPI
+# does not support recursive invocations.
 
 
-def set_cache_dir(comm):
-    """Make each rank use a differnt cache location to avoid conflict.
-    """
-    from pathlib import Path
-    if "XDG_CACHE_HOME" in os.environ:
-        cache_home = Path(os.environ["XDG_CACHE_HOME"])
-    else:
-        cache_home = Path.home() / ".cache"
-    os.environ["XDG_CACHE_HOME"] = str(cache_home / str(comm.Get_rank()))
+def set_cache_dir(mpirank):
+    """Make each rank use a differnt cache location to avoid conflict."""
+    import platformdirs
+    cache_dir = platformdirs.user_cache_dir("boxtree", "boxtree")
 
+    # FIXME: should clean up this directory after running the tests
+    os.environ["XDG_CACHE_HOME"] = os.path.join(cache_dir, str(mpirank))
+
+
+# {{{ test_against_shared
 
 def _test_against_shared(
         dims, nsources, ntargets, dtype, communicate_mpoles_via_allreduce=False):
@@ -60,22 +67,21 @@ def _test_against_shared(
     # Get the current rank
     comm = MPI.COMM_WORLD
     rank = comm.Get_rank()
-    set_cache_dir(comm)
+    set_cache_dir(rank)
 
     # Initialize arguments for worker processes
     global_tree_dev = None
     sources_weights = None
     helmholtz_k = 0
 
-    # Configure PyOpenCL
-    ctx = cl.create_some_context()
-    queue = cl.CommandQueue(ctx)
+    # Configure array context
+    actx = _acf()
 
     def fmm_level_to_nterms(tree, level):
         return max(level, 3)
 
     from boxtree.traversal import FMMTraversalBuilder
-    tg = FMMTraversalBuilder(ctx, well_sep_is_n_away=2)
+    tg = FMMTraversalBuilder(actx.context, well_sep_is_n_away=2)
 
     tree_indep = FMMLibTreeIndependentDataForWrangler(
         dims, Kernel.HELMHOLTZ if helmholtz_k else Kernel.LAPLACE)
@@ -84,27 +90,22 @@ def _test_against_shared(
     if rank == 0:
         # Generate random particles and source weights
         from boxtree.tools import make_normal_particle_array as p_normal
-        sources = p_normal(queue, nsources, dims, dtype, seed=15)
-        targets = p_normal(queue, ntargets, dims, dtype, seed=18)
+        sources = p_normal(actx.queue, nsources, dims, dtype, seed=15)
+        targets = p_normal(actx.queue, ntargets, dims, dtype, seed=18)
 
-        from pyopencl.clrandom import PhiloxGenerator
-        rng = PhiloxGenerator(queue.context, seed=20)
-        sources_weights = rng.uniform(queue, nsources, dtype=np.float64).get()
-
-        from pyopencl.clrandom import PhiloxGenerator
-        rng = PhiloxGenerator(queue.context, seed=22)
-        target_radii = rng.uniform(
-            queue, ntargets, a=0, b=0.05, dtype=np.float64).get()
+        rng = np.random.default_rng(20)
+        sources_weights = rng.uniform(0.0, 1.0, (nsources,))
+        target_radii = rng.uniform(0.0, 0.05, (ntargets,))
 
         # Build the tree and interaction lists
         from boxtree import TreeBuilder
-        tb = TreeBuilder(ctx)
+        tb = TreeBuilder(actx.context)
         global_tree_dev, _ = tb(
-            queue, sources, targets=targets, target_radii=target_radii,
+            actx.queue, sources, targets=targets, target_radii=target_radii,
             stick_out_factor=0.25, max_particles_in_box=30, debug=True)
 
-        d_trav, _ = tg(queue, global_tree_dev, debug=True)
-        global_traversal_host = d_trav.get(queue=queue)
+        d_trav, _ = tg(actx.queue, global_tree_dev, debug=True)
+        global_traversal_host = d_trav.get(queue=actx.queue)
 
         # Get pyfmmlib expansion wrangler
         wrangler = FMMLibExpansionWrangler(
@@ -122,13 +123,13 @@ def _test_against_shared(
                 DistributedFMMLibExpansionWrangler
 
         return DistributedFMMLibExpansionWrangler(
-            queue.context, comm, tree_indep, local_traversal, global_traversal,
+            actx.context, comm, tree_indep, local_traversal, global_traversal,
             fmm_level_to_nterms=fmm_level_to_nterms,
             communicate_mpoles_via_allreduce=communicate_mpoles_via_allreduce)
 
     from boxtree.distributed import DistributedFMMRunner
     distribued_fmm_info = DistributedFMMRunner(
-        queue, global_tree_dev, tg, wrangler_factory, comm=comm)
+        actx.queue, global_tree_dev, tg, wrangler_factory, comm=comm)
 
     timing_data = {}
     pot_dfmm = distribued_fmm_info.drive_dfmm(
@@ -164,17 +165,20 @@ def test_against_shared(
         num_processes, dims, nsources, ntargets, communicate_mpoles_via_allreduce):
     pytest.importorskip("mpi4py")
 
-    newenv = os.environ.copy()
-    newenv["PYTEST"] = "1"
-    newenv["dims"] = str(dims)
-    newenv["nsources"] = str(nsources)
-    newenv["ntargets"] = str(ntargets)
-    newenv["communicate_mpoles_via_allreduce"] = \
-        str(communicate_mpoles_via_allreduce)
-    newenv["OMP_NUM_THREADS"] = "1"
+    from boxtree.tools import run_mpi
+    run_mpi(__file__, num_processes, {
+        "PYTEST": "shared",
+        "dims": dims,
+        "nsources": nsources,
+        "ntargets": ntargets,
+        "OMP_NUM_THREADS": 1,
+        "communicate_mpoles_via_allreduce": communicate_mpoles_via_allreduce
+        })
 
-    run_mpi(__file__, num_processes, newenv)
+# }}}
 
+
+# {{{ test_constantone
 
 def _test_constantone(dims, nsources, ntargets, dtype):
     from boxtree.distributed.calculation import DistributedExpansionWrangler
@@ -207,26 +211,24 @@ def _test_constantone(dims, nsources, ntargets, dtype):
     # Get the current rank
     comm = MPI.COMM_WORLD
     rank = comm.Get_rank()
-    set_cache_dir(comm)
+    set_cache_dir(rank)
 
     # Initialization
     tree = None
     sources_weights = None
 
-    # Configure PyOpenCL
-    import pyopencl as cl
-    ctx = cl.create_some_context()
-    queue = cl.CommandQueue(ctx)
+    # Configure array context
+    actx = _acf()
 
     from boxtree.traversal import FMMTraversalBuilder
-    tg = FMMTraversalBuilder(ctx)
+    tg = FMMTraversalBuilder(actx.context)
 
     if rank == 0:
 
         # Generate random particles
         from boxtree.tools import make_normal_particle_array as p_normal
-        sources = p_normal(queue, nsources, dims, dtype, seed=15)
-        targets = (p_normal(queue, ntargets, dims, dtype, seed=18)
+        sources = p_normal(actx.queue, nsources, dims, dtype, seed=15)
+        targets = (p_normal(actx.queue, ntargets, dims, dtype, seed=18)
                    + np.array([2, 0, 0])[:dims])
 
         # Constant one source weights
@@ -234,19 +236,19 @@ def _test_constantone(dims, nsources, ntargets, dtype):
 
         # Build the global tree
         from boxtree import TreeBuilder
-        tb = TreeBuilder(ctx)
-        tree, _ = tb(queue, sources, targets=targets, max_particles_in_box=30,
+        tb = TreeBuilder(actx.context)
+        tree, _ = tb(actx.queue, sources, targets=targets, max_particles_in_box=30,
                      debug=True)
 
     tree_indep = ConstantOneTreeIndependentDataForWrangler()
 
     def wrangler_factory(local_traversal, global_traversal):
         return ConstantOneExpansionWrangler(
-                queue, comm, tree_indep, local_traversal, global_traversal)
+                actx.queue, comm, tree_indep, local_traversal, global_traversal)
 
     from boxtree.distributed import DistributedFMMRunner
     distributed_fmm_info = DistributedFMMRunner(
-        queue, tree, tg, wrangler_factory, comm=MPI.COMM_WORLD)
+        actx.queue, tree, tg, wrangler_factory, comm=MPI.COMM_WORLD)
 
     pot_dfmm = distributed_fmm_info.drive_dfmm([sources_weights])
 
@@ -261,42 +263,36 @@ def _test_constantone(dims, nsources, ntargets, dtype):
 def test_constantone(num_processes, dims, nsources, ntargets):
     pytest.importorskip("mpi4py")
 
-    newenv = os.environ.copy()
-    newenv["PYTEST"] = "2"
-    newenv["dims"] = str(dims)
-    newenv["nsources"] = str(nsources)
-    newenv["ntargets"] = str(ntargets)
-    newenv["OMP_NUM_THREADS"] = "1"
+    from boxtree.tools import run_mpi
+    run_mpi(__file__, num_processes, {
+        "PYTEST": "constantone",
+        "dims": dims,
+        "nsources": nsources,
+        "ntargets": ntargets,
+        "OMP_NUM_THREADS": 1,
+        "communicate_mpoles_via_allreduce": False
+        })
 
-    run_mpi(__file__, num_processes, newenv)
+# }}}
 
 
 if __name__ == "__main__":
-
     dtype = np.float64
 
     if "PYTEST" in os.environ:
-        if os.environ["PYTEST"] == "1":
-            # Run "test_against_shared" test case
-            dims = int(os.environ["dims"])
-            nsources = int(os.environ["nsources"])
-            ntargets = int(os.environ["ntargets"])
+        dims = int(os.environ["dims"])
+        nsources = int(os.environ["nsources"])
+        ntargets = int(os.environ["ntargets"])
+        communicate_mpoles_via_allreduce = (
+                True if os.environ["communicate_mpoles_via_allreduce"] == "True"
+                else False)
 
-            from distutils.util import strtobool
-            communicate_mpoles_via_allreduce = bool(
-                strtobool(os.environ["communicate_mpoles_via_allreduce"]))
-
+        if os.environ["PYTEST"] == "shared":
             _test_against_shared(
-                dims, nsources, ntargets, dtype, communicate_mpoles_via_allreduce)
-
-        elif os.environ["PYTEST"] == "2":
-            # Run "test_constantone" test case
-            dims = int(os.environ["dims"])
-            nsources = int(os.environ["nsources"])
-            ntargets = int(os.environ["ntargets"])
-
+                dims, nsources, ntargets, dtype,
+                communicate_mpoles_via_allreduce=communicate_mpoles_via_allreduce)
+        elif os.environ["PYTEST"] == "constantone":
             _test_constantone(dims, nsources, ntargets, dtype)
-
     else:
         if len(sys.argv) > 1:
 

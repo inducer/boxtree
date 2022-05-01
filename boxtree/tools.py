@@ -20,6 +20,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+from typing import Any, Dict
 
 import numpy as np
 from pytools import Record, memoize_method
@@ -822,16 +823,20 @@ class AllReduceCommPattern:
 
 # {{{ MPI launcher
 
-def run_mpi(script, num_processes, env):
+def run_mpi(script: str, num_processes: int, env: Dict[str, Any]) -> None:
     """Launch MPI processes.
 
-    This function forks another process and uses mpiexec to launch *num_processes*
-    copies of program *script*.
+    This function forks another process and uses ``mpiexec`` to launch
+    *num_processes* MPI processes running *script*.
 
-    :arg script: the Python script to run
-    :arg num_processes: the number of copies of program to launch
-    :arg env: a Python `dict` of environment variables
+    :arg script: the Python script to run.
+    :arg num_processes: the number of MPI process to launch.
+    :arg env: a :class:`dict` of environment variables.
     """
+    import os
+    env = {key: str(value) for key, value in env.items()}
+    env = {**os.environ, **env}
+
     import subprocess
     from mpi4py import MPI
 
@@ -842,17 +847,15 @@ def run_mpi(script, num_processes, env):
     if mpi_library_name.startswith("Open MPI"):
         command = ["mpiexec", "-np", str(num_processes), "--oversubscribe"]
         for env_variable_name in env:
-            command.append("-x")
-            command.append(env_variable_name)
+            command.extend(["-x", env_variable_name])
         command.extend([sys.executable, "-m", "mpi4py", script])
-
-        subprocess.run(command, env=env, check=True)
     else:
-        subprocess.run(
-            ["mpiexec", "-np", str(num_processes), sys.executable,
-             "-m", "mpi4py", script],
-            env=env, check=True
-        )
+        command = [
+            "mpiexec", "-np", str(num_processes), sys.executable,
+            "-m", "mpi4py", script
+            ]
+
+    subprocess.run(command, env=env, check=True)
 
 # }}}
 
