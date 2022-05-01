@@ -20,17 +20,22 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-import numpy as np
 import sys
 import pytest
-import logging
 
-import pyopencl as cl
-from pyopencl.tools import (  # noqa
-        pytest_generate_tests_for_pyopencl as pytest_generate_tests)
+import numpy as np
+
+from arraycontext import pytest_generate_tests_for_array_contexts
+from boxtree.array_context import (                                 # noqa: F401
+        PytestPyOpenCLArrayContextFactory, _acf)
 from boxtree.tools import make_normal_particle_array
 
+import logging
 logger = logging.getLogger(__name__)
+
+pytest_generate_tests = pytest_generate_tests_for_array_contexts([
+    PytestPyOpenCLArrayContextFactory,
+    ])
 
 
 # {{{ bounding box test
@@ -38,45 +43,40 @@ logger = logging.getLogger(__name__)
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])
 @pytest.mark.parametrize("dims", [2, 3])
 @pytest.mark.parametrize("nparticles", [9, 4096, 10**5])
-def test_bounding_box(ctx_factory, dtype, dims, nparticles):
-    logging.basicConfig(level=logging.INFO)
-
-    ctx = ctx_factory()
-    queue = cl.CommandQueue(ctx)
+def test_bounding_box(actx_factory, dtype, dims, nparticles):
+    actx = actx_factory()
 
     from boxtree.tools import AXIS_NAMES
     from boxtree.bounding_box import BoundingBoxFinder
-
-    bbf = BoundingBoxFinder(ctx)
+    bbf = BoundingBoxFinder(actx.context)
 
     axis_names = AXIS_NAMES[:dims]
+    logger.info("%s - %s %s", dtype, dims, nparticles)
 
-    logger.info(f"{dtype} - {dims} {nparticles}")
+    particles = make_normal_particle_array(actx.queue, nparticles, dims, dtype)
 
-    particles = make_normal_particle_array(queue, nparticles, dims, dtype)
-
-    bbox_min = [np.min(x.get()) for x in particles]
-    bbox_max = [np.max(x.get()) for x in particles]
+    bbox_min = [np.min(actx.to_numpy(x)) for x in particles]
+    bbox_max = [np.max(actx.to_numpy(x)) for x in particles]
 
     bbox_cl, evt = bbf(particles, radii=None)
-    bbox_cl = bbox_cl.get()
+    bbox_cl = actx.to_numpy(bbox_cl)
 
     bbox_min_cl = np.empty(dims, dtype)
     bbox_max_cl = np.empty(dims, dtype)
 
     for i, ax in enumerate(axis_names):
-        bbox_min_cl[i] = bbox_cl["min_"+ax]
-        bbox_max_cl[i] = bbox_cl["max_"+ax]
+        bbox_min_cl[i] = bbox_cl[f"min_{ax}"]
+        bbox_max_cl[i] = bbox_cl[f"max_{ax}"]
 
-    assert (bbox_min == bbox_min_cl).all()
-    assert (bbox_max == bbox_max_cl).all()
+    assert np.all(bbox_min == bbox_min_cl)
+    assert np.all(bbox_max == bbox_max_cl)
 
 # }}}
 
 
 # {{{ test basic (no source/target distinction) tree build
 
-def run_build_test(builder, queue, dims, dtype, nparticles, do_plot,
+def run_build_test(builder, actx, dims, dtype, nparticles, visualize,
         max_particles_in_box=None, max_leaf_refine_weight=None,
         refine_weights=None, **kwargs):
     dtype = np.dtype(dtype)
@@ -88,44 +88,48 @@ def run_build_test(builder, queue, dims, dtype, nparticles, do_plot,
     else:
         raise RuntimeError("unsupported dtype: %s" % dtype)
 
-    logger.info(75*"-")
+    logger.info(75 * "-")
+
     if max_particles_in_box is not None:
-        logger.info("%dD %s - %d particles - max %d per box - %s" % (
+        logger.info("%dD %s - %d particles - max %d per box - %s",
             dims, dtype.type.__name__, nparticles, max_particles_in_box,
-            " - ".join(f"{k}: {v}" for k, v in kwargs.items())))
+            " - ".join(f"{k}: {v}" for k, v in kwargs.items()))
     else:
-        logger.info("%dD %s - %d particles - max leaf weight %d  - %s" % (
+        logger.info("%dD %s - %d particles - max leaf weight %d  - %s",
             dims, dtype.type.__name__, nparticles, max_leaf_refine_weight,
-            " - ".join(f"{k}: {v}" for k, v in kwargs.items())))
-    logger.info(75*"-")
+            " - ".join(f"{k}: {v}" for k, v in kwargs.items()))
 
-    particles = make_normal_particle_array(queue, nparticles, dims, dtype)
+    logger.info(75 * "-")
 
-    if do_plot:
+    particles = make_normal_particle_array(actx.queue, nparticles, dims, dtype)
+
+    if visualize:
         import matplotlib.pyplot as pt
-        pt.plot(particles[0].get(), particles[1].get(), "x")
+        np_particles = actx.to_numpy(particles)
+        pt.plot(np_particles[0], np_particles[1], "x")
 
-    queue.finish()
+    actx.queue.finish()
 
-    tree, _ = builder(queue, particles,
+    tree, _ = builder(actx.queue, particles,
                       max_particles_in_box=max_particles_in_box,
                       refine_weights=refine_weights,
                       max_leaf_refine_weight=max_leaf_refine_weight,
                       debug=True, **kwargs)
-    tree = tree.get(queue=queue)
+    tree = tree.get(queue=actx.queue)
 
     sorted_particles = np.array(list(tree.sources))
 
-    unsorted_particles = np.array([pi.get() for pi in particles])
-    assert (sorted_particles
-            == unsorted_particles[:, tree.user_source_ids]).all()
+    unsorted_particles = np.array([actx.to_numpy(pi) for pi in particles])
+    assert np.all(sorted_particles
+            == unsorted_particles[:, tree.user_source_ids])
 
     if refine_weights is not None:
-        refine_weights_reordered = refine_weights.get()[tree.user_source_ids]
+        refine_weights_reordered = (
+                actx.to_numpy(refine_weights)[tree.user_source_ids])
 
     all_good_so_far = True
 
-    if do_plot:
+    if visualize:
         from boxtree.visualization import TreePlotter
         plotter = TreePlotter(tree)
         plotter.draw_tree(fill=False, edgecolor="black", zorder=10)
@@ -142,9 +146,9 @@ def run_build_test(builder, queue, dims, dtype, nparticles, do_plot,
 
         extent_low, extent_high = tree.get_box_extent(ibox)
 
-        assert (extent_low >= tree.bounding_box[0] - scaled_tol).all(), (
+        assert np.all(extent_low >= tree.bounding_box[0] - scaled_tol), (
                 ibox, extent_low, tree.bounding_box[0])
-        assert (extent_high <= tree.bounding_box[1] + scaled_tol).all(), (
+        assert np.all(extent_high <= tree.bounding_box[1] + scaled_tol), (
                 ibox, extent_high, tree.bounding_box[1])
 
         center = tree.box_centers[:, ibox]
@@ -159,11 +163,11 @@ def run_build_test(builder, queue, dims, dtype, nparticles, do_plot,
                     tree.box_target_bounding_box_min[:, ibox],
                     tree.box_target_bounding_box_max[:, ibox]),
                 ]:
-            assert (extent_low - scaled_tol <= bbox_min).all()
-            assert (bbox_min - scaled_tol <= center).all()
+            assert np.all(extent_low - scaled_tol <= bbox_min)
+            assert np.all(bbox_min - scaled_tol <= center)
 
-            assert (bbox_max - scaled_tol <= extent_high).all()
-            assert (center - scaled_tol <= bbox_max).all()
+            assert np.all(bbox_max - scaled_tol <= extent_high)
+            assert np.all(center - scaled_tol <= bbox_max)
 
         start = tree.box_source_starts[ibox]
 
@@ -180,8 +184,8 @@ def run_build_test(builder, queue, dims, dtype, nparticles, do_plot,
                 (box_particles < extent_high[:, np.newaxis] + scaled_tol)
                 & (extent_low[:, np.newaxis] - scaled_tol <= box_particles))
 
-        all_good_here = good.all()
-        if do_plot and not all_good_here and all_good_so_far:
+        all_good_here = np.all(good)
+        if visualize and not all_good_here and all_good_so_far:
             pt.plot(
                     box_particles[0, np.where(~good)[1]],
                     box_particles[1, np.where(~good)[1]], "ro")
@@ -210,7 +214,7 @@ def run_build_test(builder, queue, dims, dtype, nparticles, do_plot,
 
         all_good_so_far = all_good_so_far and all_good_here
 
-    if do_plot:
+    if visualize:
         pt.gca().set_aspect("equal", "datalim")
         pt.show()
 
@@ -226,109 +230,103 @@ def particle_tree_test_decorator(f):
 
 
 @particle_tree_test_decorator
-def test_single_box_particle_tree(ctx_factory, dtype, dims, do_plot=False):
-    ctx = ctx_factory()
-    queue = cl.CommandQueue(ctx)
+def test_single_box_particle_tree(actx_factory, dtype, dims, visualize=False):
+    actx = actx_factory()
 
     from boxtree import TreeBuilder
-    builder = TreeBuilder(ctx)
+    builder = TreeBuilder(actx.context)
 
-    run_build_test(builder, queue, dims,
-            dtype, 4, max_particles_in_box=30, do_plot=do_plot)
+    run_build_test(builder, actx, dims,
+            dtype, 4, max_particles_in_box=30, visualize=visualize)
 
 
 @particle_tree_test_decorator
-def test_two_level_particle_tree(ctx_factory, dtype, dims, do_plot=False):
-    ctx = ctx_factory()
-    queue = cl.CommandQueue(ctx)
+def test_two_level_particle_tree(actx_factory, dtype, dims, visualize=False):
+    actx = actx_factory()
 
     from boxtree import TreeBuilder
-    builder = TreeBuilder(ctx)
+    builder = TreeBuilder(actx.context)
 
-    run_build_test(builder, queue, dims,
-            dtype, 50, max_particles_in_box=30, do_plot=do_plot)
+    run_build_test(builder, actx, dims,
+            dtype, 50, max_particles_in_box=30, visualize=visualize)
 
 
 @particle_tree_test_decorator
-def test_unpruned_particle_tree(ctx_factory, dtype, dims, do_plot=False):
-    ctx = ctx_factory()
-    queue = cl.CommandQueue(ctx)
+def test_unpruned_particle_tree(actx_factory, dtype, dims, visualize=False):
+    actx = actx_factory()
 
     from boxtree import TreeBuilder
-    builder = TreeBuilder(ctx)
+    builder = TreeBuilder(actx.context)
 
     # test unpruned tree build
-    run_build_test(builder, queue, dims, dtype, 10**5,
-            do_plot=do_plot, max_particles_in_box=30, skip_prune=True)
+    run_build_test(builder, actx, dims, dtype, 10**5,
+            visualize=visualize, max_particles_in_box=30, skip_prune=True)
 
 
 @particle_tree_test_decorator
-def test_particle_tree_with_reallocations(ctx_factory, dtype, dims, do_plot=False):
-    ctx = ctx_factory()
-    queue = cl.CommandQueue(ctx)
+def test_particle_tree_with_reallocations(
+        actx_factory, dtype, dims, visualize=False):
+    actx = actx_factory()
 
     from boxtree import TreeBuilder
-    builder = TreeBuilder(ctx)
+    builder = TreeBuilder(actx.context)
 
-    run_build_test(builder, queue, dims, dtype, 10**5,
-            max_particles_in_box=30, do_plot=do_plot, nboxes_guess=5)
+    run_build_test(builder, actx, dims, dtype, 10**5,
+            max_particles_in_box=30, visualize=visualize, nboxes_guess=5)
 
 
 @particle_tree_test_decorator
 def test_particle_tree_with_many_empty_leaves(
-        ctx_factory, dtype, dims, do_plot=False):
-    ctx = ctx_factory()
-    queue = cl.CommandQueue(ctx)
+        actx_factory, dtype, dims, visualize=False):
+    actx = actx_factory()
 
     from boxtree import TreeBuilder
-    builder = TreeBuilder(ctx)
+    builder = TreeBuilder(actx.context)
 
-    run_build_test(builder, queue, dims, dtype, 10**5,
-            max_particles_in_box=5, do_plot=do_plot)
+    run_build_test(builder, actx, dims, dtype, 10**5,
+            max_particles_in_box=5, visualize=visualize)
 
 
 @particle_tree_test_decorator
-def test_vanilla_particle_tree(ctx_factory, dtype, dims, do_plot=False):
-    ctx = ctx_factory()
-    queue = cl.CommandQueue(ctx)
+def test_vanilla_particle_tree(actx_factory, dtype, dims, visualize=False):
+    actx = actx_factory()
 
     from boxtree import TreeBuilder
-    builder = TreeBuilder(ctx)
+    builder = TreeBuilder(actx.context)
 
-    run_build_test(builder, queue, dims, dtype, 10**5,
-            max_particles_in_box=30, do_plot=do_plot)
+    run_build_test(builder, actx, dims, dtype, 10**5,
+            max_particles_in_box=30, visualize=visualize)
 
 
 @particle_tree_test_decorator
-def test_explicit_refine_weights_particle_tree(ctx_factory, dtype, dims,
-            do_plot=False):
-    ctx = ctx_factory()
-    queue = cl.CommandQueue(ctx)
+def test_explicit_refine_weights_particle_tree(
+        actx_factory, dtype, dims, visualize=False):
+    actx = actx_factory()
 
     from boxtree import TreeBuilder
-    builder = TreeBuilder(ctx)
+    builder = TreeBuilder(actx.context)
 
     nparticles = 10**5
 
-    from pyopencl.clrandom import PhiloxGenerator
-    rng = PhiloxGenerator(ctx, seed=10)
-    refine_weights = rng.uniform(queue, nparticles, dtype=np.int32, a=1, b=10)
+    rng = np.random.default_rng(10)
+    refine_weights = actx.from_numpy(
+            rng.integers(1, 10, (nparticles,), dtype=np.int32)
+            )
 
-    run_build_test(builder, queue, dims, dtype, nparticles,
+    run_build_test(builder, actx, dims, dtype, nparticles,
             refine_weights=refine_weights, max_leaf_refine_weight=100,
-            do_plot=do_plot)
+            visualize=visualize)
 
 
 @particle_tree_test_decorator
-def test_non_adaptive_particle_tree(ctx_factory, dtype, dims, do_plot=False):
-    ctx = ctx_factory()
-    queue = cl.CommandQueue(ctx)
+def test_non_adaptive_particle_tree(actx_factory, dtype, dims, visualize=False):
+    actx = actx_factory()
 
     from boxtree import TreeBuilder
-    builder = TreeBuilder(ctx)
+    builder = TreeBuilder(actx.context)
 
-    run_build_test(builder, queue, dims, dtype, 10**4,
-            max_particles_in_box=30, do_plot=do_plot, kind="non-adaptive")
+    run_build_test(builder, actx, dims, dtype, 10**4,
+            max_particles_in_box=30, visualize=visualize, kind="non-adaptive")
 
 # }}}
 
@@ -337,51 +335,49 @@ def test_non_adaptive_particle_tree(ctx_factory, dtype, dims, do_plot=False):
 
 @pytest.mark.opencl
 @pytest.mark.parametrize("dims", [2, 3])
-def test_source_target_tree(ctx_factory, dims, do_plot=False):
-    logging.basicConfig(level=logging.INFO)
-
-    ctx = ctx_factory()
-    queue = cl.CommandQueue(ctx)
+def test_source_target_tree(actx_factory, dims, visualize=False):
+    actx = actx_factory()
 
     nsources = 2 * 10**5
     ntargets = 3 * 10**5
     dtype = np.float64
 
-    sources = make_normal_particle_array(queue, nsources, dims, dtype,
+    sources = make_normal_particle_array(actx.queue, nsources, dims, dtype,
             seed=12)
-    targets = make_normal_particle_array(queue, ntargets, dims, dtype,
+    targets = make_normal_particle_array(actx.queue, ntargets, dims, dtype,
             seed=19)
 
-    if do_plot:
+    if visualize:
         import matplotlib.pyplot as pt
-        pt.plot(sources[0].get(), sources[1].get(), "rx")
-        pt.plot(targets[0].get(), targets[1].get(), "g+")
+        np_sources, np_targets = actx.to_numpy(sources), actx.to_numpy(targets)
+        pt.plot(np_sources[0], np_sources[1], "rx")
+        pt.plot(np_targets[0], np_targets[1], "g+")
         pt.show()
 
     from boxtree import TreeBuilder
-    tb = TreeBuilder(ctx)
+    tb = TreeBuilder(actx.context)
 
-    queue.finish()
-    tree, _ = tb(queue, sources, targets=targets,
+    actx.queue.finish()
+    tree, _ = tb(actx.queue, sources, targets=targets,
             max_particles_in_box=10, debug=True)
-    tree = tree.get(queue=queue)
+    tree = tree.get(queue=actx.queue)
 
     sorted_sources = np.array(list(tree.sources))
     sorted_targets = np.array(list(tree.targets))
 
-    unsorted_sources = np.array([pi.get() for pi in sources])
-    unsorted_targets = np.array([pi.get() for pi in targets])
-    assert (sorted_sources
-            == unsorted_sources[:, tree.user_source_ids]).all()
+    unsorted_sources = np.array([actx.to_numpy(pi) for pi in sources])
+    unsorted_targets = np.array([actx.to_numpy(pi) for pi in targets])
+    assert np.all(sorted_sources
+            == unsorted_sources[:, tree.user_source_ids])
 
     user_target_ids = np.empty(tree.ntargets, dtype=np.intp)
     user_target_ids[tree.sorted_target_ids] = np.arange(tree.ntargets, dtype=np.intp)
-    assert (sorted_targets
-            == unsorted_targets[:, user_target_ids]).all()
+    assert np.all(sorted_targets
+            == unsorted_targets[:, user_target_ids])
 
     all_good_so_far = True
 
-    if do_plot:
+    if visualize:
         from boxtree.visualization import TreePlotter
         plotter = TreePlotter(tree)
         plotter.draw_tree(fill=False, edgecolor="black", zorder=10)
@@ -392,10 +388,10 @@ def test_source_target_tree(ctx_factory, dims, do_plot=False):
     for ibox in range(tree.nboxes):
         extent_low, extent_high = tree.get_box_extent(ibox)
 
-        assert (extent_low
-                >= tree.bounding_box[0] - 1e-12*tree.root_extent).all(), ibox
-        assert (extent_high
-                <= tree.bounding_box[1] + 1e-12*tree.root_extent).all(), ibox
+        assert np.all(extent_low
+                >= tree.bounding_box[0] - 1e-12*tree.root_extent), ibox
+        assert np.all(extent_high
+                <= tree.bounding_box[1] + 1e-12*tree.root_extent), ibox
 
         src_start = tree.box_source_starts[ibox]
         tgt_start = tree.box_target_starts[ibox]
@@ -416,14 +412,14 @@ def test_source_target_tree(ctx_factory, dims, do_plot=False):
                 ("targets", sorted_targets[:,
                     tgt_start:tgt_start+tree.box_target_counts_cumul[ibox]]),
                 ]:
-            good = (
+            good = np.all(
                     (particles < extent_high[:, np.newaxis] + tol)
-                    & (extent_low[:, np.newaxis] - tol <= particles)
-                    ).all(axis=0)
+                    & (extent_low[:, np.newaxis] - tol <= particles),
+                    axis=0)
 
-            all_good_here = good.all()
+            all_good_here = np.all(good)
 
-            if do_plot and not all_good_here:
+            if visualize and not all_good_here:
                 pt.plot(
                         particles[0, np.where(~good)[0]],
                         particles[1, np.where(~good)[0]], "ro")
@@ -438,7 +434,7 @@ def test_source_target_tree(ctx_factory, dims, do_plot=False):
 
         assert all_good_so_far
 
-    if do_plot:
+    if visualize:
         pt.gca().set_aspect("equal", "datalim")
         pt.show()
 
@@ -450,37 +446,35 @@ def test_source_target_tree(ctx_factory, dims, do_plot=False):
 @pytest.mark.opencl
 @pytest.mark.parametrize("dims", [2, 3])
 @pytest.mark.parametrize("extent_norm", ["linf", "l2"])
-def test_extent_tree(ctx_factory, dims, extent_norm, do_plot=False):
-    logging.basicConfig(level=logging.INFO)
-
-    ctx = ctx_factory()
-    queue = cl.CommandQueue(ctx)
+def test_extent_tree(actx_factory, dims, extent_norm, visualize=False):
+    actx = actx_factory()
 
     nsources = 100000
     ntargets = 200000
     dtype = np.float64
     npoint_sources_per_source = 16
 
-    sources = make_normal_particle_array(queue, nsources, dims, dtype,
+    sources = make_normal_particle_array(actx.queue, nsources, dims, dtype,
             seed=12)
-    targets = make_normal_particle_array(queue, ntargets, dims, dtype,
+    targets = make_normal_particle_array(actx.queue, ntargets, dims, dtype,
             seed=19)
 
-    refine_weights = cl.array.zeros(queue, nsources+ntargets, np.int32)
+    refine_weights = actx.zeros(nsources + ntargets, np.int32)
     refine_weights[:nsources] = 1
 
-    from pyopencl.clrandom import PhiloxGenerator
-    rng = PhiloxGenerator(queue.context, seed=13)
-    source_radii = 2**rng.uniform(queue, nsources, dtype=dtype,
-            a=-10, b=0)
-    target_radii = 2**rng.uniform(queue, ntargets, dtype=dtype,
-            a=-10, b=0)
+    rng = np.random.default_rng(13)
+    source_radii = actx.from_numpy(
+            2**rng.uniform(-10, 0, (nsources,)).astype(dtype)
+            )
+    target_radii = actx.from_numpy(
+            2**rng.uniform(-10, 0, (ntargets,)).astype(dtype)
+            )
 
     from boxtree import TreeBuilder
-    tb = TreeBuilder(ctx)
+    tb = TreeBuilder(actx.context)
 
-    queue.finish()
-    dev_tree, _ = tb(queue, sources, targets=targets,
+    actx.queue.finish()
+    dev_tree, _ = tb(actx.queue, sources, targets=targets,
             source_radii=source_radii,
             target_radii=target_radii,
             extent_norm=extent_norm,
@@ -498,12 +492,13 @@ def test_extent_tree(ctx_factory, dims, extent_norm, do_plot=False):
 
     logger.info("transfer tree, check orderings")
 
-    tree = dev_tree.get(queue=queue)
+    tree = dev_tree.get(queue=actx.queue)
 
-    if do_plot:
+    if visualize:
         import matplotlib.pyplot as pt
-        pt.plot(sources[0].get(), sources[1].get(), "rx")
-        pt.plot(targets[0].get(), targets[1].get(), "g+")
+        np_sources, np_targets = actx.to_numpy(sources), actx.to_numpy(targets)
+        pt.plot(np_sources[0], np_sources[1], "rx")
+        pt.plot(np_targets[0], np_targets[1], "g+")
 
         from boxtree.visualization import TreePlotter
         plotter = TreePlotter(tree)
@@ -519,15 +514,15 @@ def test_extent_tree(ctx_factory, dims, extent_norm, do_plot=False):
     sorted_source_radii = tree.source_radii
     sorted_target_radii = tree.target_radii
 
-    unsorted_sources = np.array([pi.get() for pi in sources])
-    unsorted_targets = np.array([pi.get() for pi in targets])
-    unsorted_source_radii = source_radii.get()
-    unsorted_target_radii = target_radii.get()
+    unsorted_sources = np.array([actx.to_numpy(pi) for pi in sources])
+    unsorted_targets = np.array([actx.to_numpy(pi) for pi in targets])
+    unsorted_source_radii = actx.to_numpy(source_radii)
+    unsorted_target_radii = actx.to_numpy(target_radii)
 
-    assert (sorted_sources
-            == unsorted_sources[:, tree.user_source_ids]).all()
-    assert (sorted_source_radii
-            == unsorted_source_radii[tree.user_source_ids]).all()
+    assert np.all(sorted_sources
+            == unsorted_sources[:, tree.user_source_ids])
+    assert np.all(sorted_source_radii
+            == unsorted_source_radii[tree.user_source_ids])
 
     # {{{ test box structure, stick-out criterion
 
@@ -536,10 +531,10 @@ def test_extent_tree(ctx_factory, dims, extent_norm, do_plot=False):
     user_target_ids = np.empty(tree.ntargets, dtype=np.intp)
     user_target_ids[tree.sorted_target_ids] = np.arange(tree.ntargets, dtype=np.intp)
     if ntargets:
-        assert (sorted_targets
-                == unsorted_targets[:, user_target_ids]).all()
-        assert (sorted_target_radii
-                == unsorted_target_radii[user_target_ids]).all()
+        assert np.all(sorted_targets
+                == unsorted_targets[:, user_target_ids])
+        assert np.all(sorted_target_radii
+                == unsorted_target_radii[user_target_ids])
 
     all_good_so_far = True
 
@@ -562,10 +557,10 @@ def test_extent_tree(ctx_factory, dims, extent_norm, do_plot=False):
     for ibox in range(tree.nboxes):
         extent_low, extent_high = tree.get_box_extent(ibox)
 
-        assert (extent_low
-                >= tree.bounding_box[0] - 1e-12*tree.root_extent).all(), ibox
-        assert (extent_high
-                <= tree.bounding_box[1] + 1e-12*tree.root_extent).all(), ibox
+        assert np.all(extent_low
+                >= tree.bounding_box[0] - 1e-12*tree.root_extent), ibox
+        assert np.all(extent_high
+                <= tree.bounding_box[1] + 1e-12*tree.root_extent), ibox
 
         box_children = tree.box_child_ids[:, ibox]
         existing_children = box_children[box_children != 0]
@@ -602,13 +597,13 @@ def test_extent_tree(ctx_factory, dims, extent_norm, do_plot=False):
             check_radii = radii[bslice]
 
             if extent_norm == "linf":
-                good = (
+                good = np.all(
                         (check_particles + check_radii
                             < extent_high[:, np.newaxis] + stick_out_dist)
                         &  # noqa: W504
                         (extent_low[:, np.newaxis] - stick_out_dist
-                            <= check_particles - check_radii)
-                        ).all(axis=0)
+                            <= check_particles - check_radii),
+                        axis=0)
 
             elif extent_norm == "l2":
                 center_dists = np.sqrt(
@@ -621,9 +616,9 @@ def test_extent_tree(ctx_factory, dims, extent_norm, do_plot=False):
                         < dims * radius_with_stickout**2)
 
             else:
-                raise ValueError("unexpected value of extent_norm")
+                raise ValueError(f"unexpected value of extent_norm: '{extent_norm}'")
 
-            all_good_here = good.all()
+            all_good_here = np.all(good)
 
             if not all_good_here:
                 print("BAD BOX %s %d level %d"
@@ -642,24 +637,25 @@ def test_extent_tree(ctx_factory, dims, extent_norm, do_plot=False):
 
     logger.info("creating point sources")
 
-    np.random.seed(20)
-
     from pytools.obj_array import make_obj_array
     point_sources = make_obj_array([
-            cl.array.to_device(queue,
+            actx.from_numpy(
                 unsorted_sources[i][:, np.newaxis]
                 + unsorted_source_radii[:, np.newaxis]
-                * np.random.uniform(
-                    -1, 1, size=(nsources, npoint_sources_per_source))
-                 )
+                * rng.uniform(-1, 1, size=(nsources, npoint_sources_per_source))
+                )
             for i in range(dims)])
 
-    point_source_starts = cl.array.arange(queue,
-            0, (nsources+1)*npoint_sources_per_source, npoint_sources_per_source,
-            dtype=tree.particle_id_dtype)
+    point_source_starts = actx.from_numpy(
+            np.arange(
+                0,
+                (nsources + 1) * npoint_sources_per_source,
+                npoint_sources_per_source,
+                dtype=tree.particle_id_dtype)
+            )
 
     from boxtree.tree import link_point_sources
-    dev_tree = link_point_sources(queue, dev_tree,
+    dev_tree = link_point_sources(actx.queue, dev_tree,
             point_source_starts, point_sources,
             debug=True)
 
@@ -673,41 +669,39 @@ def test_extent_tree(ctx_factory, dims, extent_norm, do_plot=False):
 @pytest.mark.opencl
 @pytest.mark.geo_lookup
 @pytest.mark.parametrize("dims", [2, 3])
-def test_leaves_to_balls_query(ctx_factory, dims, do_plot=False):
-    logging.basicConfig(level=logging.INFO)
-
-    ctx = ctx_factory()
-    queue = cl.CommandQueue(ctx)
+def test_leaves_to_balls_query(actx_factory, dims, visualize=False):
+    actx = actx_factory()
 
     nparticles = 10**5
     dtype = np.float64
 
-    particles = make_normal_particle_array(queue, nparticles, dims, dtype)
+    particles = make_normal_particle_array(actx.queue, nparticles, dims, dtype)
 
-    if do_plot:
+    if visualize:
         import matplotlib.pyplot as pt
-        pt.plot(particles[0].get(), particles[1].get(), "x")
+        np_particles = actx.to_numpy(particles)
+        pt.plot(np_particles[0], np_particles[1], "x")
 
     from boxtree import TreeBuilder
-    tb = TreeBuilder(ctx)
+    tb = TreeBuilder(actx.context)
 
-    queue.finish()
-    tree, _ = tb(queue, particles, max_particles_in_box=30, debug=True)
+    actx.queue.finish()
+    tree, _ = tb(actx.queue, particles, max_particles_in_box=30, debug=True)
 
     nballs = 10**4
-    ball_centers = make_normal_particle_array(queue, nballs, dims, dtype)
-    ball_radii = cl.array.empty(queue, nballs, dtype).fill(0.1)
+    ball_centers = make_normal_particle_array(actx.queue, nballs, dims, dtype)
+    ball_radii = 0.1 + actx.zeros(nballs, dtype)
 
     from boxtree.area_query import LeavesToBallsLookupBuilder
-    lblb = LeavesToBallsLookupBuilder(ctx)
+    lblb = LeavesToBallsLookupBuilder(actx.context)
 
-    lbl, _ = lblb(queue, tree, ball_centers, ball_radii)
+    lbl, _ = lblb(actx.queue, tree, ball_centers, ball_radii)
 
     # get data to host for test
-    tree = tree.get(queue=queue)
-    lbl = lbl.get(queue=queue)
-    ball_centers = np.array([x.get() for x in ball_centers]).T
-    ball_radii = ball_radii.get()
+    tree = tree.get(queue=actx.queue)
+    lbl = lbl.get(queue=actx.queue)
+    ball_centers = np.array([actx.to_numpy(x) for x in ball_centers]).T
+    ball_radii = actx.to_numpy(ball_radii)
 
     assert len(lbl.balls_near_box_starts) == tree.nboxes + 1
 
@@ -733,20 +727,20 @@ def test_leaves_to_balls_query(ctx_factory, dims, do_plot=False):
 
 # {{{ area query test
 
-def run_area_query_test(ctx, queue, tree, ball_centers, ball_radii):
+def run_area_query_test(actx, tree, ball_centers, ball_radii):
     """
     Performs an area query and checks that the result is as expected.
     """
     from boxtree.area_query import AreaQueryBuilder
-    aqb = AreaQueryBuilder(ctx)
+    aqb = AreaQueryBuilder(actx.context)
 
-    area_query, _ = aqb(queue, tree, ball_centers, ball_radii)
+    area_query, _ = aqb(actx.queue, tree, ball_centers, ball_radii)
 
     # Get data to host for test.
-    tree = tree.get(queue=queue)
-    area_query = area_query.get(queue=queue)
-    ball_centers = np.array([x.get() for x in ball_centers]).T
-    ball_radii = ball_radii.get()
+    tree = tree.get(queue=actx.queue)
+    area_query = area_query.get(queue=actx.queue)
+    ball_centers = np.array([actx.to_numpy(x) for x in ball_centers]).T
+    ball_radii = actx.to_numpy(ball_radii)
 
     from boxtree import box_flags_enum
     leaf_boxes, = (tree.box_flags & box_flags_enum.HAS_CHILDREN == 0).nonzero()
@@ -777,97 +771,98 @@ def run_area_query_test(ctx, queue, tree, ball_centers, ball_radii):
 @pytest.mark.opencl
 @pytest.mark.area_query
 @pytest.mark.parametrize("dims", [2, 3])
-def test_area_query(ctx_factory, dims, do_plot=False):
-    ctx = ctx_factory()
-    queue = cl.CommandQueue(ctx)
+def test_area_query(actx_factory, dims, visualize=False):
+    actx = actx_factory()
 
     nparticles = 10**5
     dtype = np.float64
 
-    particles = make_normal_particle_array(queue, nparticles, dims, dtype)
+    particles = make_normal_particle_array(actx.queue, nparticles, dims, dtype)
 
-    if do_plot:
+    if visualize:
         import matplotlib.pyplot as pt
-        pt.plot(particles[0].get(), particles[1].get(), "x")
+        np_particles = actx.to_numpy(particles)
+        pt.plot(np_particles[0], np_particles[1], "x")
 
     from boxtree import TreeBuilder
-    tb = TreeBuilder(ctx)
+    tb = TreeBuilder(actx.context)
 
-    queue.finish()
-    tree, _ = tb(queue, particles, max_particles_in_box=30, debug=True)
+    actx.queue.finish()
+    tree, _ = tb(actx.queue, particles, max_particles_in_box=30, debug=True)
 
     nballs = 10**4
-    ball_centers = make_normal_particle_array(queue, nballs, dims, dtype)
-    ball_radii = cl.array.empty(queue, nballs, dtype).fill(0.1)
+    ball_centers = make_normal_particle_array(actx.queue, nballs, dims, dtype)
+    ball_radii = 0.1 + actx.zeros(nballs, dtype)
 
-    run_area_query_test(ctx, queue, tree, ball_centers, ball_radii)
+    run_area_query_test(actx, tree, ball_centers, ball_radii)
 
 
 @pytest.mark.opencl
 @pytest.mark.area_query
 @pytest.mark.parametrize("dims", [2, 3])
-def test_area_query_balls_outside_bbox(ctx_factory, dims, do_plot=False):
+def test_area_query_balls_outside_bbox(actx_factory, dims, visualize=False):
     """
     The input to the area query includes balls whose centers are not within
     the tree bounding box.
     """
-    ctx = ctx_factory()
-    queue = cl.CommandQueue(ctx)
+    actx = actx_factory()
 
     nparticles = 10**4
     dtype = np.float64
 
-    particles = make_normal_particle_array(queue, nparticles, dims, dtype)
+    particles = make_normal_particle_array(actx.queue, nparticles, dims, dtype)
 
-    if do_plot:
+    if visualize:
         import matplotlib.pyplot as pt
-        pt.plot(particles[0].get(), particles[1].get(), "x")
+        np_particles = actx.to_numpy(particles)
+        pt.plot(np_particles[0], np_particles[1], "x")
 
     from boxtree import TreeBuilder
-    tb = TreeBuilder(ctx)
+    tb = TreeBuilder(actx.context)
 
-    queue.finish()
-    tree, _ = tb(queue, particles, max_particles_in_box=30, debug=True)
+    actx.queue.finish()
+    tree, _ = tb(actx.queue, particles, max_particles_in_box=30, debug=True)
 
     nballs = 10**4
-    from pyopencl.clrandom import PhiloxGenerator
-    rng = PhiloxGenerator(ctx, seed=13)
     bbox_min = tree.bounding_box[0].min()
     bbox_max = tree.bounding_box[1].max()
-    from pytools.obj_array import make_obj_array
-    ball_centers = make_obj_array([
-        rng.uniform(queue, nballs, dtype=dtype, a=bbox_min-1, b=bbox_max+1)
-        for i in range(dims)])
-    ball_radii = cl.array.empty(queue, nballs, dtype).fill(0.1)
 
-    run_area_query_test(ctx, queue, tree, ball_centers, ball_radii)
+    from pytools.obj_array import make_obj_array
+    rng = np.random.default_rng(13)
+    ball_centers = make_obj_array([
+        actx.from_numpy(
+            rng.uniform(bbox_min - 1, bbox_max + 1, nballs).astype(dtype))
+        for i in range(dims)])
+    ball_radii = 0.1 + actx.zeros(nballs, dtype)
+
+    run_area_query_test(actx, tree, ball_centers, ball_radii)
 
 
 @pytest.mark.opencl
 @pytest.mark.area_query
 @pytest.mark.parametrize("dims", [2, 3])
-def test_area_query_elwise(ctx_factory, dims, do_plot=False):
-    ctx = ctx_factory()
-    queue = cl.CommandQueue(ctx)
+def test_area_query_elwise(actx_factory, dims, visualize=False):
+    actx = actx_factory()
 
     nparticles = 10**5
     dtype = np.float64
 
-    particles = make_normal_particle_array(queue, nparticles, dims, dtype)
+    particles = make_normal_particle_array(actx.queue, nparticles, dims, dtype)
 
-    if do_plot:
+    if visualize:
         import matplotlib.pyplot as pt
-        pt.plot(particles[0].get(), particles[1].get(), "x")
+        np_particles = actx.to_numpy(particles)
+        pt.plot(np_particles[0], np_particles[1], "x")
 
     from boxtree import TreeBuilder
-    tb = TreeBuilder(ctx)
+    tb = TreeBuilder(actx.context)
 
-    queue.finish()
-    tree, _ = tb(queue, particles, max_particles_in_box=30, debug=True)
+    actx.queue.finish()
+    tree, _ = tb(actx.queue, particles, max_particles_in_box=30, debug=True)
 
     nballs = 10**4
-    ball_centers = make_normal_particle_array(queue, nballs, dims, dtype)
-    ball_radii = cl.array.empty(queue, nballs, dtype).fill(0.1)
+    ball_centers = make_normal_particle_array(actx.queue, nballs, dims, dtype)
+    ball_radii = 0.1 + actx.zeros(nballs, dtype)
 
     from boxtree.area_query import (
         AreaQueryElementwiseTemplate, PeerListFinder)
@@ -887,10 +882,10 @@ def test_area_query_elwise(ctx_factory, dims, do_plot=False):
         """,
         leaf_found_op="")
 
-    peer_lists, evt = PeerListFinder(ctx)(queue, tree)
+    peer_lists, evt = PeerListFinder(actx.context)(actx.queue, tree)
 
     kernel = template.generate(
-        ctx,
+        actx.context,
         dims,
         tree.coord_dtype,
         tree.box_id_dtype,
@@ -900,11 +895,9 @@ def test_area_query_elwise(ctx_factory, dims, do_plot=False):
     evt = kernel(
         *template.unwrap_args(
             tree, peer_lists, ball_radii, *ball_centers),
-        queue=queue,
+        queue=actx.queue,
         wait_for=[evt],
         range=slice(len(ball_radii)))
-
-    cl.wait_for_events([evt])
 
 # }}}
 
@@ -915,30 +908,33 @@ def test_area_query_elwise(ctx_factory, dims, do_plot=False):
 @pytest.mark.parametrize("lookbehind", [0, 1])
 @pytest.mark.parametrize("skip_prune", [True, False])
 @pytest.mark.parametrize("dims", [2, 3])
-def test_level_restriction(ctx_factory, dims, skip_prune, lookbehind, do_plot=False):
-    ctx = ctx_factory()
-    queue = cl.CommandQueue(ctx)
+def test_level_restriction(
+        actx_factory, dims, skip_prune, lookbehind, visualize=False):
+    actx = actx_factory()
 
     nparticles = 10**5
     dtype = np.float64
 
     from boxtree.tools import make_surface_particle_array
-    particles = make_surface_particle_array(queue, nparticles, dims, dtype, seed=15)
+    particles = make_surface_particle_array(
+            actx.queue, nparticles, dims, dtype, seed=15)
 
-    if do_plot:
+    if visualize:
         import matplotlib.pyplot as pt
-        pt.plot(particles[0].get(), particles[1].get(), "x")
+        np_particles = actx.to_numpy(particles)
+        pt.plot(np_particles[0], np_particles[1], "x")
 
     from boxtree import TreeBuilder
-    tb = TreeBuilder(ctx)
+    tb = TreeBuilder(actx.context)
 
-    queue.finish()
-    tree_dev, _ = tb(queue, particles, kind="adaptive-level-restricted",
-                     max_particles_in_box=30, debug=True,
-                     skip_prune=skip_prune, lr_lookbehind=lookbehind,
+    actx.queue.finish()
+    tree_dev, _ = tb(actx.queue, particles,
+            kind="adaptive-level-restricted",
+            max_particles_in_box=30, debug=True,
+            skip_prune=skip_prune, lr_lookbehind=lookbehind,
 
-                     # Artificially low to exercise reallocation code
-                     nboxes_guess=10)
+            # Artificially low to exercise reallocation code
+            nboxes_guess=10)
 
     def find_neighbors(leaf_box_centers, leaf_box_radii):
         # We use an area query with a ball that is slightly larger than
@@ -947,20 +943,18 @@ def test_level_restriction(ctx_factory, dims, skip_prune, lookbehind, do_plot=Fa
         # Note that since this comes from an area query, the self box will be
         # included in the neighbor list.
         from boxtree.area_query import AreaQueryBuilder
-        aqb = AreaQueryBuilder(ctx)
+        aqb = AreaQueryBuilder(actx.context)
 
-        ball_radii = cl.array.to_device(queue,
-            np.min(leaf_box_radii) / 2 + leaf_box_radii)
-        leaf_box_centers = [
-            cl.array.to_device(queue, axis) for axis in leaf_box_centers]
+        ball_radii = actx.from_numpy(np.min(leaf_box_radii) / 2 + leaf_box_radii)
+        leaf_box_centers = [actx.from_numpy(axis) for axis in leaf_box_centers]
 
-        area_query, _ = aqb(queue, tree_dev, leaf_box_centers, ball_radii)
-        area_query = area_query.get(queue=queue)
+        area_query, _ = aqb(actx.queue, tree_dev, leaf_box_centers, ball_radii)
+        area_query = area_query.get(queue=actx.queue)
         return (area_query.leaves_near_ball_starts,
                 area_query.leaves_near_ball_lists)
 
     # Get data to host for test.
-    tree = tree_dev.get(queue=queue)
+    tree = tree_dev.get(queue=actx.queue)
 
     # Find leaf boxes.
     from boxtree import box_flags_enum
@@ -984,7 +978,7 @@ def test_level_restriction(ctx_factory, dims, skip_prune, lookbehind, do_plot=Fa
             neighbor_starts[leaf_idx]:neighbor_starts[leaf_idx+1]]
         neighbor_levels = np.array(tree.box_levels[neighbors], dtype=int)
         leaf_level = int(tree.box_levels[leaf])
-        assert (np.abs(neighbor_levels - leaf_level) <= 1).all(), \
+        assert np.all(np.abs(neighbor_levels - leaf_level) <= 1), \
                 (neighbor_levels, leaf_level)
 
 # }}}
@@ -996,49 +990,47 @@ def test_level_restriction(ctx_factory, dims, skip_prune, lookbehind, do_plot=Fa
 @pytest.mark.geo_lookup
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])
 @pytest.mark.parametrize("dims", [2, 3])
-def test_space_invader_query(ctx_factory, dims, dtype, do_plot=False):
-    logging.basicConfig(level=logging.INFO)
-
-    ctx = ctx_factory()
-    queue = cl.CommandQueue(ctx)
+def test_space_invader_query(actx_factory, dims, dtype, visualize=False):
+    actx = actx_factory()
 
     dtype = np.dtype(dtype)
     nparticles = 10**5
 
-    particles = make_normal_particle_array(queue, nparticles, dims, dtype)
+    particles = make_normal_particle_array(actx.queue, nparticles, dims, dtype)
 
-    if do_plot:
+    if visualize:
         import matplotlib.pyplot as pt
-        pt.plot(particles[0].get(), particles[1].get(), "x")
+        np_particles = actx.to_numpy(particles)
+        pt.plot(np_particles[0], np_particles[1], "x")
 
     from boxtree import TreeBuilder
-    tb = TreeBuilder(ctx)
+    tb = TreeBuilder(actx.context)
 
-    queue.finish()
-    tree, _ = tb(queue, particles, max_particles_in_box=30, debug=True)
+    actx.queue.finish()
+    tree, _ = tb(actx.queue, particles, max_particles_in_box=30, debug=True)
 
     nballs = 10**4
-    ball_centers = make_normal_particle_array(queue, nballs, dims, dtype)
-    ball_radii = cl.array.empty(queue, nballs, dtype).fill(0.1)
+    ball_centers = make_normal_particle_array(actx.queue, nballs, dims, dtype)
+    ball_radii = 0.1 + actx.zeros(nballs, dtype)
 
     from boxtree.area_query import (
         LeavesToBallsLookupBuilder, SpaceInvaderQueryBuilder)
 
-    siqb = SpaceInvaderQueryBuilder(ctx)
+    siqb = SpaceInvaderQueryBuilder(actx.context)
     # We can use leaves-to-balls lookup to get the set of overlapping balls for
     # each box, and from there to compute the outer space invader distance.
-    lblb = LeavesToBallsLookupBuilder(ctx)
+    lblb = LeavesToBallsLookupBuilder(actx.context)
 
-    siq, _ = siqb(queue, tree, ball_centers, ball_radii)
-    lbl, _ = lblb(queue, tree, ball_centers, ball_radii)
+    siq, _ = siqb(actx.queue, tree, ball_centers, ball_radii)
+    lbl, _ = lblb(actx.queue, tree, ball_centers, ball_radii)
 
     # get data to host for test
-    tree = tree.get(queue=queue)
-    siq = siq.get(queue=queue)
-    lbl = lbl.get(queue=queue)
+    tree = tree.get(queue=actx.queue)
+    siq = siq.get(queue=actx.queue)
+    lbl = lbl.get(queue=actx.queue)
 
-    ball_centers = np.array([x.get() for x in ball_centers])
-    ball_radii = ball_radii.get()
+    ball_centers = np.array([actx.to_numpy(x) for x in ball_centers])
+    ball_radii = actx.to_numpy(ball_radii)
 
     # Find leaf boxes.
     from boxtree import box_flags_enum
@@ -1066,46 +1058,42 @@ def test_space_invader_query(ctx_factory, dims, dtype, do_plot=False):
 
 @pytest.mark.opencl
 @pytest.mark.parametrize("dims", [2, 3])
-def test_same_tree_with_zero_weight_particles(ctx_factory, dims):
-    logging.basicConfig(level=logging.INFO)
+def test_same_tree_with_zero_weight_particles(actx_factory, dims):
+    actx = actx_factory()
 
     ntargets_values = [300, 400, 500]
     stick_out_factors = [0, 0.1, 0.3, 1]
     nsources = 20
 
-    ctx = ctx_factory()
-    queue = cl.CommandQueue(ctx)
-
     from boxtree import TreeBuilder
-    tb = TreeBuilder(ctx)
+    tb = TreeBuilder(actx.context)
 
     trees = []
 
+    rng = np.random.default_rng(10)
     for stick_out_factor in stick_out_factors:
         for ntargets in [40]:
-            np.random.seed(10)
-            sources = np.random.rand(dims, nsources)**2
+            sources = rng.random((dims, nsources))**2
             sources[:, 0] = -0.1
             sources[:, 1] = 1.1
 
-            np.random.seed()
-            targets = np.random.rand(dims, max(ntargets_values))[:, :ntargets].copy()
-            target_radii = np.random.rand(max(ntargets_values))[:ntargets]
+            targets = rng.random((dims, max(ntargets_values)))[:, :ntargets].copy()
+            target_radii = rng.random(max(ntargets_values))[:ntargets]
 
-            sources = cl.array.to_device(queue, sources)
-            targets = cl.array.to_device(queue, targets)
+            sources = actx.from_numpy(sources)
+            targets = actx.from_numpy(targets)
 
-            refine_weights = cl.array.empty(queue, nsources + ntargets, np.int32)
+            refine_weights = actx.empty(nsources + ntargets, np.int32)
             refine_weights[:nsources] = 1
             refine_weights[nsources:] = 0
 
-            tree, _ = tb(queue, sources, targets=targets,
+            tree, _ = tb(actx.queue, sources, targets=targets,
                     target_radii=target_radii,
                     stick_out_factor=stick_out_factor,
                     max_leaf_refine_weight=10,
                     refine_weights=refine_weights,
                     debug=True)
-            tree = tree.get(queue=queue)
+            tree = tree.get(queue=actx.queue)
             trees.append(tree)
 
             print("TREE:", tree.nboxes)
@@ -1123,19 +1111,16 @@ def test_same_tree_with_zero_weight_particles(ctx_factory, dims):
 
 # {{{ test_max_levels_error
 
-def test_max_levels_error(ctx_factory):
-    ctx = ctx_factory()
-    queue = cl.CommandQueue(ctx)
+def test_max_levels_error(actx_factory):
+    actx = actx_factory()
 
     from boxtree import TreeBuilder
-    tb = TreeBuilder(ctx)
+    tb = TreeBuilder(actx.context)
 
-    logging.basicConfig(level=logging.INFO)
-
-    sources = [cl.array.zeros(queue, 11, float) for i in range(2)]
+    sources = [actx.zeros(11, np.float64) for i in range(2)]
     from boxtree.tree_build import MaxLevelsExceeded
     with pytest.raises(MaxLevelsExceeded):
-        tree, _ = tb(queue, sources, max_particles_in_box=10, debug=True)
+        tree, _ = tb(actx.queue, sources, max_particles_in_box=10, debug=True)
 
 # }}}
 
