@@ -3,7 +3,8 @@ git+https://github.com/inducer/pyopencl#egg=pyopencl
 git+https://github.com/inducer/pymbolic#egg=pymbolic
 git+https://github.com/inducer/islpy#egg=islpy
 git+https://github.com/inducer/loopy#egg=loopy
-git+https://gitlab.tiker.net/inducer/pyfmmlib#egg=pyfmmlib
+git+https://github.com/inducer/pyfmmlib#egg=pyfmmlib
+git+https://github.com/inducer/arraycontext#egg=arraycontext
 
 # only for reference values for the fmmlib test
 # (unable to use---circular dep)
