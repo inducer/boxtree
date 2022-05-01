@@ -20,17 +20,15 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+import pytest
 
 import numpy as np
 import numpy.linalg as la
-import pyopencl as cl
-import warnings
 
-import pytest
-from pyopencl.tools import (  # noqa
-        pytest_generate_tests_for_pyopencl as pytest_generate_tests)
+from arraycontext import pytest_generate_tests_for_array_contexts
+from boxtree.array_context import (                                 # noqa: F401
+        PytestPyOpenCLArrayContextFactory, _acf)
 
-from boxtree.pyfmmlib_integration import FMMLibRotationDataNotSuppliedWarning
 from boxtree.tools import (  # noqa: F401
         make_normal_particle_array as p_normal,
         make_surface_particle_array as p_surface,
@@ -43,7 +41,9 @@ from boxtree.constant_one import (
 import logging
 logger = logging.getLogger(__name__)
 
-warnings.simplefilter("ignore", FMMLibRotationDataNotSuppliedWarning)
+pytest_generate_tests = pytest_generate_tests_for_array_contexts([
+    PytestPyOpenCLArrayContextFactory,
+    ])
 
 
 # {{{ ref fmmlib pot computation
@@ -156,25 +156,20 @@ class ConstantOneExpansionWranglerWithFilteredTargetsInUserOrder(
             (3, 5 * 10**5, 4*10**4, "t", p_normal, p_normal, None, "l2", "static_l2"),  # noqa: E501
 
             ])
-def test_fmm_completeness(ctx_factory, dims, nsources_req, ntargets_req,
+def test_fmm_completeness(actx_factory, dims, nsources_req, ntargets_req,
          who_has_extent, source_gen, target_gen, filter_kind, well_sep_is_n_away,
          extent_norm, from_sep_smaller_crit):
     """Tests whether the built FMM traversal structures and driver completely
     capture all interactions.
     """
+    actx = actx_factory()
 
     sources_have_extent = "s" in who_has_extent
     targets_have_extent = "t" in who_has_extent
-
-    logging.basicConfig(level=logging.INFO)
-
-    ctx = ctx_factory()
-    queue = cl.CommandQueue(ctx)
-
     dtype = np.float64
 
     try:
-        sources = source_gen(queue, nsources_req, dims, dtype, seed=15)
+        sources = source_gen(actx.queue, nsources_req, dims, dtype, seed=15)
         nsources = len(sources[0])
 
         if ntargets_req is None:
@@ -182,93 +177,99 @@ def test_fmm_completeness(ctx_factory, dims, nsources_req, ntargets_req,
             targets = None
             ntargets = ntargets_req
         else:
-            targets = target_gen(queue, ntargets_req, dims, dtype, seed=16)
+            targets = target_gen(actx.queue, ntargets_req, dims, dtype, seed=16)
             ntargets = len(targets[0])
     except ImportError:
         pytest.skip("loo.py not available, but needed for particle array "
                 "generation")
 
-    from pyopencl.clrandom import PhiloxGenerator
-    rng = PhiloxGenerator(queue.context, seed=12)
+    rng = np.random.default_rng(12)
     if sources_have_extent:
-        source_radii = 2**rng.uniform(queue, nsources, dtype=dtype,
-                a=-10, b=0)
+        source_radii = actx.from_numpy(
+                2**rng.uniform(-10, 0, (nsources)).astype(dtype)
+                )
     else:
         source_radii = None
 
     if targets_have_extent:
-        target_radii = 2**rng.uniform(queue, ntargets, dtype=dtype,
-                a=-10, b=0)
+        target_radii = actx.from_numpy(
+                2**rng.uniform(-10, 0, (ntargets,)).astype(dtype)
+                )
     else:
         target_radii = None
 
     from boxtree import TreeBuilder
-    tb = TreeBuilder(ctx)
+    tb = TreeBuilder(actx.context)
 
-    tree, _ = tb(queue, sources, targets=targets,
+    tree, _ = tb(actx.queue, sources, targets=targets,
             max_particles_in_box=30,
             source_radii=source_radii, target_radii=target_radii,
             debug=True, stick_out_factor=0.25, extent_norm=extent_norm)
     if 0:
-        tree.get(queue).plot()
+        tree = tree.get(queue=actx.queue)
+        tree.plot()
         import matplotlib.pyplot as pt
         pt.show()
 
     from boxtree.traversal import FMMTraversalBuilder
-    tbuild = FMMTraversalBuilder(ctx,
+    tbuild = FMMTraversalBuilder(actx.context,
             well_sep_is_n_away=well_sep_is_n_away,
             from_sep_smaller_crit=from_sep_smaller_crit)
-    trav, _ = tbuild(queue, tree, debug=True)
+    trav, _ = tbuild(actx.queue, tree, debug=True)
 
     if who_has_extent:
         pre_merge_trav = trav
-        trav = trav.merge_close_lists(queue)
+        trav = trav.merge_close_lists(actx.queue)
 
     #weights = np.random.randn(nsources)
     weights = np.ones(nsources)
     weights_sum = np.sum(weights)
 
-    host_trav = trav.get(queue=queue)
+    host_trav = trav.get(queue=actx.queue)
     host_tree = host_trav.tree
 
     if who_has_extent:
-        pre_merge_host_trav = pre_merge_trav.get(queue=queue)
+        pre_merge_host_trav = pre_merge_trav.get(queue=actx.queue)
 
     from boxtree.tree import ParticleListFilter
-    plfilt = ParticleListFilter(ctx)
+    plfilt = ParticleListFilter(actx.context)
 
     tree_indep = ConstantOneTreeIndependentDataForWrangler()
 
     if filter_kind:
-        flags = rng.uniform(queue, ntargets or nsources, np.int32, a=0, b=2) \
-                .astype(np.int8)
+        flags = actx.from_numpy(
+                rng.integers(0, 2, ntargets or nsources, dtype=np.int8)
+                )
+
         if filter_kind == "user":
             filtered_targets = plfilt.filter_target_lists_in_user_order(
-                    queue, tree, flags)
+                    actx.queue, tree, flags)
             wrangler = ConstantOneExpansionWranglerWithFilteredTargetsInUserOrder(
-                    tree_indep, host_trav, filtered_targets.get(queue=queue))
+                    tree_indep, host_trav,
+                    actx.to_numpy(filtered_targets))
         elif filter_kind == "tree":
             filtered_targets = plfilt.filter_target_lists_in_tree_order(
-                    queue, tree, flags)
+                    actx.queue, tree, flags)
             wrangler = ConstantOneExpansionWranglerWithFilteredTargetsInTreeOrder(
-                    tree_indep, host_trav, filtered_targets.get(queue=queue))
+                    tree_indep, host_trav,
+                    actx.to_numpy(filtered_targets))
         else:
             raise ValueError("unsupported value of 'filter_kind'")
     else:
         wrangler = ConstantOneExpansionWrangler(tree_indep, host_trav)
-        flags = cl.array.empty(queue, ntargets or nsources, dtype=np.int8)
-        flags.fill(1)
+        flags = 1 + actx.zeros(ntargets or nsources, dtype=np.int8)
 
     if ntargets is None and not filter_kind:
         # This check only works for targets == sources.
-        assert (wrangler.reorder_potentials(
-                wrangler.reorder_sources(weights)) == weights).all()
+        assert np.all(
+                wrangler.reorder_potentials(wrangler.reorder_sources(weights))
+                == weights)
 
     from boxtree.fmm import drive_fmm
     pot = drive_fmm(wrangler, (weights,))
 
     if filter_kind:
-        pot = pot[flags.get() > 0]
+        pot = pot[actx.to_numpy(flags) > 0]
 
     rel_err = la.norm((pot - weights_sum) / nsources)
     good = rel_err < 1e-8
@@ -279,8 +280,6 @@ def test_fmm_completeness(ctx_factory, dims, nsources_req, ntargets_req,
         mat = np.zeros((ntargets, nsources), dtype)
         from pytools import ProgressBar
 
-        logging.getLogger().setLevel(logging.WARNING)
-
         pb = ProgressBar("matrix", nsources)
         for i in range(nsources):
             unit_vec = np.zeros(nsources, dtype=dtype)
@@ -288,8 +287,6 @@ def test_fmm_completeness(ctx_factory, dims, nsources_req, ntargets_req,
             mat[:, i] = drive_fmm(host_trav, wrangler, (unit_vec,))
             pb.progress()
         pb.finished()
-
-        logging.getLogger().setLevel(logging.INFO)
 
         import matplotlib.pyplot as pt
 
@@ -364,8 +361,8 @@ def test_fmm_completeness(ctx_factory, dims, nsources_req, ntargets_req,
     if 0 and not good:
         import matplotlib.pyplot as pt
         filt_targets = [
-                host_tree.targets[0][flags.get() > 0],
-                host_tree.targets[1][flags.get() > 0],
+                host_tree.targets[0][actx.to_numpy(flags > 0)],
+                host_tree.targets[1][actx.to_numpy(flags > 0)],
                 ]
         host_tree.plot()
         bad = np.abs(pot - weights_sum) >= 1e-3
@@ -388,44 +385,36 @@ def test_fmm_completeness(ctx_factory, dims, nsources_req, ntargets_req,
 @pytest.mark.parametrize("dims", [2, 3])
 @pytest.mark.parametrize("use_dipoles", [True, False])
 @pytest.mark.parametrize("helmholtz_k", [0, 2])
-def test_pyfmmlib_fmm(ctx_factory, dims, use_dipoles, helmholtz_k):
-    logging.basicConfig(level=logging.INFO)
-
-    from pytest import importorskip
-    importorskip("pyfmmlib")
-
-    ctx = ctx_factory()
-    queue = cl.CommandQueue(ctx)
+def test_pyfmmlib_fmm(actx_factory, dims, use_dipoles, helmholtz_k):
+    pytest.importorskip("pyfmmlib")
+    actx = actx_factory()
 
     nsources = 3000
     ntargets = 1000
     dtype = np.float64
 
-    sources = p_normal(queue, nsources, dims, dtype, seed=15)
+    sources = p_normal(actx.queue, nsources, dims, dtype, seed=15)
     targets = (
-            p_normal(queue, ntargets, dims, dtype, seed=18)
+            p_normal(actx.queue, ntargets, dims, dtype, seed=18)
             + np.array([2, 0, 0])[:dims])
 
     sources_host = particle_array_to_host(sources)
     targets_host = particle_array_to_host(targets)
 
     from boxtree import TreeBuilder
-    tb = TreeBuilder(ctx)
+    tb = TreeBuilder(actx.context)
 
-    tree, _ = tb(queue, sources, targets=targets,
+    tree, _ = tb(actx.queue, sources, targets=targets,
             max_particles_in_box=30, debug=True)
 
     from boxtree.traversal import FMMTraversalBuilder
-    tbuild = FMMTraversalBuilder(ctx)
-    trav, _ = tbuild(queue, tree, debug=True)
+    tbuild = FMMTraversalBuilder(actx.context)
+    trav, _ = tbuild(actx.queue, tree, debug=True)
 
-    trav = trav.get(queue=queue)
+    trav = trav.get(queue=actx.queue)
 
-    from pyopencl.clrandom import PhiloxGenerator
-    rng = PhiloxGenerator(queue.context, seed=20)
-
-    weights = rng.uniform(queue, nsources, dtype=np.float64).get()
-    #weights = np.ones(nsources)
+    rng = np.random.default_rng(20)
+    weights = rng.uniform(0.0, 1.0, (nsources,))
 
     if use_dipoles:
         np.random.seed(13)
@@ -476,7 +465,7 @@ def test_pyfmmlib_fmm(ctx_factory, dims, use_dipoles, helmholtz_k):
             targets_host.T, helmholtz_k, dipole_vec)
 
     rel_err = la.norm(pot - ref_pot, np.inf) / la.norm(ref_pot, np.inf)
-    logger.info("relative l2 error vs fmmlib direct: %g" % rel_err)
+    logger.info("relative l2 error vs fmmlib direct: %g", rel_err)
     assert rel_err < 1e-5, rel_err
 
     # }}}
@@ -509,19 +498,19 @@ def test_pyfmmlib_fmm(ctx_factory, dims, use_dipoles, helmholtz_k):
             knl = DirectionalSourceDerivative(knl)
             sumpy_extra_kwargs["src_derivative_dir"] = dipole_vec
 
-        p2p = P2P(ctx,
+        p2p = P2P(actx.context,
                 [knl],
                 exclude_self=False)
 
         evt, (sumpy_ref_pot,) = p2p(
-                queue, targets, sources, (weights,),
+                actx.queue, targets, sources, (weights,),
                 out_host=True, **sumpy_extra_kwargs)
 
         sumpy_rel_err = (
                 la.norm(pot - sumpy_ref_pot, np.inf)
                 / la.norm(sumpy_ref_pot, np.inf))
 
-        logger.info("relative l2 error vs sumpy direct: %g" % sumpy_rel_err)
+        logger.info("relative l2 error vs sumpy direct: %g", sumpy_rel_err)
         assert sumpy_rel_err < 1e-5, sumpy_rel_err
 
     # }}}
@@ -534,14 +523,9 @@ def test_pyfmmlib_fmm(ctx_factory, dims, use_dipoles, helmholtz_k):
 @pytest.mark.parametrize("dims", [2, 3])
 @pytest.mark.parametrize("helmholtz_k", [0, 2])
 @pytest.mark.parametrize("order", [35])
-def test_pyfmmlib_numerical_stability(ctx_factory, dims, helmholtz_k, order):
-    logging.basicConfig(level=logging.INFO)
-
-    from pytest import importorskip
-    importorskip("pyfmmlib")
-
-    ctx = ctx_factory()
-    queue = cl.CommandQueue(ctx)
+def test_pyfmmlib_numerical_stability(actx_factory, dims, helmholtz_k, order):
+    pytest.importorskip("pyfmmlib")
+    actx = actx_factory()
 
     nsources = 30
     dtype = np.float64
@@ -561,18 +545,18 @@ def test_pyfmmlib_numerical_stability(ctx_factory, dims, helmholtz_k, order):
     targets = sources * (1 + 1e-3)
 
     from boxtree import TreeBuilder
-    tb = TreeBuilder(ctx)
+    tb = TreeBuilder(actx.context)
 
-    tree, _ = tb(queue, sources, targets=targets,
+    tree, _ = tb(actx.queue, sources, targets=targets,
             max_particles_in_box=2, debug=True)
 
     assert tree.nlevels >= 15
 
     from boxtree.traversal import FMMTraversalBuilder
-    tbuild = FMMTraversalBuilder(ctx)
-    trav, _ = tbuild(queue, tree, debug=True)
+    tbuild = FMMTraversalBuilder(actx.context)
+    trav, _ = tbuild(actx.queue, tree, debug=True)
 
-    trav = trav.get(queue=queue)
+    trav = trav.get(queue=actx.queue)
     weights = np.ones_like(sources[0])
 
     from boxtree.pyfmmlib_integration import (
@@ -589,7 +573,7 @@ def test_pyfmmlib_numerical_stability(ctx_factory, dims, helmholtz_k, order):
             tree_indep, trav,
             helmholtz_k=helmholtz_k,
             fmm_level_to_nterms=fmm_level_to_nterms,
-            rotation_data=FMMLibRotationData(queue, trav))
+            rotation_data=FMMLibRotationData(actx.queue, trav))
 
     from boxtree.fmm import drive_fmm
     pot = drive_fmm(wrangler, (weights,))
@@ -603,7 +587,7 @@ def test_pyfmmlib_numerical_stability(ctx_factory, dims, helmholtz_k, order):
             helmholtz_k)
 
     rel_err = la.norm(pot - ref_pot, np.inf) / la.norm(ref_pot, np.inf)
-    logger.info("relative l2 error vs fmmlib direct: %g" % rel_err)
+    logger.info("relative l2 error vs fmmlib direct: %g", rel_err)
 
     if dims == 2:
         error_bound = (1/2) ** (1 + order)
@@ -620,11 +604,8 @@ def test_pyfmmlib_numerical_stability(ctx_factory, dims, helmholtz_k, order):
 # {{{ test particle count thresholding in traversal generation
 
 @pytest.mark.parametrize("enable_extents", [True, False])
-def test_interaction_list_particle_count_thresholding(ctx_factory, enable_extents):
-    ctx = ctx_factory()
-    queue = cl.CommandQueue(ctx)
-
-    logging.basicConfig(level=logging.INFO)
+def test_interaction_list_particle_count_thresholding(actx_factory, enable_extents):
+    actx = actx_factory()
 
     dims = 2
     nsources = 1000
@@ -636,41 +617,41 @@ def test_interaction_list_particle_count_thresholding(ctx_factory, enable_extent
     from_sep_smaller_min_nsources_cumul = 1 + max_particles_in_box
 
     from boxtree.fmm import drive_fmm
-    sources = p_normal(queue, nsources, dims, dtype, seed=15)
-    targets = p_normal(queue, ntargets, dims, dtype, seed=15)
+    sources = p_normal(actx.queue, nsources, dims, dtype, seed=15)
+    targets = p_normal(actx.queue, ntargets, dims, dtype, seed=15)
 
-    from pyopencl.clrandom import PhiloxGenerator
-    rng = PhiloxGenerator(queue.context, seed=12)
-
+    rng = np.random.default_rng(22)
     if enable_extents:
-        target_radii = 2**rng.uniform(queue, ntargets, dtype=dtype, a=-10, b=0)
+        target_radii = actx.from_numpy(
+                2**rng.uniform(-10, 0, (ntargets,)).astype(dtype)
+                )
     else:
         target_radii = None
 
     from boxtree import TreeBuilder
-    tb = TreeBuilder(ctx)
+    tb = TreeBuilder(actx.context)
 
-    tree, _ = tb(queue, sources, targets=targets,
+    tree, _ = tb(actx.queue, sources, targets=targets,
             max_particles_in_box=max_particles_in_box,
             target_radii=target_radii,
             debug=True, stick_out_factor=0.25)
 
     from boxtree.traversal import FMMTraversalBuilder
-    tbuild = FMMTraversalBuilder(ctx)
-    trav, _ = tbuild(queue, tree, debug=True,
+    tbuild = FMMTraversalBuilder(actx.context)
+    trav, _ = tbuild(actx.queue, tree, debug=True,
             _from_sep_smaller_min_nsources_cumul=from_sep_smaller_min_nsources_cumul)
 
     weights = np.ones(nsources)
     weights_sum = np.sum(weights)
 
-    host_trav = trav.get(queue=queue)
+    host_trav = trav.get(queue=actx.queue)
 
     tree_indep = ConstantOneTreeIndependentDataForWrangler()
     wrangler = ConstantOneExpansionWrangler(tree_indep, host_trav)
 
     pot = drive_fmm(wrangler, (weights,))
 
-    assert (pot == weights_sum).all()
+    assert np.all(pot == weights_sum)
 
 # }}}
 
@@ -678,15 +659,12 @@ def test_interaction_list_particle_count_thresholding(ctx_factory, enable_extent
 # {{{ test fmm with float32 dtype
 
 @pytest.mark.parametrize("enable_extents", [True, False])
-def test_fmm_float32(ctx_factory, enable_extents):
-    ctx = ctx_factory()
-    queue = cl.CommandQueue(ctx)
+def test_fmm_float32(actx_factory, enable_extents):
+    actx = actx_factory()
 
     from pyopencl.characterize import has_struct_arg_count_bug
-    if has_struct_arg_count_bug(queue.device):
+    if has_struct_arg_count_bug(actx.queue.device, actx.context):
         pytest.xfail("won't work on devices with the struct arg count issue")
-
-    logging.basicConfig(level=logging.INFO)
 
     dims = 2
     nsources = 1000
@@ -694,40 +672,40 @@ def test_fmm_float32(ctx_factory, enable_extents):
     dtype = np.float32
 
     from boxtree.fmm import drive_fmm
-    sources = p_normal(queue, nsources, dims, dtype, seed=15)
-    targets = p_normal(queue, ntargets, dims, dtype, seed=15)
+    sources = p_normal(actx.queue, nsources, dims, dtype, seed=15)
+    targets = p_normal(actx.queue, ntargets, dims, dtype, seed=15)
 
-    from pyopencl.clrandom import PhiloxGenerator
-    rng = PhiloxGenerator(queue.context, seed=12)
-
+    rng = np.random.default_rng(12)
     if enable_extents:
-        target_radii = 2**rng.uniform(queue, ntargets, dtype=dtype, a=-10, b=0)
+        target_radii = actx.from_numpy(
+                2**rng.uniform(-10, 0, (ntargets,)).astype(dtype)
+                )
     else:
         target_radii = None
 
     from boxtree import TreeBuilder
-    tb = TreeBuilder(ctx)
+    tb = TreeBuilder(actx.context)
 
-    tree, _ = tb(queue, sources, targets=targets,
+    tree, _ = tb(actx.queue, sources, targets=targets,
             max_particles_in_box=30,
             target_radii=target_radii,
             debug=True, stick_out_factor=0.25)
 
     from boxtree.traversal import FMMTraversalBuilder
-    tbuild = FMMTraversalBuilder(ctx)
-    trav, _ = tbuild(queue, tree, debug=True)
+    tbuild = FMMTraversalBuilder(actx.context)
+    trav, _ = tbuild(actx.queue, tree, debug=True)
 
     weights = np.ones(nsources)
     weights_sum = np.sum(weights)
 
-    host_trav = trav.get(queue=queue)
+    host_trav = trav.get(queue=actx.queue)
 
     tree_indep = ConstantOneTreeIndependentDataForWrangler()
     wrangler = ConstantOneExpansionWrangler(tree_indep, host_trav)
 
     pot = drive_fmm(wrangler, (weights,))
 
-    assert (pot == weights_sum).all()
+    assert np.all(pot == weights_sum)
 
 # }}}
 
@@ -737,42 +715,33 @@ def test_fmm_float32(ctx_factory, enable_extents):
 @pytest.mark.parametrize("well_sep_is_n_away", (1, 2))
 @pytest.mark.parametrize("helmholtz_k", (0, 2))
 @pytest.mark.parametrize("nsrcntgts", (20, 10000))
-def test_fmm_with_optimized_3d_m2l(ctx_factory, nsrcntgts, helmholtz_k,
+def test_fmm_with_optimized_3d_m2l(actx_factory, nsrcntgts, helmholtz_k,
                                    well_sep_is_n_away):
-    logging.basicConfig(level=logging.INFO)
-
-    from pytest import importorskip
-    importorskip("pyfmmlib")
+    pytest.importorskip("pyfmmlib")
+    actx = actx_factory()
 
     dims = 3
-
-    ctx = ctx_factory()
-    queue = cl.CommandQueue(ctx)
-
     nsources = ntargets = nsrcntgts // 2
     dtype = np.float64
 
-    sources = p_normal(queue, nsources, dims, dtype, seed=15)
+    sources = p_normal(actx.queue, nsources, dims, dtype, seed=15)
     targets = (
-            p_normal(queue, ntargets, dims, dtype, seed=18)
+            p_normal(actx.queue, ntargets, dims, dtype, seed=18)
             + np.array([2, 0, 0])[:dims])
 
     from boxtree import TreeBuilder
-    tb = TreeBuilder(ctx)
+    tb = TreeBuilder(actx.context)
 
-    tree, _ = tb(queue, sources, targets=targets,
+    tree, _ = tb(actx.queue, sources, targets=targets,
             max_particles_in_box=30, debug=True)
 
     from boxtree.traversal import FMMTraversalBuilder
-    tbuild = FMMTraversalBuilder(ctx)
-    trav, _ = tbuild(queue, tree, debug=True)
+    tbuild = FMMTraversalBuilder(actx.context)
+    trav, _ = tbuild(actx.queue, tree, debug=True)
+    trav = trav.get(queue=actx.queue)
 
-    trav = trav.get(queue=queue)
-
-    from pyopencl.clrandom import PhiloxGenerator
-    rng = PhiloxGenerator(queue.context, seed=20)
-
-    weights = rng.uniform(queue, nsources, dtype=np.float64).get()
+    rng = np.random.default_rng(20)
+    weights = rng.uniform(0.0, 1.0, (nsources,))
 
     base_nterms = 10
 
@@ -801,7 +770,7 @@ def test_fmm_with_optimized_3d_m2l(ctx_factory, nsrcntgts, helmholtz_k,
             tree_indep, trav,
             helmholtz_k=helmholtz_k,
             fmm_level_to_nterms=fmm_level_to_nterms,
-            rotation_data=FMMLibRotationData(queue, trav))
+            rotation_data=FMMLibRotationData(actx.queue, trav))
 
     from boxtree.fmm import drive_fmm
 
@@ -827,7 +796,7 @@ def test_fmm_with_optimized_3d_m2l(ctx_factory, nsrcntgts, helmholtz_k,
 
 
 # You can test individual routines by typing
-# $ python test_fmm.py 'test_routine(cl.create_some_context)'
+# $ python test_fmm.py 'test_routine(_acf)'
 
 if __name__ == "__main__":
     import sys
