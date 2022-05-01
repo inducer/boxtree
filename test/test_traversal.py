@@ -20,19 +20,23 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+import pytest
 
 import numpy as np
 import numpy.linalg as la
-import pyopencl as cl
 
-import pytest
-from pyopencl.tools import (  # noqa
-        pytest_generate_tests_for_pyopencl as pytest_generate_tests)
+from arraycontext import pytest_generate_tests_for_array_contexts
+from boxtree.array_context import (                                 # noqa: F401
+        PytestPyOpenCLArrayContextFactory, _acf)
 
 from boxtree.tools import make_normal_particle_array
 
 import logging
 logger = logging.getLogger(__name__)
+
+pytest_generate_tests = pytest_generate_tests_for_array_contexts([
+    PytestPyOpenCLArrayContextFactory,
+    ])
 
 
 # {{{ connectivity test
@@ -44,30 +48,26 @@ logger = logging.getLogger(__name__)
     (3, True),
     (3, False),
     ])
-def test_tree_connectivity(ctx_factory, dims, sources_are_targets):
-    logging.basicConfig(level=logging.INFO)
-
-    ctx = ctx_factory()
-    queue = cl.CommandQueue(ctx)
-
+def test_tree_connectivity(actx_factory, dims, sources_are_targets):
+    actx = actx_factory()
     dtype = np.float64
 
-    sources = make_normal_particle_array(queue, 1 * 10**5, dims, dtype)
+    sources = make_normal_particle_array(actx.queue, 1 * 10**5, dims, dtype)
     if sources_are_targets:
         targets = None
     else:
-        targets = make_normal_particle_array(queue, 2 * 10**5, dims, dtype)
+        targets = make_normal_particle_array(actx.queue, 2 * 10**5, dims, dtype)
 
     from boxtree import TreeBuilder
-    tb = TreeBuilder(ctx)
-    tree, _ = tb(queue, sources, max_particles_in_box=30,
+    tb = TreeBuilder(actx.context)
+    tree, _ = tb(actx.queue, sources, max_particles_in_box=30,
             targets=targets, debug=True)
 
     from boxtree.traversal import FMMTraversalBuilder
-    tg = FMMTraversalBuilder(ctx)
-    trav, _ = tg(queue, tree, debug=True)
-    tree = tree.get(queue=queue)
-    trav = trav.get(queue=queue)
+    tg = FMMTraversalBuilder(actx.context)
+    trav, _ = tg(actx.queue, tree, debug=True)
+    tree = tree.get(queue=actx.queue)
+    trav = trav.get(queue=actx.queue)
 
     levels = tree.box_levels
     parents = tree.box_parent_ids.T
@@ -104,7 +104,7 @@ def test_tree_connectivity(ctx_factory, dims, sources_are_targets):
             assert ibox in nbl
 
         for jbox in nbl:
-            assert (0 == children[jbox]).all(), (ibox, jbox, children[jbox])
+            assert np.all(0 == children[jbox]), (ibox, jbox, children[jbox])
 
     logger.info("list 1 consists of source boxes")
 
@@ -116,7 +116,7 @@ def test_tree_connectivity(ctx_factory, dims, sources_are_targets):
         start, end = trav.from_sep_siblings_starts[itgt_box:itgt_box+2]
         seps = trav.from_sep_siblings_lists[start:end]
 
-        assert (levels[seps] == levels[tgt_ibox]).all()
+        assert np.all(levels[seps] == levels[tgt_ibox])
 
         # three-ish box radii (half of size)
         mindist = 2.5 * 0.5 * 2**-int(levels[tgt_ibox]) * tree.root_extent
@@ -133,7 +133,7 @@ def test_tree_connectivity(ctx_factory, dims, sources_are_targets):
     if sources_are_targets:
         # {{{ from_sep_{smaller,bigger} are duals of each other
 
-        assert (trav.target_or_target_parent_boxes == np.arange(tree.nboxes)).all()
+        assert np.all(trav.target_or_target_parent_boxes == np.arange(tree.nboxes))
 
         # {{{ list 4 <= list 3
 
@@ -166,9 +166,9 @@ def test_tree_connectivity(ctx_factory, dims, sources_are_targets):
             box_to_target_boxes_sep_smaller_by_source_level.append(
                 box_to_target_boxes_sep_smaller)
 
-        assert (trav.source_boxes == trav.target_boxes).all()
-        assert (trav.target_or_target_parent_boxes == np.arange(
-                tree.nboxes, dtype=tree.box_id_dtype)).all()
+        assert np.all(trav.source_boxes == trav.target_boxes)
+        assert np.all(trav.target_or_target_parent_boxes == np.arange(
+                tree.nboxes, dtype=tree.box_id_dtype))
 
         for ibox in range(tree.nboxes):
             start, end = trav.from_sep_bigger_starts[ibox:ibox+2]
@@ -255,7 +255,7 @@ def test_tree_connectivity(ctx_factory, dims, sources_are_targets):
 
             box_nrs = ref_array[start:stop]
 
-            assert (tree.box_levels[box_nrs] == lev).all(), name
+            assert np.all(tree.box_levels[box_nrs] == lev), name
 
     # }}}
 
@@ -264,42 +264,36 @@ def test_tree_connectivity(ctx_factory, dims, sources_are_targets):
 
 # {{{ visualization helper
 
-# Set 'plot' kwarg to True to actually plot. Otherwise, this
+# Set 'visualize' kwarg to True to actually plot. Otherwise, this
 # test simply ensures that interaction list plotting is still
 # working.
-def test_plot_traversal(ctx_factory, well_sep_is_n_away=1, plot=False):
-    pytest.importorskip("matplotlib")
-    ctx = ctx_factory()
-    queue = cl.CommandQueue(ctx)
 
-    #for dims in [2, 3]:
+def test_plot_traversal(actx_factory, well_sep_is_n_away=1, visualize=False):
+    pytest.importorskip("matplotlib")
+    actx = actx_factory()
+
     for dims in [2]:
         nparticles = 10**4
         dtype = np.float64
 
-        from pyopencl.clrandom import PhiloxGenerator
-        rng = PhiloxGenerator(queue.context, seed=15)
-
         from pytools.obj_array import make_obj_array
+        rng = np.random.default_rng(15)
         particles = make_obj_array([
-            rng.normal(queue, nparticles, dtype=dtype)
+            actx.from_numpy(rng.normal(0.0, 1.0, (nparticles,)).astype(dtype))
             for i in range(dims)])
 
-        # if do_plot:
-        #     pt.plot(particles[0].get(), particles[1].get(), "x")
-
         from boxtree import TreeBuilder
-        tb = TreeBuilder(ctx)
+        tb = TreeBuilder(actx.context)
 
-        queue.finish()
-        tree, _ = tb(queue, particles, max_particles_in_box=30, debug=True)
+        actx.queue.finish()
+        tree, _ = tb(actx.queue, particles, max_particles_in_box=30, debug=True)
 
         from boxtree.traversal import FMMTraversalBuilder
-        tg = FMMTraversalBuilder(ctx, well_sep_is_n_away=well_sep_is_n_away)
-        trav, _ = tg(queue, tree)
+        tg = FMMTraversalBuilder(actx.context, well_sep_is_n_away=well_sep_is_n_away)
+        trav, _ = tg(actx.queue, tree)
 
-        tree = tree.get(queue=queue)
-        trav = trav.get(queue=queue)
+        tree = tree.get(queue=actx.queue)
+        trav = trav.get(queue=actx.queue)
 
         from boxtree.visualization import TreePlotter
         plotter = TreePlotter(tree)
@@ -307,20 +301,13 @@ def test_plot_traversal(ctx_factory, well_sep_is_n_away=1, plot=False):
         #plotter.draw_box_numbers()
         plotter.set_bounding_box()
 
-        from random import randrange, seed  # noqa
-        seed(7)
-
         from boxtree.visualization import draw_box_lists
-
-        #draw_box_lists(randrange(tree.nboxes))
-
         if well_sep_is_n_away == 1:
             draw_box_lists(plotter, trav, 380)
         elif well_sep_is_n_away == 2:
             draw_box_lists(plotter, trav, 320)
-        #plotter.draw_box_numbers()
 
-        if plot:
+        if visualize:
             import matplotlib.pyplot as pt
             pt.gca().set_xticks([])
             pt.gca().set_yticks([])
@@ -333,10 +320,9 @@ def test_plot_traversal(ctx_factory, well_sep_is_n_away=1, plot=False):
 # {{{ test_from_sep_siblings_translation_and_rotation_classes
 
 @pytest.mark.parametrize("well_sep_is_n_away", (1, 2))
-def test_from_sep_siblings_translation_and_rotation_classes(ctx_factory,
-        well_sep_is_n_away):
-    ctx = ctx_factory()
-    queue = cl.CommandQueue(ctx)
+def test_from_sep_siblings_translation_and_rotation_classes(
+        actx_factory, well_sep_is_n_away):
+    actx = actx_factory()
 
     dims = 3
     nparticles = 10**4
@@ -344,19 +330,17 @@ def test_from_sep_siblings_translation_and_rotation_classes(ctx_factory,
 
     # {{{ build tree
 
-    from pyopencl.clrandom import PhiloxGenerator
-    rng = PhiloxGenerator(queue.context, seed=15)
-
     from pytools.obj_array import make_obj_array
+    rng = np.random.default_rng(15)
     particles = make_obj_array([
-        rng.normal(queue, nparticles, dtype=dtype)
+        actx.from_numpy(rng.normal(0.0, 1.0, (nparticles,)).astype(dtype))
         for i in range(dims)])
 
     from boxtree import TreeBuilder
-    tb = TreeBuilder(ctx)
+    tb = TreeBuilder(actx.context)
 
-    queue.finish()
-    tree, _ = tb(queue, particles, max_particles_in_box=30, debug=True)
+    actx.queue.finish()
+    tree, _ = tb(actx.queue, particles, max_particles_in_box=30, debug=True)
 
     # }}}
 
@@ -366,24 +350,27 @@ def test_from_sep_siblings_translation_and_rotation_classes(ctx_factory,
     from boxtree.rotation_classes import RotationClassesBuilder
     from boxtree.translation_classes import TranslationClassesBuilder
 
-    tg = FMMTraversalBuilder(ctx, well_sep_is_n_away=well_sep_is_n_away)
-    trav, _ = tg(queue, tree)
+    tg = FMMTraversalBuilder(actx.context, well_sep_is_n_away=well_sep_is_n_away)
+    trav, _ = tg(actx.queue, tree)
 
-    rb = RotationClassesBuilder(ctx)
-    result, _ = rb(queue, trav, tree)
+    rb = RotationClassesBuilder(actx.context)
+    result, _ = rb(actx.queue, trav, tree)
 
-    tb = TranslationClassesBuilder(ctx)
-    result_tb, _ = tb(queue, trav, tree)
+    tb = TranslationClassesBuilder(actx.context)
+    result_tb, _ = tb(actx.queue, trav, tree)
 
-    rot_classes = result.from_sep_siblings_rotation_classes.get(queue)
-    rot_angles = result.from_sep_siblings_rotation_class_to_angle.get(queue)
+    rot_classes = actx.to_numpy(
+            result.from_sep_siblings_rotation_classes)
+    rot_angles = actx.to_numpy(
+            result.from_sep_siblings_rotation_class_to_angle)
 
-    translation_classes = result_tb.from_sep_siblings_translation_classes.get(queue)
-    distance_vectors = \
-        result_tb.from_sep_siblings_translation_class_to_distance_vector.get(queue)
+    translation_classes = actx.to_numpy(
+            result_tb.from_sep_siblings_translation_classes)
+    distance_vectors = actx.to_numpy(
+        result_tb.from_sep_siblings_translation_class_to_distance_vector)
 
-    tree = tree.get(queue=queue)
-    trav = trav.get(queue=queue)
+    tree = tree.get(queue=actx.queue)
+    trav = trav.get(queue=actx.queue)
 
     centers = tree.box_centers.T
 
