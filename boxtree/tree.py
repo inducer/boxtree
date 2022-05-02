@@ -145,7 +145,7 @@ class TreeOfBoxes:
 
     .. attribute:: box_levels
 
-        :mod:`numpy` vector of box levels.
+        :mod:`numpy` vector of box levels in non-decreasing order.
 
     .. automethod:: __init__
 
@@ -166,14 +166,6 @@ class TreeOfBoxes:
         highs = lows + self.root_extent
         self.bounding_box = [lows, highs]
         self.dim = self.box_centers.shape[0]
-
-    def copy(self):
-        return TreeOfBoxes(
-                box_centers=self.box_centers.copy(),
-                root_extent=self.root_extent.copy(),
-                box_parent_ids=self.box_parent_ids.copy(),
-                box_child_ids=self.box_child_ids.copy(),
-                box_levels=self.box_levels.copy())
 
     # {{{ dummy interface for TreePlotter
 
@@ -541,6 +533,12 @@ class Tree(DeviceDataRecord, TreeOfBoxes):
         extent_low = self.box_centers[:, ibox] - 0.5*box_size
         extent_high = extent_low + box_size
         return extent_low, extent_high
+
+    def get_leaf_flags(self):
+        raise NotImplementedError
+
+    def leaf_boxes(self):
+        raise NotImplementedError
 
     # {{{ debugging aids
 
