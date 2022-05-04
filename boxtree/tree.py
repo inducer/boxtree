@@ -149,8 +149,6 @@ class TreeOfBoxes:
 
     .. automethod:: __init__
 
-    .. automethod:: copy
-
     .. automethod:: get_leaf_flags
 
     .. automethod:: leaf_boxes

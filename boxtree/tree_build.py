@@ -42,7 +42,7 @@ THE SOFTWARE.
 
 import numpy as np
 import numpy.typing as npt
-from typing import Union, TYPE_CHECKING
+from typing import Union, TYPE_CHECKING, List
 from pytools import memoize_method
 import pyopencl as cl
 import pyopencl.array  # noqa
@@ -264,7 +264,7 @@ def refined_and_coarsened(tob: TreeOfBoxes,
 
 
 def make_tob_root(dim: int,
-                  bbox: Union[npt.NDArray, list[list[float]]]) -> TreeOfBoxes:
+                  bbox: Union[npt.NDArray, List[List[float]]]) -> TreeOfBoxes:
     """
     Make the minimal tree of boxes.
     """
