@@ -37,11 +37,14 @@ def main():
         packages=find_packages(),
         python_requires="~=3.6",
         install_requires=[
-            "pytools>=2018.4",
-            "pyopencl>=2018.2.2",
             "Mako>=0.7.3",
             "pytest>=2.3",
+            "dataclasses; python_version<'3.7'",
+
+            "pytools>=2018.4",
+            "pyopencl>=2018.2.2",
             "cgen>=2013.1.2",
+            "arraycontext>=2021.1",
         ],
     )
 

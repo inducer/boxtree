@@ -21,18 +21,28 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
+import pytest
+
+import numpy as np
+
+from arraycontext import pytest_generate_tests_for_array_contexts
+from boxtree.array_context import (                                 # noqa: F401
+        PytestPyOpenCLArrayContextFactory, _acf)
+
+from boxtree.tools import (  # noqa: F401
+        make_normal_particle_array as p_normal,
+        make_surface_particle_array as p_surface,
+        make_uniform_particle_array as p_uniform)
 
 import logging
-import pytest
-import numpy as np
-import pyopencl as cl
-import pyopencl.array  # noqa
-from pyopencl.tools import (  # noqa
-        pytest_generate_tests_for_pyopencl as pytest_generate_tests)
-
-
 logger = logging.getLogger(__name__)
 
+pytest_generate_tests = pytest_generate_tests_for_array_contexts([
+    PytestPyOpenCLArrayContextFactory,
+    ])
+
+
+# {{{ test_allreduce_comm_pattern
 
 @pytest.mark.parametrize("p", [1, 2, 3, 4, 5, 6, 7, 8, 16, 17])
 def test_allreduce_comm_pattern(p):
@@ -76,68 +86,65 @@ def test_allreduce_comm_pattern(p):
         assert len(item) == p
         assert set(item) == set(range(p))
 
+# }}}
 
-@pytest.mark.parametrize("order", "CF")
-def test_masked_matrix_compression(ctx_getter, order):
-    cl_context = ctx_getter()
+
+# {{{ test_masked_matrix_compression
+
+@pytest.mark.parametrize("order", ["C", "F"])
+def test_masked_matrix_compression(actx_factory, order):
+    actx = actx_factory()
 
     from boxtree.tools import MaskCompressorKernel
-    matcompr = MaskCompressorKernel(cl_context)
+    matcompr = MaskCompressorKernel(actx.context)
 
     n = 40
     m = 10
 
-    np.random.seed(15)
+    rng = np.random.default_rng(15)
+    arr = (rng.random((n, m)) > 0.5).astype(np.int8).copy(order=order)
+    d_arr = actx.from_numpy(arr)
 
-    arr = (np.random.rand(n, m) > 0.5).astype(np.int8).copy(order=order)
-
-    with cl.CommandQueue(cl_context) as q:
-        d_arr = cl.array.Array(q, (n, m), arr.dtype, order=order)
-        d_arr[:] = arr
-        arr_starts, arr_lists, evt = matcompr(q, d_arr)
-        cl.wait_for_events([evt])
-        arr_starts = arr_starts.get(q)
-        arr_lists = arr_lists.get(q)
+    arr_starts, arr_lists, evt = matcompr(actx.queue, d_arr)
+    arr_starts = actx.to_numpy(arr_starts)
+    arr_lists = actx.to_numpy(arr_lists)
 
     for i in range(n):
         items = arr_lists[arr_starts[i]:arr_starts[i+1]]
         assert set(items) == set(arr[i].nonzero()[0])
 
+# }}}
 
-def test_masked_list_compression(ctx_getter):
-    cl_context = ctx_getter()
+
+# {{{ test_masked_list_compression
+
+def test_masked_list_compression(actx_factory):
+    actx = actx_factory()
 
     from boxtree.tools import MaskCompressorKernel
-    listcompr = MaskCompressorKernel(cl_context)
+    listcompr = MaskCompressorKernel(actx.context)
 
     n = 20
 
     np.random.seed(15)
 
     arr = (np.random.rand(n) > 0.5).astype(np.int8)
+    d_arr = actx.from_numpy(arr)
 
-    with cl.CommandQueue(cl_context) as q:
-        d_arr = cl.array.to_device(q, arr)
-        arr_list, evt = listcompr(q, d_arr)
-        cl.wait_for_events([evt])
-        arr_list = arr_list.get(q)
+    arr_list, evt = listcompr(actx.queue, d_arr)
+    arr_list = actx.to_numpy(arr_list)
 
     assert set(arr_list) == set(arr.nonzero()[0])
 
-
-from pyopencl.tools import (  # noqa
-        pytest_generate_tests_for_pyopencl as pytest_generate_tests)
+# }}}
 
 
-from boxtree.tools import (  # noqa: F401
-        make_normal_particle_array as p_normal,
-        make_surface_particle_array as p_surface,
-        make_uniform_particle_array as p_uniform)
+# {{{ test_device_record
 
+def test_device_record(actx_factory):
+    actx = actx_factory()
 
-def test_device_record():
     from boxtree.tools import DeviceDataRecord
-
     array = np.arange(60).reshape((3, 4, 5))
 
     obj_array = np.empty((3,), dtype=object)
@@ -149,27 +156,30 @@ def test_device_record():
         obj_array=obj_array
     )
 
-    ctx = cl.create_some_context()
+    record_dev = record.to_device(actx.queue)
+    record_host = record_dev.get(actx.queue)
 
-    with cl.CommandQueue(ctx) as queue:
-        record_dev = record.to_device(queue)
-        record_host = record_dev.get(queue)
+    assert np.array_equal(record_host.array, record.array)
 
-        assert np.array_equal(record_host.array, record.array)
+    for i in range(3):
+        assert np.array_equal(record_host.obj_array[i], record.obj_array[i])
 
-        for i in range(3):
-            assert np.array_equal(record_host.obj_array[i], record.obj_array[i])
+# }}}
 
+
+# {{{ test_particle_array
 
 @pytest.mark.parametrize("array_factory", (p_normal, p_surface, p_uniform))
 @pytest.mark.parametrize("dim", (2, 3))
 @pytest.mark.parametrize("dtype", (np.float32, np.float64))
-def test_particle_array(ctx_factory, array_factory, dim, dtype):
-    ctx = ctx_factory()
-    queue = cl.CommandQueue(ctx)
-    particles = array_factory(queue, 1000, dim, dtype)
+def test_particle_array(actx_factory, array_factory, dim, dtype):
+    actx = actx_factory()
+
+    particles = array_factory(actx.queue, 1000, dim, dtype)
     assert len(particles) == dim
     assert all(len(particles[0]) == len(axis) for axis in particles)
+
+# }}}
 
 
 # You can test individual routines by typing
