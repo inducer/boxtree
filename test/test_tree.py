@@ -24,6 +24,7 @@ import sys
 import pytest
 
 import numpy as np
+import pyopencl as cl
 
 from arraycontext import pytest_generate_tests_for_array_contexts
 from boxtree.array_context import (                                 # noqa: F401
