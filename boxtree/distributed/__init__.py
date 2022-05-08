@@ -189,13 +189,11 @@ class DistributedFMMRunner:
                 calibration_params = \
                     FMMCostModel.get_unit_calibration_params()
 
-            # We need to construct a wrangler in order to access `level_nterms`
+            # We need to construct a wrangler in order to access `level_orders`
             global_wrangler = wrangler_factory(global_trav, global_trav)
 
             cost_per_box = cost_model.cost_per_box(
-                # Currently only pyfmmlib has `level_nterms` field.
-                # See https://gitlab.tiker.net/inducer/boxtree/-/issues/25.
-                queue, global_trav_dev, global_wrangler.level_nterms,
+                queue, global_trav_dev, global_wrangler.level_orders,
                 calibration_params
             ).get()
 
