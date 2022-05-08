@@ -388,7 +388,7 @@ def test_estimate_calibration_params(actx_factory):
     level_to_orders = []
     timing_results = []
 
-    def fmm_level_to_nterms(tree, ilevel):
+    def fmm_level_to_order(tree, ilevel):
         return 10
 
     for nsources, ntargets in zip(nsources_list, ntargets_list):
@@ -425,8 +425,8 @@ def test_estimate_calibration_params(actx_factory):
         tree_indep = FMMLibTreeIndependentDataForWrangler(
                 trav.tree.dimensions, Kernel.LAPLACE)
         wrangler = FMMLibExpansionWrangler(tree_indep, trav,
-                fmm_level_to_nterms=fmm_level_to_nterms)
-        level_to_orders.append(wrangler.level_nterms)
+                fmm_level_to_order=fmm_level_to_order)
+        level_to_orders.append(wrangler.level_orders)
 
         timing_data = {}
         from boxtree.fmm import drive_fmm

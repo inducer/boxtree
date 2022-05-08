@@ -77,7 +77,7 @@ def _test_against_shared(
     # Configure array context
     actx = _acf()
 
-    def fmm_level_to_nterms(tree, level):
+    def fmm_level_to_order(tree, level):
         return max(level, 3)
 
     from boxtree.traversal import FMMTraversalBuilder
@@ -110,7 +110,7 @@ def _test_against_shared(
         # Get pyfmmlib expansion wrangler
         wrangler = FMMLibExpansionWrangler(
                 tree_indep, global_traversal_host,
-                fmm_level_to_nterms=fmm_level_to_nterms)
+                fmm_level_to_order=fmm_level_to_order)
 
         # Compute FMM using shared memory parallelism
         from boxtree.fmm import drive_fmm
@@ -124,7 +124,7 @@ def _test_against_shared(
 
         return DistributedFMMLibExpansionWrangler(
             actx.context, comm, tree_indep, local_traversal, global_traversal,
-            fmm_level_to_nterms=fmm_level_to_nterms,
+            fmm_level_to_order=fmm_level_to_order,
             communicate_mpoles_via_allreduce=communicate_mpoles_via_allreduce)
 
     from boxtree.distributed import DistributedFMMRunner
@@ -192,7 +192,7 @@ def _test_constantone(dims, nsources, ntargets, dtype):
                 communicate_mpoles_via_allreduce=True)
             ConstantOneExpansionWranglerBase.__init__(
                 self, tree_indep, local_traversal)
-            self.level_nterms = np.ones(local_traversal.tree.nlevels, dtype=np.int32)
+            self.level_orders = np.ones(local_traversal.tree.nlevels, dtype=np.int32)
 
         def reorder_sources(self, source_array):
             if self.comm.Get_rank() == 0:
