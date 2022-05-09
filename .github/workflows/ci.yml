@@ -89,5 +89,9 @@ jobs:
                 . ./ci-support-v0
 
                 export PYTEST_ADDOPTS="-k 'not slowtest'"
+                
+                if [[ "$DOWNSTREAM_PROJECT" == "pytential" && "$GITHUB_HEAD_REF" == "rename-nterms" ]]; then
+                   DOWNSTREAM_PROJECT=https://github.com/gaohao95/pytential.git@rename-nterms
+                fi
                 test_downstream "$DOWNSTREAM_PROJECT"
 # vim: sw=4
