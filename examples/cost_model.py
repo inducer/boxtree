@@ -39,10 +39,10 @@ def demo_cost_model():
 
     traversals = []
     traversals_dev = []
-    level_to_orders = []
+    level_orders_list = []
     timing_results = []
 
-    def fmm_level_to_nterms(tree, ilevel):
+    def fmm_level_to_order(tree, ilevel):
         return 10
 
     for nsources, ntargets in zip(nsources_list, ntargets_list):
@@ -82,8 +82,8 @@ def demo_cost_model():
         tree_indep = FMMLibTreeIndependentDataForWrangler(
                 trav.tree.dimensions, Kernel.LAPLACE)
         wrangler = FMMLibExpansionWrangler(tree_indep, trav,
-                fmm_level_to_nterms=fmm_level_to_nterms)
-        level_to_orders.append(wrangler.level_nterms)
+                fmm_level_to_order=fmm_level_to_order)
+        level_orders_list.append(wrangler.level_orders)
 
         timing_data = {}
         from boxtree.fmm import drive_fmm
@@ -103,7 +103,7 @@ def demo_cost_model():
         traversal = traversals_dev[icase]
         model_results.append(
             cost_model.cost_per_stage(
-                queue, traversal, level_to_orders[icase],
+                queue, traversal, level_orders_list[icase],
                 FMMCostModel.get_unit_calibration_params(),
             )
         )
@@ -114,7 +114,7 @@ def demo_cost_model():
     )
 
     predicted_time = cost_model.cost_per_stage(
-        queue, traversals_dev[-1], level_to_orders[-1], params,
+        queue, traversals_dev[-1], level_orders_list[-1], params,
     )
     queue.finish()
 

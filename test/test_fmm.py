@@ -423,12 +423,12 @@ def test_pyfmmlib_fmm(actx_factory, dims, use_dipoles, helmholtz_k):
         dipole_vec = None
 
     if dims == 2 and helmholtz_k == 0:
-        base_nterms = 20
+        base_order = 20
     else:
-        base_nterms = 10
+        base_order = 10
 
-    def fmm_level_to_nterms(tree, lev):
-        result = base_nterms
+    def fmm_level_to_order(tree, lev):
+        result = base_order
 
         if lev < 3 and helmholtz_k:
             # exercise order-varies-by-level capability
@@ -447,7 +447,7 @@ def test_pyfmmlib_fmm(actx_factory, dims, use_dipoles, helmholtz_k):
     wrangler = FMMLibExpansionWrangler(
             tree_indep, trav,
             helmholtz_k=helmholtz_k,
-            fmm_level_to_nterms=fmm_level_to_nterms,
+            fmm_level_to_order=fmm_level_to_order,
             dipole_vec=dipole_vec)
 
     from boxtree.fmm import drive_fmm
@@ -563,7 +563,7 @@ def test_pyfmmlib_numerical_stability(actx_factory, dims, helmholtz_k, order):
             Kernel, FMMLibTreeIndependentDataForWrangler,
             FMMLibExpansionWrangler, FMMLibRotationData)
 
-    def fmm_level_to_nterms(tree, lev):
+    def fmm_level_to_order(tree, lev):
         return order
 
     tree_indep = FMMLibTreeIndependentDataForWrangler(
@@ -572,7 +572,7 @@ def test_pyfmmlib_numerical_stability(actx_factory, dims, helmholtz_k, order):
     wrangler = FMMLibExpansionWrangler(
             tree_indep, trav,
             helmholtz_k=helmholtz_k,
-            fmm_level_to_nterms=fmm_level_to_nterms,
+            fmm_level_to_order=fmm_level_to_order,
             rotation_data=FMMLibRotationData(actx.queue, trav))
 
     from boxtree.fmm import drive_fmm
@@ -743,10 +743,10 @@ def test_fmm_with_optimized_3d_m2l(actx_factory, nsrcntgts, helmholtz_k,
     rng = np.random.default_rng(20)
     weights = rng.uniform(0.0, 1.0, (nsources,))
 
-    base_nterms = 10
+    base_order = 10
 
-    def fmm_level_to_nterms(tree, lev):
-        result = base_nterms
+    def fmm_level_to_order(tree, lev):
+        result = base_order
 
         if lev < 3 and helmholtz_k:
             # exercise order-varies-by-level capability
@@ -764,12 +764,12 @@ def test_fmm_with_optimized_3d_m2l(actx_factory, nsrcntgts, helmholtz_k,
     baseline_wrangler = FMMLibExpansionWrangler(
             tree_indep, trav,
             helmholtz_k=helmholtz_k,
-            fmm_level_to_nterms=fmm_level_to_nterms)
+            fmm_level_to_order=fmm_level_to_order)
 
     optimized_wrangler = FMMLibExpansionWrangler(
             tree_indep, trav,
             helmholtz_k=helmholtz_k,
-            fmm_level_to_nterms=fmm_level_to_nterms,
+            fmm_level_to_order=fmm_level_to_order,
             rotation_data=FMMLibRotationData(actx.queue, trav))
 
     from boxtree.fmm import drive_fmm

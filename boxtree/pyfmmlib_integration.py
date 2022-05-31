@@ -172,7 +172,7 @@ class FMMLibTreeIndependentDataForWrangler(TreeIndependentDataForWrangler):
             def wrapper(*args, **kwargs):
                 kwargs.pop("level_for_projection", None)
                 nterms2 = kwargs["nterms2"]
-                kwargs.update(wrangler.projection_quad_extra_kwargs(nterms=nterms2))
+                kwargs.update(wrangler.projection_quad_extra_kwargs(order=nterms2))
 
                 val, ier = rout(*args, **kwargs)
                 if (ier != 0).any():
@@ -286,14 +286,14 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
     # {{{ constructor
 
     def __init__(self, tree_indep, traversal, *,
-            helmholtz_k=None, fmm_level_to_nterms=None,
-            dipole_vec=None, dipoles_already_reordered=False, nterms=None,
+            helmholtz_k=None, fmm_level_to_order=None,
+            dipole_vec=None, dipoles_already_reordered=False, order=None,
             optimized_m2l_precomputation_memory_cutoff_bytes=10**8,
             rotation_data=None):
         """
-        :arg fmm_level_to_nterms: A callable that, upon being passed the tree
-            and the tree level as an integer, returns the value of *nterms* for the
-            multipole and local expansions on that level.
+        :arg fmm_level_to_order: A callable that, upon being passed the tree
+            and the tree level as an integer, returns the order for the multipole and
+            local expansions on that level.
         :arg rotation_data: Either *None* or an instance of the
             :class:`FMMLibRotationDataInterface`. In three dimensions, passing
             *rotation_data* enables optimized M2L (List 2) translations.
@@ -303,17 +303,17 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
             amount of storage to use for a precomputed rotation matrix.
         """
 
-        if nterms is not None and fmm_level_to_nterms is not None:
-            raise TypeError("may specify either fmm_level_to_nterms or nterms, "
+        if order is not None and fmm_level_to_order is not None:
+            raise TypeError("may specify either fmm_level_to_order or order, "
                     "but not both")
 
-        if nterms is not None:
+        if order is not None:
             from warnings import warn
-            warn("Passing nterms is deprecated. Pass fmm_level_to_nterms instead.",
+            warn("Passing order is deprecated. Pass fmm_level_to_order instead.",
                     DeprecationWarning, stacklevel=2)
 
-            def fmm_level_to_nterms(tree, level):  # noqa pylint:disable=function-redefined
-                return nterms
+            def fmm_level_to_order(tree, level):  # noqa pylint:disable=function-redefined
+                return order
 
         super().__init__(tree_indep, traversal)
 
@@ -347,13 +347,13 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
             raise ValueError(f"Kernel dim ({tree_indep.dim}) "
                     f"does not match tree dim ({tree.dimensions})")
 
-        self.level_nterms = np.array([
-            fmm_level_to_nterms(tree, lev) for lev in range(tree.nlevels)
+        self.level_orders = np.array([
+            fmm_level_to_order(tree, lev) for lev in range(tree.nlevels)
             ], dtype=np.int32)
 
         if tree_indep.kernel == Kernel.HELMHOLTZ:
             logger.info("expansion orders by level used in Helmholtz FMM: %s",
-                    self.level_nterms)
+                    self.level_orders)
 
         self.rotation_data = rotation_data
         self.rotmat_cutoff_bytes = optimized_m2l_precomputation_memory_cutoff_bytes
@@ -407,18 +407,18 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
         return result
 
     @memoize_method
-    def projection_quad_extra_kwargs(self, level=None, nterms=None):
-        if level is None and nterms is None:
-            raise TypeError("must pass exactly one of level or nterms")
-        if level is not None and nterms is not None:
-            raise TypeError("must pass exactly one of level or nterms")
+    def projection_quad_extra_kwargs(self, level=None, order=None):
+        if level is None and order is None:
+            raise TypeError("must pass exactly one of level or order")
+        if level is not None and order is not None:
+            raise TypeError("must pass exactly one of level or order")
         if level is not None:
-            nterms = self.level_nterms[level]
+            order = self.level_orders[level]
 
         common_extra_kwargs = {}
 
         if self.dim == 3 and self.tree_indep.eqn_letter == "h":
-            nquad = max(6, int(2.5*nterms))
+            nquad = max(6, int(2.5*order))
             from pyfmmlib import legewhts
             xnodes, weights = legewhts(nquad, ifwhts=1)
 
@@ -451,7 +451,7 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
                     self.tree.level_start_box_nrs[lev+1]
                     - self.tree.level_start_box_nrs[lev])
 
-            expn_size = order_to_size(self.level_nterms[lev])
+            expn_size = order_to_size(self.level_orders[lev])
             result.append(
                     result[-1]
                     + expn_size * lev_nboxes)
@@ -462,15 +462,15 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
     def multipole_expansions_level_starts(self):
         from pytools import product
         return self._expansions_level_starts(
-                lambda nterms: product(
-                    self.expansion_shape(nterms)))
+                lambda order: product(
+                    self.expansion_shape(order)))
 
     @memoize_method
     def local_expansions_level_starts(self):
         from pytools import product
         return self._expansions_level_starts(
-                lambda nterms: product(
-                    self.expansion_shape(nterms)))
+                lambda order: product(
+                    self.expansion_shape(order)))
 
     # }}}
 
@@ -484,7 +484,7 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
         return (box_start,
                 mpole_exps[expn_start:expn_stop].reshape(
                     box_stop-box_start,
-                    *self.expansion_shape(self.level_nterms[level])))
+                    *self.expansion_shape(self.level_orders[level])))
 
     def local_expansions_view(self, local_exps, level):
         box_start, box_stop = self.tree.level_start_box_nrs[level:level+2]
@@ -494,7 +494,7 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
         return (box_start,
                 local_exps[expn_start:expn_stop].reshape(
                     box_stop-box_start,
-                    *self.expansion_shape(self.level_nterms[level])))
+                    *self.expansion_shape(self.level_orders[level])))
 
     # }}}
 
@@ -590,7 +590,7 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
         # Find the largest order we can use. Because the memory cost of the
         # matrices could be large, only precompute them if the cost estimate
         # for the order does not exceed the cutoff.
-        for order in sorted(self.level_nterms, reverse=True):
+        for order in sorted(self.level_orders, reverse=True):
             if mem_estimate(order) < self.rotmat_cutoff_bytes:
                 rotmat_order = order
                 break
@@ -615,15 +615,15 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
 
     # {{{ data vector utilities
 
-    def expansion_shape(self, nterms):
+    def expansion_shape(self, order):
         if self.dim == 2 and self.tree_indep.eqn_letter == "l":
-            return (nterms+1,)
+            return (order+1,)
         elif self.dim == 2 and self.tree_indep.eqn_letter == "h":
-            return (2*nterms+1,)
+            return (2*order+1,)
         elif self.dim == 3:
             # This is the transpose of the Fortran format, to
             # minimize mismatch between C and Fortran orders.
-            return (2*nterms+1, nterms+1,)
+            return (2*order+1, order+1,)
         else:
             raise ValueError("unsupported dimensionality")
 
@@ -712,7 +712,7 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
                         rscale=rscale,
                         source=self._get_sources(pslice),
                         center=self.tree.box_centers[:, src_ibox],
-                        nterms=self.level_nterms[lev],
+                        nterms=self.level_orders[lev],
                         **kwargs)
 
                 if ier:
@@ -769,7 +769,7 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
 
                                 rscale2=target_rscale,
                                 center2=parent_center,
-                                nterms2=self.level_nterms[target_level],
+                                nterms2=self.level_orders[target_level],
 
                                 **kwargs)
 
@@ -849,7 +849,7 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
 
             # {{{ set up optimized m2l, if applicable
 
-            if self.level_nterms[lev] <= rotmat_order:
+            if self.level_orders[lev] <= rotmat_order:
                 m2l_rotation_lists = self.rotation_data.m2l_rotation_lists()
                 assert len(m2l_rotation_lists) == len(lists)
 
@@ -857,8 +857,8 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
                         self, "%ddmploc", vec_suffix="2_trunc_imany")
 
                 kwargs["ldm"] = rotmat_order
-                kwargs["nterms"] = self.level_nterms[lev]
-                kwargs["nterms1"] = self.level_nterms[lev]
+                kwargs["nterms"] = self.level_orders[lev]
+                kwargs["nterms1"] = self.level_orders[lev]
 
                 kwargs["rotmatf"] = rotmatf
                 kwargs["rotmatf_offsets"] = m2l_rotation_lists
@@ -906,7 +906,7 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
                 kwargs["ier"] = ier
 
             expn2 = np.zeros(
-                    (ntgt_boxes,) + self.expansion_shape(self.level_nterms[lev]),
+                    (ntgt_boxes,) + self.expansion_shape(self.level_orders[lev]),
                     dtype=self.tree_indep.dtype)
 
             kwargs.update(self.kernel_kwargs)
@@ -929,7 +929,7 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
                     center2=tree.box_centers[:, tgt_ibox_vec],
                     expn2=expn2.T,
 
-                    nterms2=self.level_nterms[lev],
+                    nterms2=self.level_orders[lev],
 
                     **kwargs).T
 
@@ -1048,7 +1048,7 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
                     nsources_offsets=nsources_offsets,
                     centers=centers,
                     centers_offsets=centers_offsets,
-                    nterms=self.level_nterms[lev],
+                    nterms=self.level_orders[lev],
                     **kwargs)
 
             if ier.any():
@@ -1098,7 +1098,7 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
 
                             rscale2=target_rscale,
                             center2=tgt_center,
-                            nterms2=self.level_nterms[target_lev],
+                            nterms2=self.level_orders[target_lev],
 
                             **kwargs)[..., 0]
 

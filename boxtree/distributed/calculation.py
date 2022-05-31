@@ -392,7 +392,7 @@ class DistributedFMMLibExpansionWrangler(
         DistributedExpansionWrangler, FMMLibExpansionWrangler):
     def __init__(
             self, context, comm, tree_indep, local_traversal, global_traversal,
-            fmm_level_to_nterms=None,
+            fmm_level_to_order=None,
             communicate_mpoles_via_allreduce=False,
             **kwargs):
         DistributedExpansionWrangler.__init__(
@@ -400,7 +400,7 @@ class DistributedFMMLibExpansionWrangler(
             communicate_mpoles_via_allreduce=communicate_mpoles_via_allreduce)
         FMMLibExpansionWrangler.__init__(
             self, tree_indep, local_traversal,
-            fmm_level_to_nterms=fmm_level_to_nterms, **kwargs)
+            fmm_level_to_order=fmm_level_to_order, **kwargs)
 
     #TODO: use log_process like FMMLibExpansionWrangler?
     def reorder_sources(self, source_array):
