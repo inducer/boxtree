@@ -46,6 +46,18 @@ def make_global_leaf_quadrature(actx, tob, order):
     from boxtree.tree_build import make_mesh_from_leaves
     mesh = make_mesh_from_leaves(tob)
 
+    if 1:
+        from meshmode.mesh import visualization as mvis
+        import matplotlib.pyplot as plt
+        mvis.draw_2d_mesh(mesh,
+                          set_bounding_box=True,
+                          draw_vertex_numbers=False,
+                          draw_element_numbers=False)
+        plt.plot(tob.box_centers[0][tob.leaf_boxes()],
+                 tob.box_centers[1][tob.leaf_boxes()], "rx")
+        plt.plot(mesh.vertices[0], mesh.vertices[1], "ro")
+        plt.show()
+
     from meshmode.discretization import Discretization
     discr = Discretization(actx, mesh, group_factory)
 
@@ -147,6 +159,58 @@ def test_uniform_tree_of_boxes_convergence(ctx_factory, dim, order):
         assert err < 1e-14
 
 
+def test_tree_rebuild_with_particle(ctx_factory):
+    from boxtree.tree_build import make_tob_root, uniformly_refined
+    radius = np.pi
+    dim = 2
+    nlevels = 3
+    lower_bounds = np.zeros(dim) - radius/2
+    upper_bounds = lower_bounds + radius
+    tob = make_tob_root(dim=dim, bbox=[lower_bounds, upper_bounds])
+
+    for _ in range(nlevels - 1):
+        tob = uniformly_refined(tob)
+
+    from arraycontext import PyOpenCLArrayContext
+    cl_ctx = ctx_factory()
+    queue = cl.CommandQueue(cl_ctx)
+    actx = PyOpenCLArrayContext(queue)
+
+    # FIXME: tree builder sometimes fails to reproduce
+    nqpts = 4
+    x, q = make_global_leaf_quadrature(actx, tob, order=nqpts - 1)
+
+    from boxtree.tree_build import TreeBuilder
+    tb = TreeBuilder(cl_ctx)
+    tree, evt = tb(queue, x,
+              max_particles_in_box=nqpts**dim,
+              bbox=np.array([
+                  [lower_bounds[i], upper_bounds[i]]
+                  for i in range(dim)]))
+
+    if 1:
+        from boxtree.visualization import TreePlotter
+        import matplotlib.pyplot as plt
+        tp = TreePlotter(tob)
+        tp.draw_tree()
+        tp.set_bounding_box()
+        plt.plot(x[0].get(), x[1].get(), ".")
+        plt.show()
+
+    if 0:
+        from boxtree.visualization import TreePlotter
+        import matplotlib.pyplot as plt
+        tp = TreePlotter(tree.get(queue))
+        tp.draw_tree()
+        tp.set_bounding_box()
+        plt.plot(x[0].get(), x[1].get(), ".")
+        plt.show()
+
+    import pudb; pu.db
+
+
+
+@pytest.mark.skip(reason="wip")
 def test_traversal_from_tob(ctx_factory):
     from boxtree.tree_build import make_tob_root, uniformly_refined
     radius = np.pi
@@ -159,21 +223,55 @@ def test_traversal_from_tob(ctx_factory):
     for _ in range(nlevels):
         tob = uniformly_refined(tob)
 
-    # FIXME
-    tob._is_pruned = True
-    tob.sources_have_extent = False
-    tob.particle_id_dtype = np.int32
-    tob.box_id_dtype = np.int32
-    tob.box_level_dtype = np.int32
-    tob.coord_dtype = np.float64
-    tob.sources_are_targets = True
-    tob.targets_have_extent = True
-    tob.extent_norm = "linf"
-
-    from boxtree.traversal import FMMTraversalBuilder
     ctx = ctx_factory()
     queue = cl.CommandQueue(ctx)
+
+    from boxtree.tree_build import _sort_boxes_by_level
+    tob = _sort_boxes_by_level(tob)
+
+    def _to_device(tob, queue):
+        from dataclasses import replace
+        return replace(
+            tob,
+            box_centers=cl.array.to_device(queue, tob.box_centers),
+            box_parent_ids=cl.array.to_device(queue, tob.box_parent_ids),
+            box_child_ids=cl.array.to_device(queue, tob.box_child_ids),
+            box_levels=cl.array.to_device(queue, tob.box_levels))
+
+    blvlist = tob.box_levels.tolist()
+    level_start_box_nrs = np.array(
+        [blvlist.index(lv) for lv in range(tob.nlevels)])
+
+    # FIXME: fill in data
+    tob = _to_device(tob, queue)
+    tob.level_start_box_nrs = level_start_box_nrs
+    tob.level_start_box_nrs_dev = cl.array.to_device(queue, level_start_box_nrs)
+
+    tob._is_pruned = True
+    tob.sources_have_extent = False
+    tob.particle_id_dtype = np.dtype(np.int32)
+    tob.box_id_dtype = np.dtype(np.int32)
+    tob.box_level_dtype = np.dtype(np.int32)
+    tob.coord_dtype = np.dtype(np.float64)
+    tob.sources_are_targets = True
+    tob.targets_have_extent = False
+    tob.extent_norm = "linf"
+    tob.aligned_nboxes = tob.nboxes
+
+    # particle sizes
+    # FIXME
+    tob.stick_out_factor = 1e-12
+    tob.box_target_bounding_box_min = None
+    tob.box_source_bounding_box_min = None
+
+    from boxtree.traversal import FMMTraversalBuilder
+    from boxtree.tree import box_flags_enum
+    from functools import partial
+    empty = partial(cl.array.empty, queue, allocator=None)
+    tob.box_flags = empty(tob.nboxes, box_flags_enum.dtype)
+
     tg = FMMTraversalBuilder(ctx)
+    import pudb; pu.db
     trav, _ = tg(queue, tob)
 
 

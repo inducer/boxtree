@@ -201,7 +201,7 @@ def _apply_coarsen_flags(coarsen_flags, tob, error_on_ignored_flags=True):
                    box_child_ids=box_children, box_levels=box_levels)
 
 
-def _sort_boxes_by_level(tob):
+def _sort_boxes_by_level(tob, queue=None):
     if np.any(np.diff(tob.box_levels) < 0):
         # reorder boxes to into non-decreasing levels
         neworder = np.argsort(tob.box_levels)
@@ -320,7 +320,6 @@ def make_mesh_from_leaves(tob: TreeOfBoxes) -> "Mesh":
         unit_nodes=None)
 
     return Mesh(vertices=lfvertices, groups=[group])
-
 
 # }}}
 

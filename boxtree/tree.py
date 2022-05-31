@@ -160,7 +160,11 @@ class TreeOfBoxes:
     box_levels: npt.NDArray
 
     def __post_init__(self):
-        lows = self.box_centers[:, 0] - 0.5*self.root_extent
+        if isinstance(self.box_centers, cl.array.Array):
+            bcenters = self.box_centers.get()
+        else:
+            bcenters = self.box_centers
+        lows = bcenters[:, 0] - 0.5*self.root_extent
         highs = lows + self.root_extent
         self.bounding_box = [lows, highs]
         self.dim = self.box_centers.shape[0]
@@ -190,7 +194,11 @@ class TreeOfBoxes:
 
     @property
     def nlevels(self):
-        return max(self.box_levels) + 1  # level starts from 0
+        # level starts from 0
+        if isinstance(self.box_levels, cl.array.Array):
+            return int(max(self.box_levels).get()) + 1
+        else:
+            return max(self.box_levels) + 1
 
     def get_leaf_flags(self):
         # box_id -> whether the box is leaf
@@ -199,7 +207,6 @@ class TreeOfBoxes:
     def leaf_boxes(self):
         boxes = np.arange(self.nboxes)
         return boxes[self.get_leaf_flags()]
-
 
 # }}}
 
