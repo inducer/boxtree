@@ -33,24 +33,25 @@ THE SOFTWARE.
 """
 
 import logging
+from dataclasses import dataclass
 
 import numpy as np
+from arraycontext import Array
 
-import pyopencl as cl
-import pyopencl.array
+from pytools import log_process
 
-from boxtree.tools import DeviceDataRecord
+from boxtree.array_context import PyOpenCLArrayContext, dataclass_array_container
 from boxtree.translation_classes import TranslationClassesBuilder
 
 
 logger = logging.getLogger(__name__)
 
-from pytools import log_process
-
 
 # {{{ rotation classes builder
 
-class RotationClassesInfo(DeviceDataRecord):
+@dataclass_array_container
+@dataclass(frozen=True)
+class RotationClassesInfo:
     r"""Interaction lists to help with matrix precomputations for rotation-based
     translations ("point and shoot").
 
@@ -75,6 +76,9 @@ class RotationClassesInfo(DeviceDataRecord):
 
     """
 
+    from_sep_siblings_rotation_classes: Array
+    from_sep_siblings_rotation_class_to_angle: Array
+
     @property
     def nfrom_sep_siblings_rotation_classes(self):
         return len(self.from_sep_siblings_rotation_class_to_angle)
@@ -87,25 +91,24 @@ class RotationClassesBuilder:
     .. automethod:: __call__
     """
 
-    def __init__(self, context):
-        self.context = context
-        self.tcb = TranslationClassesBuilder(context)
+    def __init__(self, array_context: PyOpenCLArrayContext):
+        self._setup_actx = array_context
+        self.tcb = TranslationClassesBuilder(array_context)
 
     @staticmethod
-    def vec_gcd(vec):
+    def vec_gcd(vec) -> int:
         """Return the GCD of a list of integers."""
-        def gcd(a, b):
-            while b:
-                a, b = b, a % b
-            return a
+        import math
 
+        # TODO: math.gcd supports a list of integers from >= 3.9
         result = abs(vec[0])
         for elem in vec[1:]:
-            result = gcd(result, abs(elem))
+            result = math.gcd(result, abs(elem))
+
         return result
 
     def compute_rotation_classes(self,
-            well_sep_is_n_away, dimensions, used_translation_classes):
+            well_sep_is_n_away: int, dimensions: int, used_translation_classes):
         """Convert translation classes to a list of rotation classes and angles."""
         angle_to_rot_class = {}
         angles = []
@@ -154,11 +157,11 @@ class RotationClassesBuilder:
         return translation_class_to_rot_class, angles
 
     @log_process(logger, "build m2l rotation classes")
-    def __call__(self, queue, trav, tree, wait_for=None):
+    def __call__(self, actx, trav, tree, wait_for=None):
         """Returns a pair *info*, *evt* where info is a :class:`RotationClassesInfo`.
         """
         evt, translation_class_is_used, translation_classes_lists = \
-            self.tcb.compute_translation_classes(queue, trav, tree, wait_for, False)
+            self.tcb.compute_translation_classes(actx, trav, tree, wait_for, False)
 
         d = tree.dimensions
         n = trav.well_sep_is_n_away
@@ -166,7 +169,7 @@ class RotationClassesBuilder:
         # convert translation classes to rotation classes
 
         used_translation_classes = (
-                np.flatnonzero(translation_class_is_used.get()))
+                np.flatnonzero(actx.to_numpy(translation_class_is_used)))
 
         translation_class_to_rotation_class, rotation_angles = (
                 self.compute_rotation_classes(n, d, used_translation_classes))
@@ -176,17 +179,17 @@ class RotationClassesBuilder:
         # positions for list 2 boxes.
         assert len(rotation_angles) <= 2**(d-1) * (2*n+1)**d
 
-        rotation_classes_lists = (
-                cl.array.take(
-                    cl.array.to_device(queue, translation_class_to_rotation_class),
-                    translation_classes_lists))
+        rotation_classes_lists = actx.from_numpy(
+            translation_class_to_rotation_class
+            )[translation_classes_lists]
+        rotation_angles = actx.from_numpy(np.array(rotation_angles))
 
-        rotation_angles = cl.array.to_device(queue, np.array(rotation_angles))
-
-        return RotationClassesInfo(
+        info = RotationClassesInfo(
                 from_sep_siblings_rotation_classes=rotation_classes_lists,
                 from_sep_siblings_rotation_class_to_angle=rotation_angles,
-                ).with_queue(None), evt
+                )
+
+        return actx.freeze(info), evt
 
 # }}}
 
