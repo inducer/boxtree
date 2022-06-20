@@ -29,7 +29,6 @@ from mako.template import Template
 
 import pyopencl as cl
 import pyopencl.array
-import pyopencl.cltypes as cltypes
 from pyopencl.tools import ScalarArg, VectorArg as _VectorArg, dtype_to_c_struct
 from pytools import Record, memoize_method
 from pytools.obj_array import make_obj_array
@@ -68,7 +67,7 @@ def realloc_array(queue, allocator, new_shape, ary, zero_fill=False, wait_for=No
 def reverse_index_array(indices, target_size=None, result_fill_value=None,
         queue=None):
     """For an array of *indices*, return a new array *result* that satisfies
-    ``result[indices] == arange(len(indices))
+    ``result[indices] == arange(len(indices))``
 
     :arg target_n: The length of the result, or *None* if the result is to
         have the same length as *indices*.
@@ -280,18 +279,17 @@ def particle_array_to_host(parray):
 # {{{ host/device data storage
 
 class DeviceDataRecord(Record):
-    """A record of array-type data. Some of this data may live in
-    :class:`pyopencl.array.Array` objects. :meth:`get` can then be
-    called to convert all these device arrays into :mod:`numpy.ndarray`
-    instances on the host.
+    """A record of array-type data.
+
+    Some of this data may live in :class:`pyopencl.array.Array` objects.
+    :meth:`get` can then be called to convert all these device arrays into
+    :mod:`numpy.ndarray` instances on the host.
     """
 
     def _transform_arrays(self, f, exclude_fields=frozenset()):
-        result = {}
-
         def transform_val(val):
             from pyopencl.algorithm import BuiltList
-            if isinstance(val, np.ndarray) and val.dtype == object:
+            if isinstance(val, np.ndarray) and val.dtype.char == "O":
                 from pytools.obj_array import obj_array_vectorize
                 return obj_array_vectorize(f, val)
             elif isinstance(val, list):
@@ -305,7 +303,17 @@ class DeviceDataRecord(Record):
             else:
                 return f(val)
 
-        for field_name in self.__class__.fields:
+        from dataclasses import fields, is_dataclass
+
+        if is_dataclass(self):
+            fields = [f.name for f in fields(self)]
+        elif isinstance(self, Record):
+            fields = self.__class__.fields
+        else:
+            raise TypeError(f"unknown record type: '{type(self).__name__}'")
+
+        result = {}
+        for field_name in fields:
             if field_name in exclude_fields:
                 continue
 
@@ -319,50 +327,61 @@ class DeviceDataRecord(Record):
         return self.copy(**result)
 
     def get(self, queue, **kwargs):
-        """Return a copy of `self` in which all data lives on the host, i.e.
-        all :class:`pyopencl.array.Array` and `ImmutableHostDeviceArray` objects are
-        replaced by corresponding :class:`numpy.ndarray` instances on the host.
         """
+        :returns: a copy of *self* in which all data lives on the host, i.e.
+            all :class:`pyopencl.array.Array` and `ImmutableHostDeviceArray`
+            objects are replaced by corresponding :class:`numpy.ndarray`
+            instances on the host.
+        """
+        from warnings import warn
+        warn(f"{type(self).__name__}.get is deprecated and will be removed "
+            "in 2025. Switch to using arraycontext.to_numpy instead.",
+            DeprecationWarning, stacklevel=2)
+
         def try_get(attr):
             if isinstance(attr, ImmutableHostDeviceArray):
                 return attr.host
 
             try:
-                get_meth = attr.get
+                return attr.get(queue=queue, **kwargs)
             except AttributeError:
                 return attr
-
-            return get_meth(queue=queue, **kwargs)
 
         return self._transform_arrays(try_get)
 
     def with_queue(self, queue):
-        """Return a copy of `self` in
-        all :class:`pyopencl.array.Array` objects are assigned to
-        :class:`pyopencl.CommandQueue` *queue*.
         """
+        :returns: a copy of *self* in all :class:`pyopencl.array.Array` objects
+            are assigned to the :class:`pyopencl.CommandQueue` *queue*.
+        """
+        from warnings import warn
+        warn(f"{type(self).__name__}.with_queue is deprecated and will be removed "
+            "in 2025. Switch to using arraycontext.with_array_context instead.",
+            DeprecationWarning, stacklevel=2)
 
         def try_with_queue(attr):
             if isinstance(attr, cl.array.Array):
                 attr.finish()
 
             try:
-                wq_meth = attr.with_queue
+                return attr.with_queue(queue)
             except AttributeError:
                 return attr
-
-            ary = wq_meth(queue)
-            return ary
 
         return self._transform_arrays(try_with_queue)
 
     def to_device(self, queue, exclude_fields=frozenset()):
-        """Return a copy of `self` in all :class:`numpy.ndarray` arrays are
-        transferred to device memory as :class:`pyopencl.array.Array` objects.
-
-        :arg exclude_fields: a :class:`frozenset` containing fields excluding from
-            transferring to the device memory.
         """
+        :arg exclude_fields: a :class:`frozenset` containing fields excluded
+            from transferring to the device memory.
+
+        :returns: a copy of *self* in all :class:`numpy.ndarray` arrays are
+            transferred to device memory as :class:`pyopencl.array.Array` objects.
+        """
+        from warnings import warn
+        warn(f"{type(self).__name__}.to_device is deprecated and will be removed "
+            "in 2025. Switch to using arraycontext.from_numpy instead.",
+            DeprecationWarning, stacklevel=2)
 
         def _to_device(attr):
             if isinstance(attr, np.ndarray):
@@ -377,12 +396,18 @@ class DeviceDataRecord(Record):
         return self._transform_arrays(_to_device, exclude_fields=exclude_fields)
 
     def to_host_device_array(self, queue, exclude_fields=frozenset()):
-        """Return a copy of `self` where all device and host arrays are transformed
-        to `ImmutableHostDeviceArray` objects.
-
-        :arg exclude_fields: a :class:`frozenset` containing fields excluding from
-            transformed to `ImmutableHostDeviceArray`.
         """
+        :arg exclude_fields: a :class:`frozenset` containing fields excluded
+            from transformed to `ImmutableHostDeviceArray`.
+
+        :returns: a copy of *self* where all device and host arrays are
+            transformed to `ImmutableHostDeviceArray` objects.
+        """
+        from warnings import warn
+        warn(f"{type(self).__name__}.to_host_device_array is deprecated and will "
+            "be removed in 2025. Switch from ImmutableHostDeviceArray.",
+            DeprecationWarning, stacklevel=2)
+
         def _to_host_device_array(attr):
             if isinstance(attr, np.ndarray | cl.array.Array):
                 return ImmutableHostDeviceArray(queue, attr)
@@ -930,6 +955,7 @@ class ImmutableHostDeviceArray:
 
 def get_coord_vec_dtype(
         coord_dtype: np.dtype, dimensions: int) -> np.dtype:
+    import pyopencl.cltypes as cltypes
     if dimensions == 1:
         return coord_dtype
     else:
