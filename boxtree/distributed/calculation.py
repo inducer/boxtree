@@ -52,10 +52,12 @@ class DistributedExpansionWrangler(ExpansionWranglerInterface):
     .. automethod:: communicate_mpoles
     """
     def __init__(self, context, comm, global_traversal,
+                 traversal_in_device_memory,
                  communicate_mpoles_via_allreduce=False):
         self.context = context
         self.comm = comm
         self.global_traversal = global_traversal
+        self.traversal_in_device_memory = traversal_in_device_memory
         self.communicate_mpoles_via_allreduce = communicate_mpoles_via_allreduce
 
     def distribute_source_weights(self, src_weight_vecs, src_idx_all_ranks):
@@ -277,8 +279,14 @@ class DistributedExpansionWrangler(ExpansionWranglerInterface):
         #
         # Initially, this set consists of the boxes satisfying condition (a), which
         # are precisely the boxes owned by this process and their ancestors.
-        contributing_boxes = tree.ancestor_mask.copy()
-        contributing_boxes[tree.responsible_boxes_list] = 1
+        if self.traversal_in_device_memory:
+            with cl.CommandQueue(self.context) as queue:
+                contributing_boxes = tree.ancestor_mask.get(queue=queue)
+                responsible_boxes_list = tree.responsible_boxes_list.get(queue=queue)
+        else:
+            contributing_boxes = tree.ancestor_mask.copy()
+            responsible_boxes_list = tree.responsible_boxes_list
+        contributing_boxes[responsible_boxes_list] = 1
 
         from boxtree.tools import AllReduceCommPattern
         comm_pattern = AllReduceCommPattern(mpi_rank, mpi_size)
@@ -290,12 +298,16 @@ class DistributedExpansionWrangler(ExpansionWranglerInterface):
         stats["bytes_sent_by_stage"] = []
         stats["bytes_recvd_by_stage"] = []
 
-        with cl.CommandQueue(self.context) as queue:
-            box_to_user_rank_starts_dev = cl.array.to_device(
-                queue, tree.box_to_user_rank_starts).with_queue(None)
-
-            box_to_user_rank_lists_dev = cl.array.to_device(
-                queue, tree.box_to_user_rank_lists).with_queue(None)
+        if self.traversal_in_device_memory:
+            box_to_user_rank_starts_dev = \
+                tree.box_to_user_rank_starts.with_queue(None)
+            box_to_user_rank_lists_dev = tree.box_to_user_rank_lists.with_queue(None)
+        else:
+            with cl.CommandQueue(self.context) as queue:
+                box_to_user_rank_starts_dev = cl.array.to_device(
+                    queue, tree.box_to_user_rank_starts).with_queue(None)
+                box_to_user_rank_lists_dev = cl.array.to_device(
+                    queue, tree.box_to_user_rank_lists).with_queue(None)
 
         while not comm_pattern.done():
             send_requests = []
@@ -396,7 +408,7 @@ class DistributedFMMLibExpansionWrangler(
             communicate_mpoles_via_allreduce=False,
             **kwargs):
         DistributedExpansionWrangler.__init__(
-            self, context, comm, global_traversal,
+            self, context, comm, global_traversal, False,
             communicate_mpoles_via_allreduce=communicate_mpoles_via_allreduce)
         FMMLibExpansionWrangler.__init__(
             self, tree_indep, local_traversal,

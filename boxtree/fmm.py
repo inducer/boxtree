@@ -341,7 +341,8 @@ def drive_fmm(wrangler: ExpansionWranglerInterface, src_weight_vecs,
         :class:`boxtree.distributed.calculation.DistributedExpansionWrangler`.
     :arg src_weight_vecs: A sequence of source 'density/weights/charges'.
         Passed unmodified to *expansion_wrangler*. For distributed
-        implementation, this argument is only significant on the root rank.
+        implementation, this argument is only significant on the root rank, but
+        worker ranks still need to supply a dummy vector.
     :arg timing_data: Either *None*, or a :class:`dict` that is populated with
         timing information for the stages of the algorithm (in the form of
         :class:`~boxtree.timing.TimingResult`), if such information is available.

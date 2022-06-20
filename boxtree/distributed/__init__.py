@@ -104,6 +104,8 @@ of :class:`boxtree.distributed.calculation.DistributedExpansionWrangler` in
 
 from mpi4py import MPI
 import numpy as np
+import pyopencl as cl
+import pyopencl.array
 from enum import IntEnum
 import warnings
 from boxtree.cost import FMMCostModel
@@ -132,19 +134,131 @@ def dtype_to_mpi(dtype):
     return mpi_type
 
 
+def construct_distributed_wrangler(
+        queue, global_tree, traversal_builder, wrangler_factory,
+        calibration_params, comm):
+    """Helper function for constructing the distributed wrangler on each rank.
+
+    Note: This function needs to be called collectively on all ranks.
+    """
+
+    mpi_rank = comm.Get_rank()
+
+    # `tree_in_device_memory` is True if the global tree is in the device memory
+    # `tree_in_device_memory` is False if the global tree is in the host memory
+    #
+    # Note that at this point, only the root rank has the valid global tree, so
+    # we test `tree_in_device_memory` on the root rank and broadcast to all
+    # worker ranks.
+    tree_in_device_memory = None
+    if mpi_rank == 0:
+        tree_in_device_memory = isinstance(global_tree.targets[0], cl.array.Array)
+    tree_in_device_memory = comm.bcast(tree_in_device_memory, root=0)
+
+    # {{{ Broadcast the global tree
+
+    global_tree_host = None
+    if mpi_rank == 0:
+        if tree_in_device_memory:
+            global_tree_host = global_tree.get(queue)
+        else:
+            global_tree_host = global_tree
+
+    global_tree_host = comm.bcast(global_tree_host, root=0)
+
+    global_tree_dev = None
+    if mpi_rank == 0 and tree_in_device_memory:
+        global_tree_dev = global_tree
+    else:
+        global_tree_dev = global_tree_host.to_device(queue)
+    global_tree_dev = global_tree_dev.with_queue(queue)
+
+    global_trav_dev, _ = traversal_builder(queue, global_tree_dev)
+    global_trav_host = global_trav_dev.get(queue)
+
+    if tree_in_device_memory:
+        global_trav = global_trav_dev
+    else:
+        global_trav = global_trav_host
+
+    # }}}
+
+    # {{{ Partition work
+
+    cost_per_box = None
+
+    if mpi_rank == 0:
+        cost_model = FMMCostModel()
+
+        if calibration_params is None:
+            # Use default calibration parameters if not supplied
+            # TODO: should replace the default calibration params with a more
+            # accurate one
+            warnings.warn("Calibration parameters for the cost model are not "
+                        "supplied. The default one will be used.")
+            calibration_params = \
+                FMMCostModel.get_unit_calibration_params()
+
+        # We need to construct a wrangler in order to access `level_orders`
+        global_wrangler = wrangler_factory(global_trav, global_trav)
+
+        cost_per_box = cost_model.cost_per_box(
+            queue, global_trav_dev, global_wrangler.level_orders,
+            calibration_params
+        ).get()
+
+    from boxtree.distributed.partition import partition_work
+    responsible_boxes_list = partition_work(cost_per_box, global_trav_host, comm)
+
+    # }}}
+
+    # {{{ Compute local tree
+
+    from boxtree.distributed.local_tree import generate_local_tree
+    local_tree, src_idx, tgt_idx = generate_local_tree(
+        queue, global_trav_host, responsible_boxes_list, comm)
+
+    # }}}
+
+    # {{ Gather source indices and target indices of each rank
+
+    src_idx_all_ranks = comm.gather(src_idx, root=0)
+    tgt_idx_all_ranks = comm.gather(tgt_idx, root=0)
+
+    # }}}
+
+    # {{{ Compute traversal object on each rank
+
+    from boxtree.distributed.local_traversal import generate_local_travs
+    local_trav_dev = generate_local_travs(queue, local_tree, traversal_builder)
+
+    if not tree_in_device_memory:
+        local_trav = local_trav_dev.get(queue=queue)
+    else:
+        local_trav = local_trav_dev.with_queue(None)
+
+    # }}}
+
+    wrangler = wrangler_factory(local_trav, global_trav)
+
+    return wrangler, src_idx_all_ranks, tgt_idx_all_ranks
+
+
 class DistributedFMMRunner:
     """Helper class for setting up and running distributed point FMM.
 
     .. automethod:: __init__
     .. automethod:: drive_dfmm
     """
-    def __init__(self, queue, global_tree_dev,
+    def __init__(self, queue, global_tree,
                  traversal_builder,
                  wrangler_factory,
                  calibration_params=None, comm=MPI.COMM_WORLD):
-        """Distributes the global tree from the root rank to each worker rank.
+        """Construct a DistributedFMMRunner object.
 
-        :arg global_tree_dev: a :class:`boxtree.Tree` object in device memory.
+        :arg global_tree: a :class:`boxtree.Tree` object. This tree could live in the
+            host or the device memory, depending on the wrangler. This argument is
+            only significant on the root rank.
         :arg traversal_builder: an object which, when called, takes a
             :class:`pyopencl.CommandQueue` object and a :class:`boxtree.Tree` object,
             and generates a :class:`boxtree.traversal.FMMTraversalInfo` object from
@@ -157,74 +271,10 @@ class DistributedFMMRunner:
             each box, which is used for improving load balancing.
         :arg comm: MPI communicator.
         """
-        self.comm = comm
-        mpi_rank = comm.Get_rank()
-
-        # {{{ Broadcast global tree
-
-        global_tree = None
-        if mpi_rank == 0:
-            global_tree = global_tree_dev.get(queue)
-        global_tree = comm.bcast(global_tree, root=0)
-        global_tree_dev = global_tree.to_device(queue).with_queue(queue)
-
-        global_trav_dev, _ = traversal_builder(queue, global_tree_dev)
-        global_trav = global_trav_dev.get(queue)
-
-        # }}}
-
-        # {{{ Partition work
-
-        cost_per_box = None
-
-        if mpi_rank == 0:
-            cost_model = FMMCostModel()
-
-            if calibration_params is None:
-                # Use default calibration parameters if not supplied
-                # TODO: should replace the default calibration params with a more
-                # accurate one
-                warnings.warn("Calibration parameters for the cost model are not "
-                              "supplied. The default one will be used.")
-                calibration_params = \
-                    FMMCostModel.get_unit_calibration_params()
-
-            # We need to construct a wrangler in order to access `level_orders`
-            global_wrangler = wrangler_factory(global_trav, global_trav)
-
-            cost_per_box = cost_model.cost_per_box(
-                queue, global_trav_dev, global_wrangler.level_orders,
-                calibration_params
-            ).get()
-
-        from boxtree.distributed.partition import partition_work
-        responsible_boxes_list = partition_work(cost_per_box, global_trav, comm)
-
-        # }}}
-
-        # {{{ Compute local tree
-
-        from boxtree.distributed.local_tree import generate_local_tree
-        self.local_tree, self.src_idx, self.tgt_idx = generate_local_tree(
-            queue, global_trav, responsible_boxes_list, comm)
-
-        # }}}
-
-        # {{ Gather source indices and target indices of each rank
-
-        self.src_idx_all_ranks = comm.gather(self.src_idx, root=0)
-        self.tgt_idx_all_ranks = comm.gather(self.tgt_idx, root=0)
-
-        # }}}
-
-        # {{{ Compute traversal object on each rank
-
-        from boxtree.distributed.local_traversal import generate_local_travs
-        local_trav = generate_local_travs(queue, self.local_tree, traversal_builder)
-
-        # }}}
-
-        self.wrangler = wrangler_factory(local_trav.get(None), global_trav)
+        self.wrangler, self.src_idx_all_ranks, self.tgt_idx_all_ranks = \
+            construct_distributed_wrangler(
+                queue, global_tree, traversal_builder, wrangler_factory,
+                calibration_params, comm)
 
     def drive_dfmm(self, source_weights, timing_data=None):
         """Calculate potentials at target points.

@@ -67,8 +67,8 @@ def _test_against_shared(
     rank_cache_dir = os.path.join(tmp_cache_basedir, f"rank_{rank:03d}")
 
     # Initialize arguments for worker processes
-    global_tree_dev = None
-    sources_weights = None
+    global_tree_host = None
+    sources_weights = np.empty(0, dtype=dtype)
     helmholtz_k = 0
 
     def fmm_level_to_order(tree, level):
@@ -104,17 +104,18 @@ def _test_against_shared(
 
             d_trav, _ = tg(actx.queue, global_tree_dev, debug=True)
             global_traversal_host = d_trav.get(queue=actx.queue)
+            global_tree_host = global_traversal_host.tree
 
             # Get pyfmmlib expansion wrangler
             wrangler = FMMLibExpansionWrangler(
                     tree_indep, global_traversal_host,
                     fmm_level_to_order=fmm_level_to_order)
 
-            # Compute FMM using shared memory parallelism
+            # Compute FMM with one MPI rank
             from boxtree.fmm import drive_fmm
             pot_fmm = drive_fmm(wrangler, [sources_weights]) * 2 * np.pi
 
-        # Compute FMM using distributed memory parallelism
+        # Compute FMM using the distributed implementation
 
         def wrangler_factory(local_traversal, global_traversal):
             from boxtree.distributed.calculation import \
@@ -127,7 +128,7 @@ def _test_against_shared(
 
         from boxtree.distributed import DistributedFMMRunner
         distribued_fmm_info = DistributedFMMRunner(
-            actx.queue, global_tree_dev, tg, wrangler_factory, comm=comm)
+            actx.queue, global_tree_host, tg, wrangler_factory, comm=comm)
 
         timing_data = {}
         pot_dfmm = distribued_fmm_info.drive_dfmm(
@@ -188,7 +189,7 @@ def _test_constantone(tmp_cache_basedir, dims, nsources, ntargets, dtype):
         def __init__(
                 self, queue, comm, tree_indep, local_traversal, global_traversal):
             DistributedExpansionWrangler.__init__(
-                self, queue, comm, global_traversal,
+                self, queue, comm, global_traversal, False,
                 communicate_mpoles_via_allreduce=True)
             ConstantOneExpansionWranglerBase.__init__(
                 self, tree_indep, local_traversal)
@@ -215,7 +216,7 @@ def _test_constantone(tmp_cache_basedir, dims, nsources, ntargets, dtype):
 
     # Initialization
     tree = None
-    sources_weights = None
+    sources_weights = np.empty(0, dtype=dtype)
 
     from unittest.mock import patch
     with patch.dict(os.environ, {"XDG_CACHE_HOME": rank_cache_dir}):
@@ -241,6 +242,7 @@ def _test_constantone(tmp_cache_basedir, dims, nsources, ntargets, dtype):
             tree, _ = tb(
                     actx.queue, sources, targets=targets, max_particles_in_box=30,
                     debug=True)
+            tree = tree.get(actx.queue)
 
         tree_indep = ConstantOneTreeIndependentDataForWrangler()
 
