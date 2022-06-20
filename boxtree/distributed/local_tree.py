@@ -178,7 +178,7 @@ class LocalTreeGeneratorCodeContainer:
 
 @dataclass
 class LocalParticlesAndLists:
-    particles: cl.array.Array
+    particles: np.ndarray
     particle_radii: Optional[cl.array.Array]
     box_particle_starts: cl.array.Array
     box_particle_counts_nonchild: cl.array.Array
@@ -220,10 +220,12 @@ def construct_local_particles_and_lists(
 
     num_local_particles = global_to_local_particle_index[-1].get(queue).item()
 
-    local_particles = cl.array.empty(
-        queue, (dimensions, num_local_particles), dtype=coord_dtype)
+    local_particles = [
+        cl.array.empty(queue, num_local_particles, dtype=coord_dtype)
+        for _ in range(dimensions)]
 
-    local_particles_list = [local_particles[idim, :] for idim in range(dimensions)]
+    from pytools.obj_array import make_obj_array
+    local_particles = make_obj_array(local_particles)
 
     local_particle_radii = None
     if particles_have_extent:
@@ -233,14 +235,14 @@ def construct_local_particles_and_lists(
         code.fetch_local_particles_kernel(True)(
             particle_mask, global_to_local_particle_index,
             *global_particles.tolist(),
-            *local_particles_list,
+            *local_particles,
             global_particle_radii,
             local_particle_radii)
     else:
         code.fetch_local_particles_kernel(False)(
             particle_mask, global_to_local_particle_index,
             *global_particles.tolist(),
-            *local_particles_list)
+            *local_particles)
 
     # {{{ construct the list of list indices
 
@@ -397,8 +399,13 @@ def generate_local_tree(queue, global_traversal, responsible_boxes_list, comm):
 
     # }}}
 
-    local_sources = local_sources_and_lists.particles.get(queue=queue)
-    local_targets = local_targets_and_lists.particles.get(queue=queue)
+    from pytools.obj_array import make_obj_array
+    local_sources = make_obj_array([
+        local_sources_idim.get(queue=queue)
+        for local_sources_idim in local_sources_and_lists.particles])
+    local_targets = make_obj_array([
+        local_target_idim.get(queue=queue)
+        for local_target_idim in local_targets_and_lists.particles])
 
     local_tree = LocalTree(
         sources_are_targets=global_tree.sources_are_targets,
