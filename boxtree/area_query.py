@@ -24,22 +24,23 @@ THE SOFTWARE.
 
 
 import logging
+from dataclasses import dataclass
 from functools import partial
 
 import numpy as np
+from arraycontext import Array
 from mako.template import Template
 
-import pyopencl as cl
-import pyopencl.array
-import pyopencl.cltypes
+from pyopencl.elementwise import ElementwiseTemplate
 from pytools import ProcessLogger, memoize_method
 
+from boxtree.array_context import PyOpenCLArrayContext, dataclass_array_container
 from boxtree.tools import (
-    AXIS_NAMES,
-    DeviceDataRecord,
+    InlineBinarySearch,
     coord_vec_subscript_code,
     get_coord_vec_dtype,
 )
+from boxtree.tree import Tree
 
 
 logger = logging.getLogger(__name__)
@@ -82,7 +83,9 @@ Area queries are implemented using peer lists.
 
 # {{{ output
 
-class PeerListLookup(DeviceDataRecord):
+@dataclass_array_container
+@dataclass(frozen=True)
+class PeerListLookup:
     """
     .. attribute:: tree
 
@@ -96,13 +99,17 @@ class PeerListLookup(DeviceDataRecord):
 
     .. attribute:: peer_lists
 
-    .. automethod:: get
-
     .. versionadded:: 2016.1
     """
 
+    tree: Tree
+    peer_list_starts: Array
+    peer_lists: Array
 
-class AreaQueryResult(DeviceDataRecord):
+
+@dataclass_array_container
+@dataclass(frozen=True)
+class AreaQueryResult:
     """
     .. attribute:: tree
 
@@ -117,13 +124,17 @@ class AreaQueryResult(DeviceDataRecord):
 
     .. attribute:: leaves_near_ball_lists
 
-    .. automethod:: get
-
     .. versionadded:: 2016.1
     """
 
+    tree: Tree
+    leaves_near_ball_starts: Array
+    leaves_near_ball_lists: Array
 
-class LeavesToBallsLookup(DeviceDataRecord):
+
+@dataclass_array_container
+@dataclass(frozen=True)
+class LeavesToBallsLookup:
     """
     .. attribute:: tree
 
@@ -140,9 +151,11 @@ class LeavesToBallsLookup(DeviceDataRecord):
             this list is indexed by the global box index.
 
     .. attribute:: balls_near_box_lists
-
-    .. automethod:: get
     """
+
+    tree: Tree
+    balls_near_box_starts: Array
+    balls_near_box_lists: Array
 
 # }}}
 
@@ -454,12 +467,6 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t box_id)
 
 """
 
-
-from pyopencl.elementwise import ElementwiseTemplate
-
-from boxtree.tools import InlineBinarySearch
-
-
 STARTS_EXPANDER_TEMPLATE = ElementwiseTemplate(
     arguments=r"""
         idx_t *dst,
@@ -546,6 +553,7 @@ class AreaQueryElementwiseTemplate:
         from pyopencl.tools import dtype_to_ctype
 
         from boxtree import box_flags_enum
+        from boxtree.tools import AXIS_NAMES
         from boxtree.traversal import TRAVERSAL_PREAMBLE_TYPEDEFS_AND_DEFINES
         from boxtree.tree_build import TreeBuilder
         render_vars = (
@@ -648,9 +656,13 @@ class AreaQueryBuilder:
     .. automethod:: __init__
     .. automethod:: __call__
     """
-    def __init__(self, context):
-        self.context = context
-        self.peer_list_finder = PeerListFinder(self.context)
+    def __init__(self, array_context: PyOpenCLArrayContext):
+        self._setup_actx = array_context
+        self.peer_list_finder = PeerListFinder(array_context)
+
+    @property
+    def context(self):
+        return self._setup_actx.queue.context
 
     # {{{ Kernel generation
 
@@ -660,11 +672,11 @@ class AreaQueryBuilder:
         from pyopencl.tools import dtype_to_ctype
 
         from boxtree import box_flags_enum
-
-        logger.debug("start building area query kernel")
-
+        from boxtree.tools import AXIS_NAMES
         from boxtree.traversal import TRAVERSAL_PREAMBLE_TEMPLATE
         from boxtree.tree_build import TreeBuilder
+
+        logger.debug("start building area query kernel")
 
         template = Template(
             TRAVERSAL_PREAMBLE_TEMPLATE
@@ -722,20 +734,14 @@ class AreaQueryBuilder:
 
     # }}}
 
-    def __call__(self, queue, tree, ball_centers, ball_radii, peer_lists=None,
+    def __call__(self, actx: PyOpenCLArrayContext, tree: Tree,
+                 ball_centers, ball_radii, peer_lists=None,
                  wait_for=None):
         """
-        :arg queue: a :class:`pyopencl.CommandQueue`
-        :arg tree: a :class:`boxtree.Tree`.
-        :arg ball_centers: an object array of coordinate
-            :class:`pyopencl.array.Array` instances.
-            Their *dtype* must match *tree*'s
-            :attr:`boxtree.Tree.coord_dtype`.
-        :arg ball_radii: a
-            :class:`pyopencl.array.Array`
-            of positive numbers.
-            Its *dtype* must match *tree*'s
-            :attr:`boxtree.Tree.coord_dtype`.
+        :arg ball_centers: an object array of coordinates. Their *dtype* must
+            match *tree*'s :attr:`boxtree.Tree.coord_dtype`.
+        :arg ball_radii: an array of positive numbers. Its *dtype* must match
+            *tree*'s :attr:`boxtree.Tree.coord_dtype`.
         :arg peer_lists: may either be *None* or an instance of
             :class:`PeerListLookup` associated with `tree`.
         :arg wait_for: may either be *None* or a list of :class:`pyopencl.Event`
@@ -760,7 +766,7 @@ class AreaQueryBuilder:
         max_levels = div_ceil(tree.nlevels, 10) * 10
 
         if peer_lists is None:
-            peer_lists, evt = self.peer_list_finder(queue, tree, wait_for=wait_for)
+            peer_lists, evt = self.peer_list_finder(actx, tree, wait_for=wait_for)
             wait_for = [evt]
 
         if len(peer_lists.peer_list_starts) != tree.nboxes + 1:
@@ -773,7 +779,7 @@ class AreaQueryBuilder:
         aq_plog = ProcessLogger(logger, "area query")
 
         result, evt = area_query_kernel(
-                queue, len(ball_radii),
+                actx.queue, len(ball_radii),
                 tree.box_centers.data, tree.root_extent,
                 tree.box_levels, tree.aligned_nboxes,
                 tree.box_child_ids.data, tree.box_flags,
@@ -785,10 +791,12 @@ class AreaQueryBuilder:
 
         aq_plog.done()
 
-        return AreaQueryResult(
+        result = AreaQueryResult(
                 tree=tree,
                 leaves_near_ball_starts=result["leaves"].starts,
-                leaves_near_ball_lists=result["leaves"].lists).with_queue(None), evt
+                leaves_near_ball_lists=result["leaves"].lists)
+
+        return actx.freeze(result), evt
 
 # }}}
 
@@ -803,12 +811,16 @@ class LeavesToBallsLookupBuilder:
     .. automethod:: __call__
 
     """
-    def __init__(self, context):
-        self.context = context
-
+    def __init__(self, array_context: PyOpenCLArrayContext):
         from pyopencl.algorithm import KeyValueSorter
-        self.key_value_sorter = KeyValueSorter(context)
-        self.area_query_builder = AreaQueryBuilder(context)
+
+        self._setup_actx = array_context
+        self.key_value_sorter = KeyValueSorter(self.context)
+        self.area_query_builder = AreaQueryBuilder(array_context)
+
+    @property
+    def context(self):
+        return self._setup_actx.queue.context
 
     @memoize_method
     def get_starts_expander_kernel(self, idx_dtype):
@@ -823,20 +835,14 @@ class LeavesToBallsLookupBuilder:
                 self.context,
                 type_aliases=(("idx_t", idx_dtype),))
 
-    def __call__(self, queue, tree, ball_centers, ball_radii, peer_lists=None,
+    def __call__(self, actx: PyOpenCLArrayContext, tree: Tree,
+                 ball_centers, ball_radii, peer_lists=None,
                  wait_for=None):
         """
-        :arg queue: a :class:`pyopencl.CommandQueue`
-        :arg tree: a :class:`boxtree.Tree`.
-        :arg ball_centers: an object array of coordinate
-            :class:`pyopencl.array.Array` instances.
-            Their *dtype* must match *tree*'s
-            :attr:`boxtree.Tree.coord_dtype`.
-        :arg ball_radii: a
-            :class:`pyopencl.array.Array`
-            of positive numbers.
-            Its *dtype* must match *tree*'s
-            :attr:`boxtree.Tree.coord_dtype`.
+        :arg ball_centers: an object array of coordinates. Their *dtype* must
+            match *tree*'s :attr:`boxtree.Tree.coord_dtype`.
+        :arg ball_radii: an array of positive numbers. Its *dtype* must match
+            *tree*'s :attr:`boxtree.Tree.coord_dtype`.
         :arg peer_lists: may either be *None* or an instance of
             :class:`PeerListLookup` associated with `tree`.
         :arg wait_for: may either be *None* or a list of :class:`pyopencl.Event`
@@ -856,7 +862,7 @@ class LeavesToBallsLookupBuilder:
         ltb_plog = ProcessLogger(logger, "leaves-to-balls lookup: run area query")
 
         area_query, evt = self.area_query_builder(
-                queue, tree, ball_centers, ball_radii, peer_lists, wait_for)
+                actx, tree, ball_centers, ball_radii, peer_lists, wait_for)
         wait_for = [evt]
 
         logger.debug("leaves-to-balls lookup: expand starts")
@@ -873,11 +879,11 @@ class LeavesToBallsLookupBuilder:
         # 2. Key-value sort the (ball number, box number) pairs by box number.
 
         starts_expander_knl = self.get_starts_expander_kernel(tree.box_id_dtype)
-        expanded_starts = cl.array.empty(
-                queue, len(area_query.leaves_near_ball_lists), tree.box_id_dtype)
+        expanded_starts = actx.np.zeros(
+                len(area_query.leaves_near_ball_lists), tree.box_id_dtype)
         evt = starts_expander_knl(
                 expanded_starts,
-                area_query.leaves_near_ball_starts.with_queue(queue),
+                area_query.leaves_near_ball_starts,
                 nballs_p_1)
         wait_for = [evt]
 
@@ -885,20 +891,21 @@ class LeavesToBallsLookupBuilder:
 
         balls_near_box_starts, balls_near_box_lists, evt \
                 = self.key_value_sorter(
-                        queue,
+                        actx.queue,
                         # keys
-                        area_query.leaves_near_ball_lists.with_queue(queue),
+                        area_query.leaves_near_ball_lists,
                         # values
                         expanded_starts,
                         nkeys, starts_dtype=tree.box_id_dtype,
                         wait_for=wait_for)
-
         ltb_plog.done()
 
-        return LeavesToBallsLookup(
+        lookup = LeavesToBallsLookup(
                 tree=tree,
                 balls_near_box_starts=balls_near_box_starts,
-                balls_near_box_lists=balls_near_box_lists).with_queue(None), evt
+                balls_near_box_lists=balls_near_box_lists)
+
+        return actx.freeze(lookup), evt
 
 # }}}
 
@@ -927,9 +934,13 @@ class SpaceInvaderQueryBuilder:
     .. automethod:: __call__
 
     """
-    def __init__(self, context):
-        self.context = context
-        self.peer_list_finder = PeerListFinder(self.context)
+    def __init__(self, array_context: PyOpenCLArrayContext) -> None:
+        self._setup_actx = array_context
+        self.peer_list_finder = PeerListFinder(array_context)
+
+    @property
+    def context(self):
+        return self._setup_actx.queue.context
 
     # {{{ Kernel generation
 
@@ -946,30 +957,23 @@ class SpaceInvaderQueryBuilder:
 
     # }}}
 
-    def __call__(self, queue, tree, ball_centers, ball_radii, peer_lists=None,
+    def __call__(self, actx: PyOpenCLArrayContext, tree: Tree,
+                 ball_centers, ball_radii, peer_lists=None,
                  wait_for=None):
         """
-        :arg queue: a :class:`pyopencl.CommandQueue`
-        :arg tree: a :class:`boxtree.Tree`.
-        :arg ball_centers: an object array of coordinate
-            :class:`pyopencl.array.Array` instances.
-            Their *dtype* must match *tree*'s
-            :attr:`boxtree.Tree.coord_dtype`.
-        :arg ball_radii: a
-            :class:`pyopencl.array.Array`
-            of positive numbers.
-            Its *dtype* must match *tree*'s
-            :attr:`boxtree.Tree.coord_dtype`.
+        :arg ball_centers: an object array of coordinates. Their *dtype* must
+            match *tree*'s :attr:`boxtree.Tree.coord_dtype`.
+        :arg ball_radii: an array of positive numbers. Its *dtype* must match
+            *tree*'s :attr:`boxtree.Tree.coord_dtype`.
         :arg peer_lists: may either be *None* or an instance of
-            :class:`PeerListLookup` associated with `tree`.
+            :class:`PeerListLookup` associated with *tree*.
         :arg wait_for: may either be *None* or a list of :class:`pyopencl.Event`
             instances for whose completion this command waits before starting
             execution.
-        :returns: a tuple *(sqi, event)*, where *sqi* is an instance of
-            :class:`pyopencl.array.Array`, and *event* is a :class:`pyopencl.Event`
-            for dependency management. The *dtype* of *sqi* is
-            *tree*'s :attr:`boxtree.Tree.coord_dtype` and its shape is
-            *(tree.nboxes,)* (see :attr:`boxtree.Tree.nboxes`).
+        :returns: a tuple *(sqi, event)*, where *sqi* is an array and *event*
+            is a :class:`pyopencl.Event` for dependency management. The *dtype*
+            of *sqi* is *tree*'s :attr:`boxtree.Tree.coord_dtype` and its shape
+            is *(tree.nboxes,)* (see :attr:`boxtree.Tree.nboxes`).
             The entries of *sqi* are indexed by the global box index and are
             as follows:
 
@@ -990,7 +994,7 @@ class SpaceInvaderQueryBuilder:
         max_levels = div_ceil(tree.nlevels, 10) * 10
 
         if peer_lists is None:
-            peer_lists, evt = self.peer_list_finder(queue, tree, wait_for=wait_for)
+            peer_lists, evt = self.peer_list_finder(actx, tree, wait_for=wait_for)
             wait_for = [evt]
 
         if len(peer_lists.peer_list_starts) != tree.nboxes + 1:
@@ -1002,7 +1006,7 @@ class SpaceInvaderQueryBuilder:
 
         si_plog = ProcessLogger(logger, "space invader query")
 
-        outer_space_invader_dists = cl.array.zeros(queue, tree.nboxes, np.float32)
+        outer_space_invader_dists = actx.zeros(tree.nboxes, np.float32)
         if not wait_for:
             wait_for = []
         wait_for = (wait_for
@@ -1017,7 +1021,7 @@ class SpaceInvaderQueryBuilder:
                     outer_space_invader_dists,
                     *tuple(bc for bc in ball_centers)),
                 wait_for=wait_for,
-                queue=queue,
+                queue=actx.queue,
                 range=slice(len(ball_radii)))
 
         if tree.coord_dtype != np.dtype(np.float32):
@@ -1062,8 +1066,12 @@ class PeerListFinder:
     .. automethod:: __call__
     """
 
-    def __init__(self, context):
-        self.context = context
+    def __init__(self, array_context: PyOpenCLArrayContext):
+        self._setup_actx = array_context
+
+    @property
+    def context(self):
+        return self._setup_actx.queue.context
 
     # {{{ Kernel generation
 
@@ -1073,13 +1081,13 @@ class PeerListFinder:
         from pyopencl.tools import dtype_to_ctype
 
         from boxtree import box_flags_enum
-
-        logger.debug("start building peer list finder kernel")
-
+        from boxtree.tools import AXIS_NAMES
         from boxtree.traversal import (
             HELPER_FUNCTION_TEMPLATE,
             TRAVERSAL_PREAMBLE_TEMPLATE,
         )
+
+        logger.debug("start building peer list finder kernel")
 
         template = Template(
             TRAVERSAL_PREAMBLE_TEMPLATE
@@ -1130,10 +1138,8 @@ class PeerListFinder:
 
     # }}}
 
-    def __call__(self, queue, tree, wait_for=None):
+    def __call__(self, actx: PyOpenCLArrayContext, tree: Tree, wait_for=None):
         """
-        :arg queue: a :class:`pyopencl.CommandQueue`
-        :arg tree: a :class:`boxtree.Tree`.
         :arg wait_for: may either be *None* or a list of :class:`pyopencl.Event`
             instances for whose completion this command waits before starting
             execution.
@@ -1153,7 +1159,7 @@ class PeerListFinder:
         pl_plog = ProcessLogger(logger, "find peer lists")
 
         result, evt = peer_list_finder_kernel(
-                queue, tree.nboxes,
+                actx.queue, tree.nboxes,
                 tree.box_centers.data, tree.root_extent,
                 tree.box_levels, tree.aligned_nboxes,
                 tree.box_child_ids.data, tree.box_flags,
@@ -1161,10 +1167,12 @@ class PeerListFinder:
 
         pl_plog.done()
 
-        return PeerListLookup(
+        lookup = PeerListLookup(
                 tree=tree,
                 peer_list_starts=result["peers"].starts,
-                peer_lists=result["peers"].lists).with_queue(None), evt
+                peer_lists=result["peers"].lists)
+
+        return actx.freeze(lookup), evt
 
 # }}}
 
