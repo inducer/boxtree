@@ -34,29 +34,26 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+import enum
 import logging
+from dataclasses import dataclass
 from functools import partial
 
 import numpy as np
+from arraycontext import Array
 from mako.template import Template
 
-import pyopencl as cl
-import pyopencl.array
-import pyopencl.cltypes
-from pyopencl.elementwise import ElementwiseTemplate
-from pytools import Record, memoize_method
+from pyopencl.algorithm import ListOfListsBuilder
+from pyopencl.elementwise import ElementwiseKernel, ElementwiseTemplate
+from pytools import ProcessLogger, log_process, memoize_method
+from pytools.obj_array import make_obj_array
 
-from boxtree.tools import (
-    AXIS_NAMES,
-    DeviceDataRecord,
-    coord_vec_subscript_code,
-    get_coord_vec_dtype,
-)
+from boxtree.array_context import PyOpenCLArrayContext, dataclass_array_container
+from boxtree.tools import AXIS_NAMES, coord_vec_subscript_code, get_coord_vec_dtype
+from boxtree.tree import Tree
 
 
 logger = logging.getLogger(__name__)
-
-from pytools import ProcessLogger, log_process
 
 
 # {{{ preamble
@@ -1182,7 +1179,7 @@ LIST_MERGER_TEMPLATE = ElementwiseTemplate(
     name="merge_lists")
 
 
-class _IndexStyle:
+class _IndexStyle(enum.IntEnum):
     TARGET_BOXES = 0
     TARGET_OR_TARGET_PARENT_BOXES = 1
 
@@ -1190,9 +1187,13 @@ class _IndexStyle:
 class _ListMerger:
     """Utility class for combining box lists optionally changing indexing style."""
 
-    def __init__(self, context, box_id_dtype):
-        self.context = context
+    def __init__(self, array_context: PyOpenCLArrayContext, box_id_dtype):
+        self._setup_actx = array_context
         self.box_id_dtype = box_id_dtype
+
+    @property
+    def context(self):
+        return self._setup_actx.queue.context
 
     @memoize_method
     def get_list_merger_kernel(self, nlists, write_counts):
@@ -1213,7 +1214,7 @@ class _ListMerger:
                     ("write_counts", write_counts),
                 ))
 
-    def __call__(self, queue, input_starts, input_lists, input_index_style,
+    def __call__(self, actx, input_starts, input_lists, input_index_style,
             output_index_style, target_boxes, target_or_target_parent_boxes,
             nboxes, debug=False, wait_for=None):
         """
@@ -1246,18 +1247,18 @@ class _ListMerger:
                 and output_index_style == _IndexStyle.TARGET_BOXES):
             from boxtree.tools import reverse_index_array
             target_or_target_parent_boxes_from_all_boxes = reverse_index_array(
-                    target_or_target_parent_boxes, target_size=nboxes,
-                    queue=queue)
-            target_or_target_parent_boxes_from_target_boxes = cl.array.take(
-                    target_or_target_parent_boxes_from_all_boxes,
-                    target_boxes, queue=queue)
+                    actx, target_or_target_parent_boxes, target_size=nboxes)
+            target_or_target_parent_boxes_from_target_boxes = (
+                    target_or_target_parent_boxes_from_all_boxes[target_boxes]
+                    )
 
             output_to_input_box = target_or_target_parent_boxes_from_target_boxes
         else:
-            output_to_input_box = cl.array.arange(
-                    queue, noutput_boxes, dtype=self.box_id_dtype)
+            output_to_input_box = actx.from_numpy(
+                    np.arange(noutput_boxes, dtype=self.box_id_dtype)
+                    )
 
-        new_counts = cl.array.empty(queue, noutput_boxes+1, self.box_id_dtype)
+        new_counts = actx.np.zeros(noutput_boxes + 1, self.box_id_dtype)
 
         assert len(input_starts) == len(input_lists)
         nlists = len(input_starts)
@@ -1269,17 +1270,14 @@ class _ListMerger:
                     # output:
                     new_counts,
                     range=slice(noutput_boxes),
-                    queue=queue,
+                    queue=actx.queue,
                     wait_for=wait_for)
 
-        new_starts = cl.array.cumsum(new_counts)
+        import pyopencl.array as cl_array
+        new_starts = cl_array.cumsum(new_counts)
         del new_counts
 
-        new_lists = cl.array.empty(
-                queue,
-                int(new_starts[-1].get()),
-                self.box_id_dtype)
-
+        new_lists = actx.np.zeros(int(actx.to_numpy(new_starts[-1])), self.box_id_dtype)
         new_lists.fill(999999999)
 
         evt = self.get_list_merger_kernel(nlists, False)(
@@ -1291,7 +1289,7 @@ class _ListMerger:
                     # output:
                     new_lists,
                     range=slice(noutput_boxes),
-                    queue=queue,
+                    queue=actx.queue,
                     wait_for=[evt])
 
         return {"starts": new_starts, "lists": new_lists}, evt
@@ -1301,7 +1299,9 @@ class _ListMerger:
 
 # {{{ traversal info (output)
 
-class FMMTraversalInfo(DeviceDataRecord):
+@dataclass_array_container
+@dataclass(frozen=True)
+class FMMTraversalInfo:
     r"""Interaction lists needed for a fast-multipole-like linear-time gather of
     particle interactions.
 
@@ -1311,9 +1311,6 @@ class FMMTraversalInfo(DeviceDataRecord):
         Adaptive Multipole Algorithm for Particle Simulations." SIAM Journal on
         Scientific and Statistical Computing 9, no. 4 (July 1988): 669-686.
         `DOI: 10.1137/0909044 <https://dx.doi.org/10.1137/0909044>`__.
-
-    Unless otherwise indicated, all bulk data in this data structure is stored
-    in a :class:`pyopencl.array.Array`. See also :meth:`get`.
 
     .. attribute:: tree
 
@@ -1418,16 +1415,6 @@ class FMMTraversalInfo(DeviceDataRecord):
         ``box_id_t [nboxes+1]``
 
     .. attribute:: same_level_non_well_sep_boxes_lists
-
-        ``box_id_t [*]``
-
-    Following attributes are deprecated.
-
-    .. attribute:: colleagues_starts
-
-        ``box_id_t [nboxes+1]``
-
-    .. attribute:: colleagues_lists
 
         ``box_id_t [*]``
 
@@ -1552,15 +1539,65 @@ class FMMTraversalInfo(DeviceDataRecord):
         Changed index style of *from_sep_close_bigger_starts* from
         :attr:`target_or_target_parent_boxes` to :attr:`target_boxes`.
 
-
-    .. automethod:: get
-
     .. automethod:: merge_close_lists
     """
 
+    tree: Tree
+    well_sep_is_n_away: int
+
+    # basic box lists for iteration
+    source_boxes: Array
+    target_boxes: Array
+    level_start_source_box_nrs: Array
+    level_start_target_box_nrs: Array
+    source_parent_boxes: Array
+    level_start_source_parent_box_nrs: Array
+    target_or_target_parent_boxes: Array
+    level_start_target_or_target_parent_box_nrs: Array
+
+    # same-level non-well-separated boxes
+    same_level_non_well_sep_boxes_starts: Array
+    same_level_non_well_sep_boxes_lists: Array
+
+    # neighbor sources ("List 1")
+    neighbor_source_boxes_starts: Array
+    neighbor_source_boxes_lists: Array
+
+    # separated siblings ("List 2")
+    from_sep_siblings_starts: Array
+    from_sep_siblings_lists: Array
+
+    # separated smaller boxes ("List 3")
+    from_sep_smaller_by_level: Array
+    target_boxes_sep_smaller_by_source_level: Array
+    from_sep_close_smaller_starts: Array
+    from_sep_close_smaller_lists: Array
+
+    # separated bigger boxes ("List 4")
+    from_sep_bigger_starts: Array
+    from_sep_bigger_lists: Array
+    from_sep_close_bigger_starts: Array
+    from_sep_close_bigger_lists: Array
+
+    @property
+    def nboxes(self):
+        return self.tree.nboxes
+
+    @property
+    def nlevels(self):
+        return self.tree.nlevels
+
+    @property
+    def ntarget_boxes(self):
+        return len(self.target_boxes)
+
+    @property
+    def ntarget_or_target_parent_boxes(self):
+        return len(self.target_or_target_parent_boxes)
+
     # {{{ "close" list merging -> "unified list 1"
 
-    def merge_close_lists(self, queue, debug=False):
+    def merge_close_lists(self, actx, debug=False):
         """Return a new :class:`FMMTraversalInfo` instance with the contents of
         :attr:`from_sep_close_smaller_starts` and
         :attr:`from_sep_close_bigger_starts` merged into
@@ -1568,11 +1605,11 @@ class FMMTraversalInfo(DeviceDataRecord):
         *None*.
         """
 
-        list_merger = _ListMerger(queue.context, self.tree.box_id_dtype)
+        list_merger = _ListMerger(actx, self.tree.box_id_dtype)
 
         result, evt = (
                 list_merger(
-                    queue,
+                    actx,
                     # starts
                     (self.neighbor_source_boxes_starts,
                      self.from_sep_close_smaller_starts,
@@ -1591,11 +1628,13 @@ class FMMTraversalInfo(DeviceDataRecord):
                     self.tree.nboxes,
                     debug))
 
+        import pyopencl as cl
         cl.wait_for_events([evt])
 
-        return self.copy(
-                neighbor_source_boxes_starts=result["starts"].with_queue(None),
-                neighbor_source_boxes_lists=result["lists"].with_queue(None),
+        from dataclasses import replace
+        return replace(self,
+                neighbor_source_boxes_starts=actx.freeze(result["starts"]),
+                neighbor_source_boxes_lists=actx.freeze(result["lists"]),
                 from_sep_close_smaller_starts=None,
                 from_sep_close_smaller_lists=None,
                 from_sep_close_bigger_starts=None,
@@ -1606,34 +1645,25 @@ class FMMTraversalInfo(DeviceDataRecord):
     # {{{ debugging aids
 
     def get_box_list(self, what, index):
-        starts = getattr(self, what+"_starts")
-        lists = getattr(self, what+"_lists")
+        starts = getattr(self, f"{what}_starts")
+        lists = getattr(self, f"{what}_lists")
         start, stop = starts[index:index+2]
         return lists[start:stop]
 
     # }}}
 
-    @property
-    def nboxes(self):
-        return self.tree.nboxes
-
-    @property
-    def nlevels(self):
-        return self.tree.nlevels
-
-    @property
-    def ntarget_boxes(self):
-        return len(self.target_boxes)
-
-    @property
-    def ntarget_or_target_parent_boxes(self):
-        return len(self.target_or_target_parent_boxes)
-
 # }}}
 
 
-class _KernelInfo(Record):
-    pass
+@dataclass(frozen=True)
+class _KernelInfo:
+    sources_parents_and_targets_builder: ListOfListsBuilder
+    level_start_box_nrs_extractor: ElementwiseKernel
+    same_level_non_well_sep_boxes_builder: ListOfListsBuilder
+    neighbor_source_boxes_builder: ListOfListsBuilder
+    from_sep_siblings_builder: ListOfListsBuilder
+    from_sep_smaller_builder: ListOfListsBuilder
+    from_sep_bigger_builder: ListOfListsBuilder
 
 
 class FMMTraversalBuilder:
@@ -1641,7 +1671,9 @@ class FMMTraversalBuilder:
     .. automethod:: __init__
     """
 
-    def __init__(self, context, well_sep_is_n_away=1, from_sep_smaller_crit=None):
+    def __init__(self, array_context: PyOpenCLArrayContext, *,
+            well_sep_is_n_away=1,
+            from_sep_smaller_crit=None) -> None:
         """
         :arg well_sep_is_n_away: Either An integer 1 or greater.
             (Only 1 and 2 are tested.)
@@ -1657,9 +1689,13 @@ class FMMTraversalBuilder:
             including their radii), or ``"static_l2"`` (use the circumcircle of
             the box, possibly enlarged by :attr:`boxtree.Tree.stick_out_factor`).
         """
-        self.context = context
+        self._setup_actx = array_context
         self.well_sep_is_n_away = well_sep_is_n_away
         self.from_sep_smaller_crit = from_sep_smaller_crit
+
+    @property
+    def context(self):
+        return self._setup_actx.queue.context
 
     # {{{ kernel builder
 
@@ -1738,6 +1774,7 @@ class FMMTraversalBuilder:
                 "source_boxes_has_mask": source_boxes_has_mask,
                 "source_parent_boxes_has_mask": source_parent_boxes_has_mask,
                 }
+
         from pyopencl.algorithm import ListOfListsBuilder
 
         from boxtree.tools import ScalarArg, VectorArg
@@ -1873,13 +1910,12 @@ class FMMTraversalBuilder:
 
     # {{{ driver
 
-    def __call__(self, queue, tree, wait_for=None, debug=False,
+    def __call__(self, actx: PyOpenCLArrayContext, tree: Tree,
+                wait_for=None, debug=False,
                  _from_sep_smaller_min_nsources_cumul=None,
                  source_boxes_mask=None,
                  source_parent_boxes_mask=None):
         """
-        :arg queue: A :class:`pyopencl.CommandQueue` instance.
-        :arg tree: A :class:`boxtree.Tree` instance.
         :arg wait_for: may either be *None* or a list of :class:`pyopencl.Event`
             instances for whose completion this command waits before starting
             execution.
@@ -1888,7 +1924,7 @@ class FMMTraversalBuilder:
         :arg source_parent_boxes_mask: Only boxes passing this mask will be
             considered for `source_parent_boxes`. Used by the distributed
             implementation.
-        :return: A tuple *(trav, event)*, where *trav* is a new instance of
+        :return: A :class:`tuple` *(trav, event)*, where *trav* is a new instance of
             :class:`FMMTraversalInfo` and *event* is a :class:`pyopencl.Event`
             for dependency management.
         """
@@ -1908,16 +1944,17 @@ class FMMTraversalBuilder:
                     "traversal generation")
 
         # FIXME: missing on TreeOfBoxes
+        nlevels = actx.to_numpy(tree.nlevels)
         sources_are_targets = getattr(tree, "sources_are_targets", True)
 
         # Generated code shouldn't depend on the *exact* number of tree levels.
         # So round up to the next multiple of 5.
         from pytools import div_ceil
-        max_levels = div_ceil(tree.nlevels, 5) * 5
+        max_levels = div_ceil(nlevels, 5) * 5
 
         level_start_box_nrs = (
                 None if tree.level_start_box_nrs is None else
-                cl.array.to_device(queue, tree.level_start_box_nrs))
+                tree.level_start_box_nrs)
 
         knl_info = self.get_kernel_info(
                 dimensions=tree.dimensions,
@@ -1933,9 +1970,9 @@ class FMMTraversalBuilder:
                 source_boxes_has_mask=source_boxes_mask is not None,
                 source_parent_boxes_has_mask=source_parent_boxes_mask is not None)
 
-        def fin_debug(s):
+        def debug_with_finish(s):
             if debug:
-                queue.finish()
+                actx.queue.finish()
 
             logger.debug(s)
 
@@ -1943,7 +1980,8 @@ class FMMTraversalBuilder:
 
         # {{{ source boxes, their parents, and target boxes
 
-        fin_debug("building list of source boxes, their parents, and target boxes")
+        debug_with_finish(
+            "building list of source boxes, their parents, and target boxes")
 
         extra_args = []
         if source_boxes_mask is not None:
@@ -1952,7 +1990,7 @@ class FMMTraversalBuilder:
             extra_args.append(source_parent_boxes_mask)
 
         result, evt = knl_info.sources_parents_and_targets_builder(
-            queue, tree.nboxes, tree.box_flags, *extra_args, wait_for=wait_for
+            actx.queue, tree.nboxes, tree.box_flags, *extra_args, wait_for=wait_for
         )
 
         wait_for = [evt]
@@ -1974,43 +2012,44 @@ class FMMTraversalBuilder:
             if level_start_box_nrs is None:
                 return None, []
 
-            result = cl.array.empty(queue,
-                    tree.nlevels+1, tree.box_id_dtype) \
-                            .fill(len(box_list))
+            result = actx.np.zeros(
+                nlevels + 1, tree.box_id_dtype).fill(len(box_list))
+
             evt = knl_info.level_start_box_nrs_extractor(
                     level_start_box_nrs,
                     tree.box_levels,
                     box_list,
                     result,
                     range=slice(0, len(box_list)),
-                    queue=queue, wait_for=wait_for)
+                    queue=actx.queue, wait_for=wait_for)
 
-            result = result.get()
+            result = actx.to_numpy(result)
 
             # Postprocess result for unoccupied levels
             prev_start = len(box_list)
-            for ilev in range(tree.nlevels-1, -1, -1):
+            for ilev in range(nlevels - 1, -1, -1):
                 result[ilev] = prev_start = \
                         min(result[ilev], prev_start)
 
             return result, [evt]
 
-        fin_debug("finding level starts in source boxes array")
+        debug_with_finish("finding level starts in source boxes array")
         level_start_source_box_nrs, evt_s = \
                 extract_level_start_box_nrs(
                         source_boxes, wait_for=wait_for)
 
-        fin_debug("finding level starts in source parent boxes array")
+        debug_with_finish("finding level starts in source parent boxes array")
         level_start_source_parent_box_nrs, evt_sp = \
                 extract_level_start_box_nrs(
                         source_parent_boxes, wait_for=wait_for)
 
-        fin_debug("finding level starts in target boxes array")
+        debug_with_finish("finding level starts in target boxes array")
         level_start_target_box_nrs, evt_t = \
                 extract_level_start_box_nrs(
                         target_boxes, wait_for=wait_for)
 
-        fin_debug("finding level starts in target or target parent boxes array")
+        debug_with_finish(
+            "finding level starts in target or target parent boxes array")
         level_start_target_or_target_parent_box_nrs, evt_tp = \
                 extract_level_start_box_nrs(
                         target_or_target_parent_boxes, wait_for=wait_for)
@@ -2024,10 +2063,10 @@ class FMMTraversalBuilder:
         # If well_sep_is_n_away is 1, this agrees with the definition of
         # 'colleagues' from the classical FMM literature.
 
-        fin_debug("finding same-level near-field boxes")
+        debug_with_finish("finding same-level near-field boxes")
 
         result, evt = knl_info.same_level_non_well_sep_boxes_builder(
-                queue, tree.nboxes,
+                actx.queue, tree.nboxes,
                 tree.box_centers.data, tree.root_extent, tree.box_levels,
                 tree.aligned_nboxes, tree.box_child_ids.data, tree.box_flags,
                 wait_for=wait_for)
@@ -2038,10 +2077,10 @@ class FMMTraversalBuilder:
 
         # {{{ neighbor source boxes ("list 1")
 
-        fin_debug("finding neighbor source boxes ('list 1')")
+        debug_with_finish("finding neighbor source boxes ('list 1')")
 
         result, evt = knl_info.neighbor_source_boxes_builder(
-                queue, len(target_boxes),
+                actx.queue, len(target_boxes),
                 tree.box_centers.data, tree.root_extent, tree.box_levels,
                 tree.aligned_nboxes, tree.box_child_ids.data, tree.box_flags,
                 target_boxes, wait_for=wait_for)
@@ -2053,10 +2092,10 @@ class FMMTraversalBuilder:
 
         # {{{ well-separated siblings ("list 2")
 
-        fin_debug("finding well-separated siblings ('list 2')")
+        debug_with_finish("finding well-separated siblings ('list 2')")
 
         result, evt = knl_info.from_sep_siblings_builder(
-                queue, len(target_or_target_parent_boxes),
+                actx.queue, len(target_or_target_parent_boxes),
                 tree.box_centers.data, tree.root_extent, tree.box_levels,
                 tree.aligned_nboxes, tree.box_child_ids.data, tree.box_flags,
                 target_or_target_parent_boxes, tree.box_parent_ids.data,
@@ -2072,10 +2111,10 @@ class FMMTraversalBuilder:
 
         # {{{ separated smaller ("list 3")
 
-        fin_debug("finding separated smaller ('list 3')")
+        debug_with_finish("finding separated smaller ('list 3')")
 
         from_sep_smaller_base_args = (
-                queue, len(target_boxes),
+                actx.queue, len(target_boxes),
                 # base_args
                 tree.box_centers.data, tree.root_extent, tree.box_levels,
                 tree.aligned_nboxes, tree.box_child_ids.data, tree.box_flags,
@@ -2094,8 +2133,8 @@ class FMMTraversalBuilder:
         from_sep_smaller_by_level = []
         target_boxes_sep_smaller_by_source_level = []
 
-        for ilevel in range(tree.nlevels):
-            fin_debug(f"finding separated smaller ('list 3 level {ilevel}')")
+        for ilevel in range(nlevels):
+            debug_with_finish(f"finding separated smaller ('list 3 level {ilevel}')")
 
             result, evt = knl_info.from_sep_smaller_builder(
                     *from_sep_smaller_base_args, ilevel,
@@ -2110,7 +2149,7 @@ class FMMTraversalBuilder:
             from_sep_smaller_wait_for.append(evt)
 
         if with_extent:
-            fin_debug("finding separated smaller close ('list 3 close')")
+            debug_with_finish("finding separated smaller close ('list 3 close')")
             result, evt = knl_info.from_sep_smaller_builder(
                     *from_sep_smaller_base_args,
                      -1,
@@ -2131,10 +2170,10 @@ class FMMTraversalBuilder:
 
         # {{{ separated bigger ("list 4")
 
-        fin_debug("finding separated bigger ('list 4')")
+        debug_with_finish("finding separated bigger ('list 4')")
 
         result, evt = knl_info.from_sep_bigger_builder(
-                queue, len(target_or_target_parent_boxes),
+                actx.queue, len(target_or_target_parent_boxes),
                 tree.box_centers.data, tree.root_extent, tree.box_levels,
                 tree.aligned_nboxes, tree.box_child_ids.data, tree.box_flags,
                 tree.stick_out_factor, target_or_target_parent_boxes,
@@ -2152,9 +2191,9 @@ class FMMTraversalBuilder:
             from_sep_close_bigger_starts_raw = result["from_sep_close_bigger"].starts
             from_sep_close_bigger_lists_raw = result["from_sep_close_bigger"].lists
 
-            list_merger = _ListMerger(queue.context, tree.box_id_dtype)
+            list_merger = _ListMerger(actx, tree.box_id_dtype)
             result, evt = list_merger(
-                    queue,
+                    actx,
                     # starts
                     (from_sep_close_bigger_starts_raw,),
                     # lists
@@ -2183,43 +2222,35 @@ class FMMTraversalBuilder:
 
         # }}}
 
-        if self.well_sep_is_n_away == 1:
-            colleagues_starts = same_level_non_well_sep_boxes.starts
-            colleagues_lists = same_level_non_well_sep_boxes.lists
-        else:
-            colleagues_starts = None
-            colleagues_lists = None
-
         evt, = wait_for
-
         traversal_plog.done(
                 "from_sep_smaller_crit: %s",
                 self.from_sep_smaller_crit)
 
-        return FMMTraversalInfo(
+        info = FMMTraversalInfo(
                 tree=tree,
                 well_sep_is_n_away=self.well_sep_is_n_away,
 
                 source_boxes=source_boxes,
                 target_boxes=target_boxes,
 
-                level_start_source_box_nrs=level_start_source_box_nrs,
-                level_start_target_box_nrs=level_start_target_box_nrs,
+                level_start_source_box_nrs=actx.from_numpy(
+                    level_start_source_box_nrs),
+                level_start_target_box_nrs=actx.from_numpy(
+                    level_start_target_box_nrs),
 
                 source_parent_boxes=source_parent_boxes,
-                level_start_source_parent_box_nrs=level_start_source_parent_box_nrs,
+                level_start_source_parent_box_nrs=actx.from_numpy(
+                    level_start_source_parent_box_nrs),
 
                 target_or_target_parent_boxes=target_or_target_parent_boxes,
-                level_start_target_or_target_parent_box_nrs=(
+                level_start_target_or_target_parent_box_nrs=actx.from_numpy(
                     level_start_target_or_target_parent_box_nrs),
 
                 same_level_non_well_sep_boxes_starts=(
                     same_level_non_well_sep_boxes.starts),
                 same_level_non_well_sep_boxes_lists=(
                     same_level_non_well_sep_boxes.lists),
-                # Deprecated, but we'll keep these alive for the time being.
-                colleagues_starts=colleagues_starts,
-                colleagues_lists=colleagues_lists,
 
                 neighbor_source_boxes_starts=neighbor_source_boxes.starts,
                 neighbor_source_boxes_lists=neighbor_source_boxes.lists,
@@ -2227,8 +2258,9 @@ class FMMTraversalBuilder:
                 from_sep_siblings_starts=from_sep_siblings.starts,
                 from_sep_siblings_lists=from_sep_siblings.lists,
 
-                from_sep_smaller_by_level=from_sep_smaller_by_level,
-                target_boxes_sep_smaller_by_source_level=(
+                from_sep_smaller_by_level=make_obj_array(
+                    from_sep_smaller_by_level),
+                target_boxes_sep_smaller_by_source_level=make_obj_array(
                     target_boxes_sep_smaller_by_source_level),
 
                 from_sep_close_smaller_starts=from_sep_close_smaller_starts,
@@ -2239,7 +2271,9 @@ class FMMTraversalBuilder:
 
                 from_sep_close_bigger_starts=from_sep_close_bigger_starts,
                 from_sep_close_bigger_lists=from_sep_close_bigger_lists,
-                ).with_queue(None), evt
+                )
+
+        return actx.freeze(info), evt
 
     # }}}
 
