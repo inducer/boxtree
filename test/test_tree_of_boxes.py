@@ -228,11 +228,12 @@ def test_traversal_from_tob(actx_factory):
         box_child_ids=actx.from_numpy(tob.box_child_ids),
         box_levels=actx.from_numpy(tob.box_levels),
         box_flags=actx.from_numpy(tob.box_flags),
+        level_start_box_nrs=actx.from_numpy(tob.level_start_box_nrs),
         )
 
     from boxtree.traversal import FMMTraversalBuilder
-    tg = FMMTraversalBuilder(actx.context)
-    _trav, _ = tg(actx.queue, tob)
+    tg = FMMTraversalBuilder(actx)
+    _trav, _ = tg(actx, tob)
 
 # }}}
 
