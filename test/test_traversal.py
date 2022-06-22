@@ -54,22 +54,21 @@ def test_tree_connectivity(actx_factory, dims, sources_are_targets):
     actx = actx_factory()
     dtype = np.float64
 
-    sources = make_normal_particle_array(actx.queue, 1 * 10**5, dims, dtype)
+    sources = make_normal_particle_array(actx, 1 * 10**5, dims, dtype)
     if sources_are_targets:
         targets = None
     else:
-        targets = make_normal_particle_array(actx.queue, 2 * 10**5, dims, dtype)
+        targets = make_normal_particle_array(actx, 2 * 10**5, dims, dtype)
 
     from boxtree import TreeBuilder
-    tb = TreeBuilder(actx.context)
-    tree, _ = tb(actx.queue, sources, max_particles_in_box=30,
-            targets=targets, debug=True)
+    tb = TreeBuilder(actx)
+    tree, _ = tb(actx, sources, max_particles_in_box=30, targets=targets, debug=True)
 
     from boxtree.traversal import FMMTraversalBuilder
-    tg = FMMTraversalBuilder(actx.context)
-    trav, _ = tg(actx.queue, tree, debug=True)
-    tree = tree.get(queue=actx.queue)
-    trav = trav.get(queue=actx.queue)
+    tg = FMMTraversalBuilder(actx)
+    trav, _ = tg(actx, tree, debug=True)
+    tree = actx.to_numpy(tree)
+    trav = actx.to_numpy(trav)
 
     levels = tree.box_levels
     parents = tree.box_parent_ids.T
@@ -286,17 +285,15 @@ def test_plot_traversal(actx_factory, well_sep_is_n_away=1, visualize=False):
             for i in range(dims)])
 
         from boxtree import TreeBuilder
-        tb = TreeBuilder(actx.context)
-
-        actx.queue.finish()
-        tree, _ = tb(actx.queue, particles, max_particles_in_box=30, debug=True)
+        tb = TreeBuilder(actx)
+        tree, _ = tb(actx, particles, max_particles_in_box=30, debug=True)
 
         from boxtree.traversal import FMMTraversalBuilder
-        tg = FMMTraversalBuilder(actx.context, well_sep_is_n_away=well_sep_is_n_away)
-        trav, _ = tg(actx.queue, tree)
+        tg = FMMTraversalBuilder(actx, well_sep_is_n_away=well_sep_is_n_away)
+        trav, _ = tg(actx, tree)
 
-        tree = tree.get(queue=actx.queue)
-        trav = trav.get(queue=actx.queue)
+        tree = actx.to_numpy(tree)
+        trav = actx.to_numpy(trav)
 
         from boxtree.visualization import TreePlotter
         plotter = TreePlotter(tree)
@@ -340,10 +337,8 @@ def test_from_sep_siblings_translation_and_rotation_classes(
         for i in range(dims)])
 
     from boxtree import TreeBuilder
-    tb = TreeBuilder(actx.context)
-
-    actx.queue.finish()
-    tree, _ = tb(actx.queue, particles, max_particles_in_box=30, debug=True)
+    tb = TreeBuilder(actx)
+    tree, _ = tb(actx, particles, max_particles_in_box=30, debug=True)
 
     # }}}
 
@@ -353,14 +348,14 @@ def test_from_sep_siblings_translation_and_rotation_classes(
     from boxtree.translation_classes import TranslationClassesBuilder
     from boxtree.traversal import FMMTraversalBuilder
 
-    tg = FMMTraversalBuilder(actx.context, well_sep_is_n_away=well_sep_is_n_away)
-    trav, _ = tg(actx.queue, tree)
+    tg = FMMTraversalBuilder(actx, well_sep_is_n_away=well_sep_is_n_away)
+    trav, _ = tg(actx, tree)
 
-    rb = RotationClassesBuilder(actx.context)
-    result, _ = rb(actx.queue, trav, tree)
+    rb = RotationClassesBuilder(actx)
+    result, _ = rb(actx, trav, tree)
 
-    tb = TranslationClassesBuilder(actx.context)
-    result_tb, _ = tb(actx.queue, trav, tree)
+    tb = TranslationClassesBuilder(actx)
+    result_tb, _ = tb(actx, trav, tree)
 
     rot_classes = actx.to_numpy(
             result.from_sep_siblings_rotation_classes)
@@ -372,8 +367,8 @@ def test_from_sep_siblings_translation_and_rotation_classes(
     distance_vectors = actx.to_numpy(
         result_tb.from_sep_siblings_translation_class_to_distance_vector)
 
-    tree = tree.get(queue=actx.queue)
-    trav = trav.get(queue=actx.queue)
+    tree = actx.to_numpy(tree)
+    trav = actx.to_numpy(trav)
 
     centers = tree.box_centers.T
 
