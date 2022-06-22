@@ -98,7 +98,7 @@ def test_masked_matrix_compression(actx_factory, order):
     actx = actx_factory()
 
     from boxtree.tools import MaskCompressorKernel
-    matcompr = MaskCompressorKernel(actx.context)
+    matcompr = MaskCompressorKernel(actx)
 
     n = 40
     m = 10
@@ -107,7 +107,7 @@ def test_masked_matrix_compression(actx_factory, order):
     arr = (rng.random((n, m)) > 0.5).astype(np.int8).copy(order=order)
     d_arr = actx.from_numpy(arr)
 
-    arr_starts, arr_lists, _evt = matcompr(actx.queue, d_arr)
+    arr_starts, arr_lists, _evt = matcompr(actx, d_arr)
     arr_starts = actx.to_numpy(arr_starts)
     arr_lists = actx.to_numpy(arr_lists)
 
@@ -125,14 +125,14 @@ def test_masked_list_compression(actx_factory):
     rng = np.random.default_rng(seed=42)
 
     from boxtree.tools import MaskCompressorKernel
-    listcompr = MaskCompressorKernel(actx.context)
+    listcompr = MaskCompressorKernel(actx)
 
     n = 20
 
     arr = (rng.random(n) > 0.5).astype(np.int8)
     d_arr = actx.from_numpy(arr)
 
-    arr_list, _evt = listcompr(actx.queue, d_arr)
+    arr_list, _evt = listcompr(actx, d_arr)
     arr_list = actx.to_numpy(arr_list)
 
     assert set(arr_list) == set(arr.nonzero()[0])
@@ -165,6 +165,50 @@ def test_device_record(actx_factory):
     for i in range(3):
         assert np.array_equal(record_host.obj_array[i], record.obj_array[i])
 
+
+def test_device_record_array_context(actx_factory):
+    actx = actx_factory()
+
+    from dataclasses import dataclass
+
+    from arraycontext import Array
+
+    from boxtree.array_context import dataclass_array_container
+
+    @dataclass_array_container
+    @dataclass(frozen=True)
+    class MyDeviceDataRecord:
+        array: Array
+        obj_array: np.ndarray
+        opt_array: Array | None
+        value: float
+
+    from pytools.obj_array import make_obj_array
+    rng = np.random.default_rng()
+    record = MyDeviceDataRecord(
+        array=rng.random(128),
+        obj_array=make_obj_array([rng.random(128) for _ in range(3)]),
+        opt_array=None,
+        value=3)
+
+    actx_record = actx.from_numpy(record)
+    assert actx_record.array.queue is actx.queue
+
+    frozen_record = actx.freeze(actx_record)
+    assert frozen_record.array.queue is None
+
+    thawed_record = actx.thaw(frozen_record)
+    assert actx_record.array.queue is actx.queue
+
+    host_record = actx.to_numpy(thawed_record)
+    assert isinstance(host_record.array, np.ndarray)
+
+    assert record.value == host_record.value
+    assert np.allclose(record.array, host_record.array)
+    assert np.all([
+        np.allclose(record.obj_array[i], host_record.obj_array[i]) for i in range(3)
+        ])
+
 # }}}
 
 
@@ -176,7 +220,7 @@ def test_device_record(actx_factory):
 def test_particle_array(actx_factory, array_factory, dim, dtype):
     actx = actx_factory()
 
-    particles = array_factory(actx.queue, 1000, dim, dtype)
+    particles = array_factory(actx, 1000, dim, dtype)
     assert len(particles) == dim
     assert all(len(particles[0]) == len(axis) for axis in particles)
 
