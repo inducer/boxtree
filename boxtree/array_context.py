@@ -23,11 +23,20 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-from arraycontext import PyOpenCLArrayContext as PyOpenCLArrayContextBase
+import numpy as np
+from arraycontext import (  # noqa: F401
+    PyOpenCLArrayContext as PyOpenCLArrayContextBase,
+    deserialize_container,
+    rec_map_array_container,
+    serialize_container,
+    with_array_context,
+)
 from arraycontext.pytest import (
     _PytestPyOpenCLArrayContextFactoryWithClass,
     register_pytest_array_context_factory,
 )
+
+from pyopencl.algorithm import BuiltList
 
 
 __doc__ = """
@@ -35,13 +44,7 @@ __doc__ = """
 """
 
 
-def _acf():
-    import pyopencl as cl
-    ctx = cl.create_some_context()
-    queue = cl.CommandQueue(ctx)
-
-    return PyOpenCLArrayContext(queue)
-
+# {{{ array context
 
 class PyOpenCLArrayContext(PyOpenCLArrayContextBase):
     def transform_loopy_program(self, t_unit):
@@ -54,7 +57,158 @@ class PyOpenCLArrayContext(PyOpenCLArrayContextBase):
                     "Did you use arraycontext.make_loopy_program "
                     "to create this kernel?")
 
-        return super().transform_loopy_program(t_unit)
+        return t_unit
+
+    # NOTE: _rec_map_container is copied from arraycontext wholesale and should
+    # be kept in sync as much as possible!
+
+    def _rec_map_container(self, func, array, allowed_types=None, *,
+            default_scalar=None, strict=False):
+        import arraycontext.impl.pyopencl.taggable_cl_array as tga
+
+        if allowed_types is None:
+            allowed_types = (tga.TaggableCLArray,)
+
+        def _wrapper(ary):
+            # NOTE: this is copied verbatim from arraycontext and this is the
+            # only change to allow optional fields inside containers
+            if ary is None:
+                return ary
+
+            if isinstance(ary, allowed_types):
+                return func(ary)
+            elif not strict and isinstance(ary, self.array_types):
+                from warnings import warn
+                warn(f"Invoking {type(self).__name__}.{func.__name__[1:]} with "
+                    f"{type(ary).__name__} will be unsupported in 2025. Use "
+                    "'to_tagged_cl_array' to convert instances to TaggableCLArray.",
+                    DeprecationWarning, stacklevel=2)
+                return func(tga.to_tagged_cl_array(ary))
+            elif np.isscalar(ary):
+                if default_scalar is None:
+                    return ary
+                else:
+                    return np.array(ary).dtype.type(default_scalar)
+            else:
+                raise TypeError(
+                    f"{type(self).__name__}.{func.__name__[1:]} invoked with "
+                    f"an unsupported array type: got '{type(ary).__name__}', "
+                    f"but expected one of {allowed_types}")
+
+        return rec_map_array_container(_wrapper, array)
+
+# }}}
+
+
+# {{{ dataclass array container
+
+def dataclass_array_container(cls: type) -> type:
+    """A decorator based on :func:`arraycontext.dataclass_array_container`
+    that allows :class:`typing.Optional` containers.
+    """
+
+    from dataclasses import is_dataclass
+    from types import UnionType
+    from typing import Union, get_args, get_origin
+
+    from arraycontext.container import is_array_container_type
+    from arraycontext.container.dataclass import (
+        _Field,
+        _get_annotated_fields,
+        _inject_dataclass_serialization,
+    )
+
+    assert is_dataclass(cls)
+
+    def is_array_type(tp: type, /) -> bool:
+        if tp is np.ndarray:
+            from warnings import warn
+            warn("Encountered 'numpy.ndarray' in a dataclass_array_container. "
+                "This is deprecated and will stop working in 2026. "
+                "If you meant an object array, use pytools.obj_array.ObjectArray. "
+                "For other uses, file an issue to discuss.",
+                DeprecationWarning, stacklevel=3)
+            return True
+
+        from arraycontext import Array
+        return tp is Array or is_array_container_type(tp)
+
+    def is_array_field(f: _Field) -> bool:
+        field_type = f.type
+        assert not isinstance(field_type, str)
+
+        origin = get_origin(field_type)
+        if origin in (Union, UnionType):
+            return all(
+                (is_array_type(arg) or arg is type(None))
+                for arg in get_args(field_type))
+
+        if not f.init:
+            raise ValueError(
+                    f"Field with 'init=False' not allowed: '{f.name}'")
+
+        # NOTE:
+        # * GenericAlias catches `list`, `tuple`, etc.
+        # * `_BaseGenericAlias` catches `List`, `Tuple`, `Callable`, etc.
+        # * `_SpecialForm` catches `Any`, `Literal`, `Optional`, etc.
+        from types import GenericAlias
+        from typing import (  # type: ignore[attr-defined]
+            _BaseGenericAlias,
+            _SpecialForm,
+        )
+        if isinstance(field_type, GenericAlias | _BaseGenericAlias | _SpecialForm):
+            # NOTE: anything except a Union is not an array
+            return False
+
+        return is_array_type(field_type)
+
+    from pytools import partition
+
+    fields = _get_annotated_fields(cls)
+    array_fields, non_array_fields = partition(is_array_field, fields)
+
+    if not array_fields:
+        raise ValueError(f"'{cls}' must have fields with array container type "
+                "in order to use the 'dataclass_array_container' decorator")
+
+    return _inject_dataclass_serialization(cls, array_fields, non_array_fields)
+
+# }}}
+
+
+# {{{ serialization
+
+# NOTE: BuiltList is serialized explicitly here because pyopencl cannot depend
+# on arraycontext machinery.
+
+@serialize_container.register(BuiltList)
+def _serialize_built_list(obj: BuiltList):
+    return (
+        ("starts", obj.starts),
+        ("lists", obj.lists),
+        ("nonempty_indices", obj.nonempty_indices),
+        ("compressed_indices", obj.compressed_indices),
+        )
+
+
+@deserialize_container.register(BuiltList)
+def _deserialize_built_list(template: BuiltList, iterable):
+    return type(template)(
+        count=template.count,
+        num_nonempty_lists=template.num_nonempty_lists,
+        **dict(iterable))
+
+# }}}
+
+
+# {{{ pytest
+
+def _acf():
+    import pyopencl as cl
+    ctx = cl.create_some_context()
+    queue = cl.CommandQueue(ctx)
+
+    return PyOpenCLArrayContext(queue)
 
 
 class PytestPyOpenCLArrayContextFactory(
@@ -64,3 +218,7 @@ class PytestPyOpenCLArrayContextFactory(
 
 register_pytest_array_context_factory("boxtree.pyopencl",
         PytestPyOpenCLArrayContextFactory)
+
+# }}}
+
+# vim: fdm=marker
