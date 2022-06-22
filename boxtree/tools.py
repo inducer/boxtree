@@ -25,7 +25,7 @@ THE SOFTWARE.
 
 import sys
 from functools import partial
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 from mako.template import Template
@@ -34,6 +34,10 @@ import pyopencl as cl
 import pyopencl.array as cl_array
 from pyopencl.tools import ScalarArg, VectorArg as _VectorArg, dtype_to_c_struct
 from pytools import Record, memoize_method, obj_array
+
+
+if TYPE_CHECKING:
+    from boxtree.array_context import PyOpenCLArrayContext
 
 
 # Use offsets in VectorArg by default.
@@ -49,32 +53,29 @@ def padded_bin(i: int, nbits: int):
 
 # NOTE: Order of positional args should match GappyCopyAndMapKernel.__call__()
 def realloc_array(
-            queue: cl.CommandQueue,
-            allocator: cl_array.Allocator,
+            actx: PyOpenCLArrayContext,
             new_shape: tuple[int, ...],
             ary: cl_array.Array,
-            zero_fill: bool = False,
+            zero_fill: bool | None = None,
             wait_for: cl.WaitList = None
         ) -> tuple[cl_array.Array, cl.Event]:
     if wait_for is None:
         wait_for = []
 
-    if zero_fill:  # noqa: SIM108
-        array_maker = cl_array.zeros
-    else:
-        array_maker = cl_array.empty
+    if zero_fill is not None:
+        from warnings import warn
+        warn("Setting 'zero_fill' has no effect and will become an error in 2025.",
+             DeprecationWarning, stacklevel=2)
 
-    new_ary = array_maker(queue, shape=new_shape, dtype=ary.dtype,
-                          allocator=allocator)
-
-    evt = cl.enqueue_copy(queue, new_ary.data, ary.data, byte_count=ary.nbytes,
-                          wait_for=wait_for + new_ary.events)
+    new_ary = actx.np.zeros(shape=new_shape, dtype=ary.dtype)
+    evt = cl.enqueue_copy(actx.queue, new_ary.data, ary.data,
+        byte_count=ary.nbytes,
+        wait_for=wait_for + new_ary.events)
 
     return new_ary, evt
 
 
-def reverse_index_array(indices, target_size=None, result_fill_value=None,
-        queue=None):
+def reverse_index_array(actx, indices, target_size=None, result_fill_value=None):
     """For an array of *indices*, return a new array *result* that satisfies
     ``result[indices] == arange(len(indices))``
 
@@ -84,38 +85,34 @@ def reverse_index_array(indices, target_size=None, result_fill_value=None,
         prior to storing reversed indices.
     """
 
-    queue = queue or indices.queue
-
     if target_size is None:
         target_size = len(indices)
 
-    result = cl_array.empty(queue, target_size, indices.dtype)
+    result = actx.np.zeros(target_size, indices.dtype)
 
     if result_fill_value is not None:
         result.fill(result_fill_value)
 
-    cl_array.multi_put(
-            [cl_array.arange(queue, len(indices), dtype=indices.dtype,
-                allocator=indices.allocator)],
+    cl.array.multi_put(
+            [actx.from_numpy(np.arange(len(indices), dtype=indices.dtype))],
             indices,
             out=[result],
-            queue=queue)
+            queue=actx.queue)
 
     return result
 
 
 # {{{ particle distribution generators
 
-def make_normal_particle_array(queue, nparticles, dims, dtype, seed=15):
-    from pyopencl.clrandom import PhiloxGenerator
-    rng = PhiloxGenerator(queue.context, seed=seed)
-
+def make_normal_particle_array(actx, nparticles, dims, dtype, seed=15):
+    rng = np.random.default_rng(seed)
     return obj_array.new_1d([
-        rng.normal(queue, nparticles, dtype=dtype)
-        for i in range(dims)])
+        actx.from_numpy(rng.standard_normal(nparticles, dtype=dtype))
+        for i in range(dims)
+        ])
 
 
-def make_surface_particle_array(queue, nparticles, dims, dtype, seed=15):
+def make_surface_particle_array(actx, nparticles, dims, dtype, seed=15):
     import loopy as lp
 
     if dims == 2:
@@ -139,9 +136,9 @@ def make_surface_particle_array(queue, nparticles, dims, dtype, seed=15):
 
             knl = lp.split_iname(knl, "i", 128, outer_tag="g.0", inner_tag="l.0")
 
-            return knl.executor(queue.context)
+            return knl.executor(actx.context)
 
-        _evt, result = get_2d_knl(dtype)(queue, n=nparticles)
+        _evt, result = get_2d_knl(dtype)(actx.queue, n=nparticles)
 
         result = [x.ravel() for x in result]
 
@@ -173,9 +170,9 @@ def make_surface_particle_array(queue, nparticles, dims, dtype, seed=15):
             knl = lp.split_iname(knl, "i", 16, outer_tag="g.1", inner_tag="l.1")
             knl = lp.split_iname(knl, "j", 16, outer_tag="g.0", inner_tag="l.0")
 
-            return knl.executor(queue.context)
+            return knl.executor(actx.context)
 
-        _evt, result = get_3d_knl(dtype)(queue, n=n)
+        _evt, result = get_3d_knl(dtype)(actx.queue, n=n)
 
         result = [x.ravel() for x in result]
 
@@ -184,7 +181,7 @@ def make_surface_particle_array(queue, nparticles, dims, dtype, seed=15):
         raise NotImplementedError
 
 
-def make_uniform_particle_array(queue, nparticles, dims, dtype, seed=15):
+def make_uniform_particle_array(actx, nparticles, dims, dtype, seed=15):
     import loopy as lp
 
     if dims == 2:
@@ -216,9 +213,9 @@ def make_uniform_particle_array(queue, nparticles, dims, dtype, seed=15):
             knl = lp.split_iname(knl, "i", 16, outer_tag="g.1", inner_tag="l.1")
             knl = lp.split_iname(knl, "j", 16, outer_tag="g.0", inner_tag="l.0")
 
-            return knl.executor(queue.context)
+            return knl.executor(actx.context)
 
-        _evt, result = get_2d_knl(dtype)(queue, n=n)
+        _evt, result = get_2d_knl(dtype)(actx.queue, n=n)
 
         result = [x.ravel() for x in result]
 
@@ -264,9 +261,9 @@ def make_uniform_particle_array(queue, nparticles, dims, dtype, seed=15):
             knl = lp.split_iname(knl, "j", 16, outer_tag="g.1", inner_tag="l.1")
             knl = lp.split_iname(knl, "k", 16, outer_tag="g.0", inner_tag="l.0")
 
-            return knl.executor(queue.context)
+            return knl.executor(actx.context)
 
-        _evt, result = get_3d_knl(dtype)(queue, n=n)
+        _evt, result = get_3d_knl(dtype)(actx.queue, n=n)
 
         result = [x.ravel() for x in result]
 
@@ -275,14 +272,14 @@ def make_uniform_particle_array(queue, nparticles, dims, dtype, seed=15):
         raise NotImplementedError
 
 
-def make_rotated_uniform_particle_array(queue, nparticles, dims, dtype, seed=15):
+def make_rotated_uniform_particle_array(actx, nparticles, dims, dtype, seed=15):
     raise NotImplementedError
 
 # }}}
 
 
-def particle_array_to_host(parray):
-    return np.array([x.get() for x in parray], order="F").T
+def particle_array_to_host(actx, particles):
+    return np.array([actx.to_numpy(x) for x in particles], order="F").T
 
 
 # {{{ host/device data storage
@@ -466,8 +463,12 @@ GAPPY_COPY_TPL = Template(r"""//CL//
 
 
 class GappyCopyAndMapKernel:
-    def __init__(self, context: cl.Context):
-        self.context: cl.Context = context
+    def __init__(self, array_context: PyOpenCLArrayContext):
+        self._setup_actx: PyOpenCLArrayContext = array_context
+
+    @property
+    def context(self):
+        return self._setup_actx.queue.context
 
     @memoize_method
     def _get_kernel(self, dtype, src_index_dtype, dst_index_dtype,
@@ -505,8 +506,8 @@ class GappyCopyAndMapKernel:
                 name="gappy_copy_and_map")
 
     # NOTE: Order of positional args should match realloc_array()
-    def __call__(self, queue, allocator, new_shape, ary, src_indices=None,
-                 dst_indices=None, map_values=None, zero_fill=False,
+    def __call__(self, actx, new_shape, ary, src_indices=None,
+                 dst_indices=None, map_values=None, zero_fill=None,
                  wait_for=None, range=None, debug=False):
         """Compresses box info arrays after empty leaf pruning and, optionally,
         maps old box IDs to new box IDs (if the array being operated on contains
@@ -527,19 +528,18 @@ class GappyCopyAndMapKernel:
             elif have_src_indices:
                 range = slice(src_indices.shape[0])
                 if debug:
-                    assert int(cl_array.max(src_indices).get()) < len(ary)
+                    assert int(actx.to_numpy(actx.np.amax(src_indices))) < len(ary)
             elif have_dst_indices:
                 range = slice(dst_indices.shape[0])
                 if debug:
-                    assert int(cl_array.max(dst_indices).get()) < new_shape
+                    assert int(actx.to_numpy(actx.np.amax(dst_indices))) < new_shape
 
-        if zero_fill:  # noqa: SIM108
-            array_maker = cl_array.zeros
-        else:
-            array_maker = cl_array.empty
+        if zero_fill is not None:
+            from warnings import warn
+            warn("Setting 'zero_fill' has no effect and will become an error in 2025.",
+                DeprecationWarning, stacklevel=2)
 
-        result = array_maker(queue, new_shape, ary.dtype, allocator=allocator)
-
+        result = actx.np.zeros(new_shape, ary.dtype)
         kernel = self._get_kernel(ary.dtype,
                                   src_indices.dtype if have_src_indices else None,
                                   dst_indices.dtype if have_dst_indices else None,
@@ -552,7 +552,7 @@ class GappyCopyAndMapKernel:
         args += (dst_indices,) if have_dst_indices else ()
         args += (map_values,) if have_map_values else ()
 
-        evt = kernel(*args, queue=queue, range=range, wait_for=wait_for)
+        evt = kernel(*args, queue=actx.queue, range=range, wait_for=wait_for)
 
         return result, evt
 
@@ -577,9 +577,12 @@ MAP_VALUES_TPL = ElementwiseTemplate(
 
 
 class MapValuesKernel:
+    def __init__(self, array_context: PyOpenCLArrayContext):
+        self._setup_actx = array_context
 
-    def __init__(self, context):
-        self.context: cl.Context = context
+    @property
+    def context(self):
+        return self._setup_actx.queue.context
 
     @memoize_method
     def _get_kernel(self, dst_dtype, src_dtype):
@@ -693,8 +696,12 @@ class MaskCompressorKernel:
     """
     .. automethod:: __call__
     """
-    def __init__(self, context):
-        self.context = context
+    def __init__(self, array_context: PyOpenCLArrayContext):
+        self._setup_actx = array_context
+
+    @property
+    def context(self):
+        return self._setup_actx.context
 
     @memoize_method
     def get_list_compressor_kernel(self, mask_dtype, list_dtype):
@@ -725,7 +732,7 @@ class MaskCompressorKernel:
                 ],
                 name_prefix="compress_matrix")
 
-    def __call__(self, queue, mask, list_dtype=None):
+    def __call__(self, actx, mask, list_dtype=None):
         """Convert a mask to a list in :ref:`csr` format.
 
         :arg mask: Either a 1D or 2D array.
@@ -747,7 +754,7 @@ class MaskCompressorKernel:
 
         if len(mask.shape) == 1:
             knl = self.get_list_compressor_kernel(mask.dtype, list_dtype)
-            result, evt = knl(queue, mask.shape[0], mask.data)
+            result, evt = knl(actx.queue, mask.shape[0], mask.data)
             return (result["output"].lists, evt)
         elif len(mask.shape) == 2:
             # FIXME: This is efficient for small column sizes but may not be
@@ -755,7 +762,7 @@ class MaskCompressorKernel:
             knl = self.get_matrix_compressor_kernel(mask.dtype, list_dtype)
             size = mask.dtype.itemsize
             assert size > 0
-            result, evt = knl(queue, mask.shape[0], mask.shape[1],
+            result, evt = knl(actx.queue, mask.shape[0], mask.shape[1],
                               mask.strides[0] // size, mask.strides[1] // size,
                               mask.data)
             return (result["output"].starts, result["output"].lists, evt)
