@@ -178,7 +178,7 @@ def test_fmm_completeness(actx_factory, dims, nsources_req, ntargets_req,
     dtype = np.float64
 
     try:
-        sources = source_gen(actx.queue, nsources_req, dims, dtype, seed=15)
+        sources = source_gen(actx, nsources_req, dims, dtype, seed=15)
         nsources = len(sources[0])
 
         if ntargets_req is None:
@@ -186,7 +186,7 @@ def test_fmm_completeness(actx_factory, dims, nsources_req, ntargets_req,
             targets = None
             ntargets = ntargets_req
         else:
-            targets = target_gen(actx.queue, ntargets_req, dims, dtype, seed=16)
+            targets = target_gen(actx, ntargets_req, dims, dtype, seed=16)
             ntargets = len(targets[0])
     except ImportError:
         pytest.skip("loopy not available, but needed for particle array "
@@ -208,40 +208,40 @@ def test_fmm_completeness(actx_factory, dims, nsources_req, ntargets_req,
         target_radii = None
 
     from boxtree import TreeBuilder
-    tb = TreeBuilder(actx.context)
+    tb = TreeBuilder(actx)
 
-    tree, _ = tb(actx.queue, sources, targets=targets,
+    tree, _ = tb(actx, sources, targets=targets,
             max_particles_in_box=30,
             source_radii=source_radii, target_radii=target_radii,
             debug=True, stick_out_factor=0.25, extent_norm=extent_norm)
     if 0:
-        tree = tree.get(queue=actx.queue)
+        tree = actx.to_numpy(tree)
         tree.plot()
         import matplotlib.pyplot as pt
         pt.show()
 
     from boxtree.traversal import FMMTraversalBuilder
-    tbuild = FMMTraversalBuilder(actx.context,
+    tbuild = FMMTraversalBuilder(actx,
             well_sep_is_n_away=well_sep_is_n_away,
             from_sep_smaller_crit=from_sep_smaller_crit)
-    trav, _ = tbuild(actx.queue, tree, debug=True)
+    trav, _ = tbuild(actx, tree, debug=True)
 
     if who_has_extent:
         pre_merge_trav = trav
-        trav = trav.merge_close_lists(actx.queue)
+        trav = trav.merge_close_lists(actx)
 
     # weights = np.random.randn(nsources)
     weights = np.ones(nsources)
     weights_sum = np.sum(weights)
 
-    host_trav = trav.get(queue=actx.queue)
+    host_trav = actx.to_numpy(trav)
     host_tree = host_trav.tree
 
     if who_has_extent:
-        pre_merge_host_trav = pre_merge_trav.get(queue=actx.queue)
+        pre_merge_host_trav = actx.to_numpy(pre_merge_trav)
 
     from boxtree.tree import ParticleListFilter
-    plfilt = ParticleListFilter(actx.context)
+    plfilt = ParticleListFilter(actx)
 
     tree_indep = ConstantOneTreeIndependentDataForWrangler()
 
@@ -252,16 +252,16 @@ def test_fmm_completeness(actx_factory, dims, nsources_req, ntargets_req,
 
         if filter_kind == "user":
             filtered_targets = plfilt.filter_target_lists_in_user_order(
-                    actx.queue, tree, flags)
+                    actx, tree, flags)
             wrangler = ConstantOneExpansionWranglerWithFilteredTargetsInUserOrder(
                     tree_indep, host_trav,
-                    filtered_targets.get(queue=actx.queue))
+                    actx.to_numpy(filtered_targets))
         elif filter_kind == "tree":
             filtered_targets = plfilt.filter_target_lists_in_tree_order(
-                    actx.queue, tree, flags)
+                    actx, tree, flags)
             wrangler = ConstantOneExpansionWranglerWithFilteredTargetsInTreeOrder(
                     tree_indep, host_trav,
-                    filtered_targets.get(queue=actx.queue))
+                    actx.to_numpy(filtered_targets))
         else:
             raise ValueError("unsupported value of 'filter_kind'")
     else:
@@ -402,25 +402,25 @@ def test_pyfmmlib_fmm(actx_factory, dims, use_dipoles, helmholtz_k):
     ntargets = 1000
     dtype = np.float64
 
-    sources = p_normal(actx.queue, nsources, dims, dtype, seed=15)
+    sources = p_normal(actx, nsources, dims, dtype, seed=15)
     targets = (
-            p_normal(actx.queue, ntargets, dims, dtype, seed=18)
+            p_normal(actx, ntargets, dims, dtype, seed=18)
             + np.array([2, 0, 0])[:dims])
 
-    sources_host = particle_array_to_host(sources)
-    targets_host = particle_array_to_host(targets)
+    sources_host = particle_array_to_host(actx, sources)
+    targets_host = particle_array_to_host(actx, targets)
 
     from boxtree import TreeBuilder
-    tb = TreeBuilder(actx.context)
+    tb = TreeBuilder(actx)
 
-    tree, _ = tb(actx.queue, sources, targets=targets,
+    tree, _ = tb(actx, sources, targets=targets,
             max_particles_in_box=30, debug=True)
 
     from boxtree.traversal import FMMTraversalBuilder
-    tbuild = FMMTraversalBuilder(actx.context)
-    trav, _ = tbuild(actx.queue, tree, debug=True)
+    tbuild = FMMTraversalBuilder(actx)
+    trav, _ = tbuild(actx, tree, debug=True)
 
-    trav = trav.get(queue=actx.queue)
+    trav = actx.to_numpy(trav)
 
     rng = np.random.default_rng(20)
     weights = rng.uniform(0.0, 1.0, (nsources,))
@@ -511,9 +511,13 @@ def test_pyfmmlib_fmm(actx_factory, dims, use_dipoles, helmholtz_k):
                 [knl],
                 exclude_self=False)
 
-        _evt, (sumpy_ref_pot,) = p2p(
-                actx.queue, targets, sources, (weights,),
-                out_host=True, **sumpy_extra_kwargs)
+        result, = p2p(
+                actx,
+                targets,
+                sources,
+                (actx.from_numpy(weights),),
+                **sumpy_extra_kwargs)
+        sumpy_ref_pot = actx.to_numpy(result)
 
         sumpy_rel_err = (
                 la.norm(pot - sumpy_ref_pot, np.inf)
@@ -554,18 +558,18 @@ def test_pyfmmlib_numerical_stability(actx_factory, dims, helmholtz_k, order):
     targets = sources * (1 + 1e-3)
 
     from boxtree import TreeBuilder
-    tb = TreeBuilder(actx.context)
+    tb = TreeBuilder(actx)
 
-    tree, _ = tb(actx.queue, sources, targets=targets,
+    tree, _ = tb(actx, sources, targets=targets,
             max_particles_in_box=2, debug=True)
 
     assert tree.nlevels >= 15
 
     from boxtree.traversal import FMMTraversalBuilder
-    tbuild = FMMTraversalBuilder(actx.context)
-    trav, _ = tbuild(actx.queue, tree, debug=True)
+    tbuild = FMMTraversalBuilder(actx)
+    trav, _ = tbuild(actx, tree, debug=True)
 
-    trav = trav.get(queue=actx.queue)
+    trav = actx.to_numpy(trav)
     weights = np.ones_like(sources[0])
 
     from boxtree.pyfmmlib_integration import (
@@ -585,7 +589,7 @@ def test_pyfmmlib_numerical_stability(actx_factory, dims, helmholtz_k, order):
             tree_indep, trav,
             helmholtz_k=helmholtz_k,
             fmm_level_to_order=fmm_level_to_order,
-            rotation_data=FMMLibRotationData(actx.queue, trav))
+            rotation_data=FMMLibRotationData(actx, trav))
 
     from boxtree.fmm import drive_fmm
     pot = drive_fmm(wrangler, (weights,))
@@ -625,8 +629,8 @@ def test_interaction_list_particle_count_thresholding(actx_factory, enable_exten
     from_sep_smaller_min_nsources_cumul = 1 + max_particles_in_box
 
     from boxtree.fmm import drive_fmm
-    sources = p_normal(actx.queue, nsources, dims, dtype, seed=15)
-    targets = p_normal(actx.queue, ntargets, dims, dtype, seed=15)
+    sources = p_normal(actx, nsources, dims, dtype, seed=15)
+    targets = p_normal(actx, ntargets, dims, dtype, seed=15)
 
     rng = np.random.default_rng(22)
     if enable_extents:
@@ -637,22 +641,22 @@ def test_interaction_list_particle_count_thresholding(actx_factory, enable_exten
         target_radii = None
 
     from boxtree import TreeBuilder
-    tb = TreeBuilder(actx.context)
+    tb = TreeBuilder(actx)
 
-    tree, _ = tb(actx.queue, sources, targets=targets,
+    tree, _ = tb(actx, sources, targets=targets,
             max_particles_in_box=max_particles_in_box,
             target_radii=target_radii,
             debug=True, stick_out_factor=0.25)
 
     from boxtree.traversal import FMMTraversalBuilder
-    tbuild = FMMTraversalBuilder(actx.context)
-    trav, _ = tbuild(actx.queue, tree, debug=True,
+    tbuild = FMMTraversalBuilder(actx)
+    trav, _ = tbuild(actx, tree, debug=True,
             _from_sep_smaller_min_nsources_cumul=from_sep_smaller_min_nsources_cumul)
 
     weights = np.ones(nsources)
     weights_sum = np.sum(weights)
 
-    host_trav = trav.get(queue=actx.queue)
+    host_trav = actx.to_numpy(trav)
 
     tree_indep = ConstantOneTreeIndependentDataForWrangler()
     wrangler = ConstantOneExpansionWrangler(tree_indep, host_trav)
@@ -680,8 +684,8 @@ def test_fmm_float32(actx_factory, enable_extents):
     dtype = np.float32
 
     from boxtree.fmm import drive_fmm
-    sources = p_normal(actx.queue, nsources, dims, dtype, seed=15)
-    targets = p_normal(actx.queue, ntargets, dims, dtype, seed=15)
+    sources = p_normal(actx, nsources, dims, dtype, seed=15)
+    targets = p_normal(actx, ntargets, dims, dtype, seed=15)
 
     rng = np.random.default_rng(12)
     if enable_extents:
@@ -692,21 +696,21 @@ def test_fmm_float32(actx_factory, enable_extents):
         target_radii = None
 
     from boxtree import TreeBuilder
-    tb = TreeBuilder(actx.context)
+    tb = TreeBuilder(actx)
 
-    tree, _ = tb(actx.queue, sources, targets=targets,
+    tree, _ = tb(actx, sources, targets=targets,
             max_particles_in_box=30,
             target_radii=target_radii,
             debug=True, stick_out_factor=0.25)
 
     from boxtree.traversal import FMMTraversalBuilder
-    tbuild = FMMTraversalBuilder(actx.context)
-    trav, _ = tbuild(actx.queue, tree, debug=True)
+    tbuild = FMMTraversalBuilder(actx)
+    trav, _ = tbuild(actx, tree, debug=True)
 
     weights = np.ones(nsources)
     weights_sum = np.sum(weights)
 
-    host_trav = trav.get(queue=actx.queue)
+    host_trav = actx.to_numpy(trav)
 
     tree_indep = ConstantOneTreeIndependentDataForWrangler()
     wrangler = ConstantOneExpansionWrangler(tree_indep, host_trav)
@@ -732,21 +736,21 @@ def test_fmm_with_optimized_3d_m2l(actx_factory, nsrcntgts, helmholtz_k,
     nsources = ntargets = nsrcntgts // 2
     dtype = np.float64
 
-    sources = p_normal(actx.queue, nsources, dims, dtype, seed=15)
+    sources = p_normal(actx, nsources, dims, dtype, seed=15)
     targets = (
-            p_normal(actx.queue, ntargets, dims, dtype, seed=18)
+            p_normal(actx, ntargets, dims, dtype, seed=18)
             + np.array([2, 0, 0])[:dims])
 
     from boxtree import TreeBuilder
-    tb = TreeBuilder(actx.context)
+    tb = TreeBuilder(actx)
 
-    tree, _ = tb(actx.queue, sources, targets=targets,
+    tree, _ = tb(actx, sources, targets=targets,
             max_particles_in_box=30, debug=True)
 
     from boxtree.traversal import FMMTraversalBuilder
-    tbuild = FMMTraversalBuilder(actx.context)
-    trav, _ = tbuild(actx.queue, tree, debug=True)
-    trav = trav.get(queue=actx.queue)
+    tbuild = FMMTraversalBuilder(actx)
+    trav, _ = tbuild(actx, tree, debug=True)
+    trav = actx.to_numpy(trav)
 
     rng = np.random.default_rng(20)
     weights = rng.uniform(0.0, 1.0, (nsources,))
@@ -781,7 +785,7 @@ def test_fmm_with_optimized_3d_m2l(actx_factory, nsrcntgts, helmholtz_k,
             tree_indep, trav,
             helmholtz_k=helmholtz_k,
             fmm_level_to_order=fmm_level_to_order,
-            rotation_data=FMMLibRotationData(actx.queue, trav))
+            rotation_data=FMMLibRotationData(actx, trav))
 
     from boxtree.fmm import drive_fmm
 
