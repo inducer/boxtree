@@ -140,15 +140,15 @@ Many list-like data structures in :mod:`boxtree` consists of
 two arrays, one whose name ends in ``_starts``, and another whose
 name ends in ``_lists``. For example,
 suppose we would like to find the colleagues of box #17 using
-:attr:`boxtree.traversal.FMMTraversalInfo.colleagues_starts`
+:attr:`boxtree.traversal.FMMTraversalInfo.same_level_non_well_sep_boxes_starts`
 and
-:attr:`boxtree.traversal.FMMTraversalInfo.colleagues_lists`.
+:attr:`boxtree.traversal.FMMTraversalInfo.same_level_non_well_sep_boxes_lists`.
 
 The following snippet of code achieves this::
 
     ibox = 17
-    start, end = colleagues_starts[ibox:ibox+2]
-    ibox_colleagues = colleagues_lists[start:end]
+    start, end = same_level_non_well_sep_boxes_starts[ibox:ibox+2]
+    ibox_colleagues = same_level_non_well_sep_boxes_lists[start:end]
 
 This indexing scheme has the following properties:
 
