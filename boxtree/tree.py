@@ -52,10 +52,6 @@ Tools
 ^^^^^
 
 .. autoclass:: ParticleListFilter
-
-.. autofunction:: filter_target_lists_in_user_order
-
-.. autofunction:: filter_target_lists_in_tree_order
 """
 
 __copyright__ = "Copyright (C) 2013 Andreas Kloeckner"
