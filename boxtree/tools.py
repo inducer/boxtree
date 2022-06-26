@@ -127,7 +127,7 @@ def make_surface_particle_array(actx, nparticles, dims, dtype, seed=15):
 
             knl = lp.split_iname(knl, "i", 128, outer_tag="g.0", inner_tag="l.0")
 
-            return knl.executor(queue.context)
+            return knl.executor(actx.context)
 
         _evt, result = get_2d_knl(dtype)(actx.queue, n=nparticles)
 
@@ -161,7 +161,7 @@ def make_surface_particle_array(actx, nparticles, dims, dtype, seed=15):
             knl = lp.split_iname(knl, "i", 16, outer_tag="g.1", inner_tag="l.1")
             knl = lp.split_iname(knl, "j", 16, outer_tag="g.0", inner_tag="l.0")
 
-            return knl.executor(queue.context)
+            return knl.executor(actx.context)
 
         _evt, result = get_3d_knl(dtype)(actx.queue, n=n)
 
@@ -204,7 +204,7 @@ def make_uniform_particle_array(actx, nparticles, dims, dtype, seed=15):
             knl = lp.split_iname(knl, "i", 16, outer_tag="g.1", inner_tag="l.1")
             knl = lp.split_iname(knl, "j", 16, outer_tag="g.0", inner_tag="l.0")
 
-            return knl.executor(queue.context)
+            return knl.executor(actx.context)
 
         _evt, result = get_2d_knl(dtype)(actx.queue, n=n)
 
@@ -252,7 +252,7 @@ def make_uniform_particle_array(actx, nparticles, dims, dtype, seed=15):
             knl = lp.split_iname(knl, "j", 16, outer_tag="g.1", inner_tag="l.1")
             knl = lp.split_iname(knl, "k", 16, outer_tag="g.0", inner_tag="l.0")
 
-            return knl.executor(queue.context)
+            return knl.executor(actx.context)
 
         _evt, result = get_3d_knl(dtype)(actx.queue, n=n)
 
@@ -326,9 +326,8 @@ class DeviceDataRecord(Record):
     def get(self, queue, **kwargs):
         """
         :returns: a copy of *self* in which all data lives on the host, i.e.
-            all :class:`pyopencl.array.Array` and `ImmutableHostDeviceArray`
-            objects are replaced by corresponding :class:`numpy.ndarray`
-            instances on the host.
+            all :class:`pyopencl.array.Array` objects are replaced by
+            corresponding :class:`numpy.ndarray` instances on the host.
         """
         from warnings import warn
         warn(f"{type(self).__name__}.get is deprecated and will be removed "
@@ -336,9 +335,6 @@ class DeviceDataRecord(Record):
             DeprecationWarning, stacklevel=2)
 
         def try_get(attr):
-            if isinstance(attr, ImmutableHostDeviceArray):
-                return attr.host
-
             try:
                 return attr.get(queue=queue, **kwargs)
             except AttributeError:
@@ -383,39 +379,12 @@ class DeviceDataRecord(Record):
         def _to_device(attr):
             if isinstance(attr, np.ndarray):
                 return cl.array.to_device(queue, attr).with_queue(None)
-            elif isinstance(attr, ImmutableHostDeviceArray):
-                return attr.device
             elif isinstance(attr, DeviceDataRecord):
                 return attr.to_device(queue)
             else:
                 return attr
 
         return self._transform_arrays(_to_device, exclude_fields=exclude_fields)
-
-    def to_host_device_array(self, queue, exclude_fields=frozenset()):
-        """
-        :arg exclude_fields: a :class:`frozenset` containing fields excluded
-            from transformed to `ImmutableHostDeviceArray`.
-
-        :returns: a copy of *self* where all device and host arrays are
-            transformed to `ImmutableHostDeviceArray` objects.
-        """
-        from warnings import warn
-        warn(f"{type(self).__name__}.to_host_device_array is deprecated and will "
-            "be removed in 2025. Switch from ImmutableHostDeviceArray.",
-            DeprecationWarning, stacklevel=2)
-
-        def _to_host_device_array(attr):
-            if isinstance(attr, np.ndarray | cl.array.Array):
-                return ImmutableHostDeviceArray(queue, attr)
-            elif isinstance(attr, DeviceDataRecord):
-                return attr.to_host_device_array(queue)
-            else:
-                return attr
-
-        return self._transform_arrays(
-            _to_host_device_array, exclude_fields=exclude_fields
-        )
 
 # }}}
 
@@ -906,55 +875,6 @@ def run_mpi(script: str, num_processes: int, env: dict[str, Any]) -> None:
             ]
 
     subprocess.run(command, env=env, check=True)
-
-# }}}
-
-
-# {{{ HostDeviceArray
-
-class ImmutableHostDeviceArray:
-    """Interface for arrays on both host and device.
-
-    .. note:: This interface assumes the array is immutable. The behavior of
-    modifying the content of either the host array or the device array is undefined.
-
-    @TODO: Once available, replace this implementation with PyOpenCL's in-house
-    implementation.
-    """
-    def __init__(self, queue, array):
-        self.queue = queue
-        self.shape = array.shape
-        self.host_array = None
-        self.device_array = None
-
-        if isinstance(array, np.ndarray):
-            self.host_array = array
-        elif isinstance(array, cl.array.Array):
-            self.device_array = array
-
-    def with_queue(self, queue):
-        self.queue = queue
-
-    @property
-    def svm_capable(self):
-        svm_capabilities = \
-            self.queue.device.get_info(cl.device_info.SVM_CAPABILITIES)
-        return svm_capabilities & cl.device_svm_capabilities.FINE_GRAIN_BUFFER != 0
-
-    @property
-    def host(self):
-        if self.host_array is None:
-            self.host_array = self.device_array.get(self.queue)
-        return self.host_array
-
-    @property
-    def device(self):
-        if self.device_array is None:
-            # @TODO: Use SVM
-            self.device_array = cl.array.to_device(self.queue, self.host_array)
-
-        self.device_array.with_queue(self.queue)
-        return self.device_array
 
 # }}}
 
