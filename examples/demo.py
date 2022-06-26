@@ -8,8 +8,12 @@ import pyopencl as cl
 
 logging.basicConfig(level="INFO")
 
+from boxtree.array_context import PyOpenCLArrayContext
+
+
 ctx = cl.create_some_context()
 queue = cl.CommandQueue(ctx)
+actx = PyOpenCLArrayContext(queue, force_device_scalars=True)
 
 dims = 2
 nparticles = 500
@@ -17,16 +21,13 @@ nparticles = 500
 # -----------------------------------------------------------------------------
 # generate some random particle positions
 # -----------------------------------------------------------------------------
-from pyopencl.clrandom import PhiloxGenerator
-
-
-rng = PhiloxGenerator(ctx, seed=15)
-
 from pytools.obj_array import make_obj_array
 
 
+rng = np.random.default_rng(seed=15)
+
 particles = make_obj_array([
-    rng.normal(queue, nparticles, dtype=np.float64)
+    actx.from_numpy(rng.normal(size=nparticles))
     for i in range(dims)])
 
 # -----------------------------------------------------------------------------
@@ -35,14 +36,14 @@ particles = make_obj_array([
 from boxtree import TreeBuilder
 
 
-tb = TreeBuilder(ctx)
-tree, _ = tb(queue, particles, max_particles_in_box=5)
+tb = TreeBuilder(actx)
+tree, _ = tb(actx, particles, max_particles_in_box=5)
 
 from boxtree.traversal import FMMTraversalBuilder
 
 
-tg = FMMTraversalBuilder(ctx)
-trav, _ = tg(queue, tree)
+tg = FMMTraversalBuilder(actx)
+trav, _ = tg(actx, tree)
 
 # ENDEXAMPLE
 
@@ -50,15 +51,17 @@ trav, _ = tg(queue, tree)
 # plot the tree
 # -----------------------------------------------------------------------------
 
+particles = actx.to_numpy(particles)
+tree = actx.to_numpy(tree)
+
 import matplotlib.pyplot as pt
-
-
-pt.plot(particles[0].get(), particles[1].get(), "+")
 
 from boxtree.visualization import TreePlotter
 
 
-plotter = TreePlotter(tree.get(queue=queue))
+pt.plot(particles[0], particles[1], "+")
+plotter = TreePlotter(tree)
+
 plotter.draw_tree(fill=False, edgecolor="black")
 # plotter.draw_box_numbers()
 plotter.set_bounding_box()
