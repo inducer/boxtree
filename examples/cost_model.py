@@ -1,31 +1,18 @@
 import logging
 import os
-import sys
 
 import numpy as np
 
 import pyopencl as cl
 
 
-# Configure the root logger
 logging.basicConfig(level=os.environ.get("LOGLEVEL", "WARNING"))
-
 logger = logging.getLogger(__name__)
-
-# Set the logger level of this module to INFO so that logging outputs of this module
-# are shown
 logger.setLevel(logging.INFO)
-
-# `process_elapsed` in `ProcessTimer` is only supported for Python >= 3.3
-SUPPORTS_PROCESS_TIME = (sys.version_info >= (3, 3))
 
 
 def demo_cost_model():
-    if not SUPPORTS_PROCESS_TIME:
-        raise NotImplementedError(
-            "Currently this script uses process time which only works on Python>=3.3"
-        )
-
+    from boxtree.array_context import PyOpenCLArrayContext
     from boxtree.pyfmmlib_integration import (
         FMMLibExpansionWrangler,
         FMMLibTreeIndependentDataForWrangler,
@@ -40,6 +27,7 @@ def demo_cost_model():
 
     ctx = cl.create_some_context()
     queue = cl.CommandQueue(ctx)
+    actx = PyOpenCLArrayContext(queue, force_device_scalars=True)
 
     traversals = []
     traversals_dev = []
@@ -53,31 +41,29 @@ def demo_cost_model():
         # {{{ Generate sources, targets and target_radii
 
         from boxtree.tools import make_normal_particle_array as p_normal
-        sources = p_normal(queue, nsources, dims, dtype, seed=15)
-        targets = p_normal(queue, ntargets, dims, dtype, seed=18)
+        sources = p_normal(actx, nsources, dims, dtype, seed=15)
+        targets = p_normal(actx, ntargets, dims, dtype, seed=18)
 
-        from pyopencl.clrandom import PhiloxGenerator
-
-        clrng = PhiloxGenerator(queue.context, seed=22)
-        target_radii = clrng.uniform(
-            queue, ntargets, a=0, b=0.05, dtype=dtype
-        ).get()
+        rng = np.random.default_rng(seed=22)
+        target_radii = actx.from_numpy(
+            rng.uniform(low=0.0, high=0.05, size=ntargets)
+        )
 
         # }}}
 
         # {{{ Generate tree and traversal
 
         from boxtree import TreeBuilder
-        tb = TreeBuilder(ctx)
+        tb = TreeBuilder(actx)
         tree, _ = tb(
-            queue, sources, targets=targets, target_radii=target_radii,
+            actx, sources, targets=targets, target_radii=target_radii,
             stick_out_factor=0.15, max_particles_in_box=30, debug=True
         )
 
         from boxtree.traversal import FMMTraversalBuilder
-        tg = FMMTraversalBuilder(ctx, well_sep_is_n_away=2)
-        trav_dev, _ = tg(queue, tree, debug=True)
-        trav = trav_dev.get(queue=queue)
+        tg = FMMTraversalBuilder(actx, well_sep_is_n_away=2)
+        trav_dev, _ = tg(actx, tree, debug=True)
+        trav = actx.to_numpy(trav_dev)
 
         traversals.append(trav)
         traversals_dev.append(trav_dev)
@@ -107,7 +93,7 @@ def demo_cost_model():
         traversal = traversals_dev[icase]
         model_results.append(
             cost_model.cost_per_stage(
-                queue, traversal, level_orders_list[icase],
+                actx, traversal, level_orders_list[icase],
                 FMMCostModel.get_unit_calibration_params(),
             )
         )
@@ -118,7 +104,7 @@ def demo_cost_model():
     )
 
     predicted_time = cost_model.cost_per_stage(
-        queue, traversals_dev[-1], level_orders_list[-1], params,
+        actx, traversals_dev[-1], level_orders_list[-1], params,
     )
     queue.finish()
 
