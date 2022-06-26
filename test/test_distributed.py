@@ -42,6 +42,7 @@ from boxtree.constant_one import (
 )
 from boxtree.pyfmmlib_integration import (
     FMMLibExpansionWrangler,
+    FMMLibRotationData,
     FMMLibTreeIndependentDataForWrangler,
     Kernel,
 )
@@ -87,7 +88,7 @@ def _test_against_shared(
         actx = _acf()
 
         from boxtree.traversal import FMMTraversalBuilder
-        tg = FMMTraversalBuilder(actx.context, well_sep_is_n_away=2)
+        tg = FMMTraversalBuilder(actx, well_sep_is_n_away=2)
 
         tree_indep = FMMLibTreeIndependentDataForWrangler(
             dims, Kernel.HELMHOLTZ if helmholtz_k else Kernel.LAPLACE)
@@ -96,8 +97,8 @@ def _test_against_shared(
         if rank == 0:
             # Generate random particles and source weights
             from boxtree.tools import make_normal_particle_array as p_normal
-            sources = p_normal(actx.queue, nsources, dims, dtype, seed=15)
-            targets = p_normal(actx.queue, ntargets, dims, dtype, seed=18)
+            sources = p_normal(actx, nsources, dims, dtype, seed=15)
+            targets = p_normal(actx, ntargets, dims, dtype, seed=18)
 
             rng = np.random.default_rng(20)
             sources_weights = rng.uniform(0.0, 1.0, (nsources,))
@@ -105,19 +106,20 @@ def _test_against_shared(
 
             # Build the tree and interaction lists
             from boxtree import TreeBuilder
-            tb = TreeBuilder(actx.context)
+            tb = TreeBuilder(actx)
             global_tree_dev, _ = tb(
-                actx.queue, sources, targets=targets, target_radii=target_radii,
+                actx, sources, targets=targets, target_radii=target_radii,
                 stick_out_factor=0.25, max_particles_in_box=30, debug=True)
 
-            d_trav, _ = tg(actx.queue, global_tree_dev, debug=True)
-            global_traversal_host = d_trav.get(queue=actx.queue)
+            d_trav, _ = tg(actx, global_tree_dev, debug=True)
+            global_traversal_host = actx.to_numpy(d_trav)
             global_tree_host = global_traversal_host.tree
 
             # Get pyfmmlib expansion wrangler
             wrangler = FMMLibExpansionWrangler(
                     tree_indep, global_traversal_host,
-                    fmm_level_to_order=fmm_level_to_order)
+                    fmm_level_to_order=fmm_level_to_order,
+                    rotation_data=FMMLibRotationData(actx, global_traversal_host))
 
             # Compute FMM with one MPI rank
             from boxtree.fmm import drive_fmm
@@ -131,13 +133,13 @@ def _test_against_shared(
             )
 
             return DistributedFMMLibExpansionWrangler(
-                actx.context, comm, tree_indep, local_traversal, global_traversal,
+                comm, tree_indep, local_traversal, global_traversal,
                 fmm_level_to_order=fmm_level_to_order,
                 communicate_mpoles_via_allreduce=communicate_mpoles_via_allreduce)
 
         from boxtree.distributed import DistributedFMMRunner
         distributed_fmm_info = DistributedFMMRunner(
-            actx.queue, global_tree_host, tg, wrangler_factory, comm=comm)
+            actx, global_tree_host, tg, wrangler_factory, comm=comm)
 
         timing_data = {}
         pot_dfmm = distributed_fmm_info.drive_dfmm(
@@ -191,28 +193,40 @@ def test_against_shared(
 # {{{ test_constantone
 
 def _test_constantone(tmp_cache_basedir, dims, nsources, ntargets, dtype):
-    from boxtree.distributed.calculation import DistributedExpansionWrangler
+    from boxtree.distributed.calculation import DistributedExpansionWranglerMixin
 
     class ConstantOneExpansionWrangler(
-            ConstantOneExpansionWranglerBase, DistributedExpansionWrangler):
+            DistributedExpansionWranglerMixin,
+            ConstantOneExpansionWranglerBase):
         def __init__(
-                self, queue, comm, tree_indep, local_traversal, global_traversal):
-            DistributedExpansionWrangler.__init__(
-                self, queue, comm, global_traversal, False,
-                communicate_mpoles_via_allreduce=True)
+                self,
+                comm,
+                tree_indep, local_traversal, global_traversal):
             ConstantOneExpansionWranglerBase.__init__(
                 self, tree_indep, local_traversal)
+
+            self.comm = comm
+            self.global_traversal = global_traversal
+            self.communicate_mpoles_via_allreduce = True
+
             self.level_orders = np.ones(local_traversal.tree.nlevels, dtype=np.int32)
 
         def reorder_sources(self, source_array):
-            if self.comm.Get_rank() == 0:
+            if self.is_mpi_root:
                 return source_array[self.global_traversal.tree.user_source_ids]
             else:
                 return None
 
         def reorder_potentials(self, potentials):
-            if self.comm.Get_rank() == 0:
+            if self.is_mpi_root:
                 return potentials[self.global_traversal.tree.sorted_target_ids]
+            else:
+                return None
+
+        def finalize_potentials(self, actx, potentials):
+            if self.is_mpi_root:
+                return ConstantOneExpansionWranglerBase.finalize_potentials(
+                    self, actx, potentials)
             else:
                 return None
 
@@ -232,14 +246,14 @@ def _test_constantone(tmp_cache_basedir, dims, nsources, ntargets, dtype):
         actx = _acf()
 
         from boxtree.traversal import FMMTraversalBuilder
-        tg = FMMTraversalBuilder(actx.context)
+        tg = FMMTraversalBuilder(actx)
 
         if rank == 0:
 
             # Generate random particles
             from boxtree.tools import make_normal_particle_array as p_normal
-            sources = p_normal(actx.queue, nsources, dims, dtype, seed=15)
-            targets = (p_normal(actx.queue, ntargets, dims, dtype, seed=18)
+            sources = p_normal(actx, nsources, dims, dtype, seed=15)
+            targets = (p_normal(actx, ntargets, dims, dtype, seed=18)
                        + np.array([2, 0, 0])[:dims])
 
             # Constant one source weights
@@ -247,21 +261,20 @@ def _test_constantone(tmp_cache_basedir, dims, nsources, ntargets, dtype):
 
             # Build the global tree
             from boxtree import TreeBuilder
-            tb = TreeBuilder(actx.context)
-            tree, _ = tb(
-                    actx.queue, sources, targets=targets, max_particles_in_box=30,
-                    debug=True)
-            tree = tree.get(actx.queue)
+            tb = TreeBuilder(actx)
+            tree, _ = tb(actx, sources, targets=targets, max_particles_in_box=30,
+                        debug=True)
+            tree = actx.to_numpy(tree)
 
         tree_indep = ConstantOneTreeIndependentDataForWrangler()
 
         def wrangler_factory(local_traversal, global_traversal):
             return ConstantOneExpansionWrangler(
-                    actx.queue, comm, tree_indep, local_traversal, global_traversal)
+                    comm, tree_indep, local_traversal, global_traversal)
 
         from boxtree.distributed import DistributedFMMRunner
         distributed_fmm_info = DistributedFMMRunner(
-            actx.queue, tree, tg, wrangler_factory, comm=MPI.COMM_WORLD)
+            actx, tree, tg, wrangler_factory, comm=MPI.COMM_WORLD)
 
         pot_dfmm = distributed_fmm_info.drive_dfmm([sources_weights])
 
@@ -325,3 +338,5 @@ if __name__ == "__main__":
             ntargets = 10000
 
             _test_against_shared(tmp_cache_basedir, dims, nsources, ntargets, dtype)
+
+# vim: fdm=marker
