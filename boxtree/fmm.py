@@ -341,7 +341,7 @@ def drive_fmm(wrangler: ExpansionWranglerInterface, src_weight_vecs,
     :arg expansion_wrangler: An object exhibiting the
         :class:`ExpansionWranglerInterface`. For distributed implementation, this
         wrangler should be a subclass of
-        :class:`boxtree.distributed.calculation.DistributedExpansionWrangler`.
+        :class:`boxtree.distributed.calculation.DistributedExpansionWranglerMixin`.
     :arg src_weight_vecs: A sequence of source 'density/weights/charges'.
         Passed unmodified to *expansion_wrangler*. For distributed
         implementation, this argument is only significant on the root rank, but

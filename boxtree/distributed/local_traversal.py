@@ -29,34 +29,30 @@ logger = logging.getLogger(__name__)
 
 
 def generate_local_travs(
-        queue, local_tree, traversal_builder, merge_close_lists=False):
+        actx, local_tree, traversal_builder, merge_close_lists=False):
     """Generate local traversal from local tree.
 
-    :arg queue: a :class:`pyopencl.CommandQueue` object.
-    :arg local_tree: the local tree of class
-        `boxtree.tools.ImmutableHostDeviceArray` on which the local traversal
-        object will be constructed.
-    :arg traversal_builder: a function, taken a :class:`pyopencl.CommandQueue` and
-        a tree, returns the traversal object based on the tree.
+    :arg local_tree: the local tree on which the local traversal object will
+        be constructed.
+    :arg traversal_builder: a function, taken a :class:`arraycontext.ArrayContext`
+        and a tree, returns the traversal object based on the tree.
 
     :return: generated local traversal object in device memory
     """
     start_time = time.time()
-
-    local_tree.with_queue(queue)
 
     # We need `source_boxes_mask` and `source_parent_boxes_mask` here to restrict the
     # multipole formation and upward propagation within the rank's responsible boxes
     # region. Had there not been such restrictions, some sources might be distributed
     # to more than 1 rank and counted multiple times.
     local_trav, _ = traversal_builder(
-        queue, local_tree.to_device(queue),
-        source_boxes_mask=local_tree.responsible_boxes_mask.device,
-        source_parent_boxes_mask=local_tree.ancestor_mask.device
+        actx, local_tree,
+        source_boxes_mask=local_tree.responsible_boxes_mask,
+        source_parent_boxes_mask=local_tree.ancestor_mask
     )
 
     if merge_close_lists and local_tree.targets_have_extent:
-        local_trav = local_trav.merge_close_lists(queue)
+        local_trav = local_trav.merge_close_lists(actx)
 
     logger.info("Generate local traversal in %f sec.", time.time() - start_time)
 
