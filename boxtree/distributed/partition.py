@@ -24,11 +24,14 @@ THE SOFTWARE.
 from dataclasses import dataclass
 
 import numpy as np
+from arraycontext import Array
 from mako.template import Template
 
-import pyopencl as cl
+from pyopencl.elementwise import ElementwiseKernel
 from pyopencl.tools import dtype_to_ctype
 from pytools import memoize_method
+
+from boxtree.array_context import PyOpenCLArrayContext
 
 
 def get_box_ids_dfs_order(tree):
@@ -118,17 +121,21 @@ def partition_work(cost_per_box, traversal, comm):
 
 
 class GetBoxMasksCodeContainer:
-    def __init__(self, cl_context, box_id_dtype):
-        self.cl_context = cl_context
+    def __init__(self, array_context: PyOpenCLArrayContext, box_id_dtype):
+        self._setup_actx = array_context
         self.box_id_dtype = box_id_dtype
+
+    @property
+    def context(self):
+        return self._setup_actx.context
 
     @memoize_method
     def add_interaction_list_boxes_kernel(self):
         """Given a ``responsible_boxes_mask`` and an interaction list, mark source
         boxes for target boxes in ``responsible_boxes_mask`` in a new separate mask.
         """
-        return cl.elementwise.ElementwiseKernel(
-            self.cl_context,
+        return ElementwiseKernel(
+            self.context,
             Template("""
                 __global ${box_id_t} *box_list,
                 __global char *responsible_boxes_mask,
@@ -154,29 +161,28 @@ class GetBoxMasksCodeContainer:
 
     @memoize_method
     def add_parent_boxes_kernel(self):
-        return cl.elementwise.ElementwiseKernel(
-            self.cl_context,
+        return ElementwiseKernel(
+            self.context,
             "__global char *current, __global char *parent, "
             f"__global {dtype_to_ctype(self.box_id_dtype)} *box_parent_ids",
             "if(i != 0 && current[i]) parent[box_parent_ids[i]] = 1"
         )
 
 
-def get_ancestor_boxes_mask(queue, code, traversal, responsible_boxes_mask):
+def get_ancestor_boxes_mask(actx, code, traversal, responsible_boxes_mask):
     """Query the ancestors of responsible boxes.
 
-    :arg responsible_boxes_mask: A :class:`pyopencl.array.Array` object of shape
-        ``(tree.nboxes,)`` whose i-th entry is 1 if ``i`` is a responsible box.
-    :return: A :class:`pyopencl.array.Array` object of shape ``(tree.nboxes,)`` whose
-        i-th entry is 1 if ``i`` is an ancestor of the responsible boxes specified by
+    :arg responsible_boxes_mask: an array of shape ``(tree.nboxes,)`` whose
+        i-th entry is 1 if ``i`` is a responsible box.
+    :return: an array of shape ``(tree.nboxes,)`` whose i-th entry is 1 if ``i``
+        is an ancestor of the responsible boxes specified by
         *responsible_boxes_mask*.
     """
-    ancestor_boxes = cl.array.zeros(queue, (traversal.tree.nboxes,), dtype=np.int8)
+    ancestor_boxes = actx.zeros((traversal.tree.nboxes,), dtype=np.int8)
     ancestor_boxes_last = responsible_boxes_mask.copy()
 
     while ancestor_boxes_last.any():
-        ancestor_boxes_new = cl.array.zeros(
-            queue, (traversal.tree.nboxes,), dtype=np.int8)
+        ancestor_boxes_new = actx.zeros((traversal.tree.nboxes,), dtype=np.int8)
         code.add_parent_boxes_kernel()(
             ancestor_boxes_last, ancestor_boxes_new, traversal.tree.box_parent_ids)
         ancestor_boxes_new = ancestor_boxes_new & (~ancestor_boxes)
@@ -187,18 +193,18 @@ def get_ancestor_boxes_mask(queue, code, traversal, responsible_boxes_mask):
 
 
 def get_point_src_boxes_mask(
-        queue, code, traversal, responsible_boxes_mask, ancestor_boxes_mask):
+        actx, code, traversal, responsible_boxes_mask, ancestor_boxes_mask):
     """Query the boxes whose sources are needed in order to evaluate potentials
     of boxes represented by *responsible_boxes_mask*.
 
-    :arg responsible_boxes_mask: A :class:`pyopencl.array.Array` object of shape
-        ``(tree.nboxes,)`` whose i-th entry is 1 if ``i`` is a responsible box.
-    :param ancestor_boxes_mask: A :class:`pyopencl.array.Array` object of shape
-        ``(tree.nboxes,)`` whose i-th entry is 1 if ``i`` is either a responsible box
-        or an ancestor of the responsible boxes.
-    :return: A :class:`pyopencl.array.Array` object of shape ``(tree.nboxes,)`` whose
-        i-th entry is 1 if sources of box ``i`` are needed for evaluating the
-        potentials of targets in boxes represented by *responsible_boxes_mask*.
+    :arg responsible_boxes_mask: an array of shape ``(tree.nboxes,)`` whose
+        i-th entry is 1 if ``i`` is a responsible box.
+    :param ancestor_boxes_mask: an array of shape ``(tree.nboxes,)`` whose
+        i-th entry is 1 if ``i`` is either a responsible box or an ancestor
+        of the responsible boxes.
+    :return: an array of shape ``(tree.nboxes,)`` whose i-th entry is 1 if
+        sources of box ``i`` are needed for evaluating the potentials of targets
+        in boxes represented by *responsible_boxes_mask*.
     """
 
     src_boxes_mask = responsible_boxes_mask.copy()
@@ -208,7 +214,7 @@ def get_point_src_boxes_mask(
         traversal.target_boxes, responsible_boxes_mask,
         traversal.neighbor_source_boxes_starts,
         traversal.neighbor_source_boxes_lists, src_boxes_mask,
-        queue=queue)
+        queue=actx.queue)
 
     # Add list 4 of responsible boxes or ancestor boxes
     code.add_interaction_list_boxes_kernel()(
@@ -216,7 +222,7 @@ def get_point_src_boxes_mask(
         responsible_boxes_mask | ancestor_boxes_mask,
         traversal.from_sep_bigger_starts, traversal.from_sep_bigger_lists,
         src_boxes_mask,
-        queue=queue)
+        queue=actx.queue)
 
     if traversal.tree.targets_have_extent:
         # Add list 3 close of responsible boxes
@@ -227,7 +233,7 @@ def get_point_src_boxes_mask(
                 traversal.from_sep_close_smaller_starts,
                 traversal.from_sep_close_smaller_lists,
                 src_boxes_mask,
-                queue=queue
+                queue=actx.queue
             )
 
         # Add list 4 close of responsible boxes
@@ -238,30 +244,28 @@ def get_point_src_boxes_mask(
                 traversal.from_sep_close_bigger_starts,
                 traversal.from_sep_close_bigger_lists,
                 src_boxes_mask,
-                queue=queue
+                queue=actx.queue
             )
 
     return src_boxes_mask
 
 
 def get_multipole_src_boxes_mask(
-        queue, code, traversal, responsible_boxes_mask, ancestor_boxes_mask):
+        actx, code, traversal, responsible_boxes_mask, ancestor_boxes_mask):
     """Query the boxes whose multipoles are used in order to evaluate
     potentials of targets in boxes represented by *responsible_boxes_mask*.
 
-    :arg responsible_boxes_mask: A :class:`pyopencl.array.Array` object of shape
-        ``(tree.nboxes,)`` whose i-th entry is 1 if ``i`` is a responsible box.
-    :arg ancestor_boxes_mask: A :class:`pyopencl.array.Array` object of shape
-        ``(tree.nboxes,)`` whose i-th entry is 1 if ``i`` is either a responsible box
-        or an ancestor of the responsible boxes.
-    :return: A :class:`pyopencl.array.Array` object of shape ``(tree.nboxes,)``
-        whose i-th entry is 1 if multipoles of box ``i`` are needed for evaluating
-        the potentials of targets in boxes represented by *responsible_boxes_mask*.
+    :arg responsible_boxes_mask: an array of shape ``(tree.nboxes,)`` whose
+        i-th entry is 1 if ``i`` is a responsible box.
+    :arg ancestor_boxes_mask: an array of shape ``(tree.nboxes,)`` whose
+        i-th entry is 1 if ``i`` is either a responsible box or an ancestor of
+        the responsible boxes.
+    :return: an array of shape ``(tree.nboxes,)`` whose i-th entry is 1 if
+        multipoles of box ``i`` are needed for evaluating the potentials of
+        targets in boxes represented by *responsible_boxes_mask*.
     """
 
-    multipole_boxes_mask = cl.array.zeros(
-        queue, (traversal.tree.nboxes,), dtype=np.int8
-    )
+    multipole_boxes_mask = actx.zeros((traversal.tree.nboxes,), dtype=np.int8)
 
     # A mpole is used by process p if it is in the List 2 of either a box
     # owned by p or one of its ancestors.
@@ -271,7 +275,7 @@ def get_multipole_src_boxes_mask(
         traversal.from_sep_siblings_starts,
         traversal.from_sep_siblings_lists,
         multipole_boxes_mask,
-        queue=queue
+        queue=actx.queue
     )
     multipole_boxes_mask.finish()
 
@@ -283,7 +287,7 @@ def get_multipole_src_boxes_mask(
             traversal.from_sep_smaller_by_level[ilevel].starts,
             traversal.from_sep_smaller_by_level[ilevel].lists,
             multipole_boxes_mask,
-            queue=queue
+            queue=actx.queue
         )
 
         multipole_boxes_mask.finish()
@@ -291,11 +295,11 @@ def get_multipole_src_boxes_mask(
     return multipole_boxes_mask
 
 
-@dataclass
+@dataclass(frozen=True)
 class BoxMasks:
     """
-    Box masks needed for the distributed calculation. Each of these masks is a
-    PyOpenCL array with length ``tree.nboxes``, whose `i`-th entry is 1 if box `i` is
+    Box masks needed for the distributed calculation. Each of these masks is an
+    array with length ``tree.nboxes``, whose `i`-th entry is 1 if box `i` is
     set.
 
     .. attribute:: responsible_boxes
@@ -315,13 +319,13 @@ class BoxMasks:
 
         Current process needs multipole expressions in these boxes.
     """
-    responsible_boxes: cl.array.Array
-    ancestor_boxes: cl.array.Array
-    point_src_boxes: cl.array.Array
-    multipole_src_boxes: cl.array.Array
+    responsible_boxes: Array
+    ancestor_boxes: Array
+    point_src_boxes: Array
+    multipole_src_boxes: Array
 
 
-def get_box_masks(queue, traversal, responsible_boxes_list):
+def get_box_masks(actx, traversal, responsible_boxes_list):
     """Given the responsible boxes for a rank, this helper function calculates the
     relevant masks.
 
@@ -329,27 +333,23 @@ def get_box_masks(queue, traversal, responsible_boxes_list):
 
     :returns: A :class:`BoxMasks` object of the relevant masks.
     """
-    code = GetBoxMasksCodeContainer(queue.context, traversal.tree.box_id_dtype)
+    code = GetBoxMasksCodeContainer(actx, traversal.tree.box_id_dtype)
 
-    # FIXME: It is wasteful to copy the whole traversal object into device memory
-    # here because
-    # 1) Not all fields are needed.
-    # 2) For sumpy wrangler, a device traversal object is already available.
-    traversal = traversal.to_device(queue)
-
-    responsible_boxes_mask = np.zeros((traversal.tree.nboxes,), dtype=np.int8)
-    responsible_boxes_mask[responsible_boxes_list] = 1
-    responsible_boxes_mask = cl.array.to_device(queue, responsible_boxes_mask)
+    responsible_boxes_mask = actx.zeros((traversal.tree.nboxes,), dtype=np.int8)
+    responsible_boxes_mask[responsible_boxes_list] = (
+        1 + actx.zeros(responsible_boxes_list.shape, np.int8))
 
     ancestor_boxes_mask = get_ancestor_boxes_mask(
-        queue, code, traversal, responsible_boxes_mask)
+        actx, code, traversal, responsible_boxes_mask)
 
     point_src_boxes_mask = get_point_src_boxes_mask(
-        queue, code, traversal, responsible_boxes_mask, ancestor_boxes_mask)
+        actx, code, traversal, responsible_boxes_mask, ancestor_boxes_mask)
 
     multipole_src_boxes_mask = get_multipole_src_boxes_mask(
-        queue, code, traversal, responsible_boxes_mask, ancestor_boxes_mask)
+        actx, code, traversal, responsible_boxes_mask, ancestor_boxes_mask)
 
     return BoxMasks(
-        responsible_boxes_mask, ancestor_boxes_mask, point_src_boxes_mask,
+        responsible_boxes_mask,
+        ancestor_boxes_mask,
+        point_src_boxes_mask,
         multipole_src_boxes_mask)

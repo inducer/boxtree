@@ -29,13 +29,12 @@ import numpy as np
 from mako.template import Template
 from mpi4py import MPI
 
-import pyopencl as cl
 from pyopencl.elementwise import ElementwiseKernel
 from pyopencl.tools import dtype_to_ctype
 from pytools import memoize_method
 
+from boxtree.array_context import PyOpenCLArrayContext
 from boxtree.distributed import MPITags
-from boxtree.fmm import ExpansionWranglerInterface
 from boxtree.pyfmmlib_integration import FMMLibExpansionWrangler
 
 
@@ -44,35 +43,41 @@ logger = logging.getLogger(__name__)
 
 # {{{ Distributed FMM wrangler
 
-class DistributedExpansionWrangler(ExpansionWranglerInterface):
-    """Distributed expansion wrangler base class.
+class DistributedExpansionWranglerMixin:
+    """Distributed expansion wrangler helper class.
 
-    This is an abstract class and should not be directly instantiated. Instead, it is
-    expected that all distributed wranglers should be subclasses of this class.
+    This class is meant to aid in adding distributed capabilities to wranglers.
+    All distributed wranglers should inherit from this class.
 
-    .. automethod:: __init__
+    .. attribute:: comm
+    .. attribute:: global_traversal
+    .. attribute:: communicate_mpoles_via_allreduce
+
     .. automethod:: distribute_source_weights
     .. automethod:: gather_potential_results
     .. automethod:: communicate_mpoles
     """
-    def __init__(self, context, comm, global_traversal,
-                 traversal_in_device_memory,
-                 communicate_mpoles_via_allreduce=False):
-        self.context = context
-        self.comm = comm
-        self.global_traversal = global_traversal
-        self.traversal_in_device_memory = traversal_in_device_memory
-        self.communicate_mpoles_via_allreduce = communicate_mpoles_via_allreduce
+
+    @property
+    @memoize_method
+    def mpi_rank(self):
+        return self.comm.Get_rank()
+
+    @property
+    @memoize_method
+    def mpi_size(self):
+        return self.comm.Get_size()
+
+    @property
+    def is_mpi_root(self):
+        return self.mpi_rank == 0
 
     def distribute_source_weights(self, src_weight_vecs, src_idx_all_ranks):
-        mpi_rank = self.comm.Get_rank()
-        mpi_size = self.comm.Get_size()
-
-        if mpi_rank == 0:
+        if self.is_mpi_root:
             distribute_weight_req = []
-            local_src_weight_vecs = np.empty((mpi_size,), dtype=object)
+            local_src_weight_vecs = np.empty((self.mpi_size,), dtype=object)
 
-            for irank in range(mpi_size):
+            for irank in range(self.mpi_size):
                 local_src_weight_vecs[irank] = [
                     source_weights[src_idx_all_ranks[irank]]
                     for source_weights in src_weight_vecs]
@@ -91,22 +96,18 @@ class DistributedExpansionWrangler(ExpansionWranglerInterface):
         return local_src_weight_vecs
 
     def gather_potential_results(self, potentials, tgt_idx_all_ranks):
-        mpi_rank = self.comm.Get_rank()
-        mpi_size = self.comm.Get_size()
-
         from boxtree.distributed import dtype_to_mpi
         potentials_mpi_type = dtype_to_mpi(potentials.dtype)
-
         gathered_potentials = None
 
-        if mpi_rank == 0:
+        if self.is_mpi_root:
             # The root rank received calculated potentials from all worker ranks
-            potentials_all_ranks = np.empty((mpi_size,), dtype=object)
+            potentials_all_ranks = np.empty((self.mpi_size,), dtype=object)
             potentials_all_ranks[0] = potentials
 
             recv_reqs = []
 
-            for irank in range(1, mpi_size):
+            for irank in range(1, self.mpi_size):
                 potentials_all_ranks[irank] = np.empty(
                     tgt_idx_all_ranks[irank].shape, dtype=potentials.dtype)
 
@@ -121,7 +122,7 @@ class DistributedExpansionWrangler(ExpansionWranglerInterface):
             gathered_potentials = np.empty(
                 self.global_traversal.tree.ntargets, dtype=potentials.dtype)
 
-            for irank in range(mpi_size):
+            for irank in range(self.mpi_size):
                 gathered_potentials[tgt_idx_all_ranks[irank]] = (
                     potentials_all_ranks[irank])
         else:
@@ -135,8 +136,13 @@ class DistributedExpansionWrangler(ExpansionWranglerInterface):
         if len(slice_indices) == 0:
             return np.empty((0,), dtype=mpoles.dtype)
 
+        level_start_box_nrs = self.traversal.tree.level_start_box_nrs
+        if not isinstance(level_start_box_nrs, np.ndarray):
+            actx = self.tree_indep._setup_actx
+            level_start_box_nrs = actx.to_numpy(level_start_box_nrs)
+
         level_start_slice_indices = np.searchsorted(
-            slice_indices, self.traversal.tree.level_start_box_nrs)
+            slice_indices, level_start_box_nrs)
         mpoles_list = []
 
         for ilevel in range(self.traversal.tree.nlevels):
@@ -156,8 +162,13 @@ class DistributedExpansionWrangler(ExpansionWranglerInterface):
         if len(slice_indices) == 0:
             return
 
+        level_start_box_nrs = self.traversal.tree.level_start_box_nrs
+        if not isinstance(level_start_box_nrs, np.ndarray):
+            actx = self.tree_indep._setup_actx
+            level_start_box_nrs = actx.to_numpy(level_start_box_nrs)
+
         level_start_slice_indices = np.searchsorted(
-            slice_indices, self.traversal.tree.level_start_box_nrs)
+            slice_indices, level_start_box_nrs)
         mpole_updates_start = 0
 
         for ilevel in range(self.traversal.tree.nlevels):
@@ -178,60 +189,61 @@ class DistributedExpansionWrangler(ExpansionWranglerInterface):
 
                 mpole_updates_start = mpole_updates_end
 
-    @memoize_method
-    def find_boxes_used_by_subrange_kernel(self, box_id_dtype):
-        return ElementwiseKernel(
-            self.context,
-            Template(r"""
-                ${box_id_t} *contributing_boxes_list,
-                int subrange_start,
-                int subrange_end,
-                ${box_id_t} *box_to_user_rank_starts,
-                int *box_to_user_rank_lists,
-                char *box_in_subrange
-            """).render(
-                box_id_t=dtype_to_ctype(box_id_dtype),
-            ),
-            Template(r"""
-                ${box_id_t} ibox = contributing_boxes_list[i];
-                ${box_id_t} iuser_start = box_to_user_rank_starts[ibox];
-                ${box_id_t} iuser_end = box_to_user_rank_starts[ibox + 1];
-                for(${box_id_t} iuser = iuser_start; iuser < iuser_end; iuser++) {
-                    int useri = box_to_user_rank_lists[iuser];
-                    if(subrange_start <= useri && useri < subrange_end) {
-                        box_in_subrange[i] = 1;
+    def find_boxes_used_by_subrange_kernel(self, actx, box_id_dtype):
+        from pytools import memoize_in
+
+        @memoize_in(actx, (type(self), box_id_dtype))
+        def get_kernel():
+            return ElementwiseKernel(
+                actx.context,
+                Template(r"""
+                    ${box_id_t} *contributing_boxes_list,
+                    int subrange_start,
+                    int subrange_end,
+                    ${box_id_t} *box_to_user_rank_starts,
+                    int *box_to_user_rank_lists,
+                    char *box_in_subrange
+                """).render(
+                    box_id_t=dtype_to_ctype(box_id_dtype),
+                ),
+                Template(r"""
+                    ${box_id_t} ibox = contributing_boxes_list[i];
+                    ${box_id_t} iuser_start = box_to_user_rank_starts[ibox];
+                    ${box_id_t} iuser_end = box_to_user_rank_starts[ibox + 1];
+                    for(${box_id_t} iuser = iuser_start; iuser < iuser_end; iuser++) {
+                        int useri = box_to_user_rank_lists[iuser];
+                        if(subrange_start <= useri && useri < subrange_end) {
+                            box_in_subrange[i] = 1;
+                        }
                     }
-                }
-            """).render(
-                box_id_t=dtype_to_ctype(box_id_dtype)
-            ),
-            "find_boxes_used_by_subrange"
-        )
+                """).render(
+                    box_id_t=dtype_to_ctype(box_id_dtype)
+                ),
+                "find_boxes_used_by_subrange"
+            )
+
+        return get_kernel()
 
     def find_boxes_used_by_subrange(
-            self, subrange, box_to_user_rank_starts, box_to_user_rank_lists,
+            self, actx: PyOpenCLArrayContext,
+            subrange, box_to_user_rank_starts, box_to_user_rank_lists,
             contributing_boxes_list):
         """Test whether the multipole expansions of the contributing boxes are used
         by at least one box in a range.
 
         :arg subrange: the range is represented by ``(subrange[0], subrange[1])``.
-        :arg box_to_user_rank_starts: a :class:`pyopencl.array.Array` object
-            indicating the start and end index in *box_to_user_rank_lists* for each
+        :arg box_to_user_rank_starts: an array object indicating the start and
+            end index in *box_to_user_rank_lists* for each box in
+            *contributing_boxes_list*.
+        :arg box_to_user_rank_lists: an array object storing the users of each
             box in *contributing_boxes_list*.
-        :arg box_to_user_rank_lists: a :class:`pyopencl.array.Array` object storing
-            the users of each box in *contributing_boxes_list*.
-        :returns: a :class:`pyopencl.array.Array` object with the same shape as
-            *contributing_boxes_list*, where the i-th entry is 1 if
-            ``contributing_boxes_list[i]`` is used by at least on box in the
-            subrange specified.
+        :returns: an array object with the same shape as *contributing_boxes_list*,
+            where the i-th entry is 1 if ``contributing_boxes_list[i]`` is used
+            by at least on box in the subrange specified.
         """
-        box_in_subrange = cl.array.zeros(
-            contributing_boxes_list.queue,
-            contributing_boxes_list.shape[0],
-            dtype=np.int8
-        )
+        box_in_subrange = actx.zeros(contributing_boxes_list.shape[0], dtype=np.int8)
         knl = self.find_boxes_used_by_subrange_kernel(
-                self.traversal.tree.box_id_dtype)
+                actx, self.traversal.tree.box_id_dtype)
 
         knl(
             contributing_boxes_list,
@@ -244,7 +256,8 @@ class DistributedExpansionWrangler(ExpansionWranglerInterface):
 
         return box_in_subrange
 
-    def communicate_mpoles(self, mpole_exps, return_stats=False):
+    def communicate_mpoles(self, actx: PyOpenCLArrayContext,
+                           mpole_exps, return_stats=False):
         """Based on Algorithm 3: Reduce and Scatter in Lashuk et al. [1]_.
 
         The main idea is to mimic an allreduce as done on a hypercube network, but to
@@ -253,12 +266,11 @@ class DistributedExpansionWrangler(ExpansionWranglerInterface):
 
         .. [1] Lashuk, Ilya, Aparna Chandramowlishwaran, Harper Langston,
             Tuan-Anh Nguyen, Rahul Sampath, Aashay Shringarpure, Richard Vuduc,
-            Lexing Ying, Denis Zorin, and George Biros. “A massively parallel
-            adaptive fast multipole method on heterogeneous architectures."
-            Communications of the ACM 55, no. 5 (2012): 101-109.
+            Lexing Ying, Denis Zorin, and George Biros. "A massively parallel
+            adaptive fast multipole method on heterogeneous architectures",
+            Communications of the ACM 55, no. 5 (2012): 101-109,
+            `DOI <https://doi.org/10.1145/1654059.1654118>`__.
         """
-        mpi_rank = self.comm.Get_rank()
-        mpi_size = self.comm.Get_size()
         tree = self.traversal.tree
 
         if self.communicate_mpoles_via_allreduce:
@@ -284,16 +296,15 @@ class DistributedExpansionWrangler(ExpansionWranglerInterface):
         # Initially, this set consists of the boxes satisfying condition (a), which
         # are precisely the boxes owned by this process and their ancestors.
         if self.traversal_in_device_memory:
-            with cl.CommandQueue(self.context) as queue:
-                contributing_boxes = tree.ancestor_mask.get(queue=queue)
-                responsible_boxes_list = tree.responsible_boxes_list.get(queue=queue)
+            contributing_boxes = actx.to_numpy(tree.ancestor_mask)
+            responsible_boxes_list = actx.to_numpy(tree.responsible_boxes_list)
         else:
-            contributing_boxes = tree.ancestor_mask.copy()
+            contributing_boxes = np.copy(tree.ancestor_mask)
             responsible_boxes_list = tree.responsible_boxes_list
         contributing_boxes[responsible_boxes_list] = 1
 
         from boxtree.tools import AllReduceCommPattern
-        comm_pattern = AllReduceCommPattern(mpi_rank, mpi_size)
+        comm_pattern = AllReduceCommPattern(self.mpi_rank, self.mpi_size)
 
         # Temporary buffers for receiving data
         mpole_exps_buf = np.empty(mpole_exps.shape, dtype=mpole_exps.dtype)
@@ -303,15 +314,13 @@ class DistributedExpansionWrangler(ExpansionWranglerInterface):
         stats["bytes_recvd_by_stage"] = []
 
         if self.traversal_in_device_memory:
-            box_to_user_rank_starts_dev = \
-                tree.box_to_user_rank_starts.with_queue(None)
-            box_to_user_rank_lists_dev = tree.box_to_user_rank_lists.with_queue(None)
+            box_to_user_rank_starts_dev = actx.freeze(tree.box_to_user_rank_starts)
+            box_to_user_rank_lists_dev = actx.freeze(tree.box_to_user_rank_lists)
         else:
-            with cl.CommandQueue(self.context) as queue:
-                box_to_user_rank_starts_dev = cl.array.to_device(
-                    queue, tree.box_to_user_rank_starts).with_queue(None)
-                box_to_user_rank_lists_dev = cl.array.to_device(
-                    queue, tree.box_to_user_rank_lists).with_queue(None)
+            box_to_user_rank_starts_dev = actx.freeze(
+                actx.from_numpy(tree.box_to_user_rank_starts))
+            box_to_user_rank_lists_dev = actx.freeze(
+                actx.from_numpy(tree.box_to_user_rank_lists))
 
         while not comm_pattern.done():
             send_requests = []
@@ -325,18 +334,15 @@ class DistributedExpansionWrangler(ExpansionWranglerInterface):
                     tree.box_id_dtype
                 )
 
-                with cl.CommandQueue(self.context) as queue:
-                    contributing_boxes_list_dev = cl.array.to_device(
-                        queue, contributing_boxes_list)
+                contributing_boxes_list_dev = actx.from_numpy(
+                    contributing_boxes_list)
+                box_in_subrange = self.find_boxes_used_by_subrange(
+                    actx, message_subrange,
+                    box_to_user_rank_starts_dev, box_to_user_rank_lists_dev,
+                    contributing_boxes_list_dev
+                )
 
-                    box_in_subrange = self.find_boxes_used_by_subrange(
-                        message_subrange,
-                        box_to_user_rank_starts_dev, box_to_user_rank_lists_dev,
-                        contributing_boxes_list_dev
-                    )
-
-                    box_in_subrange_host = box_in_subrange.get().astype(bool)
-
+                box_in_subrange_host = actx.to_numpy(box_in_subrange).astype(bool)
                 relevant_boxes_list = contributing_boxes_list[
                     box_in_subrange_host
                 ].astype(tree.box_id_dtype)
@@ -385,7 +391,7 @@ class DistributedExpansionWrangler(ExpansionWranglerInterface):
 
                 # Update data structures.
                 self._update_mpoles(
-                        mpole_exps, mpole_exps_buf, boxes_list_buf[:nboxes])
+                    mpole_exps, mpole_exps_buf, boxes_list_buf[:nboxes])
 
                 contributing_boxes[boxes_list_buf[:nboxes]] = 1
 
@@ -397,38 +403,43 @@ class DistributedExpansionWrangler(ExpansionWranglerInterface):
         if return_stats:
             return stats
 
-    def finalize_potentials(self, potentials, template_ary):
-        if self.comm.Get_rank() == 0:
-            return super().finalize_potentials(potentials, template_ary)
-        else:
-            return None
-
 
 class DistributedFMMLibExpansionWrangler(
-        DistributedExpansionWrangler, FMMLibExpansionWrangler):
+            DistributedExpansionWranglerMixin,
+            FMMLibExpansionWrangler):
     def __init__(
-            self, context, comm, tree_indep, local_traversal, global_traversal,
+            self, comm, tree_indep, local_traversal, global_traversal,
             fmm_level_to_order=None,
             communicate_mpoles_via_allreduce=False,
             **kwargs):
-        DistributedExpansionWrangler.__init__(
-            self, context, comm, global_traversal, False,
-            communicate_mpoles_via_allreduce=communicate_mpoles_via_allreduce)
         FMMLibExpansionWrangler.__init__(
             self, tree_indep, local_traversal,
             fmm_level_to_order=fmm_level_to_order, **kwargs)
 
+        self.comm = comm
+        self.traversal_in_device_memory = False
+        self.global_traversal = global_traversal
+        self.communicate_mpoles_via_allreduce = communicate_mpoles_via_allreduce
+
     # TODO: use log_process like FMMLibExpansionWrangler?
     def reorder_sources(self, source_array):
-        if self.comm.Get_rank() == 0:
+        if self.is_mpi_root:
             return source_array[..., self.global_traversal.tree.user_source_ids]
         else:
             return None
 
     def reorder_potentials(self, potentials):
-        if self.comm.Get_rank() == 0:
+        if self.is_mpi_root:
             return potentials[self.global_traversal.tree.sorted_target_ids]
         else:
             return None
 
+    def finalize_potentials(self, potentials, template_ary):
+        if self.is_mpi_root:
+            return super().finalize_potentials(potentials, template_ary)
+        else:
+            return None
+
 # }}}
+
+# vim: fdm=marker
