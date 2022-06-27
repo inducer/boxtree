@@ -26,6 +26,7 @@ import numpy as np
 from pytools import Record, memoize_method
 import pyopencl as cl
 import pyopencl.array  # noqa
+import pyopencl.cltypes as cltypes
 from pyopencl.tools import dtype_to_c_struct, ScalarArg, VectorArg as _VectorArg
 from mako.template import Template
 from pytools.obj_array import make_obj_array
@@ -911,4 +912,25 @@ class ImmutableHostDeviceArray:
 
 # }}}
 
-# vim: foldmethod=marker:filetype=pyopencl
+
+# {{{ coord_vec tools
+
+def get_coord_vec_dtype(
+        coord_dtype: np.dtype[Any], dimensions: int) -> np.dtype[Any]:
+    if dimensions == 1:
+        return coord_dtype
+    else:
+        return cltypes.vec_types[coord_dtype, dimensions]
+
+
+def coord_vec_subscript_code(dimensions: int, vec_name: str, iaxis: int) -> str:
+    assert 0 <= iaxis < dimensions
+    if dimensions == 1:
+        # a coord_vec_t is just a scalar
+        return vec_name
+    else:
+        return f"{vec_name}.s{iaxis}"
+
+# }}}
+
+# vim: foldmethod=marker

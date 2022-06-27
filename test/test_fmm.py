@@ -137,6 +137,8 @@ class ConstantOneExpansionWranglerWithFilteredTargetsInUserOrder(
         "who_has_extent", "source_gen", "target_gen", "filter_kind",
         "extent_norm", "from_sep_smaller_crit"),
         [
+            (1, 10**5, None, "", p_normal, p_normal, None, "linf", "static_linf"),
+
             (2, 10**5, None, "", p_normal, p_normal, None, "linf", "static_linf"),
             (2, 5 * 10**4, 4*10**4, "", p_normal, p_normal, None, "linf", "static_linf"),  # noqa: E501
             (2, 5 * 10**5, 4*10**4, "t", p_normal, p_normal, None, "linf", "static_linf"),  # noqa: E501

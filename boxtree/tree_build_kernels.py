@@ -20,13 +20,14 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+from functools import partial
 import numpy as np
-import pyopencl as cl
 from pyopencl.elementwise import ElementwiseTemplate
 from pyopencl.scan import ScanTemplate
 from mako.template import Template
 from pytools import Record, memoize, log_process
-from boxtree.tools import get_type_moniker
+from boxtree.tools import (get_type_moniker, get_coord_vec_dtype,
+        coord_vec_subscript_code)
 
 import logging
 logger = logging.getLogger(__name__)
@@ -917,7 +918,9 @@ def build_level_restrict_kernel(context, preamble_with_dtype_decls,
         # and/or TRAVERSAL_PREAMBLE_MAKO_DEFS:
         debug=False,
         targets_have_extent=False,
-        sources_have_extent=False
+        sources_have_extent=False,
+        get_coord_vec_dtype=get_coord_vec_dtype,
+        cvec_sub=partial(coord_vec_subscript_code, dimensions),
         )
 
     from boxtree.traversal import HELPER_FUNCTION_TEMPLATE
@@ -1303,8 +1306,10 @@ BOX_EXTENTS_FINDER_TEMPLATE = ElementwiseTemplate(
 
         // incorporate own particles
         %for iaxis, ax in enumerate(axis_names):
-            coord_t min_particle_${ax} = box_center.s${iaxis};
-            coord_t max_particle_${ax} = box_center.s${iaxis};
+            coord_t min_particle_${ax} =
+                ${coord_vec_subscript_code("box_center", iaxis)};
+            coord_t max_particle_${ax} =
+                ${coord_vec_subscript_code("box_center", iaxis)};
         %endfor
 
         particle_id_t start = box_particle_starts[ibox];
@@ -1389,7 +1394,7 @@ def get_tree_build_kernel_info(context, dimensions, coord_dtype,
                 "incorrect results.", stacklevel=4)
 
     from pyopencl.tools import dtype_to_c_struct, dtype_to_ctype
-    coord_vec_dtype = cl.cltypes.vec_types[coord_dtype, dimensions]
+    coord_vec_dtype = get_coord_vec_dtype(coord_dtype, dimensions)
 
     particle_id_dtype = np.dtype(particle_id_dtype)
     box_id_dtype = np.dtype(box_id_dtype)
@@ -1638,7 +1643,6 @@ def get_tree_build_kernel_info(context, dimensions, coord_dtype,
         # "max_levels" constant for traversing the tree. This constant cannot be
         # known at this point, hence we return a kernel builder.
 
-        from functools import partial
         level_restrict_kernel_builder = partial(build_level_restrict_kernel,
             context, preamble_with_dtype_decls, dimensions, axis_names, box_id_dtype,
             coord_dtype, box_level_dtype)
@@ -1802,11 +1806,12 @@ def get_tree_build_kernel_info(context, dimensions, coord_dtype,
         type_aliases=(
             ("box_id_t", box_id_dtype),
             ("coord_t", coord_dtype),
-            ("coord_vec_t", cl.cltypes.vec_types[
-                coord_dtype, dimensions]),
+            ("coord_vec_t", get_coord_vec_dtype(coord_dtype, dimensions)),
             ("particle_id_t", particle_id_dtype),
             ),
         var_values=(
+            ("coord_vec_subscript_code",
+                partial(coord_vec_subscript_code, dimensions)),
             ("dimensions", dimensions),
             ("AXIS_NAMES", AXIS_NAMES),
             ("srcntgts_have_extent", srcntgts_extent_norm is not None),
@@ -1997,4 +2002,4 @@ TREE_ORDER_TARGET_FILTER_INDEX_TPL = ElementwiseTemplate(
 
 # }}}
 
-# vim: foldmethod=marker:filetype=pyopencl
+# vim: foldmethod=marker
