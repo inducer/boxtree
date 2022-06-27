@@ -34,6 +34,8 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+from functools import partial
+
 import numpy as np
 from pytools import Record, memoize_method
 import pyopencl as cl
@@ -41,7 +43,9 @@ import pyopencl.array  # noqa
 import pyopencl.cltypes  # noqa
 from pyopencl.elementwise import ElementwiseTemplate
 from mako.template import Template
-from boxtree.tools import AXIS_NAMES, DeviceDataRecord
+from boxtree.tools import (AXIS_NAMES, DeviceDataRecord,
+        get_coord_vec_dtype, coord_vec_subscript_code)
+
 
 import logging
 logger = logging.getLogger(__name__)
@@ -163,7 +167,8 @@ TRAVERSAL_PREAMBLE_MAKO_DEFS = r"""//CL:mako//
         coord_t max_dist = 0;
         %for i in range(dimensions):
             max_dist = fmax(max_dist,
-                fabs(${ball_center}.s${i} - box_center.s${i}));
+                fabs(${cvec_sub(ball_center, i)}
+                    - ${cvec_sub("box_center", i)}));
         %endfor
         ${is_overlapping} = max_dist <= size_sum;
     }
@@ -180,9 +185,8 @@ typedef ${dtype_to_ctype(box_id_dtype)} box_id_t;
     typedef ${dtype_to_ctype(particle_id_dtype)} particle_id_t;
 %endif
 ## Convert to dict first, as this may be passed as a tuple-of-tuples.
-<% vec_types_dict = dict(vec_types) %>
 typedef ${dtype_to_ctype(coord_dtype)} coord_t;
-typedef ${dtype_to_ctype(vec_types_dict[coord_dtype, dimensions])} coord_vec_t;
+typedef ${dtype_to_ctype(get_coord_vec_dtype(coord_dtype, dimensions))} coord_vec_t;
 
 #define COORD_T_MACH_EPS ((coord_t) ${ repr(np.finfo(coord_dtype).eps) })
 
@@ -254,7 +258,8 @@ inline bool is_adjacent_or_overlapping_with_neighborhood(
     %for i in range(dimensions):
         l_inf_dist = fmax(
             l_inf_dist,
-            fabs(target_center.s${i} - source_center.s${i}));
+            fabs(${cvec_sub("target_center", i)}
+                - ${cvec_sub("source_center", i)}));
     %endfor
 
     return l_inf_dist <= slack;
@@ -679,7 +684,8 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
                             %for i in range(dimensions):
                                 l_inf_dist = fmax(
                                     l_inf_dist,
-                                    fabs(tgt_center.s${i} - walk_center.s${i})
+                                    fabs(${cvec_sub("tgt_center", i)}
+                                     - ${cvec_sub("walk_center", i)})
                                     - tgt_stickout_l_inf_rad
                                     - source_rad);
                             %endfor
@@ -698,8 +704,11 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
                             %for i in range(dimensions):
                                 l_inf_dist = fmax(
                                     l_inf_dist,
-                                    fabs(tgt_ext_center.s${i} - walk_center.s${i})
-                                    - tgt_radii_vec.s${i}
+                                    fabs(
+                                        ${cvec_sub("tgt_ext_center", i)}
+                                        - ${cvec_sub("walk_center", i)}
+                                        )
+                                    - ${cvec_sub("tgt_radii_vec", i)}
                                     - source_rad);
                             %endfor
 
@@ -715,7 +724,9 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
                             coord_t l_2_squared_center_dist =
                                 0
                                 %for i in range(dimensions):
-                                    + square(tgt_center.s${i} - walk_center.s${i})
+                                    + square(
+                                        ${cvec_sub("tgt_center", i)}
+                                        - ${cvec_sub("walk_center", i)})
                                 %endfor
                                 ;
 
@@ -910,7 +921,8 @@ inline bool meets_sep_bigger_criterion(
     %for i in range(dimensions):
         l_inf_dist = fmax(
             l_inf_dist,
-            fabs(target_center.s${i} - source_center.s${i}));
+            fabs(${cvec_sub("target_center", i)}
+                - ${cvec_sub("source_center", i)}));
     %endfor
 
     return l_inf_dist >= max_allowed_center_l_inf_dist * (1 - 8 * COORD_T_MACH_EPS);
@@ -1701,7 +1713,8 @@ class FMMTraversalBuilder:
                 box_id_dtype=box_id_dtype,
                 box_flags_enum=box_flags_enum,
                 coord_dtype=coord_dtype,
-                vec_types=cl.cltypes.vec_types,
+                get_coord_vec_dtype=get_coord_vec_dtype,
+                cvec_sub=partial(coord_vec_subscript_code, dimensions),
                 max_levels=max_levels,
                 AXIS_NAMES=AXIS_NAMES,
                 debug=debug,
@@ -2192,4 +2205,4 @@ class FMMTraversalBuilder:
 
     # }}}
 
-# vim: filetype=pyopencl:fdm=marker
+# vim: fdm=marker
