@@ -166,6 +166,11 @@ def test_fmm_completeness(actx_factory, dims, nsources_req, ntargets_req,
     """
     actx = actx_factory()
 
+    if (dims == 1
+            and actx.queue.device.platform.name == "Portable Computing Language"
+            and "nvidia" in actx.queue.device.name.lower()):
+        pytest.xfail("1D FMM fails to build on POCL Nvidia")
+
     sources_have_extent = "s" in who_has_extent
     targets_have_extent = "t" in who_has_extent
     dtype = np.float64
@@ -182,7 +187,7 @@ def test_fmm_completeness(actx_factory, dims, nsources_req, ntargets_req,
             targets = target_gen(actx.queue, ntargets_req, dims, dtype, seed=16)
             ntargets = len(targets[0])
     except ImportError:
-        pytest.skip("loo.py not available, but needed for particle array "
+        pytest.skip("loopy not available, but needed for particle array "
                 "generation")
 
     rng = np.random.default_rng(12)
