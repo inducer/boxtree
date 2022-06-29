@@ -166,9 +166,10 @@ def test_fmm_completeness(actx_factory, dims, nsources_req, ntargets_req,
     """
     actx = actx_factory()
 
+    devname = actx.queue.device.name.lower()
     if (dims == 1
             and actx.queue.device.platform.name == "Portable Computing Language"
-            and "nvidia" in actx.queue.device.name.lower()):
+            and ("nvidia" in devname or "tesla" in devname)):
         pytest.xfail("1D FMM fails to build on POCL Nvidia")
 
     sources_have_extent = "s" in who_has_extent
