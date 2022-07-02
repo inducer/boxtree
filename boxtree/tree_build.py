@@ -837,13 +837,13 @@ class TreeBuilder:
                 while nboxes_guess < nboxes_new:
                     nboxes_guess *= 2
 
-                def my_realloc_nocopy(ary):
+                def my_realloc_nocopy(ary, shape=nboxes_guess):
                     return cl.array.empty(queue, allocator=allocator,
-                            shape=nboxes_guess, dtype=ary.dtype)
+                            shape=shape, dtype=ary.dtype)
 
-                def my_realloc_zeros_nocopy(ary):
+                def my_realloc_zeros_nocopy(ary, shape=nboxes_guess):
                     result = cl.array.zeros(queue, allocator=allocator,
-                            shape=nboxes_guess, dtype=ary.dtype)
+                            shape=shape, dtype=ary.dtype)
                     return result, result.events[0]
 
                 my_realloc = partial(realloc_array,
@@ -1275,12 +1275,12 @@ class TreeBuilder:
             for level_start, new_level_start, level_used_box_count in zip(
                     level_start_box_nrs, new_level_start_box_nrs,
                     level_used_box_counts):
-                def make_slice(start):
-                    return slice(start, start + level_used_box_count)
+                def make_slice(start, offset=level_used_box_count):
+                    return slice(start, start + offset)
 
-                def make_arange(start):
-                    return cl.array.arange(queue, start,
-                            start + level_used_box_count, dtype=box_id_dtype)
+                def make_arange(start, offset=level_used_box_count):
+                    return cl.array.arange(
+                            queue, start, start + offset, dtype=box_id_dtype)
 
                 src_box_id[make_slice(new_level_start)] = make_arange(level_start)
                 dst_box_id[make_slice(level_start)] = make_arange(new_level_start)
