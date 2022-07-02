@@ -254,13 +254,13 @@ def test_fmm_completeness(actx_factory, dims, nsources_req, ntargets_req,
                     actx.queue, tree, flags)
             wrangler = ConstantOneExpansionWranglerWithFilteredTargetsInUserOrder(
                     tree_indep, host_trav,
-                    actx.to_numpy(filtered_targets))
+                    filtered_targets.get(queue=actx.queue))
         elif filter_kind == "tree":
             filtered_targets = plfilt.filter_target_lists_in_tree_order(
                     actx.queue, tree, flags)
             wrangler = ConstantOneExpansionWranglerWithFilteredTargetsInTreeOrder(
                     tree_indep, host_trav,
-                    actx.to_numpy(filtered_targets))
+                    filtered_targets.get(queue=actx.queue))
         else:
             raise ValueError("unsupported value of 'filter_kind'")
     else:
