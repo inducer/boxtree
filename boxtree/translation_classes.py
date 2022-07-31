@@ -354,7 +354,8 @@ class TranslationClassesBuilder:
     @log_process(logger, "build m2l translation classes")
     def __call__(self, queue, trav, tree, wait_for=None,
                  is_translation_per_level=True):
-        """Returns a pair *info*, *evt* where info is a :class:`TranslationClassesInfo`.
+        """Returns a pair *info*, *evt* where info is a
+        :class:`TranslationClassesInfo`.
         """
         evt, translation_class_is_used, translation_classes_lists = \
             self.compute_translation_classes(queue, trav, tree, wait_for,
