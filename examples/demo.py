@@ -4,6 +4,9 @@ import numpy as np
 import logging
 logging.basicConfig(level="INFO")
 
+import logging
+logging.basicConfig(level="DEBUG")
+
 ctx = cl.create_some_context()
 queue = cl.CommandQueue(ctx)
 
@@ -28,6 +31,9 @@ from boxtree import TreeBuilder
 tb = TreeBuilder(ctx)
 tree, _ = tb(queue, particles, max_particles_in_box=5)
 
+from boxtree.tree_build import _TreeOfBoxes as TBox
+tob = TBox.from_tree_with_particles(queue, tree)
+tob = tob.balanced(ctx)
 from boxtree.traversal import FMMTraversalBuilder
 tg = FMMTraversalBuilder(ctx)
 trav, _ = tg(queue, tree)
@@ -43,9 +49,10 @@ import matplotlib.pyplot as pt
 pt.plot(particles[0].get(), particles[1].get(), "+")
 
 from boxtree.visualization import TreePlotter
-plotter = TreePlotter(tree.get(queue=queue))
+# tt = tree.get(queue=queue)
+plotter = TreePlotter(tob)
 plotter.draw_tree(fill=False, edgecolor="black")
-#plotter.draw_box_numbers()
+plotter.draw_box_numbers()
 plotter.set_bounding_box()
 pt.gca().set_aspect("equal")
 pt.tight_layout()

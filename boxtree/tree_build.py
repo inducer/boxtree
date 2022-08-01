@@ -46,6 +46,450 @@ class MaxLevelsExceeded(RuntimeError):
     pass
 
 
+# {{{ box-based tree
+
+def resized_array(arr, new_size):
+    """Return a resized copy of the array. The new_size is a scalar which is
+    applied to the last dimension.
+    """
+    old_size = arr.shape[-1]
+    prefix = (slice(None), ) * (arr.ndim - 1)
+    if old_size >= new_size:
+        return arr[prefix + (slice(new_size), )].copy()
+    else:
+        new_shape = list(arr.shape)
+        new_shape[-1] = new_size
+        new_arr = np.zeros(new_shape, arr.dtype)
+        new_arr[prefix + (slice(old_size), )] = arr
+        return new_arr
+
+
+def vec_of_signs(dim, i):
+    """The sign vector is obtained by converting i to a dim-bit binary.
+    """
+    # e.g. bin(10) = '0b1010'
+    binary_digits = [int(bd) for bd in bin(i)[2:]]
+    n = len(binary_digits)
+    assert n <= dim
+    return np.array([0]*(dim-n) + binary_digits) * 2 - 1
+
+
+class _TreeOfBoxes:
+    def __init__(
+            self, box_centers, root_box_extent,
+            box_parents, box_children, box_levels):
+        self.box_centers = box_centers
+        self.root_box_extent = root_box_extent
+        self.box_parents = box_parents
+        self.box_children = box_children
+        self.box_levels = box_levels
+
+    def copy(self):
+        return _TreeOfBoxes(
+                box_centers=self.box_centers.copy(),
+                root_box_extent=self.root_box_extent.copy(),
+                box_parents=self.box_parents.copy(),
+                box_children=self.box_children.copy(),
+                box_levels=self.box_levels.copy())
+
+    @property
+    def dim(self):
+        return self.box_centers.shape[0]
+
+    # {{{ dummy interface for TreePlotter
+
+    @property
+    def dimensions(self):
+        return self.dim
+
+    @property
+    def bounding_box(self):
+        lows = self.box_centers[:, 0] - 0.5*self.root_box_extent
+        highs = lows + self.root_box_extent
+        return [lows, highs]
+
+    def get_box_size(self, ibox):
+        lev = self.box_levels[ibox]
+        box_size = self.root_box_extent * 0.5**lev
+        return box_size
+
+    def get_box_extent(self, ibox):
+        box_size = self.get_box_size(ibox)
+        extent_low = self.box_centers[:, ibox] - 0.5*box_size
+        extent_high = extent_low + box_size
+        return extent_low, extent_high
+
+    # }}} End dummy interface for TreePlotter
+
+    @property
+    def nboxes(self):
+        return self.box_centers.shape[1]
+
+    def nlevels(self):
+        return max(self.box_levels) + 1  # level starts from 0
+
+    def is_leaf(self):
+        # box_id -> whether the box is leaf
+        return np.all(self.box_children == 0, axis=0)
+
+    def leaf_boxes(self):
+        boxes = np.arange(self.nboxes)
+        return boxes[self.is_leaf()]
+
+    def is_active(self):
+        # box_id -> whether the box is active
+        # inactive boxes may arise from coarsening by resetting leaf pointers
+        # this function assumes that the parents of inactive boxes are set to -1
+        return self.box_parents >= 0
+
+    def is_active_by_definition(self):
+        # box_id -> whether the box is active (reachable from root)
+        # checks the actual reachability
+        res = np.zeros(self.nboxes, bool)
+        res[0] = True
+        nlevels = self.nlevels()
+        for lv in range(nlevels):
+            front, = np.where(np.logical_and(self.box_levels == lv, res))
+            next_reach = self.box_children[:, front].reshape(-1)
+            res[next_reach] = True
+        return res
+
+    def active_leaf_boxes(self):
+        boxes = np.arange(self.nboxes)
+        return boxes[np.logical_and(self.is_leaf(), self.is_active())]
+
+    def get_leaf_box_flags(self, queue):
+        """Make a flag vector that indicates that every leaf box has source.
+        """
+        from boxtree.tree import box_flags_enum
+        box_flags = np.zeros(self.nboxes, box_flags_enum.dtype)
+        box_flags[~self.is_leaf()] = 0b0011
+        box_flags = cl.array.to_device(queue, box_flags)
+        return box_flags
+
+    # {{{ from tree with particles
+
+    @classmethod
+    def from_tree_with_particles(cls, queue, tree):
+        """Note: this function is support-preserving, i.e., if the tree is
+        built without setting skip_prune, the resulting tree of boxes does not
+        cover the root box either.
+        """
+        tob_root = _make_tob_root(tree.dimensions, tree.bounding_box)
+
+        box_centers = tree.box_centers.get(queue)
+        box_parent_ids = tree.box_parent_ids.get(queue)
+        box_child_ids = tree.box_child_ids.get(queue)
+        box_levels = tree.box_levels.get(queue)
+
+        tob_nboxes = min(  # some arrays are padded
+            box_centers.shape[-1], box_parent_ids.shape[-1],
+            box_child_ids.shape[-1], box_levels.shape[-1])
+
+        tob = _TreeOfBoxes(
+                box_centers=box_centers[:, :tob_nboxes],
+                root_box_extent=tob_root.root_box_extent,
+                box_parents=box_parent_ids[:tob_nboxes],
+                box_children=box_child_ids[:, :tob_nboxes],
+                box_levels=box_levels[:tob_nboxes])
+        return tob
+
+    # }}} End from tree with particles
+
+    # {{{ instantiate with particles
+
+    def normalized(self):
+        """Make a normalized copy, such that boxes are sorted by levels.
+        """
+        raise NotImplementedError
+
+    def sort_particles(self, particles):
+        """Make a :class:`boxtree.Tree` from given particles.
+        """
+        raise NotImplementedError
+
+    def distribute_quadrature_rule(self, quad_rule):
+        """Generate quadrature nodes (`dim x nnodes`) and weights. Within each
+        leaf box, nodes are in lexicographic order, where the last axis varies
+        fastest. For example, `[[0, 0, 1, 1], [0, 1, 0, 1]]`.
+
+        :param quad_rule: a :class:`modepy.Quadrature`
+        """
+        x, w = quad_rule.nodes, quad_rule.weights  # nodes in [-1, 1]
+        n_box_nodes = len(x)**self.dim
+        box_nodes = np.array(np.meshgrid(*((x,) * self.dim), indexing='ij')
+                             ).reshape([self.dim, -1])
+        if self.dim == 2:
+            box_weights = w[:, None] @ w[None, :]
+        elif self.dim == 3:
+            box_weights = w[:, None, None] @ w[None, :, None] @ w[None, None, :]
+        box_weights = box_weights.reshape(-1)
+        lfboxes = self.leaf_boxes()
+
+        nodes = np.tile(box_nodes, (1, len(lfboxes)))
+        box_shifts = np.repeat(
+            self.box_centers[:, lfboxes], n_box_nodes, axis=1)
+        box_scales = np.repeat(
+            self.get_box_size(lfboxes) / 2, n_box_nodes)
+        nodes = nodes * box_scales[None, :] + box_shifts
+
+        weights = np.tile(box_weights, len(lfboxes))
+        weights = weights * box_scales**self.dim
+
+        return nodes, weights
+
+    def make_quadrature_tree(self, queue, quad):
+        """Generate :class:`boxtree.Tree` tree with a given quadrature rule
+        where particles are quadrature nodes in each leaf box.
+        """
+        # FIXME
+        if not np.all(sorted(self.box_levels) == self.box_levels):
+            raise ValueError("calling the method requires a normalized tree")
+        levs = np.append(self.box_levels, self.nlevels)
+        lev_diffs = levs[1:] - levs[:-1]
+        level_starts, = np.where(lev_diffs == 1)
+        level_starts = np.insert(level_starts, 0, 0)
+
+        particle_id_dtype = np.int32
+        level_start_box_nrs_dev = np.array(level_starts)
+        level_start_box_nrs = cl.array.to_device(
+            queue, self.level_start_box_nrs)
+
+        sources, box_source_starts, box_source_counts_nonchild, box_source_counts_cumul \
+            = (None, None, None, None)  # FIXME
+        user_src_ids = cl.array.arange(queue, n_quad_points, dtype=particle_id_dtype)
+
+        return Tree(
+                sources_are_targets=True,
+                sources_have_extent=False,
+                targets_have_extent=False,
+
+                particle_id_dtype=particle_id_dtype,
+                box_id_dtype=self.box_parents.dtype,
+                coord_dtype=self.box_centers.dtype,
+                box_level_dtype=self.box_level_dtype,
+
+                root_extent=self.root_box_extent,
+                stick_out_factor=0,
+                extent_norm=None,
+
+                bounding_box=self.bounding_box,
+                level_start_box_nrs=level_start_box_nrs,
+                level_start_box_nrs_dev=level_start_box_nrs_dev,
+
+                sources=sources,
+                targets=sources,
+
+                box_source_starts=box_source_starts,
+                box_source_counts_nonchild=box_source_counts_nonchild,
+                box_source_counts_cumul=box_source_counts_cumul,
+                box_target_starts=box_source_starts,
+                box_target_counts_nonchild=box_source_counts_nonchild,
+                box_target_counts_cumul=box_source_counts_cumul,
+
+                box_parent_ids=cl.array.to_device(queue, self.box_parents),
+                box_child_ids=cl.array.to_device(queue, self.box_children),
+                box_centers=cl.array.to_device(queue, self.box_centers),
+                box_levels=cl.array.to_device(queue, self.box_levels),
+
+                box_flags=self.get_leaf_box_flags(queue),
+
+                user_source_ids=user_src_ids,
+                sorted_target_ids=user_src_ids,
+
+                _is_pruned=True,
+                ).with_queue(None)
+
+    # }}} End instantiate with particles
+
+    # {{{ refine/coarsen
+
+    def refined(self, refine_flags):
+        return self.refine_and_coarsened(refine_flags, None)
+
+    def uniformly_refined(self):
+        refine_flags = np.zeros(self.nboxes, bool)
+        refine_flags[self.is_leaf()] = 1
+        return self.refined(refine_flags)
+
+    def coarsened(self, coarsen_flags):
+        return self.refine_and_coarsened(None, coarsen_flags)
+
+    def refine_and_coarsened(self, refine_flags=None, coarsen_flags=None):
+        """Make a refined/coarsened copy. When children of the same parent box
+        are marked differently, the refinement flag takes priority.
+
+        Both refinement and coarsening flags can only be set of leafs.
+        To prevent drastic mesh change, coarsening is only executed when a leaf
+        box is marked for coarsening, and its parent's children are all leaf
+        boxes.
+        """
+        nchildren = 2**self.dim
+
+        if refine_flags is None:
+            refine_flags = np.zeros(self.nboxes, bool)
+        if refine_flags[~self.is_leaf()].any():
+            raise ValueError("attempting to split non-leaf")
+
+        if coarsen_flags is None:
+            coarsen_flags = np.zeros(self.nboxes, bool)
+        if coarsen_flags[~self.is_leaf()].any():
+            raise ValueError("attempting to coarsen non-leaf")
+
+        # ------------------- refinement always respects the flags
+
+        refine_parents, = np.where(refine_flags)
+        n_new_boxes = len(refine_parents) * nchildren
+        nboxes_new = self.nboxes + n_new_boxes
+
+        child_box_starts = (
+                self.nboxes
+                + nchildren * np.arange(len(refine_parents)))
+
+        refine_parents_per_child = np.empty(
+                (nchildren, len(refine_parents)),
+                np.intp)
+        refine_parents_per_child[:] = refine_parents.reshape(-1)
+        refine_parents_per_child = refine_parents_per_child.reshape(-1)
+
+        box_parents = resized_array(self.box_parents, nboxes_new)
+        box_centers = resized_array(self.box_centers, nboxes_new)
+        box_children = resized_array(self.box_children, nboxes_new)
+        box_levels = resized_array(self.box_levels, nboxes_new)
+
+        box_parents[self.nboxes:] = refine_parents_per_child
+        box_levels[self.nboxes:] = self.box_levels[box_parents[self.nboxes:]] + 1
+        box_children[:, refine_parents] = (
+            child_box_starts
+            + np.arange(nchildren).reshape(-1, 1))
+
+        for i in range(2**self.dim):
+            children_i = box_children[i, refine_parents]
+            offsets = (
+                    self.root_box_extent
+                    * vec_of_signs(self.dim, i).reshape(-1, 1)
+                    * (1/2**(1+box_levels[children_i])))
+            box_centers[:, children_i] = (
+                    box_centers[:, refine_parents]
+                    + offsets)
+
+        # ------------------- coarsen only if all peers are leafs after refinement
+
+        coarsen_flags = resized_array(coarsen_flags, nboxes_new)
+        coarsen_sources, = np.where(coarsen_flags)
+        coarsen_parents = self.box_parents[coarsen_sources]
+        coarsen_peers = self.box_children[:, coarsen_parents]
+        coarsen_peer_is_leaf = self.is_leaf()[coarsen_peers]
+        coarsen_exec_flags = np.all(coarsen_peer_is_leaf, axis=0)
+
+        coarsen_parents = coarsen_parents[coarsen_exec_flags]
+        coarsen_peers = coarsen_peers[:, coarsen_exec_flags]
+        box_parents[coarsen_peers] = -1
+        box_children[coarsen_parents] = 0
+
+        return _TreeOfBoxes(
+                box_centers=box_centers,
+                root_box_extent=self.root_box_extent,
+                box_parents=box_parents,
+                box_children=box_children,
+                box_levels=box_levels)
+
+    # }}} End refine/coarsen
+
+    # {{{ balance
+
+    def balanced(self, context, queue=None):
+        """Make a level-restricted copy by adding necessary refinements.  It
+        builds list 1 and apply refinement where needed, and iterate until the
+        level restriction is satisfied.
+        """
+        tree = self.copy()
+        niter = 0
+        while True:
+            niter += 1
+            if niter > self.nlevels() + 1:
+                raise RuntimeError  # this should not happen
+            nghb_starts, nghb_lists = tree.get_neighbor_lists(context, queue)
+            nghb_level_lists = tree.box_levels[nghb_lists]
+            leaf_levels = tree.box_levels[tree.is_leaf()]
+            max_levels = np.maximum.reduceat(nghb_level_lists, nghb_starts[:-1])
+
+            to_refine = (max_levels > leaf_levels + 1)
+            balance_refine_flags = np.zeros(tree.nboxes, bool)
+            balance_refine_flags[tree.is_leaf()] = to_refine
+
+            if not np.any(balance_refine_flags):
+                print(niter)
+                break  # converged
+            tree = tree.refined(balance_refine_flags)
+
+        incre = tree.nboxes - self.nboxes
+        logger.debug(f"tree build: added {incre} boxes to maintain level restriction")
+        return tree
+
+    def get_neighbor_lists(self, context, queue=None):
+        """Get list of neighboring boxes for leafs by calling the list 1 builder.
+        """
+        from boxtree.traversal import FMMTraversalBuilder
+        trav_builder = FMMTraversalBuilder(context)
+        if not queue:
+            queue = cl.CommandQueue(context)
+        dimensions = self.dim
+        coord_dtype = self.box_centers.dtype
+        particle_id_dtype = self.box_children.dtype
+        box_id_dtype = self.box_children.dtype
+        box_level_dtype = np.dtype(np.uint8)
+
+        from pytools import div_ceil
+        max_levels = div_ceil(self.nlevels(), 5) * 5
+        target_boxes = self.active_leaf_boxes()
+        aligned_nboxes = self.nboxes
+
+        box_flags = self.get_leaf_box_flags(queue)
+
+        knl_info = trav_builder.get_kernel_info(
+            dimensions, particle_id_dtype, box_id_dtype,
+            coord_dtype, box_level_dtype, max_levels,
+            sources_are_targets=True,
+            sources_have_extent=False, targets_have_extent=False,
+            extent_norm=None)
+
+        result, evt = knl_info.neighbor_source_boxes_builder(
+                queue, len(target_boxes),
+                cl.array.to_device(queue, self.box_centers.copy()).data,
+                self.root_box_extent,
+                cl.array.to_device(queue, self.box_levels),
+                aligned_nboxes,
+                cl.array.to_device(queue, self.box_children.copy()).data,
+                box_flags,
+                cl.array.to_device(queue, target_boxes),
+                wait_for=[])
+        cl.wait_for_events([evt])
+        neighbor_source_boxes = result["neighbor_source_boxes"]
+        starts = neighbor_source_boxes.starts.get(queue)
+        lists = neighbor_source_boxes.lists.get(queue)
+        return starts, lists
+
+    # }}} End balance
+
+
+def _make_tob_root(dim, bbox):
+    center = np.array(
+        [(bbox[0][iaxis] + bbox[1][iaxis]) * 0.5 for iaxis in range(dim)])
+    extents = np.array(
+        [(bbox[1][iaxis] - bbox[0][iaxis]) for iaxis in range(dim)])
+    from pytools import single_valued
+    return _TreeOfBoxes(
+            box_centers=center.reshape(dim, 1),
+            root_box_extent=single_valued(extents, np.allclose),
+            box_parents=np.array([0], np.intp),
+            box_children=np.array([0] * 2**dim, np.intp).reshape(2**dim, 1),
+            box_levels=np.array([0]),
+            )
+
+# }}}
+
+
 class TreeBuilder:
     """
     .. automethod:: __init__
@@ -1628,6 +2072,7 @@ class TreeBuilder:
 
         # }}}
 
+
         del box_has_children
         wait_for = [evt]
 
@@ -1733,7 +2178,6 @@ class TreeBuilder:
         return Tree(
                 # If you change this, also change the documentation
                 # of what's in the tree, above.
-
                 sources_are_targets=sources_are_targets,
                 sources_have_extent=sources_have_extent,
                 targets_have_extent=targets_have_extent,
