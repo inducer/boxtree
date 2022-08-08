@@ -313,7 +313,7 @@ def make_mesh_from_leaves(tob: TreeOfBoxes) -> "Mesh":
     from meshmode.mesh.generation import make_group_from_vertices
 
     vertex_indices = np.arange(
-        len(lfboxes) * 2**tob.dim, dtype=np.int32).reshape([2**tob.dim, -1]).T
+        len(lfboxes) * 2**tob.dim, dtype=np.int32).reshape([-1, 2**tob.dim])
     group = make_group_from_vertices(
         lfvertices, vertex_indices, 1,
         group_cls=TensorProductElementGroup,

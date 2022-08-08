@@ -46,7 +46,7 @@ def make_global_leaf_quadrature(actx, tob, order):
     from boxtree.tree_build import make_mesh_from_leaves
     mesh = make_mesh_from_leaves(tob)
 
-    if 1:
+    if 0:
         from meshmode.mesh import visualization as mvis
         import matplotlib.pyplot as plt
         mvis.draw_2d_mesh(mesh,
@@ -188,7 +188,7 @@ def test_tree_rebuild_with_particle(ctx_factory):
                   [lower_bounds[i], upper_bounds[i]]
                   for i in range(dim)]))
 
-    if 1:
+    if 0:
         from boxtree.visualization import TreePlotter
         import matplotlib.pyplot as plt
         tp = TreePlotter(tob)
@@ -205,9 +205,6 @@ def test_tree_rebuild_with_particle(ctx_factory):
         tp.set_bounding_box()
         plt.plot(x[0].get(), x[1].get(), ".")
         plt.show()
-
-    import pudb; pu.db
-
 
 
 @pytest.mark.skip(reason="wip")
@@ -271,8 +268,8 @@ def test_traversal_from_tob(ctx_factory):
     tob.box_flags = empty(tob.nboxes, box_flags_enum.dtype)
 
     tg = FMMTraversalBuilder(ctx)
-    import pudb; pu.db
-    trav, _ = tg(queue, tob)
+    # FIXME
+    # trav, _ = tg(queue, tob)
 
 
 # You can test individual routines by typing
