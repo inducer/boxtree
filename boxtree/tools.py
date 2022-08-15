@@ -916,7 +916,7 @@ class ImmutableHostDeviceArray:
 # {{{ coord_vec tools
 
 def get_coord_vec_dtype(
-        coord_dtype: np.dtype[Any], dimensions: int) -> np.dtype[Any]:
+        coord_dtype: np.dtype, dimensions: int) -> np.dtype:
     if dimensions == 1:
         return coord_dtype
     else:
