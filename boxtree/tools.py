@@ -912,11 +912,17 @@ class ImmutableHostDeviceArray:
 
 # }}}
 
-
 # {{{ coord_vec tools
 
+_numpy_version = list(map(int, np.__version__.split('.')))
+
+if sys.version_info[:2] >= (3, 9) and _numpy_version >= (1, 22):
+    _coord_dtype_type = np.dtype[Any]
+else:
+    _coord_dtype_type = Any
+
 def get_coord_vec_dtype(
-        coord_dtype: np.dtype[Any], dimensions: int) -> np.dtype[Any]:
+        coord_dtype: _coord_dtype_type, dimensions: int) -> _coord_dtype_type:
     if dimensions == 1:
         return coord_dtype
     else:
