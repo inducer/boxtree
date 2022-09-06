@@ -329,6 +329,10 @@ def get_box_masks(queue, traversal, responsible_boxes_list):
     """
     code = GetBoxMasksCodeContainer(queue.context, traversal.tree.box_id_dtype)
 
+    # FIXME: It is wasteful to copy the whole traversal object into device memory
+    # here because
+    # 1) Not all fields are needed.
+    # 2) For sumpy wrangler, a device traversal object is already available.
     traversal = traversal.to_device(queue)
 
     responsible_boxes_mask = np.zeros((traversal.tree.nboxes,), dtype=np.int8)

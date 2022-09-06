@@ -137,6 +137,8 @@ class ConstantOneExpansionWranglerWithFilteredTargetsInUserOrder(
         "who_has_extent", "source_gen", "target_gen", "filter_kind",
         "extent_norm", "from_sep_smaller_crit"),
         [
+            (1, 10**5, None, "", p_normal, p_normal, None, "linf", "static_linf"),
+
             (2, 10**5, None, "", p_normal, p_normal, None, "linf", "static_linf"),
             (2, 5 * 10**4, 4*10**4, "", p_normal, p_normal, None, "linf", "static_linf"),  # noqa: E501
             (2, 5 * 10**5, 4*10**4, "t", p_normal, p_normal, None, "linf", "static_linf"),  # noqa: E501
@@ -164,6 +166,12 @@ def test_fmm_completeness(actx_factory, dims, nsources_req, ntargets_req,
     """
     actx = actx_factory()
 
+    devname = actx.queue.device.name.lower()
+    if (dims == 1
+            and actx.queue.device.platform.name == "Portable Computing Language"
+            and ("nvidia" in devname or "tesla" in devname)):
+        pytest.xfail("1D FMM fails to build on POCL Nvidia")
+
     sources_have_extent = "s" in who_has_extent
     targets_have_extent = "t" in who_has_extent
     dtype = np.float64
@@ -180,7 +188,7 @@ def test_fmm_completeness(actx_factory, dims, nsources_req, ntargets_req,
             targets = target_gen(actx.queue, ntargets_req, dims, dtype, seed=16)
             ntargets = len(targets[0])
     except ImportError:
-        pytest.skip("loo.py not available, but needed for particle array "
+        pytest.skip("loopy not available, but needed for particle array "
                 "generation")
 
     rng = np.random.default_rng(12)
@@ -246,13 +254,13 @@ def test_fmm_completeness(actx_factory, dims, nsources_req, ntargets_req,
                     actx.queue, tree, flags)
             wrangler = ConstantOneExpansionWranglerWithFilteredTargetsInUserOrder(
                     tree_indep, host_trav,
-                    actx.to_numpy(filtered_targets))
+                    filtered_targets.get(queue=actx.queue))
         elif filter_kind == "tree":
             filtered_targets = plfilt.filter_target_lists_in_tree_order(
                     actx.queue, tree, flags)
             wrangler = ConstantOneExpansionWranglerWithFilteredTargetsInTreeOrder(
                     tree_indep, host_trav,
-                    actx.to_numpy(filtered_targets))
+                    filtered_targets.get(queue=actx.queue))
         else:
             raise ValueError("unsupported value of 'filter_kind'")
     else:

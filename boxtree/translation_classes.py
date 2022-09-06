@@ -32,6 +32,8 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+from functools import partial
+
 import numpy as np
 from pytools import Record, memoize_method
 import pyopencl as cl
@@ -39,7 +41,8 @@ import pyopencl.array  # noqa
 import pyopencl.cltypes  # noqa
 from pyopencl.elementwise import ElementwiseTemplate
 from mako.template import Template
-from boxtree.tools import DeviceDataRecord, InlineBinarySearch
+from boxtree.tools import (DeviceDataRecord, InlineBinarySearch,
+        get_coord_vec_dtype, coord_vec_subscript_code)
 from boxtree.traversal import TRAVERSAL_PREAMBLE_MAKO_DEFS
 
 import logging
@@ -65,7 +68,9 @@ TRANSLATION_CLASS_FINDER_PREAMBLE_TEMPLATE = Template(r"""//CL:mako//
         int_coord_vec_t result = (int_coord_vec_t) 0;
         coord_t diam = 2 * LEVEL_TO_RAD(level);
         %for i in range(dimensions):
-            result.s${i} = rint((target_center.s${i} - source_center.s${i}) / diam);
+            ${cvec_sub("result", i)} = rint(
+                (${cvec_sub("target_center", i)} - ${cvec_sub("source_center", i)})
+                / diam);
         %endfor
         return result;
     }
@@ -91,7 +96,8 @@ TRANSLATION_CLASS_FINDER_PREAMBLE_TEMPLATE = Template(r"""//CL:mako//
     {
         int dim_bound = 2 * well_sep_is_n_away + 1;
         %for i in range(dimensions):
-            if (!(-dim_bound <= vec.s${i} && vec.s${i} <= dim_bound))
+            if (!(-dim_bound <= ${cvec_sub("vec", i)}
+                && ${cvec_sub("vec", i)} <= dim_bound))
             {
                 return -1;
             }
@@ -101,7 +107,7 @@ TRANSLATION_CLASS_FINDER_PREAMBLE_TEMPLATE = Template(r"""//CL:mako//
         int base = 4 * well_sep_is_n_away + 3;
         int mult = 1;
         %for i in range(dimensions):
-            result += (2 * well_sep_is_n_away + 1 + vec.s${i}) * mult;
+            result += (2 * well_sep_is_n_away + 1 + ${cvec_sub("vec", i)}) * mult;
             mult *= base;
         %endfor
         return result;
@@ -238,8 +244,8 @@ class TranslationClassesBuilder:
     @memoize_method
     def get_kernel_info(self, dimensions, well_sep_is_n_away,
             box_id_dtype, box_level_dtype, coord_dtype, translation_class_per_level):
-        coord_vec_dtype = cl.cltypes.vec_types[coord_dtype, dimensions]
-        int_coord_vec_dtype = cl.cltypes.vec_types[np.dtype(np.int32), dimensions]
+        coord_vec_dtype = get_coord_vec_dtype(coord_dtype, dimensions)
+        int_coord_vec_dtype = get_coord_vec_dtype(np.dtype(np.int32), dimensions)
 
         num_translation_classes = \
             self.ntranslation_classes_per_level(well_sep_is_n_away, dimensions)
@@ -249,7 +255,8 @@ class TranslationClassesBuilder:
             raise ValueError("would overflow")
 
         preamble = TRANSLATION_CLASS_FINDER_PREAMBLE_TEMPLATE.render(
-                dimensions=dimensions)
+                dimensions=dimensions,
+                cvec_sub=partial(coord_vec_subscript_code, dimensions))
 
         translation_class_finder = (
                 TRANSLATION_CLASS_FINDER_TEMPLATE.build(
@@ -265,6 +272,8 @@ class TranslationClassesBuilder:
                         ("dimensions", dimensions),
                         ("ntranslation_classes_per_level", num_translation_classes),
                         ("translation_class_per_level", translation_class_per_level),
+                        ("cvec_sub", partial(
+                            coord_vec_subscript_code, dimensions)),
                     ),
                     more_preamble=preamble))
 
@@ -345,7 +354,8 @@ class TranslationClassesBuilder:
     @log_process(logger, "build m2l translation classes")
     def __call__(self, queue, trav, tree, wait_for=None,
                  is_translation_per_level=True):
-        """Returns a pair *info*, *evt* where info is a :class:`TranslationClassesInfo`.
+        """Returns a pair *info*, *evt* where info is a
+        :class:`TranslationClassesInfo`.
         """
         evt, translation_class_is_used, translation_classes_lists = \
             self.compute_translation_classes(queue, trav, tree, wait_for,
@@ -407,4 +417,4 @@ class TranslationClassesBuilder:
 
 # }}}
 
-# vim: filetype=pyopencl:fdm=marker
+# vim: fdm=marker

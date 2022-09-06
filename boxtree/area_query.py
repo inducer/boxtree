@@ -23,12 +23,15 @@ THE SOFTWARE.
 """
 
 
+from functools import partial
+
 import numpy as np
 import pyopencl as cl
 import pyopencl.cltypes  # noqa
 import pyopencl.array  # noqa
 from mako.template import Template
-from boxtree.tools import AXIS_NAMES, DeviceDataRecord
+from boxtree.tools import (AXIS_NAMES, DeviceDataRecord,
+        get_coord_vec_dtype, coord_vec_subscript_code)
 from pytools import memoize_method, ProcessLogger
 
 import logging
@@ -199,7 +202,7 @@ GUIDING_BOX_FINDER_MACRO = r"""//CL:mako//
 
                 coord_vec_t dist = fabs(corner - query_center);
                 %for i in range(dimensions):
-                    query_radius = fmax(query_radius, dist.s${i});
+                    query_radius = fmax(query_radius, ${cvec_sub("dist", i)});
                 %endfor
             }
             %endfor
@@ -531,6 +534,7 @@ class AreaQueryElementwiseTemplate:
         from boxtree.traversal import TRAVERSAL_PREAMBLE_TYPEDEFS_AND_DEFINES
         from boxtree.tree_build import TreeBuilder
 
+        from pyopencl.cltypes import vec_types
         render_vars = (
             ("np", np),
             ("dimensions", dimensions),
@@ -538,13 +542,18 @@ class AreaQueryElementwiseTemplate:
             ("box_id_dtype", box_id_dtype),
             ("particle_id_dtype", None),
             ("coord_dtype", coord_dtype),
-            ("vec_types", tuple(cl.cltypes.vec_types.items())),
+            ("get_coord_vec_dtype", get_coord_vec_dtype),
+            ("cvec_sub", partial(coord_vec_subscript_code, dimensions)),
             ("max_levels", max_levels),
             ("AXIS_NAMES", AXIS_NAMES),
             ("box_flags_enum", box_flags_enum),
             ("peer_list_idx_dtype", peer_list_idx_dtype),
             ("debug", False),
             ("root_extent_stretch_factor", TreeBuilder.ROOT_EXTENT_STRETCH_FACTOR),
+
+            # FIXME This gets used in pytential with a template that still uses this:
+            ("vec_types", tuple(vec_types.items())),
+
         )
 
         preamble = Template(
@@ -593,7 +602,9 @@ SPACE_INVADER_QUERY_TEMPLATE = AreaQueryElementwiseTemplate(
         coord_t max_dist = 0;
         %for i in range(dimensions):
             max_dist = fmax(max_dist,
-                distance(${ball_center}.s${i}, leaf_center.s${i}));
+                distance(
+                    ${cvec_sub(ball_center, i)},
+                    ${cvec_sub("leaf_center", i)}));
         %endfor
 
         // The atomic max operation supports only integer types.
@@ -652,7 +663,8 @@ class AreaQueryBuilder:
             box_id_dtype=box_id_dtype,
             particle_id_dtype=None,
             coord_dtype=coord_dtype,
-            vec_types=cl.cltypes.vec_types,
+            get_coord_vec_dtype=get_coord_vec_dtype,
+            cvec_sub=partial(coord_vec_subscript_code, dimensions),
             max_levels=max_levels,
             AXIS_NAMES=AXIS_NAMES,
             box_flags_enum=box_flags_enum,
@@ -1061,7 +1073,9 @@ class PeerListFinder:
             box_id_dtype=box_id_dtype,
             particle_id_dtype=None,
             coord_dtype=coord_dtype,
-            vec_types=cl.cltypes.vec_types,
+            get_coord_vec_dtype=get_coord_vec_dtype,
+            cvec_sub=partial(
+                coord_vec_subscript_code, dimensions),
             max_levels=max_levels,
             AXIS_NAMES=AXIS_NAMES,
             box_flags_enum=box_flags_enum,
@@ -1133,4 +1147,4 @@ class PeerListFinder:
 
 # }}}
 
-# vim: filetype=pyopencl:fdm=marker
+# vim: fdm=marker

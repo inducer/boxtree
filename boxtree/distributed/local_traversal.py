@@ -38,7 +38,7 @@ def generate_local_travs(
     :arg traversal_builder: a function, taken a :class:`pyopencl.CommandQueue` and
         a tree, returns the traversal object based on the tree.
 
-    :return: generated local traversal object in host memory
+    :return: generated local traversal object in device memory
     """
     start_time = time.time()
 
@@ -48,16 +48,14 @@ def generate_local_travs(
     # multipole formation and upward propagation within the rank's responsible boxes
     # region. Had there not been such restrictions, some sources might be distributed
     # to more than 1 rank and counted multiple times.
-    d_local_trav, _ = traversal_builder(
+    local_trav, _ = traversal_builder(
         queue, local_tree.to_device(queue),
         source_boxes_mask=local_tree.responsible_boxes_mask.device,
         source_parent_boxes_mask=local_tree.ancestor_mask.device
     )
 
     if merge_close_lists and local_tree.targets_have_extent:
-        d_local_trav = d_local_trav.merge_close_lists(queue)
-
-    local_trav = d_local_trav.get(queue=queue)
+        local_trav = local_trav.merge_close_lists(queue)
 
     logger.info("Generate local traversal in {} sec.".format(
         str(time.time() - start_time))
