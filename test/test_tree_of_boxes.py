@@ -207,7 +207,6 @@ def test_tree_rebuild_with_particle(ctx_factory):
         plt.show()
 
 
-@pytest.mark.skip(reason="wip")
 def test_traversal_from_tob(ctx_factory):
     from boxtree.tree_build import make_tob_root, uniformly_refined
     radius = np.pi
@@ -268,8 +267,7 @@ def test_traversal_from_tob(ctx_factory):
     tob.box_flags = empty(tob.nboxes, box_flags_enum.dtype)
 
     tg = FMMTraversalBuilder(ctx)
-    # FIXME
-    # trav, _ = tg(queue, tob)
+    trav, _ = tg(queue, tob)
 
 
 # You can test individual routines by typing
