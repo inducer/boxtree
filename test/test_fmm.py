@@ -55,7 +55,8 @@ pytest_generate_tests = pytest_generate_tests_for_array_contexts([
 
 # {{{ ref fmmlib pot computation
 
-def get_fmmlib_ref_pot(wrangler, weights, sources_host, targets_host,
+def get_fmmlib_ref_pot(
+        actx, wrangler, weights, sources_host, targets_host,
         helmholtz_k, dipole_vec=None):
     dims = sources_host.shape[0]
     eqn_letter = "h" if helmholtz_k else "l"
@@ -88,10 +89,10 @@ def get_fmmlib_ref_pot(wrangler, weights, sources_host, targets_host,
         kwargs["zk"] = helmholtz_k
 
     return wrangler.finalize_potentials(
+            actx,
             fmmlib_routine(
                 sources=sources_host, targets=targets_host,
-                **kwargs)[0],
-            template_ary=weights)
+                **kwargs)[0])
 
 # }}}
 
@@ -278,7 +279,7 @@ def test_fmm_completeness(actx_factory, dims, nsources_req, ntargets_req,
                 == weights)
 
     from boxtree.fmm import drive_fmm
-    pot = drive_fmm(wrangler, (weights,))
+    pot = drive_fmm(actx, wrangler, (weights,))
 
     if filter_kind:
         pot = pot[actx.to_numpy(flags) > 0]
@@ -296,7 +297,7 @@ def test_fmm_completeness(actx_factory, dims, nsources_req, ntargets_req,
         for i in range(nsources):
             unit_vec = np.zeros(nsources, dtype=dtype)
             unit_vec[i] = 1
-            mat[:, i] = drive_fmm(host_trav, wrangler, (unit_vec,))
+            mat[:, i] = drive_fmm(actx, wrangler, (unit_vec,))
             pb.progress()
         pb.finished()
 
@@ -410,8 +411,8 @@ def test_pyfmmlib_fmm(actx_factory, dims, use_dipoles, helmholtz_k):
             p_normal(actx, ntargets, dims, dtype, seed=18)
             + np.array([2, 0, 0])[:dims])
 
-    sources_host = particle_array_to_host(actx, sources)
-    targets_host = particle_array_to_host(actx, targets)
+    sources_host = np.stack(actx.to_numpy(sources))
+    targets_host = np.stack(actx.to_numpy(targets))
 
     from boxtree import TreeBuilder
     tb = TreeBuilder(actx)
@@ -462,7 +463,7 @@ def test_pyfmmlib_fmm(actx_factory, dims, use_dipoles, helmholtz_k):
     from boxtree.fmm import drive_fmm
 
     timing_data = {}
-    pot = drive_fmm(wrangler, (weights,), timing_data=timing_data)
+    pot = drive_fmm(actx, wrangler, (weights,), timing_data=timing_data)
     print(timing_data)
     assert timing_data
 
@@ -470,8 +471,8 @@ def test_pyfmmlib_fmm(actx_factory, dims, use_dipoles, helmholtz_k):
 
     logger.info("computing direct (reference) result")
 
-    ref_pot = get_fmmlib_ref_pot(wrangler, weights, sources_host.T,
-            targets_host.T, helmholtz_k, dipole_vec)
+    ref_pot = get_fmmlib_ref_pot(actx, wrangler, weights, sources_host,
+            targets_host, helmholtz_k, dipole_vec)
 
     rel_err = la.norm(pot - ref_pot, np.inf) / la.norm(ref_pot, np.inf)
     logger.info("relative l2 error vs fmmlib direct: %g", rel_err)
@@ -508,11 +509,9 @@ def test_pyfmmlib_fmm(actx_factory, dims, use_dipoles, helmholtz_k):
 
         if use_dipoles:
             knl = DirectionalSourceDerivative(knl)
-            sumpy_extra_kwargs["src_derivative_dir"] = dipole_vec
+            sumpy_extra_kwargs["src_derivative_dir"] = actx.from_numpy(dipole_vec)
 
-        p2p = P2P(actx.context,
-                [knl],
-                exclude_self=False)
+        p2p = P2P(target_kernels=[knl], exclude_self=False)
 
         result, = p2p(
                 actx,
@@ -595,14 +594,14 @@ def test_pyfmmlib_numerical_stability(actx_factory, dims, helmholtz_k, order):
             rotation_data=FMMLibRotationData(actx, trav))
 
     from boxtree.fmm import drive_fmm
-    pot = drive_fmm(wrangler, (weights,))
+    pot = drive_fmm(actx, wrangler, (weights,))
     assert not np.isnan(pot).any()
 
     # {{{ ref fmmlib computation
 
     logger.info("computing direct (reference) result")
 
-    ref_pot = get_fmmlib_ref_pot(wrangler, weights, sources, targets,
+    ref_pot = get_fmmlib_ref_pot(actx, wrangler, weights, sources, targets,
             helmholtz_k)
 
     rel_err = la.norm(pot - ref_pot, np.inf) / la.norm(ref_pot, np.inf)
@@ -664,7 +663,7 @@ def test_interaction_list_particle_count_thresholding(actx_factory, enable_exten
     tree_indep = ConstantOneTreeIndependentDataForWrangler()
     wrangler = ConstantOneExpansionWrangler(tree_indep, host_trav)
 
-    pot = drive_fmm(wrangler, (weights,))
+    pot = drive_fmm(actx, wrangler, (weights,))
 
     assert np.all(pot == weights_sum)
 
@@ -718,7 +717,7 @@ def test_fmm_float32(actx_factory, enable_extents):
     tree_indep = ConstantOneTreeIndependentDataForWrangler()
     wrangler = ConstantOneExpansionWrangler(tree_indep, host_trav)
 
-    pot = drive_fmm(wrangler, (weights,))
+    pot = drive_fmm(actx, wrangler, (weights,))
 
     assert np.all(pot == weights_sum)
 
@@ -794,11 +793,11 @@ def test_fmm_with_optimized_3d_m2l(actx_factory, nsrcntgts, helmholtz_k,
 
     baseline_timing_data = {}
     baseline_pot = drive_fmm(
-            baseline_wrangler, (weights,), timing_data=baseline_timing_data)
+        actx, baseline_wrangler, (weights,), timing_data=baseline_timing_data)
 
     optimized_timing_data = {}
     optimized_pot = drive_fmm(
-            optimized_wrangler, (weights,), timing_data=optimized_timing_data)
+        actx, optimized_wrangler, (weights,), timing_data=optimized_timing_data)
 
     baseline_time = baseline_timing_data["multipole_to_local"]["process_elapsed"]
     if baseline_time is not None:

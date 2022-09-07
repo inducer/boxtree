@@ -27,11 +27,16 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 
 from boxtree.fmm import ExpansionWranglerInterface, TreeIndependentDataForWrangler
 from boxtree.timing import DummyTimingFuture
 
+
+if TYPE_CHECKING:
+    from boxtree.array_context import PyOpenCLArrayContext
 
 # {{{ constant one wrangler
 
@@ -87,7 +92,9 @@ class ConstantOneExpansionWrangler(ExpansionWranglerInterface):
     def timing_future(ops):
         return DummyTimingFuture.from_op_count(ops)
 
-    def form_multipoles(self, level_start_source_box_nrs, source_boxes,
+    def form_multipoles(self, actx: PyOpenCLArrayContext,
+            level_start_source_box_nrs,
+            source_boxes,
             src_weight_vecs):
         src_weights, = src_weight_vecs
         mpoles = self.multipole_expansion_zeros()
@@ -100,8 +107,10 @@ class ConstantOneExpansionWrangler(ExpansionWranglerInterface):
 
         return mpoles, self.timing_future(ops)
 
-    def coarsen_multipoles(self, level_start_source_parent_box_nrs,
-            source_parent_boxes, mpoles):
+    def coarsen_multipoles(self, actx: PyOpenCLArrayContext,
+            level_start_source_parent_box_nrs,
+            source_parent_boxes,
+            mpoles):
         tree = self.tree
         ops = 0
 
@@ -123,7 +132,8 @@ class ConstantOneExpansionWrangler(ExpansionWranglerInterface):
 
         return mpoles, self.timing_future(ops)
 
-    def eval_direct(self, target_boxes, neighbor_sources_starts,
+    def eval_direct(self, actx: PyOpenCLArrayContext,
+            target_boxes, neighbor_sources_starts,
             neighbor_sources_lists, src_weight_vecs):
         src_weights, = src_weight_vecs
         pot = self.output_zeros()
@@ -148,6 +158,7 @@ class ConstantOneExpansionWrangler(ExpansionWranglerInterface):
         return pot, self.timing_future(ops)
 
     def multipole_to_local(self,
+            actx: PyOpenCLArrayContext,
             level_start_target_or_target_parent_box_nrs,
             target_or_target_parent_boxes,
             starts, lists, mpole_exps):
@@ -168,7 +179,9 @@ class ConstantOneExpansionWrangler(ExpansionWranglerInterface):
         return local_exps, self.timing_future(ops)
 
     def eval_multipoles(self,
-            target_boxes_by_source_level, from_sep_smaller_nonsiblings_by_level,
+            actx: PyOpenCLArrayContext,
+            target_boxes_by_source_level,
+            from_sep_smaller_nonsiblings_by_level,
             mpole_exps):
         pot = self.output_zeros()
         ops = 0
@@ -190,8 +203,10 @@ class ConstantOneExpansionWrangler(ExpansionWranglerInterface):
         return pot, self.timing_future(ops)
 
     def form_locals(self,
+            actx: PyOpenCLArrayContext,
             level_start_target_or_target_parent_box_nrs,
-            target_or_target_parent_boxes, starts, lists, src_weight_vecs):
+            target_or_target_parent_boxes,
+            starts, lists, src_weight_vecs):
         src_weights, = src_weight_vecs
         local_exps = self.local_expansion_zeros()
         ops = 0
@@ -213,7 +228,9 @@ class ConstantOneExpansionWrangler(ExpansionWranglerInterface):
 
         return local_exps, self.timing_future(ops)
 
-    def refine_locals(self, level_start_target_or_target_parent_box_nrs,
+    def refine_locals(self,
+            actx: PyOpenCLArrayContext,
+            level_start_target_or_target_parent_box_nrs,
             target_or_target_parent_boxes, local_exps):
         ops = 0
 
@@ -226,7 +243,10 @@ class ConstantOneExpansionWrangler(ExpansionWranglerInterface):
 
         return local_exps, self.timing_future(ops)
 
-    def eval_locals(self, level_start_target_box_nrs, target_boxes, local_exps):
+    def eval_locals(self,
+            actx: PyOpenCLArrayContext,
+            level_start_target_box_nrs,
+            target_boxes, local_exps):
         pot = self.output_zeros()
         ops = 0
 
@@ -237,7 +257,7 @@ class ConstantOneExpansionWrangler(ExpansionWranglerInterface):
 
         return pot, self.timing_future(ops)
 
-    def finalize_potentials(self, potentials, template_ary):
+    def finalize_potentials(self, actx: PyOpenCLArrayContext, potentials):
         return potentials
 
 # }}}
