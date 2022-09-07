@@ -79,7 +79,7 @@ def demo_cost_model():
         timing_data = {}
         from boxtree.fmm import drive_fmm
         src_weights = rng.random(size=tree.nsources, dtype=tree.coord_dtype)
-        drive_fmm(wrangler, (src_weights,), timing_data=timing_data)
+        drive_fmm(actx, wrangler, (src_weights,), timing_data=timing_data)
 
         timing_results.append(timing_data)
 
