@@ -32,6 +32,7 @@ from abc import ABC, abstractmethod
 
 from pytools import ProcessLogger
 
+from boxtree.array_context import PyOpenCLArrayContext
 from boxtree.traversal import FMMTraversalInfo
 from boxtree.tree import Tree
 
@@ -156,6 +157,7 @@ class ExpansionWranglerInterface(ABC):
 
     @abstractmethod
     def form_multipoles(self,
+            actx: PyOpenCLArrayContext,
             level_start_source_box_nrs, source_boxes,
             src_weight_vecs):
         """Return an expansions array
@@ -168,6 +170,7 @@ class ExpansionWranglerInterface(ABC):
 
     @abstractmethod
     def coarsen_multipoles(self,
+            actx: PyOpenCLArrayContext,
             level_start_source_parent_box_nrs,
             source_parent_boxes, mpoles):
         """For each box in *source_parent_boxes*,
@@ -180,6 +183,7 @@ class ExpansionWranglerInterface(ABC):
 
     @abstractmethod
     def eval_direct(self,
+            actx: PyOpenCLArrayContext,
             target_boxes, neighbor_sources_starts,
             neighbor_sources_lists, src_weight_vecs):
         """For each box in *target_boxes*, evaluate the influence of the
@@ -192,6 +196,7 @@ class ExpansionWranglerInterface(ABC):
 
     @abstractmethod
     def multipole_to_local(self,
+            actx: PyOpenCLArrayContext,
             level_start_target_or_target_parent_box_nrs,
             target_or_target_parent_boxes,
             starts, lists, mpole_exps):
@@ -206,6 +211,7 @@ class ExpansionWranglerInterface(ABC):
 
     @abstractmethod
     def eval_multipoles(self,
+            actx: PyOpenCLArrayContext,
             target_boxes_by_source_level, from_sep_smaller_by_level, mpole_exps):
         """For a level *i*, each box in *target_boxes_by_source_level[i]*, evaluate
         the multipole expansion in *mpole_exps* in the nearby boxes given in
@@ -219,6 +225,7 @@ class ExpansionWranglerInterface(ABC):
 
     @abstractmethod
     def form_locals(self,
+            actx: PyOpenCLArrayContext,
             level_start_target_or_target_parent_box_nrs,
             target_or_target_parent_boxes, starts, lists, src_weight_vecs):
         """For each box in *target_or_target_parent_boxes*, form local
@@ -233,6 +240,7 @@ class ExpansionWranglerInterface(ABC):
 
     @abstractmethod
     def refine_locals(self,
+            actx: PyOpenCLArrayContext,
             level_start_target_or_target_parent_box_nrs,
             target_or_target_parent_boxes, local_exps):
         """For each box in *child_boxes*,
@@ -244,6 +252,7 @@ class ExpansionWranglerInterface(ABC):
 
     @abstractmethod
     def eval_locals(self,
+            actx: PyOpenCLArrayContext,
             level_start_target_box_nrs, target_boxes, local_exps):
         """For each box in *target_boxes*, evaluate the local expansion in
         *local_exps* and return a new potential array.
@@ -255,7 +264,7 @@ class ExpansionWranglerInterface(ABC):
     # }}}
 
     @abstractmethod
-    def finalize_potentials(self, potentials, template_ary):
+    def finalize_potentials(self, actx: PyOpenCLArrayContext, potentials):
         """
         Postprocess the reordered potentials. This is where global scaling
         factors could be applied. This is distinct from :meth:`reorder_potentials`
@@ -269,7 +278,9 @@ class ExpansionWranglerInterface(ABC):
             type.
         """
 
-    def distribute_source_weights(self, src_weight_vecs, src_idx_all_ranks):
+    def distribute_source_weights(self,
+            actx: PyOpenCLArrayContext,
+            src_weight_vecs, src_idx_all_ranks):
         """Used by the distributed implementation for transferring needed source
         weights from root rank to each worker rank in the communicator.
 
@@ -289,7 +300,9 @@ class ExpansionWranglerInterface(ABC):
         """
         return src_weight_vecs
 
-    def gather_potential_results(self, potentials, tgt_idx_all_ranks):
+    def gather_potential_results(self,
+            actx: PyOpenCLArrayContext,
+            potentials, tgt_idx_all_ranks):
         """Used by the distributed implementation for gathering calculated potentials
         from all worker ranks in the communicator to the root rank.
 
@@ -306,7 +319,9 @@ class ExpansionWranglerInterface(ABC):
         """
         return potentials
 
-    def communicate_mpoles(self, mpole_exps, return_stats=False):  # noqa: B027
+    def communicate_mpoles(self,                # noqa: B027
+            actx: PyOpenCLArrayContext,
+            mpole_exps, return_stats=False):
         """Used by the distributed implementation for forming the complete multipole
         expansions from the partial multipole expansions.
 
@@ -325,9 +340,12 @@ class ExpansionWranglerInterface(ABC):
 # }}}
 
 
-def drive_fmm(wrangler: ExpansionWranglerInterface, src_weight_vecs,
+def drive_fmm(actx: PyOpenCLArrayContext,
+              wrangler: ExpansionWranglerInterface,
+              src_weight_vecs, *,
               timing_data=None,
-              global_src_idx_all_ranks=None, global_tgt_idx_all_ranks=None):
+              global_src_idx_all_ranks=None,
+              global_tgt_idx_all_ranks=None):
     """Top-level driver routine for a fast multipole calculation.
 
     In part, this is intended as a template for custom FMMs, in the sense that
@@ -374,15 +392,17 @@ def drive_fmm(wrangler: ExpansionWranglerInterface, src_weight_vecs,
     fmm_proc = ProcessLogger(logger, "fmm")
     recorder = TimingRecorder()
 
-    src_weight_vecs = [wrangler.reorder_sources(weight) for
-        weight in src_weight_vecs]
+    src_weight_vecs = [
+            wrangler.reorder_sources(weight) for weight in src_weight_vecs]
 
     src_weight_vecs = wrangler.distribute_source_weights(
-        src_weight_vecs, global_src_idx_all_ranks)
+            actx,
+            src_weight_vecs, global_src_idx_all_ranks)
 
     # {{{ "Step 2.1:" Construct local multipoles
 
     mpole_exps, timing_future = wrangler.form_multipoles(
+            actx,
             traversal.level_start_source_box_nrs,
             traversal.source_boxes,
             src_weight_vecs)
@@ -394,6 +414,7 @@ def drive_fmm(wrangler: ExpansionWranglerInterface, src_weight_vecs,
     # {{{ "Step 2.2:" Propagate multipoles upward
 
     mpole_exps, timing_future = wrangler.coarsen_multipoles(
+            actx,
             traversal.level_start_source_parent_box_nrs,
             traversal.source_parent_boxes,
             mpole_exps)
@@ -404,11 +425,12 @@ def drive_fmm(wrangler: ExpansionWranglerInterface, src_weight_vecs,
 
     # }}}
 
-    wrangler.communicate_mpoles(mpole_exps)
+    wrangler.communicate_mpoles(actx, mpole_exps)
 
     # {{{ "Stage 3:" Direct evaluation from neighbor source boxes ("list 1")
 
     potentials, timing_future = wrangler.eval_direct(
+            actx,
             traversal.target_boxes,
             traversal.neighbor_source_boxes_starts,
             traversal.neighbor_source_boxes_lists,
@@ -423,6 +445,7 @@ def drive_fmm(wrangler: ExpansionWranglerInterface, src_weight_vecs,
     # {{{ "Stage 4:" translate separated siblings' ("list 2") mpoles to local
 
     local_exps, timing_future = wrangler.multipole_to_local(
+            actx,
             traversal.level_start_target_or_target_parent_box_nrs,
             traversal.target_or_target_parent_boxes,
             traversal.from_sep_siblings_starts,
@@ -441,6 +464,7 @@ def drive_fmm(wrangler: ExpansionWranglerInterface, src_weight_vecs,
     # contribution *out* of the downward-propagating local expansions)
 
     mpole_result, timing_future = wrangler.eval_multipoles(
+            actx,
             traversal.target_boxes_sep_smaller_by_source_level,
             traversal.from_sep_smaller_by_level,
             mpole_exps)
@@ -456,6 +480,7 @@ def drive_fmm(wrangler: ExpansionWranglerInterface, src_weight_vecs,
                 "('list 3 close')")
 
         direct_result, timing_future = wrangler.eval_direct(
+                actx,
                 traversal.target_boxes,
                 traversal.from_sep_close_smaller_starts,
                 traversal.from_sep_close_smaller_lists,
@@ -470,6 +495,7 @@ def drive_fmm(wrangler: ExpansionWranglerInterface, src_weight_vecs,
     # {{{ "Stage 6:" form locals for separated bigger source boxes ("list 4")
 
     local_result, timing_future = wrangler.form_locals(
+            actx,
             traversal.level_start_target_or_target_parent_box_nrs,
             traversal.target_or_target_parent_boxes,
             traversal.from_sep_bigger_starts,
@@ -482,6 +508,7 @@ def drive_fmm(wrangler: ExpansionWranglerInterface, src_weight_vecs,
 
     if traversal.from_sep_close_bigger_starts is not None:
         direct_result, timing_future = wrangler.eval_direct(
+                actx,
                 traversal.target_boxes,
                 traversal.from_sep_close_bigger_starts,
                 traversal.from_sep_close_bigger_lists,
@@ -496,6 +523,7 @@ def drive_fmm(wrangler: ExpansionWranglerInterface, src_weight_vecs,
     # {{{ "Stage 7:" propagate local_exps downward
 
     local_exps, timing_future = wrangler.refine_locals(
+            actx,
             traversal.level_start_target_or_target_parent_box_nrs,
             traversal.target_or_target_parent_boxes,
             local_exps)
@@ -507,6 +535,7 @@ def drive_fmm(wrangler: ExpansionWranglerInterface, src_weight_vecs,
     # {{{ "Stage 8:" evaluate locals
 
     local_result, timing_future = wrangler.eval_locals(
+            actx,
             traversal.level_start_target_box_nrs,
             traversal.target_boxes,
             local_exps)
@@ -518,11 +547,12 @@ def drive_fmm(wrangler: ExpansionWranglerInterface, src_weight_vecs,
     # }}}
 
     potentials = wrangler.gather_potential_results(
-                    potentials, global_tgt_idx_all_ranks)
+            actx,
+            potentials, global_tgt_idx_all_ranks)
 
     result = wrangler.reorder_potentials(potentials)
 
-    result = wrangler.finalize_potentials(result, template_ary=src_weight_vecs[0])
+    result = wrangler.finalize_potentials(actx, result)
 
     fmm_proc.done()
 

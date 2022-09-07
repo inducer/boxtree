@@ -293,11 +293,14 @@ class DistributedFMMRunner:
                 array_context, global_tree, traversal_builder, wrangler_factory,
                 calibration_params, comm)
 
-    def drive_dfmm(self, source_weights, timing_data=None):
-        """Calculate potentials at target points.
-        """
+    def drive_dfmm(self,
+            actx: PyOpenCLArrayContext,
+            source_weights,
+            timing_data=None):
+        """Calculate potentials at target points."""
         from boxtree.fmm import drive_fmm
         return drive_fmm(
+            actx,
             self.wrangler, source_weights,
             timing_data=timing_data,
             global_src_idx_all_ranks=self.src_idx_all_ranks,

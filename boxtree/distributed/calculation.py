@@ -72,7 +72,8 @@ class DistributedExpansionWranglerMixin:
     def is_mpi_root(self):
         return self.mpi_rank == 0
 
-    def distribute_source_weights(self, src_weight_vecs, src_idx_all_ranks):
+    def distribute_source_weights(self,
+            actx: PyOpenCLArrayContext, src_weight_vecs, src_idx_all_ranks):
         if self.is_mpi_root:
             distribute_weight_req = []
             local_src_weight_vecs = np.empty((self.mpi_size,), dtype=object)
@@ -95,7 +96,8 @@ class DistributedExpansionWranglerMixin:
 
         return local_src_weight_vecs
 
-    def gather_potential_results(self, potentials, tgt_idx_all_ranks):
+    def gather_potential_results(self,
+            actx: PyOpenCLArrayContext, potentials, tgt_idx_all_ranks):
         from boxtree.distributed import dtype_to_mpi
         potentials_mpi_type = dtype_to_mpi(potentials.dtype)
         gathered_potentials = None
@@ -256,8 +258,8 @@ class DistributedExpansionWranglerMixin:
 
         return box_in_subrange
 
-    def communicate_mpoles(self, actx: PyOpenCLArrayContext,
-                           mpole_exps, return_stats=False):
+    def communicate_mpoles(self,
+            actx: PyOpenCLArrayContext, mpole_exps, return_stats=False):
         """Based on Algorithm 3: Reduce and Scatter in Lashuk et al. [1]_.
 
         The main idea is to mimic an allreduce as done on a hypercube network, but to
