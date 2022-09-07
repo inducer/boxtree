@@ -1734,6 +1734,7 @@ class FMMTraversalBuilder:
                     extent_norm: ExtentNorm | None,
                     source_boxes_has_mask: bool,
                     source_parent_boxes_has_mask: bool,
+                    debug: bool = False,
                 ) -> _KernelInfo:
 
         # {{{ process from_sep_smaller_crit
@@ -1771,8 +1772,6 @@ class FMMTraversalBuilder:
                 f"{from_sep_smaller_crit}")
 
         # }}}
-
-        debug = False
 
         from pyopencl.tools import dtype_to_ctype
 
