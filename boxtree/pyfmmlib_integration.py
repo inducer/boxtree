@@ -676,7 +676,9 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
 
     @log_process(logger)
     @return_timing_data
-    def form_multipoles(self, level_start_source_box_nrs, source_boxes,
+    def form_multipoles(self, actx: PyOpenCLArrayContext,
+            level_start_source_box_nrs,
+            source_boxes,
             src_weight_vecs):
         src_weights, = src_weight_vecs
         formmp = self.tree_indep.get_routine(
@@ -719,8 +721,10 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
 
     @log_process(logger)
     @return_timing_data
-    def coarsen_multipoles(self, level_start_source_parent_box_nrs,
-            source_parent_boxes, mpoles):
+    def coarsen_multipoles(self, actx: PyOpenCLArrayContext,
+            level_start_source_parent_box_nrs,
+            source_parent_boxes,
+            mpoles):
         tree = self.tree
 
         mpmp = self.tree_indep.get_translation_routine(self, "%ddmpmp")
@@ -775,8 +779,11 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
 
     @log_process(logger)
     @return_timing_data
-    def eval_direct(self, target_boxes, neighbor_sources_starts,
-            neighbor_sources_lists, src_weight_vecs):
+    def eval_direct(self, actx: PyOpenCLArrayContext,
+            target_boxes,
+            neighbor_sources_starts,
+            neighbor_sources_lists,
+            src_weight_vecs):
         src_weights, = src_weight_vecs
         output = self.output_zeros()
 
@@ -819,7 +826,7 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
 
     @log_process(logger)
     @return_timing_data
-    def multipole_to_local(self,
+    def multipole_to_local(self, actx: PyOpenCLArrayContext,
             level_start_target_or_target_parent_box_nrs,
             target_or_target_parent_boxes,
             starts, lists, mpole_exps):
@@ -934,8 +941,9 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
 
     @log_process(logger)
     @return_timing_data
-    def eval_multipoles(self,
-            target_boxes_by_source_level, sep_smaller_nonsiblings_by_level,
+    def eval_multipoles(self, actx: PyOpenCLArrayContext,
+            target_boxes_by_source_level,
+            sep_smaller_nonsiblings_by_level,
             mpole_exps):
         output = self.output_zeros()
 
@@ -977,9 +985,10 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
 
     @log_process(logger)
     @return_timing_data
-    def form_locals(self,
+    def form_locals(self, actx: PyOpenCLArrayContext,
             level_start_target_or_target_parent_box_nrs,
-            target_or_target_parent_boxes, starts, lists, src_weight_vecs):
+            target_or_target_parent_boxes,
+            starts, lists, src_weight_vecs):
         src_weights, = src_weight_vecs
         local_exps = self.local_expansion_zeros()
 
@@ -1057,8 +1066,10 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
 
     @log_process(logger)
     @return_timing_data
-    def refine_locals(self, level_start_target_or_target_parent_box_nrs,
-            target_or_target_parent_boxes, local_exps):
+    def refine_locals(self, actx: PyOpenCLArrayContext,
+            level_start_target_or_target_parent_box_nrs,
+            target_or_target_parent_boxes,
+            local_exps):
 
         locloc = self.tree_indep.get_translation_routine(self, "%ddlocloc")
 
@@ -1104,7 +1115,10 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
 
     @log_process(logger)
     @return_timing_data
-    def eval_locals(self, level_start_target_box_nrs, target_boxes, local_exps):
+    def eval_locals(self, actx: PyOpenCLArrayContext,
+            level_start_target_box_nrs,
+            target_boxes,
+            local_exps):
         output = self.output_zeros()
         taeval = self.tree_indep.get_expn_eval_routine("ta")
 
@@ -1139,7 +1153,7 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
         return output
 
     @log_process(logger)
-    def finalize_potentials(self, potential, template_ary):
+    def finalize_potentials(self, actx: PyOpenCLArrayContext, potential):
         if self.tree_indep.eqn_letter == "l" and self.dim == 2:
             scale_factor = -1/(2*np.pi)
         elif self.tree_indep.eqn_letter == "h" and self.dim == 2:
