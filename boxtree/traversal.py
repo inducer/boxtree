@@ -2050,7 +2050,7 @@ class FMMTraversalBuilder:
                 tree.box_source_counts_cumul if with_extent else None,
                 *([tree.box_target_bounding_box_min.data,
                    tree.box_target_bounding_box_max.data,
-                   tree.box_source_counts_cumul] if targets_have_extent else []),
+                   tree.box_source_counts_cumul] if tree.targets_have_extent else []),
                 _from_sep_smaller_min_nsources_cumul,
                 )
 
