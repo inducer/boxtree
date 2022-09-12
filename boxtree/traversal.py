@@ -1805,6 +1805,10 @@ class FMMTraversalBuilder:
                                 "same_level_non_well_sep_boxes_starts"),
                             VectorArg(box_id_dtype,
                                 "same_level_non_well_sep_boxes_lists"),
+                            *([VectorArg(coord_dtype, "box_target_bounding_box_min",
+                                         with_offset=False),
+                               VectorArg(coord_dtype, "box_target_bounding_box_max",
+                                         with_offset=False)] if targets_have_extent else []),
                             VectorArg(particle_id_dtype, "box_source_counts_cumul"),
                             ScalarArg(particle_id_dtype,
                                 "from_sep_smaller_min_nsources_cumul"),
@@ -2044,6 +2048,9 @@ class FMMTraversalBuilder:
                 same_level_non_well_sep_boxes.starts,
                 same_level_non_well_sep_boxes.lists,
                 tree.box_source_counts_cumul if with_extent else None,
+                *([tree.box_target_bounding_box_min.data,
+                   tree.box_target_bounding_box_max.data,
+                   tree.box_source_counts_cumul] if targets_have_extent else []),
                 _from_sep_smaller_min_nsources_cumul,
                 )
 
