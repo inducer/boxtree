@@ -1654,7 +1654,7 @@ class FMMTraversalBuilder:
 
     @memoize_method
     @log_process(logger)
-    def get_kernel_info(self, dimensions, particle_id_dtype, box_id_dtype,
+    def get_kernel_info(self, *, dimensions, particle_id_dtype, box_id_dtype,
             coord_dtype, box_level_dtype, max_levels,
             sources_are_targets, sources_have_extent, targets_have_extent,
             extent_norm,
@@ -1897,13 +1897,18 @@ class FMMTraversalBuilder:
         max_levels = div_ceil(tree.nlevels, 5) * 5
 
         knl_info = self.get_kernel_info(
-                tree.dimensions, tree.particle_id_dtype, tree.box_id_dtype,
-                tree.coord_dtype, tree.box_level_dtype, max_levels,
-                tree.sources_are_targets,
-                tree.sources_have_extent, tree.targets_have_extent,
-                tree.extent_norm,
-                source_boxes_mask is not None,
-                source_parent_boxes_mask is not None)
+                dimensions=tree.dimensions,
+                particle_id_dtype=tree.particle_id_dtype,
+                box_id_dtype=tree.box_id_dtype,
+                coord_dtype=tree.coord_dtype,
+                box_level_dtype=tree.box_level_dtype,
+                max_levels=max_levels,
+                sources_are_targets=tree.sources_are_targets,
+                sources_have_extent=tree.sources_have_extent,
+                targets_have_extent=tree.targets_have_extent,
+                extent_norm=tree.extent_norm,
+                source_boxes_has_mask=source_boxes_mask is not None,
+                source_parent_boxes_has_mask=source_parent_boxes_mask is not None)
 
         def fin_debug(s):
             if debug:
