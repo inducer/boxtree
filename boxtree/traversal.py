@@ -787,14 +787,18 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
                     // source count threshold, it can be moved to a "close" list.
                     // This is a performance optimization.
 
-                    bool close_lists_exist = ${"true" \
-                        if sources_have_extent or targets_have_extent \
-                        else "false"};
+                    <% close_lists_exist  = \
+                        sources_have_extent or targets_have_extent %>
+                    bool close_lists_exist = ${ str(close_lists_exist).lower() };
 
                     bool force_close_list_for_low_interaction_count =
+                    %if close_lists_exist:
                         close_lists_exist &&
                         (box_source_counts_cumul[walk_box_id]
                             < from_sep_smaller_min_nsources_cumul);
+                    %else:
+                        false;
+                    %endif
 
                     if (meets_sep_crit &&
                         !force_close_list_for_low_interaction_count)
