@@ -22,5 +22,5 @@ intersphinx_mapping = {
         }
 
 nitpick_ignore_regex = [
-    ["py:class", r"numpy.typing._generic_alias.ScalarType"],
+    ["py:class", r"numpy._?typing._generic_alias.ScalarType"],
 ]
