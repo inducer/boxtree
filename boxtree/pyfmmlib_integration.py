@@ -47,7 +47,6 @@ import pytools.obj_array as obj_array
 from pytools import log_process, memoize_method
 
 from boxtree.fmm import ExpansionWranglerInterface, TreeIndependentDataForWrangler
-from boxtree.timing import return_timing_data
 
 
 if TYPE_CHECKING:
@@ -277,11 +276,7 @@ class FMMLibTreeIndependentDataForWrangler(TreeIndependentDataForWrangler):
 
 class FMMLibExpansionWrangler(ExpansionWranglerInterface):
     """Implements the :class:`boxtree.fmm.ExpansionWranglerInterface`
-    by using pyfmmlib.
-
-    Timing results returned by this wrangler contains the values *wall_elapsed*
-    and (optionally, if supported) *process_elapsed*, which measure wall time
-    and process time in seconds, respectively.
+    by using ``pyfmmlib``.
     """
 
     # {{{ constructor
@@ -680,7 +675,6 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
         return potentials[self.tree.sorted_target_ids]
 
     @log_process(logger)
-    @return_timing_data
     def form_multipoles(self, actx: PyOpenCLArrayContext,
             level_start_source_box_nrs,
             source_boxes,
@@ -725,7 +719,6 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
         return mpoles
 
     @log_process(logger)
-    @return_timing_data
     def coarsen_multipoles(self, actx: PyOpenCLArrayContext,
             level_start_source_parent_box_nrs,
             source_parent_boxes,
@@ -783,7 +776,6 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
         return mpoles
 
     @log_process(logger)
-    @return_timing_data
     def eval_direct(self, actx: PyOpenCLArrayContext,
             target_boxes,
             neighbor_sources_starts,
@@ -830,7 +822,6 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
         return output
 
     @log_process(logger)
-    @return_timing_data
     def multipole_to_local(self, actx: PyOpenCLArrayContext,
             level_start_target_or_target_parent_box_nrs,
             target_or_target_parent_boxes,
@@ -945,7 +936,6 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
         return local_exps
 
     @log_process(logger)
-    @return_timing_data
     def eval_multipoles(self, actx: PyOpenCLArrayContext,
             target_boxes_by_source_level,
             sep_smaller_nonsiblings_by_level,
@@ -989,7 +979,6 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
         return output
 
     @log_process(logger)
-    @return_timing_data
     def form_locals(self, actx: PyOpenCLArrayContext,
             level_start_target_or_target_parent_box_nrs,
             target_or_target_parent_boxes,
@@ -1070,7 +1059,6 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
         return local_exps
 
     @log_process(logger)
-    @return_timing_data
     def refine_locals(self, actx: PyOpenCLArrayContext,
             level_start_target_or_target_parent_box_nrs,
             target_or_target_parent_boxes,
@@ -1119,7 +1107,6 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
         return local_exps
 
     @log_process(logger)
-    @return_timing_data
     def eval_locals(self, actx: PyOpenCLArrayContext,
             level_start_target_box_nrs,
             target_boxes,
