@@ -76,12 +76,9 @@ def demo_cost_model():
                 fmm_level_to_order=fmm_level_to_order)
         level_orders_list.append(wrangler.level_orders)
 
-        timing_data = {}
         from boxtree.fmm import drive_fmm
         src_weights = rng.random(size=tree.nsources, dtype=tree.coord_dtype)
-        drive_fmm(actx, wrangler, (src_weights,), timing_data=timing_data)
-
-        timing_results.append(timing_data)
+        drive_fmm(actx, wrangler, (src_weights,))
 
     time_field_name = "process_elapsed"
 
@@ -98,6 +95,9 @@ def demo_cost_model():
             )
         )
     queue.finish()
+
+    if not timing_results:
+        return
 
     params = cost_model.estimate_calibration_params(
         model_results, timing_results[:-1], time_field_name=time_field_name

@@ -138,21 +138,7 @@ def _test_against_shared(
         distributed_fmm_info = DistributedFMMRunner(
             actx, global_tree_host, tg, wrangler_factory, comm=comm)
 
-        timing_data = {}
-        pot_dfmm = distributed_fmm_info.drive_dfmm(
-            actx, [sources_weights], timing_data=timing_data)
-        assert timing_data
-
-    # Uncomment the following section to print the time taken of each stage
-    """
-    if rank == 1:
-        from pytools import Table
-        table = Table()
-        table.add_row(["stage", "time (s)"])
-        for stage in timing_data:
-            table.add_row([stage, "%.2f" % timing_data[stage]["wall_elapsed"]])
-        print(table)
-    """
+        pot_dfmm = distributed_fmm_info.drive_dfmm(actx, [sources_weights])
 
     if rank == 0:
         error = (la.norm(pot_fmm - pot_dfmm * 2 * np.pi, ord=np.inf)

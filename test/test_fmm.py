@@ -459,10 +459,7 @@ def test_pyfmmlib_fmm(actx_factory, dims, use_dipoles, helmholtz_k):
 
     from boxtree.fmm import drive_fmm
 
-    timing_data = {}
-    pot = drive_fmm(actx, wrangler, (weights,), timing_data=timing_data)
-    print(timing_data)
-    assert timing_data
+    pot = drive_fmm(actx, wrangler, (weights,))
 
     # {{{ ref fmmlib computation
 
@@ -788,21 +785,8 @@ def test_fmm_with_optimized_3d_m2l(actx_factory, nsrcntgts, helmholtz_k,
 
     from boxtree.fmm import drive_fmm
 
-    baseline_timing_data = {}
-    baseline_pot = drive_fmm(
-        actx, baseline_wrangler, (weights,), timing_data=baseline_timing_data)
-
-    optimized_timing_data = {}
-    optimized_pot = drive_fmm(
-        actx, optimized_wrangler, (weights,), timing_data=optimized_timing_data)
-
-    baseline_time = baseline_timing_data["multipole_to_local"]["process_elapsed"]
-    if baseline_time is not None:
-        print(f"Baseline M2L time : {baseline_time:#.4g} s")
-
-    opt_time = optimized_timing_data["multipole_to_local"]["process_elapsed"]
-    if opt_time is not None:
-        print(f"Optimized M2L time: {opt_time:#.4g} s")
+    baseline_pot = drive_fmm(actx, baseline_wrangler, (weights,))
+    optimized_pot = drive_fmm(actx, optimized_wrangler, (weights,))
 
     assert np.allclose(baseline_pot, optimized_pot, atol=1e-13, rtol=1e-13)
 
