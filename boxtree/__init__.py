@@ -20,10 +20,12 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-from boxtree.tree import Tree, TreeWithLinkedPointSources, box_flags_enum
+from boxtree.tree import TreeOfBoxes, Tree, TreeWithLinkedPointSources, \
+    box_flags_enum
 from boxtree.tree_build import TreeBuilder
 
 __all__ = [
+    "TreeOfBoxes",
     "Tree", "TreeWithLinkedPointSources",
     "TreeBuilder", "box_flags_enum"]
 

@@ -118,8 +118,11 @@ class box_flags_enum(Enum):  # noqa
 
 @dataclass
 class TreeOfBoxes:
-    """A quad/octree tree of abstract boxes. Lightweight trees handled with
-    :mod:`numpy`, intended for mesh adaptivity.
+    """A quad/octree tree of pure boxes, excluding their contents (e.g. particles).
+    It is a lightweight trees handled with :mod:`numpy`, intended for mesh
+    adaptivity. One may generate :class:`Tree` objects from a :class:`TreeOfBoxes`
+    object for FMM by distributing particles into the boxes, which often corresponds
+    to applying a quadrature rule to each leaf box.
 
     .. attribute:: dimensions
 
@@ -151,7 +154,7 @@ class TreeOfBoxes:
 
     .. automethod:: get_leaf_flags
 
-    .. automethod:: leaf_boxes
+    .. automethod:: get_leaf_boxes
     """
     box_centers: npt.NDArray
     root_extent: npt.NDArray
@@ -204,7 +207,7 @@ class TreeOfBoxes:
         # box_id -> whether the box is leaf
         return np.all(self.box_child_ids == 0, axis=0)
 
-    def leaf_boxes(self):
+    def get_leaf_boxes(self):
         boxes = np.arange(self.nboxes)
         return boxes[self.get_leaf_flags()]
 
@@ -214,7 +217,8 @@ class TreeOfBoxes:
 # {{{ tree data structure
 
 class Tree(DeviceDataRecord, TreeOfBoxes):
-    r"""A quad/octree consisting of particles sorted into a hierarchy of boxes.
+    r"""A quad/octree consisting of particles sorted into a hierarchy of boxes
+    that inherits from :class:`TreeOfBoxes`.
     Optionally, particles may be designated 'sources' and 'targets'. They
     may also be assigned radii which restrict the minimum size of the box
     into which they may be sorted.
@@ -538,12 +542,6 @@ class Tree(DeviceDataRecord, TreeOfBoxes):
         extent_low = self.box_centers[:, ibox] - 0.5*box_size
         extent_high = extent_low + box_size
         return extent_low, extent_high
-
-    def get_leaf_flags(self):
-        raise NotImplementedError
-
-    def leaf_boxes(self):
-        raise NotImplementedError
 
     # {{{ debugging aids
 

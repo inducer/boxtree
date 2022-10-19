@@ -53,15 +53,15 @@ def make_global_leaf_quadrature(actx, tob, order):
                           set_bounding_box=True,
                           draw_vertex_numbers=False,
                           draw_element_numbers=False)
-        plt.plot(tob.box_centers[0][tob.leaf_boxes()],
-                 tob.box_centers[1][tob.leaf_boxes()], "rx")
+        plt.plot(tob.box_centers[0][tob.get_leaf_boxes()],
+                 tob.box_centers[1][tob.get_leaf_boxes()], "rx")
         plt.plot(mesh.vertices[0], mesh.vertices[1], "ro")
         plt.show()
 
     from meshmode.discretization import Discretization
     discr = Discretization(actx, mesh, group_factory)
 
-    lflevels = tob.box_levels[tob.leaf_boxes()]
+    lflevels = tob.box_levels[tob.get_leaf_boxes()]
     lfmeasures = (tob.root_extent / (2**lflevels))**tob.dim
 
     from arraycontext import flatten
@@ -159,7 +159,7 @@ def test_uniform_tree_of_boxes_convergence(ctx_factory, dim, order):
         assert err < 1e-14
 
 
-def test_tree_rebuild_with_particle(ctx_factory):
+def test_tree_plot():
     from boxtree.tree_build import make_tob_root, uniformly_refined
     radius = np.pi
     dim = 2
@@ -171,40 +171,14 @@ def test_tree_rebuild_with_particle(ctx_factory):
     for _ in range(nlevels - 1):
         tob = uniformly_refined(tob)
 
-    from arraycontext import PyOpenCLArrayContext
-    cl_ctx = ctx_factory()
-    queue = cl.CommandQueue(cl_ctx)
-    actx = PyOpenCLArrayContext(queue)
+    # test TreePlotter compatibility
+    from boxtree.visualization import TreePlotter
+    tp = TreePlotter(tob)
+    tp.draw_tree()
+    tp.set_bounding_box()
 
-    # FIXME: tree builder sometimes fails to reproduce
-    nqpts = 4
-    x, q = make_global_leaf_quadrature(actx, tob, order=nqpts - 1)
-
-    from boxtree.tree_build import TreeBuilder
-    tb = TreeBuilder(cl_ctx)
-    tree, evt = tb(queue, x,
-              max_particles_in_box=nqpts**dim,
-              bbox=np.array([
-                  [lower_bounds[i], upper_bounds[i]]
-                  for i in range(dim)]))
-
-    if 0:
-        from boxtree.visualization import TreePlotter
-        import matplotlib.pyplot as plt
-        tp = TreePlotter(tob)
-        tp.draw_tree()
-        tp.set_bounding_box()
-        plt.plot(x[0].get(), x[1].get(), ".")
-        plt.show()
-
-    if 0:
-        from boxtree.visualization import TreePlotter
-        import matplotlib.pyplot as plt
-        tp = TreePlotter(tree.get(queue))
-        tp.draw_tree()
-        tp.set_bounding_box()
-        plt.plot(x[0].get(), x[1].get(), ".")
-        plt.show()
+    # import matplotlib.pyplot as plt
+    # plt.show()
 
 
 def test_traversal_from_tob(ctx_factory):

@@ -239,6 +239,7 @@ def refined_and_coarsened(tob: TreeOfBoxes,
     To prevent drastic mesh change, coarsening is only executed when a leaf
     box is marked for coarsening, and its parent's children are all leaf
     boxes (so that change in the number of boxes is bounded per box flagged).
+    Please note that the above behavior may be subject to change in the future.
 
     :arg refine_flags: a boolean array of size `nboxes`.
     :arg coarsen_flags: a boolean array of size `nboxes`.
@@ -293,7 +294,7 @@ def make_mesh_from_leaves(tob: TreeOfBoxes) -> "Mesh":
 
     :arg tob: a :class:`TreeOfBoxes`.
     """
-    lfboxes = tob.leaf_boxes()
+    lfboxes = tob.get_leaf_boxes()
     lfcenters = tob.box_centers[:, lfboxes]
     lflevels = tob.box_levels[lfboxes]
     lfradii = tob.root_extent / 2 / (2**lflevels)
