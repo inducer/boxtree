@@ -26,10 +26,11 @@ Tree data structure
     :members:
     :undoc-members:
 
+.. autoclass:: TreeOfBoxes
+
 .. autoclass:: Tree
 
 .. currentmodule:: boxtree.tree
-.. autoclass:: TreeOfBoxes
 
 Tree with linked point sources
 ------------------------------
