@@ -99,7 +99,7 @@ def uniformly_refined(tob: TreeOfBoxes) -> TreeOfBoxes:
     """Make a uniformly refined copy of `tob`.
     """
     refine_flags = np.zeros(tob.nboxes, bool)
-    refine_flags[tob.get_leaf_flags()] = 1
+    refine_flags[tob.leaf_flags] = 1
     return refined(tob, refine_flags)
 
 
@@ -114,7 +114,7 @@ def coarsened(tob: TreeOfBoxes, coarsen_flags: npt.NDArray,
 
 
 def _apply_refine_flags_without_sorting(refine_flags, tob):
-    if refine_flags[~tob.get_leaf_flags()].any():
+    if refine_flags[~tob.leaf_flags].any():
         raise ValueError("attempting to split non-leaf")
 
     refine_parents, = np.where(refine_flags)
@@ -161,7 +161,7 @@ def _apply_refine_flags_without_sorting(refine_flags, tob):
 
 
 def _apply_coarsen_flags(coarsen_flags, tob, error_on_ignored_flags=True):
-    if coarsen_flags[~tob.get_leaf_flags()].any():
+    if coarsen_flags[~tob.leaf_flags].any():
         raise ValueError("attempting to coarsen non-leaf")
     coarsen_sources, = np.where(coarsen_flags)
     if not coarsen_sources:
@@ -169,7 +169,7 @@ def _apply_coarsen_flags(coarsen_flags, tob, error_on_ignored_flags=True):
 
     coarsen_parents = tob.box_parent_ids[coarsen_sources]
     coarsen_peers = tob.box_child_ids[:, coarsen_parents].reshape(-1)
-    coarsen_peer_is_leaf = tob.get_leaf_flags()[coarsen_peers]
+    coarsen_peer_is_leaf = tob.leaf_flags[coarsen_peers]
     coarsen_exec_flags = np.all(coarsen_peer_is_leaf, axis=0)
 
     # when a leaf box marked for coarsening has non-leaf peers
@@ -294,7 +294,7 @@ def make_mesh_from_leaves(tob: TreeOfBoxes) -> "Mesh":
 
     :arg tob: a :class:`TreeOfBoxes`.
     """
-    lfboxes = tob.get_leaf_boxes()
+    lfboxes = tob.leaf_boxes
     lfcenters = tob.box_centers[:, lfboxes]
     lflevels = tob.box_levels[lfboxes]
     lfradii = tob.root_extent / 2 / (2**lflevels)

@@ -151,11 +151,16 @@ class TreeOfBoxes:
 
         :mod:`numpy` vector of box levels in non-decreasing order.
 
+    .. attribute:: leaf_flags
+
+        :mod:`numpy` vector of whether a box is leaf.
+
+    .. attribute:: leaf_boxes
+
+        :mod:`numpy` vector of leaf boxes.
+
     .. automethod:: __init__
 
-    .. automethod:: get_leaf_flags
-
-    .. automethod:: get_leaf_boxes
     """
     box_centers: npt.NDArray
     root_extent: npt.NDArray
@@ -204,13 +209,14 @@ class TreeOfBoxes:
         else:
             return max(self.box_levels) + 1
 
-    def get_leaf_flags(self):
-        # box_id -> whether the box is leaf
+    @property
+    def leaf_flags(self):
         return np.all(self.box_child_ids == 0, axis=0)
 
-    def get_leaf_boxes(self):
+    @property
+    def leaf_boxes(self):
         boxes = np.arange(self.nboxes)
-        return boxes[self.get_leaf_flags()]
+        return boxes[self.leaf_flags]
 
 # }}}
 

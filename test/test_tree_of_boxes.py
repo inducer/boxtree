@@ -53,15 +53,15 @@ def make_global_leaf_quadrature(actx, tob, order):
                           set_bounding_box=True,
                           draw_vertex_numbers=False,
                           draw_element_numbers=False)
-        plt.plot(tob.box_centers[0][tob.get_leaf_boxes()],
-                 tob.box_centers[1][tob.get_leaf_boxes()], "rx")
+        plt.plot(tob.box_centers[0][tob.leaf_boxes],
+                 tob.box_centers[1][tob.leaf_boxes], "rx")
         plt.plot(mesh.vertices[0], mesh.vertices[1], "ro")
         plt.show()
 
     from meshmode.discretization import Discretization
     discr = Discretization(actx, mesh, group_factory)
 
-    lflevels = tob.box_levels[tob.get_leaf_boxes()]
+    lflevels = tob.box_levels[tob.leaf_boxes]
     lfmeasures = (tob.root_extent / (2**lflevels))**tob.dim
 
     from arraycontext import flatten
