@@ -50,6 +50,9 @@ from functools import partial
 from boxtree.tree import Tree, TreeOfBoxes
 from pytools import ProcessLogger, DebugProcessLogger
 
+if TYPE_CHECKING:
+    from meshmode.mesh import Mesh
+
 import logging
 logger = logging.getLogger(__name__)
 
@@ -283,10 +286,6 @@ def make_tob_root(dim: int,
             box_child_ids=np.array([0] * 2**dim, np.intp).reshape(2**dim, 1),
             box_levels=np.array([0]),
             )
-
-
-if TYPE_CHECKING:
-    from meshmode.mesh import Mesh
 
 
 def make_mesh_from_leaves(tob: TreeOfBoxes) -> "Mesh":
