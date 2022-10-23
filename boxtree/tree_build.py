@@ -42,7 +42,7 @@ THE SOFTWARE.
 
 import numpy as np
 import numpy.typing as npt
-from typing import Union, TYPE_CHECKING, List
+from typing import Optional, Union, TYPE_CHECKING, List
 from pytools import memoize_method
 import pyopencl as cl
 import pyopencl.array  # noqa
