@@ -228,8 +228,8 @@ def _sort_and_prune_deleted_boxes(tob):
 
 
 def refined_and_coarsened(tob: TreeOfBoxes,
-                          refine_flags: Union[None, npt.NDArray] = None,
-                          coarsen_flags: Union[None, npt.NDArray] = None,
+                          refine_flags: Optional[npt.NDArray] = None,
+                          coarsen_flags: Optional[npt.NDArray] = None,
                           error_on_ignored_flags: bool = True
                           ) -> TreeOfBoxes:
     """Make a refined/coarsened copy. When children of the same parent box
