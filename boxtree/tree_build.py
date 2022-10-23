@@ -9,8 +9,6 @@ Building Trees
 Manipulating Trees of Boxes
 ---------------------------
 
-.. currentmodule:: boxtree.tree_build
-
 .. autofunction:: refined
 .. autofunction:: uniformly_refined
 .. autofunction:: coarsened

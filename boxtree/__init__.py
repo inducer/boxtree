@@ -22,10 +22,12 @@ THE SOFTWARE.
 
 from boxtree.tree import TreeOfBoxes, Tree, TreeWithLinkedPointSources, \
     box_flags_enum
-from boxtree.tree_build import TreeBuilder
+from boxtree.tree_build import TreeBuilder, refined, uniformly_refined, \
+    coarsened, refined_and_coarsened
 
 __all__ = [
-    "TreeOfBoxes",
+    "TreeOfBoxes", "refined", "uniformly_refined", "coarsened",
+    "refined_and_coarsened",
     "Tree", "TreeWithLinkedPointSources",
     "TreeBuilder", "box_flags_enum"]
 
