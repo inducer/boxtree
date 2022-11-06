@@ -303,7 +303,7 @@ class ExpansionWranglerInterface(ABC):
         """
         return potentials
 
-    def communicate_mpoles(self, mpole_exps, return_stats=False):
+    def communicate_mpoles(self, mpole_exps, return_stats=False):  # noqa: B027
         """Used by the distributed implementation for forming the complete multipole
         expansions from the partial multipole expansions.
 
