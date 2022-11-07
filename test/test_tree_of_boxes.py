@@ -44,7 +44,7 @@ def make_global_leaf_quadrature(actx, tob, order):
     group_factory = GaussLegendreTensorProductGroupFactory(order=order)
 
     from boxtree.tree_build import make_mesh_from_leaves
-    mesh = make_mesh_from_leaves(tob)
+    mesh, _ = make_mesh_from_leaves(tob)
 
     if 0:
         from meshmode.mesh import visualization as mvis
@@ -87,7 +87,7 @@ def test_uniform_tree_of_boxes(ctx_factory, dim, order, nlevels):
     lower_bounds = np.random.rand(dim)
     radius = np.random.rand() + 0.1
     upper_bounds = lower_bounds + radius
-    tob = make_tob_root(dim=dim, bbox=[lower_bounds, upper_bounds])
+    tob = make_tob_root(bbox=[lower_bounds, upper_bounds])
 
     for _ in range(nlevels - 1):
         tob = uniformly_refined(tob)
@@ -109,7 +109,7 @@ def test_uniform_tree_of_boxes_convergence(ctx_factory, dim, order):
     radius = np.pi
     lower_bounds = np.zeros(dim) - radius/2
     upper_bounds = lower_bounds + radius
-    tob = make_tob_root(dim=dim, bbox=[lower_bounds, upper_bounds])
+    tob = make_tob_root(bbox=[lower_bounds, upper_bounds])
 
     min_level = 0
     max_level = 1
@@ -166,7 +166,7 @@ def test_tree_plot():
     nlevels = 3
     lower_bounds = np.zeros(dim) - radius/2
     upper_bounds = lower_bounds + radius
-    tob = make_tob_root(dim=dim, bbox=[lower_bounds, upper_bounds])
+    tob = make_tob_root(bbox=[lower_bounds, upper_bounds])
 
     for _ in range(nlevels - 1):
         tob = uniformly_refined(tob)
@@ -188,7 +188,7 @@ def test_traversal_from_tob(ctx_factory):
     nlevels = 3
     lower_bounds = np.zeros(dim) - radius/2
     upper_bounds = lower_bounds + radius
-    tob = make_tob_root(dim=dim, bbox=[lower_bounds, upper_bounds])
+    tob = make_tob_root(bbox=[lower_bounds, upper_bounds])
 
     for _ in range(nlevels):
         tob = uniformly_refined(tob)

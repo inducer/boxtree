@@ -265,11 +265,15 @@ def refined_and_coarsened(tob: TreeOfBoxes,
 # }}} End refine/coarsen a tree of boxes
 
 
-def make_tob_root(dim: int,
-                  bbox: Union[npt.NDArray, List[List[float]]]) -> TreeOfBoxes:
+def make_tob_root(bbox: npt.NDArray) -> TreeOfBoxes:
     """
     Make the minimal tree of boxes.
+
+    :arg tob: a 2-by-dim numpy array of [lower_bounds, upper_bounds] for the bounding box.
     """
+    from pytools import single_valued
+    assert len(bbox) == 2
+    dim = single_valued([len(bbox[0]), len(bbox[1])])
     center = np.array(
         [(bbox[0][iaxis] + bbox[1][iaxis]) * 0.5 for iaxis in range(dim)])
     extents = np.array(
@@ -290,6 +294,9 @@ def make_mesh_from_leaves(tob: TreeOfBoxes) -> "Mesh":
     """Make a :mod:`meshmode` mesh from the leaf boxes.
 
     :arg tob: a :class:`TreeOfBoxes`.
+
+    :returns: A tuple of the mesh and a vector of the element number -> box number
+        mapping.
     """
     lfboxes = tob.leaf_boxes
     lfcenters = tob.box_centers[:, lfboxes]
@@ -317,7 +324,7 @@ def make_mesh_from_leaves(tob: TreeOfBoxes) -> "Mesh":
         group_cls=TensorProductElementGroup,
         unit_nodes=None)
 
-    return Mesh(vertices=lfvertices, groups=[group])
+    return Mesh(vertices=lfvertices, groups=[group]), tob.leaf_boxes
 
 # }}}
 
