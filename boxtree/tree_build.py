@@ -40,7 +40,7 @@ THE SOFTWARE.
 
 import numpy as np
 import numpy.typing as npt
-from typing import Optional, Union, TYPE_CHECKING, List
+from typing import Optional, TYPE_CHECKING
 from pytools import memoize_method
 import pyopencl as cl
 import pyopencl.array  # noqa
@@ -269,7 +269,8 @@ def make_tob_root(bbox: npt.NDArray) -> TreeOfBoxes:
     """
     Make the minimal tree of boxes.
 
-    :arg tob: a 2-by-dim numpy array of [lower_bounds, upper_bounds] for the bounding box.
+    :arg tob: a 2-by-dim numpy array of [lower_bounds, upper_bounds] for the
+        bounding box.
     """
     from pytools import single_valued
     assert len(bbox) == 2
