@@ -1,14 +1,23 @@
 """
 .. currentmodule:: boxtree
 
-Building Trees
---------------
+Building Particle-Based Trees
+-----------------------------
 
 .. autoclass:: TreeBuilder
+
+.. _tree-of-boxes:
 
 Manipulating Trees of Boxes
 ---------------------------
 
+These functions manipulate instances of :class:`TreeOfBoxes`.
+
+These functions currently keep their bulk data in :class:`numpy.ndarray` instances,
+however, along with the rest of :mod:`boxtree`, this will migrate to
+:mod:`arraycontext` in the future.
+
+.. autofunction:: make_tob_root
 .. autofunction:: refined
 .. autofunction:: uniformly_refined
 .. autofunction:: coarsened
@@ -16,7 +25,10 @@ Manipulating Trees of Boxes
 .. autofunction:: make_mesh_from_leaves
 """
 
-__copyright__ = "Copyright (C) 2012 Andreas Kloeckner"
+__copyright__ = """
+Copyright (C) 2012 Andreas Kloeckner
+Copyright (C) 2022 University of Illinois Board of Trustees
+"""
 
 __license__ = """
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -270,10 +282,16 @@ def refined_and_coarsened(tob: TreeOfBoxes,
 
 def make_tob_root(bbox: npt.NDArray) -> TreeOfBoxes:
     """
-    Make the minimal tree of boxes.
+    Make the minimal tree of boxes, consisting of a single root box filling
+    *bbox*.
 
-    :arg tob: a 2-by-dim numpy array of [lower_bounds, upper_bounds] for the
+    :arg bbox: a 2-by-dim numpy array of ``[lower_bounds, upper_bounds]`` for the
         bounding box.
+
+    .. note::
+
+        *bbox* is expected to be square (with tolerances as accepted by
+        :func:`numpy.allclose`).
     """
     from pytools import single_valued
     assert len(bbox) == 2
