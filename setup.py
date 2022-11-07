@@ -17,7 +17,7 @@ def main():
         author="Andreas Kloeckner",
         author_email="inform@tiker.net",
         license="MIT",
-        url="http://wiki.tiker.net/BoxTree",
+        url="https://documen.tician.de/boxtree/",
         classifiers=[
             "Development Status :: 3 - Alpha",
             "Intended Audience :: Developers",
@@ -38,7 +38,6 @@ def main():
         python_requires="~=3.6",
         install_requires=[
             "Mako>=0.7.3",
-            "pytest>=2.3",
             "dataclasses; python_version<'3.7'",
 
             "pytools>=2018.4",
@@ -46,6 +45,9 @@ def main():
             "cgen>=2013.1.2",
             "arraycontext>=2021.1",
         ],
+        extras_require={
+            "test": ["pytest>=2.3"],
+        },
     )
 
 
