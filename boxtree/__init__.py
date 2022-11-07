@@ -20,14 +20,14 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-from boxtree.tree import TreeOfBoxes, Tree, TreeWithLinkedPointSources, \
-    box_flags_enum
-from boxtree.tree_build import TreeBuilder, refined, uniformly_refined, \
-    coarsened, refined_and_coarsened
+from boxtree.tree import (TreeOfBoxes, Tree, TreeWithLinkedPointSources,
+    box_flags_enum)
+from boxtree.tree_build import (TreeBuilder, refined, uniformly_refined,
+    coarsened, refined_and_coarsened, make_mesh_from_leaves)
 
 __all__ = [
     "TreeOfBoxes", "refined", "uniformly_refined", "coarsened",
-    "refined_and_coarsened",
+    "refined_and_coarsened", "make_mesh_from_leaves",
     "Tree", "TreeWithLinkedPointSources",
     "TreeBuilder", "box_flags_enum"]
 

@@ -121,8 +121,8 @@ class box_flags_enum(Enum):  # noqa
 class TreeOfBoxes:
     """A quad/octree tree of pure boxes, excluding their contents (e.g. particles).
     It is a lightweight tree handled with :mod:`numpy`, intended for mesh
-    adaptivity. One may generate a :mod:`meshmode.Mesh` object consisting of leaf
-    boxes using `make_mesh_from_leaves()`.
+    adaptivity. One may generate a :class:`meshmode.mesh.Mesh` object consisting of leaf
+    boxes using :func:`make_mesh_from_leaves`.
 
     .. attribute:: dimensions
 

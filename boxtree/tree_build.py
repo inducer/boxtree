@@ -13,6 +13,7 @@ Manipulating Trees of Boxes
 .. autofunction:: uniformly_refined
 .. autofunction:: coarsened
 .. autofunction:: refined_and_coarsened
+.. autofunction:: make_mesh_from_leaves
 """
 
 __copyright__ = "Copyright (C) 2012 Andreas Kloeckner"
@@ -38,9 +39,11 @@ THE SOFTWARE.
 """
 
 
+from typing import Optional, Tuple, TYPE_CHECKING
+import sys
+
 import numpy as np
 import numpy.typing as npt
-from typing import Optional, TYPE_CHECKING
 from pytools import memoize_method
 import pyopencl as cl
 import pyopencl.array  # noqa
@@ -48,7 +51,7 @@ from functools import partial
 from boxtree.tree import Tree, TreeOfBoxes
 from pytools import ProcessLogger, DebugProcessLogger
 
-if TYPE_CHECKING:
+if TYPE_CHECKING or sys._BUILDING_SPHINX_DOCS:
     from meshmode.mesh import Mesh
 
 import logging
@@ -291,10 +294,9 @@ def make_tob_root(bbox: npt.NDArray) -> TreeOfBoxes:
             )
 
 
-def make_mesh_from_leaves(tob: TreeOfBoxes) -> "Mesh":
-    """Make a :mod:`meshmode` mesh from the leaf boxes.
-
-    :arg tob: a :class:`TreeOfBoxes`.
+def make_mesh_from_leaves(tob: TreeOfBoxes) -> Tuple["Mesh", np.ndarray]:
+    """Make a :class:`~meshmode.mesh.Mesh` from the leaf boxes of the tree
+    of boxes *tob*.
 
     :returns: A tuple of the mesh and a vector of the element number -> box number
         mapping.
