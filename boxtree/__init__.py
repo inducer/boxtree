@@ -22,12 +22,16 @@ THE SOFTWARE.
 
 from boxtree.tree import (TreeOfBoxes, Tree, TreeWithLinkedPointSources,
     box_flags_enum)
-from boxtree.tree_build import (TreeBuilder, make_tob_root, refined,
-    uniformly_refined, coarsened, refined_and_coarsened, make_mesh_from_leaves)
+from boxtree.tree_of_boxes import (make_tree_of_boxes_root, refine_tree_of_boxes,
+    uniformly_refine_tree_of_boxes, coarsen_tree_of_boxes,
+    refine_and_coarsen_tree_of_boxes, make_meshmode_mesh_from_leaves)
+from boxtree.tree_build import TreeBuilder
 
 __all__ = [
-    "TreeOfBoxes", "refined", "uniformly_refined", "coarsened",
-    "refined_and_coarsened", "make_mesh_from_leaves",
+    "TreeOfBoxes", "make_tree_of_boxes_root",
+    "refine_tree_of_boxes", "uniformly_refine_tree_of_boxes",
+    "coarsen_tree_of_boxes", "refine_and_coarsen_tree_of_boxes",
+    "make_meshmode_mesh_from_leaves",
     "Tree", "TreeWithLinkedPointSources",
     "TreeBuilder", "box_flags_enum"]
 
@@ -37,8 +41,7 @@ __doc__ = r"""
 * it can build quad/octrees (in at least 1D/2D/3D), in one of two modes:
 
   * First, trees can be built as purely a collection of boxes,
-    see :class:`~boxtree.TreeOfBoxes` :ref:`tree-of-boxes`.
-    These trees are typically buit iteratively,
+    see :ref:`tree-of-boxes`.  These trees are typically built iteratively,
     through refinement and coarsening.
   * Second, trees can be built from collections of points,
     so that each box contains only a bounded number of these points.
@@ -53,8 +56,8 @@ __doc__ = r"""
   builds on the result of particle sorting,
   it is completely distinct in the software sense.
 
-* it can compute geometric lookup structures based on a :class:`boxtree.Tree`,
-  see :mod:`boxtree.area_query`.
+* it can compute geometric lookup structures based on a :class:`Tree`,
+  see :mod:`~boxtree.area_query`.
 
 Tree modes
 ----------

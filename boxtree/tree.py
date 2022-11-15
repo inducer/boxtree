@@ -119,10 +119,10 @@ class box_flags_enum(Enum):  # noqa
 
 @dataclass
 class TreeOfBoxes:
-    """A quad/octree tree of pure boxes, excluding their contents (e.g. particles).
-    It is a lightweight tree handled with :mod:`numpy`, intended for mesh
-    adaptivity. One may generate a :class:`meshmode.mesh.Mesh` object consisting of leaf
-    boxes using :func:`make_mesh_from_leaves`.
+    """A quad/octree tree of pure boxes, excluding their contents (e.g.
+    particles).  It is a lightweight tree handled with :mod:`numpy`, intended
+    for mesh adaptivity. One may generate a :class:`meshmode.mesh.Mesh` object
+    consisting of leaf boxes using :func:`make_meshmode_mesh_from_leaves`.
 
     .. attribute:: dimensions
 
@@ -220,7 +220,7 @@ class TreeOfBoxes:
 # }}}
 
 
-# {{{ tree data structure
+# {{{ tree with particles
 
 class Tree(DeviceDataRecord, TreeOfBoxes):
     r"""A quad/octree consisting of particles sorted into a hierarchy of boxes
@@ -234,6 +234,8 @@ class Tree(DeviceDataRecord, TreeOfBoxes):
 
     Unless otherwise indicated, all bulk data in this data structure is stored
     in a :class:`pyopencl.array.Array`. See also :meth:`get`.
+
+    Inherits from :class:`TreeOfBoxes`.
 
     .. rubric:: Flags
 

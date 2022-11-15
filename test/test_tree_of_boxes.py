@@ -30,6 +30,9 @@ from arraycontext import pytest_generate_tests_for_array_contexts
 from boxtree.array_context import (                                 # noqa: F401
         PytestPyOpenCLArrayContextFactory, _acf)
 
+from boxtree import (make_tree_of_boxes_root, make_meshmode_mesh_from_leaves,
+                     uniformly_refine_tree_of_boxes)
+
 import logging
 logger = logging.getLogger(__name__)
 
@@ -43,8 +46,7 @@ def make_global_leaf_quadrature(actx, tob, order):
         GaussLegendreTensorProductGroupFactory
     group_factory = GaussLegendreTensorProductGroupFactory(order=order)
 
-    from boxtree.tree_build import make_mesh_from_leaves
-    mesh, _ = make_mesh_from_leaves(tob)
+    mesh, _ = make_meshmode_mesh_from_leaves(tob)
 
     if 0:
         from meshmode.mesh import visualization as mvis
@@ -83,14 +85,13 @@ def make_global_leaf_quadrature(actx, tob, order):
 @pytest.mark.parametrize("order", [1, 2, 3])
 @pytest.mark.parametrize("nlevels", [1, 4])
 def test_uniform_tree_of_boxes(ctx_factory, dim, order, nlevels):
-    from boxtree.tree_build import make_tob_root, uniformly_refined
     lower_bounds = np.random.rand(dim)
     radius = np.random.rand() + 0.1
     upper_bounds = lower_bounds + radius
-    tob = make_tob_root(bbox=[lower_bounds, upper_bounds])
+    tob = make_tree_of_boxes_root(bbox=[lower_bounds, upper_bounds])
 
     for _ in range(nlevels - 1):
-        tob = uniformly_refined(tob)
+        tob = uniformly_refine_tree_of_boxes(tob)
 
     from arraycontext import PyOpenCLArrayContext
     queue = cl.CommandQueue(ctx_factory())
@@ -105,17 +106,16 @@ def test_uniform_tree_of_boxes(ctx_factory, dim, order, nlevels):
 @pytest.mark.parametrize("dim", [1, 2, 3])
 @pytest.mark.parametrize("order", [1, 2, 3])
 def test_uniform_tree_of_boxes_convergence(ctx_factory, dim, order):
-    from boxtree.tree_build import make_tob_root, uniformly_refined
     radius = np.pi
     lower_bounds = np.zeros(dim) - radius/2
     upper_bounds = lower_bounds + radius
-    tob = make_tob_root(bbox=[lower_bounds, upper_bounds])
+    tob = make_tree_of_boxes_root(bbox=[lower_bounds, upper_bounds])
 
     min_level = 0
     max_level = 1
 
     for _ in range(min_level):
-        tob = uniformly_refined(tob)
+        tob = uniformly_refine_tree_of_boxes(tob)
 
     # integrate cos(0.1*x + 0.2*y + 0.3*z + e) over [-pi/2, pi/2]**dim
     qexact_table = {
@@ -148,7 +148,7 @@ def test_uniform_tree_of_boxes_convergence(ctx_factory, dim, order):
 
         # under uniform refinement, last box is always leaf
         eoc_rec.add_data_point(tob.get_box_size(-1), err)
-        tob = uniformly_refined(tob)
+        tob = uniformly_refine_tree_of_boxes(tob)
 
     if len(eoc_rec.history) > 1:
         # Gauss quadrature is exact up to degree 2q+1
@@ -160,16 +160,15 @@ def test_uniform_tree_of_boxes_convergence(ctx_factory, dim, order):
 
 
 def test_tree_plot():
-    from boxtree.tree_build import make_tob_root, uniformly_refined
     radius = np.pi
     dim = 2
     nlevels = 3
     lower_bounds = np.zeros(dim) - radius/2
     upper_bounds = lower_bounds + radius
-    tob = make_tob_root(bbox=[lower_bounds, upper_bounds])
+    tob = make_tree_of_boxes_root(bbox=[lower_bounds, upper_bounds])
 
     for _ in range(nlevels - 1):
-        tob = uniformly_refined(tob)
+        tob = uniformly_refine_tree_of_boxes(tob)
 
     # test TreePlotter compatibility
     from boxtree.visualization import TreePlotter
@@ -182,21 +181,20 @@ def test_tree_plot():
 
 
 def test_traversal_from_tob(ctx_factory):
-    from boxtree.tree_build import make_tob_root, uniformly_refined
     radius = np.pi
     dim = 2
     nlevels = 3
     lower_bounds = np.zeros(dim) - radius/2
     upper_bounds = lower_bounds + radius
-    tob = make_tob_root(bbox=[lower_bounds, upper_bounds])
+    tob = make_tree_of_boxes_root(bbox=[lower_bounds, upper_bounds])
 
     for _ in range(nlevels):
-        tob = uniformly_refined(tob)
+        tob = uniformly_refine_tree_of_boxes(tob)
 
     ctx = ctx_factory()
     queue = cl.CommandQueue(ctx)
 
-    from boxtree.tree_build import _sort_boxes_by_level
+    from boxtree.tree_of_boxes import _sort_boxes_by_level
     tob = _sort_boxes_by_level(tob)
 
     def _to_device(tob, queue):
