@@ -20,3 +20,7 @@ intersphinx_mapping = {
         "https://documen.tician.de/pyopencl/": None,
         "https://documen.tician.de/pytential/": None,
         }
+
+nitpick_ignore_regex = [
+    ["py:class", r"numpy.typing._generic_alias.ScalarType"],
+]
