@@ -20,31 +20,49 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-from boxtree.tree import Tree, TreeWithLinkedPointSources, box_flags_enum
+from boxtree.tree import (TreeOfBoxes, Tree, TreeWithLinkedPointSources,
+    box_flags_enum)
+from boxtree.tree_of_boxes import (make_tree_of_boxes_root, refine_tree_of_boxes,
+    uniformly_refine_tree_of_boxes, coarsen_tree_of_boxes,
+    refine_and_coarsen_tree_of_boxes, make_meshmode_mesh_from_leaves)
 from boxtree.tree_build import TreeBuilder
 
 __all__ = [
+    "TreeOfBoxes", "make_tree_of_boxes_root",
+    "refine_tree_of_boxes", "uniformly_refine_tree_of_boxes",
+    "coarsen_tree_of_boxes", "refine_and_coarsen_tree_of_boxes",
+    "make_meshmode_mesh_from_leaves",
     "Tree", "TreeWithLinkedPointSources",
     "TreeBuilder", "box_flags_enum"]
 
 __doc__ = r"""
 :mod:`boxtree` can do three main things:
 
-* it can sort particles into an adaptively refined quad/octree,
-  see :class:`boxtree.Tree` and :class:`boxtree.TreeBuilder`.
+* it can build quad/octrees (in at least 1D/2D/3D), in one of two modes:
+
+  * First, trees can be built as purely a collection of boxes,
+    see :ref:`tree-of-boxes`.  These trees are typically built iteratively,
+    through refinement and coarsening.
+  * Second, trees can be built from collections of points,
+    so that each box contains only a bounded number of these points.
+    This is the older, less general way to construct trees
+    that has a fairly heavy focus on point-based Fast Multipole
+    Methods (FMMs).
+    See :class:`~Tree` and :class:`~TreeBuilder`.
+    Note that :class:`~Tree` inherits from :class:`TreeOfBoxes`.
 
 * it can compute fast-multipole-like interaction lists on this tree structure,
   see :mod:`boxtree.traversal`. Note that while this traversal generation
   builds on the result of particle sorting,
   it is completely distinct in the software sense.
 
-* It can compute geometric lookup structures based on a :class:`boxtree.Tree`,
-  see :mod:`boxtree.area_query`.
+* it can compute geometric lookup structures based on a :class:`Tree`,
+  see :mod:`~boxtree.area_query`.
 
 Tree modes
 ----------
 
-:mod:`boxtree` can operate in three 'modes':
+The particle-based :class:`Tree` can operate in three 'modes':
 
 * one where no distinction is made between sources and targets. In this mode,
   all participants in the interaction are called 'particles'.

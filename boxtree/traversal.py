@@ -787,14 +787,18 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
                     // source count threshold, it can be moved to a "close" list.
                     // This is a performance optimization.
 
-                    bool close_lists_exist = ${"true" \
-                        if sources_have_extent or targets_have_extent \
-                        else "false"};
+                    <% close_lists_exist  = \
+                        sources_have_extent or targets_have_extent %>
+                    bool close_lists_exist = ${ str(close_lists_exist).lower() };
 
                     bool force_close_list_for_low_interaction_count =
+                    %if close_lists_exist:
                         close_lists_exist &&
                         (box_source_counts_cumul[walk_box_id]
                             < from_sep_smaller_min_nsources_cumul);
+                    %else:
+                        false;
+                    %endif
 
                     if (meets_sep_crit &&
                         !force_close_list_for_low_interaction_count)
@@ -1654,7 +1658,7 @@ class FMMTraversalBuilder:
 
     @memoize_method
     @log_process(logger)
-    def get_kernel_info(self, dimensions, particle_id_dtype, box_id_dtype,
+    def get_kernel_info(self, *, dimensions, particle_id_dtype, box_id_dtype,
             coord_dtype, box_level_dtype, max_levels,
             sources_are_targets, sources_have_extent, targets_have_extent,
             extent_norm,
@@ -1805,11 +1809,14 @@ class FMMTraversalBuilder:
                                 "same_level_non_well_sep_boxes_starts"),
                             VectorArg(box_id_dtype,
                                 "same_level_non_well_sep_boxes_lists"),
-                            VectorArg(coord_dtype, "box_target_bounding_box_min",
-                                with_offset=False),
-                            VectorArg(coord_dtype, "box_target_bounding_box_max",
-                                with_offset=False),
-                            VectorArg(particle_id_dtype, "box_source_counts_cumul"),
+                            *([VectorArg(coord_dtype, "box_target_bounding_box_min",
+                                         with_offset=False),
+                               VectorArg(coord_dtype, "box_target_bounding_box_max",
+                                         with_offset=False),
+                               VectorArg(particle_id_dtype,
+                                         "box_source_counts_cumul"),
+                               ]
+                              if targets_have_extent else []),
                             ScalarArg(particle_id_dtype,
                                 "from_sep_smaller_min_nsources_cumul"),
                             ScalarArg(box_id_dtype, "from_sep_smaller_source_level"),
@@ -1894,13 +1901,18 @@ class FMMTraversalBuilder:
         max_levels = div_ceil(tree.nlevels, 5) * 5
 
         knl_info = self.get_kernel_info(
-                tree.dimensions, tree.particle_id_dtype, tree.box_id_dtype,
-                tree.coord_dtype, tree.box_level_dtype, max_levels,
-                tree.sources_are_targets,
-                tree.sources_have_extent, tree.targets_have_extent,
-                tree.extent_norm,
-                source_boxes_mask is not None,
-                source_parent_boxes_mask is not None)
+                dimensions=tree.dimensions,
+                particle_id_dtype=tree.particle_id_dtype,
+                box_id_dtype=tree.box_id_dtype,
+                coord_dtype=tree.coord_dtype,
+                box_level_dtype=tree.box_level_dtype,
+                max_levels=max_levels,
+                sources_are_targets=tree.sources_are_targets,
+                sources_have_extent=tree.sources_have_extent,
+                targets_have_extent=tree.targets_have_extent,
+                extent_norm=tree.extent_norm,
+                source_boxes_has_mask=source_boxes_mask is not None,
+                source_parent_boxes_has_mask=source_parent_boxes_mask is not None)
 
         def fin_debug(s):
             if debug:
@@ -2042,14 +2054,17 @@ class FMMTraversalBuilder:
 
         from_sep_smaller_base_args = (
                 queue, len(target_boxes),
+                # base_args
                 tree.box_centers.data, tree.root_extent, tree.box_levels,
                 tree.aligned_nboxes, tree.box_child_ids.data, tree.box_flags,
+                # list-specific args
                 tree.stick_out_factor, target_boxes,
                 same_level_non_well_sep_boxes.starts,
                 same_level_non_well_sep_boxes.lists,
-                tree.box_target_bounding_box_min.data,
-                tree.box_target_bounding_box_max.data,
-                tree.box_source_counts_cumul,
+                *([tree.box_target_bounding_box_min.data,
+                   tree.box_target_bounding_box_max.data,
+                   tree.box_source_counts_cumul]
+                  if tree.targets_have_extent else []),
                 _from_sep_smaller_min_nsources_cumul,
                 )
 

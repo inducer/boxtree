@@ -26,12 +26,14 @@ Tree data structure
     :members:
     :undoc-members:
 
+.. autoclass:: TreeOfBoxes
+
 .. autoclass:: Tree
+
+.. currentmodule:: boxtree.tree
 
 Tree with linked point sources
 ------------------------------
-
-.. currentmodule:: boxtree.tree
 
 .. autoclass:: TreeWithLinkedPointSources
 
@@ -83,9 +85,11 @@ THE SOFTWARE.
 
 import pyopencl as cl
 import numpy as np
+import numpy.typing as npt
 from boxtree.tools import DeviceDataRecord
 from cgen import Enum
 from pytools import memoize_method
+from dataclasses import dataclass
 
 import logging
 logger = logging.getLogger(__name__)
@@ -111,10 +115,116 @@ class box_flags_enum(Enum):  # noqa
 # }}}
 
 
-# {{{ tree data structure
+# {{{ tree of boxes
 
-class Tree(DeviceDataRecord):
-    r"""A quad/octree consisting of particles sorted into a hierarchy of boxes.
+@dataclass
+class TreeOfBoxes:
+    """A quad/octree tree of pure boxes, excluding their contents (e.g.
+    particles).  It is a lightweight tree handled with :mod:`numpy`, intended
+    for mesh adaptivity. One may generate a :class:`meshmode.mesh.Mesh` object
+    consisting of leaf boxes using :func:`make_meshmode_mesh_from_leaves`.
+
+    .. attribute:: dimensions
+
+    .. attribute:: nlevels
+
+    .. attribute:: nboxes
+
+    .. attribute:: root_extent
+
+        (Scalar) extent of the root box.
+
+    .. attribute:: box_centers
+
+        dim-by-nboxes :mod:`numpy` array of the centers of the boxes.
+
+    .. attribute:: box_parent_ids
+
+        :mod:`numpy` vector of parent box ids.
+
+    .. attribute:: box_child_ids
+
+        (2**dim)-by-nboxes :mod:`numpy` array of children box ids.
+
+    .. attribute:: box_levels
+
+        :mod:`numpy` vector of box levels in non-decreasing order.
+
+    .. attribute:: leaf_flags
+
+        :mod:`numpy` vector of whether a box is leaf.
+
+    .. attribute:: leaf_boxes
+
+        :mod:`numpy` vector of leaf boxes.
+
+    .. automethod:: __init__
+
+    """
+    box_centers: npt.NDArray
+    root_extent: npt.NDArray
+    box_parent_ids: npt.NDArray
+    box_child_ids: npt.NDArray
+    box_levels: npt.NDArray
+
+    def __post_init__(self):
+        if isinstance(self.box_centers, cl.array.Array):
+            bcenters = self.box_centers.get()
+        else:
+            bcenters = self.box_centers
+        lows = bcenters[:, 0] - 0.5*self.root_extent
+        highs = lows + self.root_extent
+        self.bounding_box = [lows, highs]
+        self.dim = self.box_centers.shape[0]
+
+    # {{{ dummy interface for TreePlotter
+
+    @property
+    def dimensions(self):
+        return self.dim
+
+    def get_box_size(self, ibox):
+        lev = self.box_levels[ibox]
+        box_size = self.root_extent * 0.5**lev
+        return box_size
+
+    def get_box_extent(self, ibox):
+        box_size = self.get_box_size(ibox)
+        extent_low = self.box_centers[:, ibox] - 0.5*box_size
+        extent_high = extent_low + box_size
+        return extent_low, extent_high
+
+    # }}} End dummy interface for TreePlotter
+
+    @property
+    def nboxes(self):
+        return self.box_centers.shape[1]
+
+    @property
+    def nlevels(self):
+        # level starts from 0
+        if isinstance(self.box_levels, cl.array.Array):
+            return int(max(self.box_levels).get()) + 1
+        else:
+            return max(self.box_levels) + 1
+
+    @property
+    def leaf_flags(self):
+        return np.all(self.box_child_ids == 0, axis=0)
+
+    @property
+    def leaf_boxes(self):
+        boxes = np.arange(self.nboxes)
+        return boxes[self.leaf_flags]
+
+# }}}
+
+
+# {{{ tree with particles
+
+class Tree(DeviceDataRecord, TreeOfBoxes):
+    r"""A quad/octree consisting of particles sorted into a hierarchy of boxes
+    that inherits from :class:`TreeOfBoxes`.
     Optionally, particles may be designated 'sources' and 'targets'. They
     may also be assigned radii which restrict the minimum size of the box
     into which they may be sorted.
@@ -124,6 +234,8 @@ class Tree(DeviceDataRecord):
 
     Unless otherwise indicated, all bulk data in this data structure is stored
     in a :class:`pyopencl.array.Array`. See also :meth:`get`.
+
+    Inherits from :class:`TreeOfBoxes`.
 
     .. rubric:: Flags
 
@@ -400,7 +512,6 @@ class Tree(DeviceDataRecord):
 
     .. automethod:: get
     """
-
     @property
     def dimensions(self):
         return len(self.sources)

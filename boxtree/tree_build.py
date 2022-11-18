@@ -1,13 +1,26 @@
 """
 .. currentmodule:: boxtree
 
-Building Trees
---------------
+Building Particle-Based Trees
+-----------------------------
+
+These functions produce instances of the particle-based :class:`Tree`.
+
+.. note::
+
+    These functions currently keep their bulk data in in
+    :class:`pyopencl.array.Array` instances.  This contrasts with the box-based
+    tree (:class:`TreeOfBoxes`), which operates on data  in :class:`numpy.ndarray`
+    instances. Along with the rest of :mod:`boxtree`, both will migrate to
+    :mod:`arraycontext` in the future.
 
 .. autoclass:: TreeBuilder
 """
 
-__copyright__ = "Copyright (C) 2012 Andreas Kloeckner"
+__copyright__ = """
+Copyright (C) 2012 Andreas Kloeckner
+Copyright (C) 2022 University of Illinois Board of Trustees
+"""
 
 __license__ = """
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -45,6 +58,8 @@ logger = logging.getLogger(__name__)
 class MaxLevelsExceeded(RuntimeError):
     pass
 
+
+# {{{ tree builder
 
 class TreeBuilder:
     """
@@ -1733,7 +1748,6 @@ class TreeBuilder:
         return Tree(
                 # If you change this, also change the documentation
                 # of what's in the tree, above.
-
                 sources_are_targets=sources_are_targets,
                 sources_have_extent=sources_have_extent,
                 targets_have_extent=targets_have_extent,
@@ -1784,4 +1798,6 @@ class TreeBuilder:
 
     # }}}
 
-# vim: foldmethod=marker:filetype=pyopencl
+# }}}
+
+# vim: foldmethod=marker

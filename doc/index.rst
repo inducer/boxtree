@@ -37,6 +37,7 @@ Overview
 
     intro
     tree
+    tree-build
     traversal
     fmm
     lookup

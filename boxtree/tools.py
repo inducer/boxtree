@@ -22,6 +22,7 @@ THE SOFTWARE.
 
 from typing import Any, Dict
 
+import sys
 import numpy as np
 from pytools import Record, memoize_method
 import pyopencl as cl
@@ -35,7 +36,6 @@ import loopy as lp
 from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2  # noqa
 
 from functools import partial
-import sys
 
 
 # Use offsets in VectorArg by default.
@@ -932,5 +932,6 @@ def coord_vec_subscript_code(dimensions: int, vec_name: str, iaxis: int) -> str:
         return f"{vec_name}.s{iaxis}"
 
 # }}}
+
 
 # vim: foldmethod=marker
