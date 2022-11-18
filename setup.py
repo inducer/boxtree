@@ -35,10 +35,9 @@ def main():
             "Topic :: Utilities",
         ],
         packages=find_packages(),
-        python_requires="~=3.6",
+        python_requires="~=3.8",
         install_requires=[
             "Mako>=0.7.3",
-            "dataclasses; python_version<'3.7'",
 
             "pytools>=2018.4",
             "pyopencl>=2018.2.2",
