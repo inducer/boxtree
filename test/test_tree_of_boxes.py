@@ -64,13 +64,13 @@ def make_global_leaf_quadrature(actx, tob, order):
     discr = Discretization(actx, mesh, group_factory)
 
     lflevels = tob.box_levels[tob.leaf_boxes]
-    lfmeasures = (tob.root_extent / (2**lflevels))**tob.dim
+    lfmeasures = (tob.root_extent / (2**lflevels))**tob.dimensions
 
     from arraycontext import flatten
     weights = flatten(discr.quad_weights(), actx).with_queue(actx.queue)
     jacobians = cl.array.to_device(
         actx.queue,
-        np.repeat(lfmeasures/(2**tob.dim), discr.groups[0].nunit_dofs))
+        np.repeat(lfmeasures/(2**tob.dimensions), discr.groups[0].nunit_dofs))
     q = weights * jacobians
 
     from pytools.obj_array import make_obj_array

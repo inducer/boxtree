@@ -172,26 +172,10 @@ class TreeOfBoxes:
         lows = bcenters[:, 0] - 0.5*self.root_extent
         highs = lows + self.root_extent
         self.bounding_box = [lows, highs]
-        self.dim = self.box_centers.shape[0]
-
-    # {{{ dummy interface for TreePlotter
 
     @property
     def dimensions(self):
-        return self.dim
-
-    def get_box_size(self, ibox):
-        lev = self.box_levels[ibox]
-        box_size = self.root_extent * 0.5**lev
-        return box_size
-
-    def get_box_extent(self, ibox):
-        box_size = self.get_box_size(ibox)
-        extent_low = self.box_centers[:, ibox] - 0.5*box_size
-        extent_high = extent_low + box_size
-        return extent_low, extent_high
-
-    # }}} End dummy interface for TreePlotter
+        return self.box_centers.shape[0]
 
     @property
     def nboxes(self):
@@ -213,6 +197,21 @@ class TreeOfBoxes:
     def leaf_boxes(self):
         boxes = np.arange(self.nboxes)
         return boxes[self.leaf_flags]
+
+    # {{{ dummy interface for TreePlotter
+
+    def get_box_size(self, ibox):
+        lev = self.box_levels[ibox]
+        box_size = self.root_extent * 0.5**lev
+        return box_size
+
+    def get_box_extent(self, ibox):
+        box_size = self.get_box_size(ibox)
+        extent_low = self.box_centers[:, ibox] - 0.5*box_size
+        extent_high = extent_low + box_size
+        return extent_low, extent_high
+
+    # }}}
 
 # }}}
 
