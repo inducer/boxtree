@@ -233,8 +233,8 @@ def _sort_and_prune_deleted_boxes(tob):
 def refine_and_coarsen_tree_of_boxes(
         tob: TreeOfBoxes,
         refine_flags: Optional[np.ndarray] = None,
-        coarsen_flags: Optional[np.ndarray] = None,
-        error_on_ignored_flags: bool = True
+        coarsen_flags: Optional[np.ndarray] = None, *,
+        error_on_ignored_flags: bool = True,
         ) -> TreeOfBoxes:
     """Make a refined/coarsened copy. When children of the same parent box
     are marked differently, the refinement flag takes priority.
@@ -270,33 +270,38 @@ def refine_and_coarsen_tree_of_boxes(
 
 # {{{ make_tree_of_boxes_root
 
-def make_tree_of_boxes_root(bbox: np.ndarray) -> TreeOfBoxes:
+def make_tree_of_boxes_root(bbox: Tuple[np.ndarray, np.ndarray]) -> TreeOfBoxes:
     """
     Make the minimal tree of boxes, consisting of a single root box filling
     *bbox*.
-
-    :arg bbox: a 2-by-dim numpy array of ``[lower_bounds, upper_bounds]`` for the
-        bounding box.
 
     .. note::
 
         *bbox* is expected to be square (with tolerances as accepted by
         :func:`numpy.allclose`).
+
+    :arg bbox: a :class:`tuple` of ``(lower_bounds, upper_bounds)`` for the
+        bounding box.
     """
-    from pytools import single_valued
     assert len(bbox) == 2
-    dim = single_valued([len(bbox[0]), len(bbox[1])])
-    center = np.array(
-        [(bbox[0][iaxis] + bbox[1][iaxis]) * 0.5 for iaxis in range(dim)])
-    extents = np.array(
-        [(bbox[1][iaxis] - bbox[0][iaxis]) for iaxis in range(dim)])
+
     from pytools import single_valued
-    parents = np.array([0], np.intp)
-    parents[0] = -1  # root has no parent
+    dim = single_valued([len(bbox[0]), len(bbox[1])])
+
+    box_centers = np.array(
+        [(bbox[0][iaxis] + bbox[1][iaxis]) * 0.5 for iaxis in range(dim)]
+        ).reshape(dim, 1)
+    root_extent = single_valued(
+        np.array([(bbox[1][iaxis] - bbox[0][iaxis]) for iaxis in range(dim)]),
+        equality_pred=np.allclose)
+
+    box_parent_ids = np.array([0], np.intp)
+    box_parent_ids[0] = -1  # root has no parent
+
     return TreeOfBoxes(
-            box_centers=center.reshape(dim, 1),
-            root_extent=single_valued(extents, np.allclose),
-            box_parent_ids=parents,
+            box_centers=box_centers,
+            root_extent=root_extent,
+            box_parent_ids=box_parent_ids,
             box_child_ids=np.array([0] * 2**dim, np.intp).reshape(2**dim, 1),
             box_levels=np.array([0]),
             )
