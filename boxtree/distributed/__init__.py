@@ -141,13 +141,19 @@ def dtype_to_mpi(dtype):
 
     return mpi_type
 
+# }}}
+
+
+# {{{ DistributedFMMRunner
 
 def construct_distributed_wrangler(
         queue, global_tree, traversal_builder, wrangler_factory,
         calibration_params, comm):
     """Helper function for constructing the distributed wrangler on each rank.
 
-    Note: This function needs to be called collectively on all ranks.
+    .. note::
+
+        This function needs to be called collectively on all ranks.
     """
 
     mpi_rank = comm.Get_rank()
@@ -228,7 +234,7 @@ def construct_distributed_wrangler(
 
     # }}}
 
-    # {{ Gather source indices and target indices of each rank
+    # {{{ Gather source indices and target indices of each rank
 
     src_idx_all_ranks = comm.gather(src_idx, root=0)
     tgt_idx_all_ranks = comm.gather(tgt_idx, root=0)
@@ -293,3 +299,7 @@ class DistributedFMMRunner:
             timing_data=timing_data,
             global_src_idx_all_ranks=self.src_idx_all_ranks,
             global_tgt_idx_all_ranks=self.tgt_idx_all_ranks)
+
+# }}}
+
+# vim: fdm=marker
