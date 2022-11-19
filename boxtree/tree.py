@@ -171,7 +171,7 @@ class TreeOfBoxes:
             bcenters = self.box_centers
         lows = bcenters[:, 0] - 0.5*self.root_extent
         highs = lows + self.root_extent
-        self.bounding_box = [lows, highs]
+        object.__setattr__(self, "bounding_box", (lows, highs))
 
     @property
     def dimensions(self):
