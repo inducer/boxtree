@@ -24,7 +24,6 @@ import sys
 import pytest
 
 import numpy as np
-import pyopencl as cl
 
 from arraycontext import pytest_generate_tests_for_array_contexts
 from boxtree.array_context import (                                 # noqa: F401
@@ -40,6 +39,8 @@ pytest_generate_tests = pytest_generate_tests_for_array_contexts([
     PytestPyOpenCLArrayContextFactory,
     ])
 
+
+# {{{ make_global_leaf_quadrature
 
 def make_global_leaf_quadrature(actx, tob, order):
     from meshmode.discretization.poly_element import \
@@ -67,49 +68,57 @@ def make_global_leaf_quadrature(actx, tob, order):
     lfmeasures = (tob.root_extent / (2**lflevels))**tob.dimensions
 
     from arraycontext import flatten
-    weights = flatten(discr.quad_weights(), actx).with_queue(actx.queue)
-    jacobians = cl.array.to_device(
-        actx.queue,
-        np.repeat(lfmeasures/(2**tob.dimensions), discr.groups[0].nunit_dofs))
+    weights = flatten(actx.thaw(discr.quad_weights()), actx)
+    jacobians = actx.from_numpy(
+        np.repeat(lfmeasures/(2**tob.dimensions), discr.groups[0].nunit_dofs)
+        )
     q = weights * jacobians
 
     from pytools.obj_array import make_obj_array
     nodes = discr.nodes()
-    x = make_obj_array([flatten(coords, actx).with_queue(actx.queue)
-                        for coords in nodes])
+    x = make_obj_array([flatten(actx.thaw(axis), actx) for axis in nodes])
 
     return x, q
 
+# }}}
+
+
+# {{{ test_uniform_tree_of_boxes
 
 @pytest.mark.parametrize("dim", [1, 2, 3])
 @pytest.mark.parametrize("order", [1, 2, 3])
 @pytest.mark.parametrize("nlevels", [1, 4])
-def test_uniform_tree_of_boxes(ctx_factory, dim, order, nlevels):
+def test_uniform_tree_of_boxes(actx_factory, dim, order, nlevels):
+    actx = actx_factory()
+
     lower_bounds = np.random.rand(dim)
     radius = np.random.rand() + 0.1
     upper_bounds = lower_bounds + radius
-    tob = make_tree_of_boxes_root(bbox=[lower_bounds, upper_bounds])
+    tob = make_tree_of_boxes_root((lower_bounds, upper_bounds))
 
     for _ in range(nlevels - 1):
         tob = uniformly_refine_tree_of_boxes(tob)
 
-    from arraycontext import PyOpenCLArrayContext
-    queue = cl.CommandQueue(ctx_factory())
-    actx = PyOpenCLArrayContext(queue)
-
-    x, q = make_global_leaf_quadrature(actx, tob, order)
+    _, q = make_global_leaf_quadrature(actx, tob, order)
 
     # integrates 1 exactly
-    assert np.isclose(sum(q.get()), radius**dim)
+    box_area = actx.np.sum(q)
+    assert np.isclose(actx.to_numpy(box_area), radius**dim)
 
+# }}}
+
+
+# {{{ test_uniform_tree_of_boxes_convergence
 
 @pytest.mark.parametrize("dim", [1, 2, 3])
 @pytest.mark.parametrize("order", [1, 2, 3])
-def test_uniform_tree_of_boxes_convergence(ctx_factory, dim, order):
+def test_uniform_tree_of_boxes_convergence(actx_factory, dim, order):
+    actx = actx_factory()
+
     radius = np.pi
-    lower_bounds = np.zeros(dim) - radius/2
+    lower_bounds = np.zeros(dim) - radius / 2
     upper_bounds = lower_bounds + radius
-    tob = make_tree_of_boxes_root(bbox=[lower_bounds, upper_bounds])
+    tob = make_tree_of_boxes_root((lower_bounds, upper_bounds))
 
     min_level = 0
     max_level = 1
@@ -128,13 +137,10 @@ def test_uniform_tree_of_boxes_convergence(ctx_factory, dim, order):
     from pytools.convergence import EOCRecorder
     eoc_rec = EOCRecorder()
 
-    from arraycontext import PyOpenCLArrayContext
-    queue = cl.CommandQueue(ctx_factory())
-    actx = PyOpenCLArrayContext(queue)
-
     for _ in range(min_level, max_level + 1):
         x, q = make_global_leaf_quadrature(actx, tob, order)
-        x, q = (np.array([xx.get() for xx in x]), q.get())
+        x = np.array([actx.to_numpy(xx) for xx in x])
+        q = actx.to_numpy(q)
 
         inner = np.ones_like(q) * np.e
         for iaxis in range(dim):
@@ -158,14 +164,18 @@ def test_uniform_tree_of_boxes_convergence(ctx_factory, dim, order):
         print(err)
         assert err < 1e-14
 
+# }}}
+
+
+# {{{ test_tree_plot
 
 def test_tree_plot():
     radius = np.pi
     dim = 2
     nlevels = 3
-    lower_bounds = np.zeros(dim) - radius/2
+    lower_bounds = np.zeros(dim) - radius / 2
     upper_bounds = lower_bounds + radius
-    tob = make_tree_of_boxes_root(bbox=[lower_bounds, upper_bounds])
+    tob = make_tree_of_boxes_root((lower_bounds, upper_bounds))
 
     for _ in range(nlevels - 1):
         tob = uniformly_refine_tree_of_boxes(tob)
@@ -179,41 +189,44 @@ def test_tree_plot():
     # import matplotlib.pyplot as plt
     # plt.show()
 
+# }}}
 
-def test_traversal_from_tob(ctx_factory):
+
+# {{{ test_traversal_from_tob
+
+def test_traversal_from_tob(actx_factory):
+    actx = actx_factory()
+
     radius = np.pi
     dim = 2
     nlevels = 3
     lower_bounds = np.zeros(dim) - radius/2
     upper_bounds = lower_bounds + radius
-    tob = make_tree_of_boxes_root(bbox=[lower_bounds, upper_bounds])
+    tob = make_tree_of_boxes_root((lower_bounds, upper_bounds))
 
     for _ in range(nlevels):
         tob = uniformly_refine_tree_of_boxes(tob)
 
-    ctx = ctx_factory()
-    queue = cl.CommandQueue(ctx)
-
     from boxtree.tree_of_boxes import _sort_boxes_by_level
     tob = _sort_boxes_by_level(tob)
 
-    def _to_device(tob, queue):
+    def tob_from_numpy(tob):
         from dataclasses import replace
         return replace(
             tob,
-            box_centers=cl.array.to_device(queue, tob.box_centers),
-            box_parent_ids=cl.array.to_device(queue, tob.box_parent_ids),
-            box_child_ids=cl.array.to_device(queue, tob.box_child_ids),
-            box_levels=cl.array.to_device(queue, tob.box_levels))
+            box_centers=actx.from_numpy(tob.box_centers),
+            box_parent_ids=actx.from_numpy(tob.box_parent_ids),
+            box_child_ids=actx.from_numpy(tob.box_child_ids),
+            box_levels=actx.from_numpy(tob.box_levels))
 
     blvlist = tob.box_levels.tolist()
     level_start_box_nrs = np.array(
         [blvlist.index(lv) for lv in range(tob.nlevels)])
 
     # FIXME: fill in data
-    tob = _to_device(tob, queue)
+    tob = tob_from_numpy(tob)
     tob.level_start_box_nrs = level_start_box_nrs
-    tob.level_start_box_nrs_dev = cl.array.to_device(queue, level_start_box_nrs)
+    tob.level_start_box_nrs_dev = actx.from_numpy(level_start_box_nrs)
 
     tob._is_pruned = True
     tob.sources_have_extent = False
@@ -234,12 +247,12 @@ def test_traversal_from_tob(ctx_factory):
 
     from boxtree.traversal import FMMTraversalBuilder
     from boxtree.tree import box_flags_enum
-    from functools import partial
-    empty = partial(cl.array.empty, queue, allocator=None)
-    tob.box_flags = empty(tob.nboxes, box_flags_enum.dtype)
+    tob.box_flags = actx.empty(tob.nboxes, box_flags_enum.dtype)
 
-    tg = FMMTraversalBuilder(ctx)
-    trav, _ = tg(queue, tob)
+    tg = FMMTraversalBuilder(actx.context)
+    trav, _ = tg(actx.queue, tob)
+
+# }}}
 
 
 # You can test individual routines by typing
