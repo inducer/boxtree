@@ -146,7 +146,7 @@ def dtype_to_mpi(dtype):
 
 # {{{ DistributedFMMRunner
 
-def construct_distributed_wrangler(
+def make_distributed_wrangler(
         queue, global_tree, traversal_builder, wrangler_factory,
         calibration_params, comm):
     """Helper function for constructing the distributed wrangler on each rank.
@@ -154,6 +154,10 @@ def construct_distributed_wrangler(
     .. note::
 
         This function needs to be called collectively on all ranks.
+
+    :returns: a tuple of ``(wrangler, src_idx_all_ranks, tgt_idx_all_ranks)``,
+        where the wrangler is constructed according to *wrangler_factory* and
+        the indices are passed to :func:`boxtree.fmm.drive_fmm`.
     """
 
     mpi_rank = comm.Get_rank()
@@ -286,7 +290,7 @@ class DistributedFMMRunner:
         :arg comm: MPI communicator.
         """
         self.wrangler, self.src_idx_all_ranks, self.tgt_idx_all_ranks = \
-            construct_distributed_wrangler(
+            make_distributed_wrangler(
                 queue, global_tree, traversal_builder, wrangler_factory,
                 calibration_params, comm)
 
