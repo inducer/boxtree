@@ -123,7 +123,8 @@ def _apply_refine_flags_without_sorting(refine_flags, tob):
     if len(refine_parents) == 0:
         return tob
 
-    nchildren = 2**tob.dim
+    dim = tob.dimensions
+    nchildren = 2**dim
     n_new_boxes = len(refine_parents) * nchildren
     nboxes_new = tob.nboxes + n_new_boxes
 
@@ -148,10 +149,10 @@ def _apply_refine_flags_without_sorting(refine_flags, tob):
     box_children[:, refine_parents] = (
         child_box_starts + np.arange(nchildren).reshape(-1, 1))
 
-    for i in range(2**tob.dim):
+    for i in range(2**dim):
         children_i = box_children[i, refine_parents]
         offsets = (
-                tob.root_extent * _vec_of_signs(tob.dim, i).reshape(-1, 1)
+                tob.root_extent * _vec_of_signs(dim, i).reshape(-1, 1)
                 * (1/2**(1+box_levels[children_i])))
         box_centers[:, children_i] = (
                 box_centers[:, refine_parents] + offsets)
@@ -312,6 +313,7 @@ def make_meshmode_mesh_from_leaves(tob: TreeOfBoxes) -> Tuple["Mesh", np.ndarray
     :returns: A tuple of the mesh and a vector of the element number -> box number
         mapping.
     """
+    dim = tob.dimensions
     lfboxes = tob.leaf_boxes
     lfcenters = tob.box_centers[:, lfboxes]
     lflevels = tob.box_levels[lfboxes]
@@ -320,11 +322,11 @@ def make_meshmode_mesh_from_leaves(tob: TreeOfBoxes) -> Tuple["Mesh", np.ndarray
     # use tensor product nodes ordering
     import modepy.nodes as nd
     cell_nodes_1d = np.array([-1, 1])
-    cell_nodes = nd.tensor_product_nodes(tob.dim, cell_nodes_1d)
+    cell_nodes = nd.tensor_product_nodes(dim, cell_nodes_1d)
 
     lfvertices = (
-        np.repeat(lfcenters, 2**tob.dim, axis=1)
-        + np.repeat(lfradii, 2**tob.dim) * np.tile(cell_nodes, (1, len(lfboxes)))
+        np.repeat(lfcenters, 2**dim, axis=1)
+        + np.repeat(lfradii, 2**dim) * np.tile(cell_nodes, (1, len(lfboxes)))
     )
 
     # FIXME: purge redundant vertices
@@ -332,7 +334,7 @@ def make_meshmode_mesh_from_leaves(tob: TreeOfBoxes) -> Tuple["Mesh", np.ndarray
     from meshmode.mesh.generation import make_group_from_vertices
 
     vertex_indices = np.arange(
-        len(lfboxes) * 2**tob.dim, dtype=np.int32).reshape([-1, 2**tob.dim])
+        len(lfboxes) * 2**dim, dtype=np.int32).reshape([-1, 2**dim])
     group = make_group_from_vertices(
         lfvertices, vertex_indices, 1,
         group_cls=TensorProductElementGroup,
