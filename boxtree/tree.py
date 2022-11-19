@@ -82,10 +82,8 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-
 import pyopencl as cl
 import numpy as np
-import numpy.typing as npt
 from boxtree.tools import DeviceDataRecord
 from cgen import Enum
 from pytools import memoize_method
@@ -159,11 +157,12 @@ class TreeOfBoxes:
 
     .. automethod:: __init__
     """
-    box_centers: npt.NDArray
-    root_extent: npt.NDArray
-    box_parent_ids: npt.NDArray
-    box_child_ids: npt.NDArray
-    box_levels: npt.NDArray
+
+    box_centers: np.ndarray
+    root_extent: np.ndarray
+    box_parent_ids: np.ndarray
+    box_child_ids: np.ndarray
+    box_levels: np.ndarray
 
     def __post_init__(self):
         if isinstance(self.box_centers, cl.array.Array):
@@ -510,6 +509,7 @@ class Tree(DeviceDataRecord, TreeOfBoxes):
 
     .. automethod:: get
     """
+
     @property
     def dimensions(self):
         return len(self.sources)
