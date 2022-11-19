@@ -103,17 +103,20 @@ of :class:`boxtree.distributed.calculation.DistributedExpansionWrangler` in
 """
 
 from mpi4py import MPI
+import enum
 import numpy as np
 import pyopencl as cl
 import pyopencl.array
-from enum import IntEnum
 import warnings
 from boxtree.cost import FMMCostModel
 
 __all__ = ["DistributedFMMRunner"]
 
 
-class MPITags(IntEnum):
+# {{{ MPI
+
+@enum.unique
+class MPITags(enum.IntEnum):
     DIST_WEIGHT = 1
     GATHER_POTENTIALS = 2
     REDUCE_POTENTIALS = 3
@@ -125,12 +128,17 @@ def dtype_to_mpi(dtype):
     mpi4py.
     """
     if hasattr(MPI, "_typedict"):
-        mpi_type = MPI._typedict[np.dtype(dtype).char]
+        typedict = MPI._typedict
     elif hasattr(MPI, "__TypeDict__"):
-        mpi_type = MPI.__TypeDict__[np.dtype(dtype).char]
+        typedict = MPI.__TypeDict__
     else:
-        raise RuntimeError("There is no dictionary to translate from Numpy dtype to "
-                           "MPI type")
+        raise RuntimeError(
+            "There is no dictionary to translate from Numpy dtype to MPI type")
+
+    mpi_type = typedict.get(np.dtype(dtype).char, None)
+    if mpi_type is None:
+        raise ValueError(f"Could not convert '{dtype}' to an MPI datatype")
+
     return mpi_type
 
 
