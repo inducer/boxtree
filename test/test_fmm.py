@@ -72,9 +72,7 @@ def get_fmmlib_ref_pot(wrangler, weights, sources_host, targets_host,
 
     if use_dipoles:
         if helmholtz_k == 0 and dims == 2:
-            kwargs["dipstr"] = (
-                    -weights  # pylint:disable=invalid-unary-operand-type
-                    * (dipole_vec[0] + 1j * dipole_vec[1]))
+            kwargs["dipstr"] = -weights * (dipole_vec[0] + 1j * dipole_vec[1])
         else:
             kwargs["dipstr"] = weights
             kwargs["dipvec"] = dipole_vec

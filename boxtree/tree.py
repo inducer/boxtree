@@ -111,7 +111,6 @@ class box_flags_enum(Enum):  # noqa
     HAS_CHILD_TARGETS = 1 << 3
     HAS_CHILDREN = (HAS_CHILD_SOURCES | HAS_CHILD_TARGETS)
 
-
 # }}}
 
 
@@ -159,7 +158,6 @@ class TreeOfBoxes:
         :mod:`numpy` vector of leaf boxes.
 
     .. automethod:: __init__
-
     """
     box_centers: npt.NDArray
     root_extent: npt.NDArray
