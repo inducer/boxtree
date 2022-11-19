@@ -31,9 +31,6 @@ import pyopencl.cltypes as cltypes
 from pyopencl.tools import dtype_to_c_struct, ScalarArg, VectorArg as _VectorArg
 from mako.template import Template
 from pytools.obj_array import make_obj_array
-import loopy as lp
-
-from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2  # noqa
 
 from functools import partial
 
@@ -111,6 +108,8 @@ def make_normal_particle_array(queue, nparticles, dims, dtype, seed=15):
 
 
 def make_surface_particle_array(queue, nparticles, dims, dtype, seed=15):
+    import loopy as lp
+
     if dims == 2:
         def get_2d_knl(dtype):
             knl = lp.make_kernel(
@@ -126,7 +125,9 @@ def make_surface_particle_array(queue, nparticles, dims, dtype, seed=15):
                     lp.GlobalArg("x,y", dtype, shape=lp.auto),
                     lp.ValueArg("n", np.int32),
                     ],
-                name="make_surface_dist")
+                name="make_surface_dist",
+                lang_version=lp.MOST_RECENT_LANGUAGE_VERSION,
+                )
 
             knl = lp.split_iname(knl, "i", 128, outer_tag="g.0", inner_tag="l.0")
 
@@ -172,6 +173,8 @@ def make_surface_particle_array(queue, nparticles, dims, dtype, seed=15):
 
 
 def make_uniform_particle_array(queue, nparticles, dims, dtype, seed=15):
+    import loopy as lp
+
     if dims == 2:
         n = int(nparticles**0.5)
 
@@ -192,7 +195,10 @@ def make_uniform_particle_array(queue, nparticles, dims, dtype, seed=15):
                 [
                     lp.GlobalArg("x,y", dtype, shape=lp.auto),
                     lp.ValueArg("n", np.int32),
-                    ], assumptions="n>0")
+                    ],
+                assumptions="n>0",
+                lang_version=lp.MOST_RECENT_LANGUAGE_VERSION,
+                )
 
             knl = lp.split_iname(knl, "i", 16, outer_tag="g.1", inner_tag="l.1")
             knl = lp.split_iname(knl, "j", 16, outer_tag="g.0", inner_tag="l.0")
