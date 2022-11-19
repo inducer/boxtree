@@ -1,10 +1,12 @@
 Python 3 POCL:
-    script:
-    - export PY_EXE=python3
-    - export PYOPENCL_TEST=portable:pthread
-    - export EXTRA_INSTALL="pybind11 numpy mako matplotlib"
-    - curl -L -O https://gitlab.tiker.net/inducer/ci-support/raw/main/build-and-test-py-project.sh
-    - ". ./build-and-test-py-project.sh"
+    script: |
+      export PYOPENCL_TEST=portable:pthread
+      export EXTRA_INSTALL="pybind11 numpy mako matplotlib"
+
+      curl -L -O https://tiker.net/ci-support-v0
+      . ci-support-v0
+      build_py_project_in_venv
+      test_py_project
     tags:
     - python3
     - pocl
@@ -15,12 +17,13 @@ Python 3 POCL:
             junit: test/pytest.xml
 
 Python 3 POCL Titan V:
-    script:
-    - export PYOPENCL_TEST=portable:titan
-    - CONDA_ENVIRONMENT=.test-conda-env-py3.yml
-    - export MPLBACKEND=Agg
-    - curl -L -O https://gitlab.tiker.net/inducer/ci-support/raw/main/build-and-test-py-project-within-miniconda.sh
-    - ". ./build-and-test-py-project-within-miniconda.sh"
+    script: |
+      export PYOPENCL_TEST=portable:titan
+
+      curl -L -O https://tiker.net/ci-support-v0
+      . ci-support-v0
+      build_py_project_in_conda_env
+      test_py_project
     tags:
     - nvidia-titan-v
     except:
@@ -30,12 +33,13 @@ Python 3 POCL Titan V:
             junit: test/pytest.xml
 
 Python 3 POCL Titan X:
-    script:
-    - export PYOPENCL_TEST=portable:titan
-    - CONDA_ENVIRONMENT=.test-conda-env-py3.yml
-    - export MPLBACKEND=Agg
-    - curl -L -O https://gitlab.tiker.net/inducer/ci-support/raw/main/build-and-test-py-project-within-miniconda.sh
-    - ". ./build-and-test-py-project-within-miniconda.sh"
+    script: |
+      export PYOPENCL_TEST=portable:titan
+
+      curl -L -O https://tiker.net/ci-support-v0
+      . ci-support-v0
+      build_py_project_in_conda_env
+      test_py_project
     tags:
     - nvidia-titan-x
     except:
@@ -45,12 +49,13 @@ Python 3 POCL Titan X:
             junit: test/pytest.xml
 
 Python 3 POCL K40:
-    script:
-    - export PYOPENCL_TEST=portable:k40
-    - CONDA_ENVIRONMENT=.test-conda-env-py3.yml
-    - export MPLBACKEND=Agg
-    - curl -L -O https://gitlab.tiker.net/inducer/ci-support/raw/main/build-and-test-py-project-within-miniconda.sh
-    - ". ./build-and-test-py-project-within-miniconda.sh"
+    script: |
+      export PYOPENCL_TEST=portable:k40
+
+      curl -L -O https://tiker.net/ci-support-v0
+      . ci-support-v0
+      build_py_project_in_conda_env
+      test_py_project
     tags:
     - nvidia-k40
     except:
@@ -60,74 +65,84 @@ Python 3 POCL K40:
             junit: test/pytest.xml
 
 Python 3 POCL MPI:
-    script:
-    - export PY_EXE=python3
-    - export PYOPENCL_TEST=portable
-    - export EXTRA_INSTALL="numpy mako mpi4py pybind11"
-    - export PYTEST_ADDOPTS="-k mpi --capture=no"
-    - curl -L -O -k https://gitlab.tiker.net/inducer/ci-support/raw/master/build-and-test-py-project.sh
-    - ". ./build-and-test-py-project.sh"
+    script: |
+      export PYOPENCL_TEST=portable
+      export EXTRA_INSTALL="numpy mako mpi4py pybind11"
+      export PYTEST_ADDOPTS="-m 'mpi' --capture=no"
+
+      curl -L -O https://tiker.net/ci-support-v0
+      . ci-support-v0
+      build_py_project_in_venv
+      test_py_project
+    tags:
+    - python3
+    - pocl
+    except:
+    - tags
+    artifacts:
+      reports:
+        junit: test/pytest.xml
+
+Python 3 POCL Examples:
+    script: |
+      test -n "$SKIP_EXAMPLES" && exit
+      export PYOPENCL_TEST=portable:pthread
+      export EXTRA_INSTALL="pybind11 numpy mako pyvisfile matplotlib"
+
+      curl -L -O https://tiker.net/ci-support-v0
+      . ci-support-v0
+      build_py_project_in_venv
+      run_examples
     tags:
     - python3
     - pocl
     except:
     - tags
 
-Python 3 POCL Examples:
-  script:
-  - test -n "$SKIP_EXAMPLES" && exit
-  - export PY_EXE=python3
-  - export PYOPENCL_TEST=portable:pthread
-  - export EXTRA_INSTALL="pybind11 numpy mako pyvisfile matplotlib"
-  - curl -L -O https://gitlab.tiker.net/inducer/ci-support/raw/main/build-py-project-and-run-examples.sh
-  - ". ./build-py-project-and-run-examples.sh"
-  tags:
-  - python3
-  - pocl
-  except:
-  - tags
-  artifacts:
-    reports:
-      junit: test/pytest.xml
-
 Pylint:
-  script:
-  - export PY_EXE=python3
-  - EXTRA_INSTALL="pybind11 numpy mako matplotlib mpi4py"
-  - curl -L -O https://gitlab.tiker.net/inducer/ci-support/raw/main/prepare-and-run-pylint.sh
-  - ". ./prepare-and-run-pylint.sh boxtree test/test_*.py"
-  tags:
-  - python3
-  except:
-  - tags
+    script: |
+      export EXTRA_INSTALL="pybind11 numpy mako matplotlib mpi4py"
+
+      curl -L -O https://tiker.net/ci-support-v0
+      . ci-support-v0
+      build_py_project_in_conda_env
+      run_pylint "$(get_proj_name)" examples/*.py test/*.py
+    tags:
+    - python3
+    except:
+    - tags
 
 Documentation:
-    script:
-    - EXTRA_INSTALL="pybind11 numpy mako mpi4py"
-    - curl -L -O https://gitlab.tiker.net/inducer/ci-support/raw/main/build-docs.sh
-    - ". ./build-docs.sh"
+    script: |
+      EXTRA_INSTALL="pybind11 numpy mako mpi4py"
+      curl -L -O https://tiker.net/ci-support-v0
+      . ci-support-v0
+      build_py_project_in_conda_env
+      build_docs
     tags:
     - python3
 
 Flake8:
-    script:
-    - curl -L -O https://gitlab.tiker.net/inducer/ci-support/raw/main/prepare-and-run-flake8.sh
-    - ". ./prepare-and-run-flake8.sh boxtree test examples"
+    script: |
+      curl -L -O https://tiker.net/ci-support-v0
+      . ci-support-v0
+      build_py_project_in_conda_env
+      install_and_run_flake8 "$(get_proj_name)" examples/*.py test/*.py
     tags:
     - python3
     except:
     - tags
 
 Downstream:
-  parallel:
-    matrix:
-    - DOWNSTREAM_PROJECT: [sumpy, pytential]
-  tags:
-  - large-node
-  - "docker-runner"
-  script: |
-    curl -L -O https://tiker.net/ci-support-v0
-    . ./ci-support-v0
+    parallel:
+      matrix:
+      - DOWNSTREAM_PROJECT: [sumpy, pytential]
+    tags:
+    - large-node
+    - "docker-runner"
+    script: |
+      export PYTEST_ADDOPTS=${PYTEST_ADDOPTS:-"-m 'not slowtest'"}
 
-    export PYTEST_ADDOPTS="-k 'not slowtest'"
-    test_downstream "$DOWNSTREAM_PROJECT"
+      curl -L -O https://tiker.net/ci-support-v0
+      . ./ci-support-v0
+      test_downstream "$DOWNSTREAM_PROJECT"
