@@ -112,7 +112,8 @@ def coarsen_tree_of_boxes(
     are coarsened.
     """
     return refine_and_coarsen_tree_of_boxes(
-        tob, None, coarsen_flags, error_on_ignored_flags)
+        tob, None, coarsen_flags,
+        error_on_ignored_flags=error_on_ignored_flags)
 
 
 def _apply_refine_flags_without_sorting(refine_flags, tob):
