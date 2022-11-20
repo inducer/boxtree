@@ -248,6 +248,7 @@ def test_traversal_from_tob(actx_factory):
         box_parent_ids=actx.from_numpy(tob.box_parent_ids),
         box_child_ids=actx.from_numpy(tob.box_child_ids),
         box_levels=actx.from_numpy(tob.box_levels),
+        bounding_box=tob.bounding_box,
 
         # compat with boxtree.Tree
         level_start_box_nrs=level_start_box_nrs,
