@@ -82,6 +82,8 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+from typing import Tuple
+
 import pyopencl as cl
 import numpy as np
 from boxtree.tools import DeviceDataRecord
@@ -114,6 +116,14 @@ class box_flags_enum(Enum):  # noqa
 
 # {{{ tree of boxes
 
+def _tob_bounding_box(
+        box_centers: np.ndarray, root_extent: np.ndarray,
+        ) -> Tuple[np.ndarray, np.ndarray]:
+    lows = box_centers[:, 0] - 0.5 * root_extent
+    highs = lows + root_extent
+    return lows, highs
+
+
 @dataclass
 class TreeOfBoxes:
     """A quad/octree tree of pure boxes, excluding their contents (e.g.
@@ -133,7 +143,7 @@ class TreeOfBoxes:
 
     .. attribute:: box_centers
 
-        dim-by-nboxes :mod:`numpy` array of the centers of the boxes.
+        mod:`numpy` array of shape ``(dim, nboxes)`` of the centers of the boxes.
 
     .. attribute:: box_parent_ids
 
@@ -146,6 +156,12 @@ class TreeOfBoxes:
     .. attribute:: box_levels
 
         :mod:`numpy` vector of box levels in non-decreasing order.
+
+    .. attribute:: bounding_box
+
+        A :class:`tuple` ``(bbox_min, bbox_max)`` of :mod:`numpy` vectors
+        giving the (built) extent of the tree. Note that this may be slightly
+        larger than what is required to contain all particles, if any.
 
     .. attribute:: leaf_flags
 
@@ -164,14 +180,7 @@ class TreeOfBoxes:
     box_child_ids: np.ndarray
     box_levels: np.ndarray
 
-    def __post_init__(self):
-        if isinstance(self.box_centers, cl.array.Array):
-            bcenters = self.box_centers.get()
-        else:
-            bcenters = self.box_centers
-        lows = bcenters[:, 0] - 0.5*self.root_extent
-        highs = lows + self.root_extent
-        object.__setattr__(self, "bounding_box", (lows, highs))
+    bounding_box: Tuple[np.ndarray, np.ndarray]
 
     @property
     def dimensions(self):
@@ -303,13 +312,6 @@ class Tree(DeviceDataRecord, TreeOfBoxes):
     .. attribute:: nlevels
 
     .. attribute:: nboxes
-
-    .. attribute:: bounding_box
-
-        a tuple *(bbox_min, bbox_max)* of
-        :mod:`numpy` vectors giving the (built) extent
-        of the tree. Note that this may be slightly larger
-        than what is required to contain all particles.
 
     .. attribute:: level_start_box_nrs
 

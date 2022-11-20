@@ -158,10 +158,14 @@ def _apply_refine_flags_without_sorting(refine_flags, tob):
         box_centers[:, children_i] = (
                 box_centers[:, refine_parents] + offsets)
 
+    from boxtree.tree import _tob_bounding_box
     return TreeOfBoxes(
-        box_centers=box_centers, root_extent=tob.root_extent,
-        box_parent_ids=box_parents, box_child_ids=box_children,
-        box_levels=box_levels)
+        box_centers=box_centers,
+        root_extent=tob.root_extent,
+        box_parent_ids=box_parents,
+        box_child_ids=box_children,
+        box_levels=box_levels,
+        bounding_box=_tob_bounding_box(box_centers, tob.root_extent))
 
 
 def _apply_coarsen_flags(coarsen_flags, tob, error_on_ignored_flags=True):
@@ -213,10 +217,17 @@ def _sort_boxes_by_level(tob, queue=None):
         box_parent_ids = tob.box_parent_ids[neworder]
         box_child_ids = tob.box_child_ids[:, neworder]
         box_levels = tob.box_levels[neworder]
+
+        from boxtree.tree import _tob_bounding_box
         tob = TreeOfBoxes(
-            box_centers=box_centers, root_extent=tob.root_extent,
-            box_parent_ids=box_parent_ids, box_child_ids=box_child_ids,
-            box_levels=box_levels)
+            box_centers=box_centers,
+            root_extent=tob.root_extent,
+            box_parent_ids=box_parent_ids,
+            box_child_ids=box_child_ids,
+            box_levels=box_levels,
+            bounding_box=_tob_bounding_box(box_centers, tob.root_extent),
+            )
+
     return tob
 
 
@@ -299,12 +310,14 @@ def make_tree_of_boxes_root(bbox: Tuple[np.ndarray, np.ndarray]) -> TreeOfBoxes:
     box_parent_ids = np.array([0], np.intp)
     box_parent_ids[0] = -1  # root has no parent
 
+    from boxtree.tree import _tob_bounding_box
     return TreeOfBoxes(
             box_centers=box_centers,
             root_extent=root_extent,
             box_parent_ids=box_parent_ids,
             box_child_ids=np.array([0] * 2**dim, np.intp).reshape(2**dim, 1),
             box_levels=np.array([0]),
+            bounding_box=_tob_bounding_box(box_centers, root_extent),
             )
 
 # }}}
