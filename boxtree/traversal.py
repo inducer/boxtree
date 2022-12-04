@@ -1845,7 +1845,8 @@ class FMMTraversalBuilder:
                     + template,
                     strict_undefined=True).render(**render_vars)
 
-            result[list_name+"_builder"] = ListOfListsBuilder(self.context,
+            result[f"{list_name}_builder"] = ListOfListsBuilder(
+                    self.context,
                     [(list_name, box_id_dtype)]
                     + [(extra_list_name, box_id_dtype)
                         for extra_list_name in extra_lists],
@@ -1895,19 +1896,24 @@ class FMMTraversalBuilder:
                     "trees with source extent are not supported for "
                     "traversal generation")
 
+        # FIXME: missing on TreeOfBoxes
+        sources_are_targets = getattr(tree, "sources_are_targets", True)
+
         # Generated code shouldn't depend on the *exact* number of tree levels.
         # So round up to the next multiple of 5.
         from pytools import div_ceil
         max_levels = div_ceil(tree.nlevels, 5) * 5
 
+        level_start_box_nrs = cl.array.to_device(queue, tree.level_start_box_nrs)
+
         knl_info = self.get_kernel_info(
                 dimensions=tree.dimensions,
-                particle_id_dtype=tree.particle_id_dtype,
+                particle_id_dtype=getattr(tree, "particle_id_dtype", None),
                 box_id_dtype=tree.box_id_dtype,
                 coord_dtype=tree.coord_dtype,
                 box_level_dtype=tree.box_level_dtype,
                 max_levels=max_levels,
-                sources_are_targets=tree.sources_are_targets,
+                sources_are_targets=sources_are_targets,
                 sources_have_extent=tree.sources_have_extent,
                 targets_have_extent=tree.targets_have_extent,
                 extent_norm=tree.extent_norm,
@@ -1942,7 +1948,7 @@ class FMMTraversalBuilder:
         source_boxes = result["source_boxes"].lists
         target_or_target_parent_boxes = result["target_or_target_parent_boxes"].lists
 
-        if not tree.sources_are_targets:
+        if not sources_are_targets:
             target_boxes = result["target_boxes"].lists
         else:
             target_boxes = source_boxes
@@ -1956,7 +1962,7 @@ class FMMTraversalBuilder:
                     tree.nlevels+1, tree.box_id_dtype) \
                             .fill(len(box_list))
             evt = knl_info.level_start_box_nrs_extractor(
-                    tree.level_start_box_nrs_dev,
+                    level_start_box_nrs,
                     tree.box_levels,
                     box_list,
                     result,
