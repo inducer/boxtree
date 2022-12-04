@@ -23,9 +23,6 @@ THE SOFTWARE.
 import sys
 import pytest
 
-from dataclasses import dataclass
-from typing import Optional
-
 import numpy as np
 
 from arraycontext import pytest_generate_tests_for_array_contexts
@@ -33,7 +30,7 @@ from boxtree.array_context import (                                 # noqa: F401
         PytestPyOpenCLArrayContextFactory, _acf)
 
 from boxtree import (make_tree_of_boxes_root, make_meshmode_mesh_from_leaves,
-                     uniformly_refine_tree_of_boxes, TreeOfBoxes)
+                     uniformly_refine_tree_of_boxes)
 
 import logging
 logger = logging.getLogger(__name__)
@@ -198,30 +195,6 @@ def test_tree_plot():
 # {{{ test_traversal_from_tob
 
 
-@dataclass
-class TreeOfBoxesForTraversal(TreeOfBoxes):
-    level_start_box_nrs: np.ndarray
-    level_start_box_nrs_dev: np.ndarray
-
-    sources_have_extent: bool
-    particle_id_dtype: np.dtype
-    box_id_dtype: np.dtype
-    box_level_dtype: np.dtype
-    coord_dtype: np.dtype
-    sources_are_targets: bool
-    targets_have_extent: bool
-    extent_norm: str
-    aligned_nboxes: int
-
-    stick_out_factor: float
-    box_target_bounding_box_min: Optional[np.ndarray]
-    box_source_bounding_box_min: Optional[np.ndarray]
-
-    box_flags: np.ndarray
-
-    _is_pruned: bool
-
-
 def test_traversal_from_tob(actx_factory):
     actx = actx_factory()
 
@@ -237,40 +210,17 @@ def test_traversal_from_tob(actx_factory):
 
     from boxtree.tree_of_boxes import _sort_boxes_by_level
     tob = _sort_boxes_by_level(tob)
-    blvlist = tob.box_levels.tolist()
-    level_start_box_nrs = np.array(
-        [blvlist.index(lv) for lv in range(tob.nlevels)])
 
-    from boxtree.tree import box_flags_enum
-    tob = TreeOfBoxesForTraversal(
+    from dataclasses import replace
+    tob = replace(
+        tob,
         box_centers=actx.from_numpy(tob.box_centers),
         root_extent=tob.root_extent,
         box_parent_ids=actx.from_numpy(tob.box_parent_ids),
         box_child_ids=actx.from_numpy(tob.box_child_ids),
         box_levels=actx.from_numpy(tob.box_levels),
         bounding_box=tob.bounding_box,
-
-        # compat with boxtree.Tree
-        level_start_box_nrs=level_start_box_nrs,
-        level_start_box_nrs_dev=actx.from_numpy(level_start_box_nrs),
-
-        sources_have_extent=False,
-        particle_id_dtype=np.dtype(np.int32),
-        box_id_dtype=np.dtype(np.int32),
-        box_level_dtype=np.dtype(np.int32),
-        coord_dtype=np.dtype(np.float64),
-        sources_are_targets=True,
-        targets_have_extent=False,
-        extent_norm="linf",
-        aligned_nboxes=tob.nboxes,
-
-        stick_out_factor=1e-12,
-        box_target_bounding_box_min=None,
-        box_source_bounding_box_min=None,
-
-        box_flags=actx.empty(tob.nboxes, box_flags_enum.dtype),
-
-        _is_pruned=True,
+        box_flags=actx.from_numpy(tob.box_flags),
         )
 
     from boxtree.traversal import FMMTraversalBuilder

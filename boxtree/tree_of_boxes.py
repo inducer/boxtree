@@ -46,8 +46,8 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-
-from typing import Optional, Tuple, TYPE_CHECKING
+from dataclasses import replace
+from typing import Any, Optional, Tuple, TYPE_CHECKING
 
 import sys
 import numpy as np
@@ -58,6 +58,14 @@ if TYPE_CHECKING or getattr(sys, "_BUILDING_SPHINX_DOCS", False):
 
 
 # {{{ utils for tree of boxes
+
+def _tob_bounding_box(
+        box_centers: np.ndarray, root_extent: np.ndarray,
+        ) -> Tuple[np.ndarray, np.ndarray]:
+    lows = box_centers[:, 0] - 0.5 * root_extent
+    highs = lows + root_extent
+    return lows, highs
+
 
 def _resized_array(arr: np.ndarray, new_size: int) -> np.ndarray:
     """Return a resized copy of the array. The new_size is a scalar which is
@@ -158,21 +166,22 @@ def _apply_refine_flags_without_sorting(refine_flags, tob):
         box_centers[:, children_i] = (
                 box_centers[:, refine_parents] + offsets)
 
-    from boxtree.tree import _tob_bounding_box
-    return TreeOfBoxes(
+    return replace(
+        tob,
         box_centers=box_centers,
         root_extent=tob.root_extent,
         box_parent_ids=box_parents,
         box_child_ids=box_children,
         box_levels=box_levels,
-        bounding_box=_tob_bounding_box(box_centers, tob.root_extent))
+        bounding_box=_tob_bounding_box(box_centers, tob.root_extent),
+        )
 
 
 def _apply_coarsen_flags(coarsen_flags, tob, error_on_ignored_flags=True):
     if coarsen_flags[~tob.leaf_flags].any():
         raise ValueError("attempting to coarsen non-leaf")
     coarsen_sources, = np.where(coarsen_flags)
-    if not coarsen_sources:
+    if coarsen_sources.size == 0:
         return tob
 
     coarsen_parents = tob.box_parent_ids[coarsen_sources]
@@ -210,25 +219,25 @@ def _apply_coarsen_flags(coarsen_flags, tob, error_on_ignored_flags=True):
 
 
 def _sort_boxes_by_level(tob, queue=None):
-    if np.any(np.diff(tob.box_levels) < 0):
-        # reorder boxes to into non-decreasing levels
-        neworder = np.argsort(tob.box_levels)
-        box_centers = tob.box_centers[:, neworder]
-        box_parent_ids = tob.box_parent_ids[neworder]
-        box_child_ids = tob.box_child_ids[:, neworder]
-        box_levels = tob.box_levels[neworder]
+    if not np.any(np.diff(tob.box_levels) < 0):
+        return tob
 
-        from boxtree.tree import _tob_bounding_box
-        tob = TreeOfBoxes(
-            box_centers=box_centers,
-            root_extent=tob.root_extent,
-            box_parent_ids=box_parent_ids,
-            box_child_ids=box_child_ids,
-            box_levels=box_levels,
-            bounding_box=_tob_bounding_box(box_centers, tob.root_extent),
-            )
+    # reorder boxes to into non-decreasing levels
+    neworder = np.argsort(tob.box_levels)
+    box_centers = tob.box_centers[:, neworder]
+    box_parent_ids = tob.box_parent_ids[neworder]
+    box_child_ids = tob.box_child_ids[:, neworder]
+    box_levels = tob.box_levels[neworder]
 
-    return tob
+    return replace(
+        tob,
+        box_centers=box_centers,
+        root_extent=tob.root_extent,
+        box_parent_ids=box_parent_ids,
+        box_child_ids=box_child_ids,
+        box_levels=box_levels,
+        bounding_box=_tob_bounding_box(box_centers, tob.root_extent),
+        )
 
 
 def _sort_and_prune_deleted_boxes(tob):
@@ -282,7 +291,12 @@ def refine_and_coarsen_tree_of_boxes(
 
 # {{{ make_tree_of_boxes_root
 
-def make_tree_of_boxes_root(bbox: Tuple[np.ndarray, np.ndarray]) -> TreeOfBoxes:
+def make_tree_of_boxes_root(
+        bbox: Tuple[np.ndarray, np.ndarray], *,
+        box_id_dtype: Any = None,
+        box_level_dtype: Any = None,
+        coord_dtype: Any = None,
+        ) -> TreeOfBoxes:
     """
     Make the minimal tree of boxes, consisting of a single root box filling
     *bbox*.
@@ -300,24 +314,54 @@ def make_tree_of_boxes_root(bbox: Tuple[np.ndarray, np.ndarray]) -> TreeOfBoxes:
     from pytools import single_valued
     dim = single_valued([len(bbox[0]), len(bbox[1])])
 
+    if box_id_dtype is None:
+        box_id_dtype = np.int32
+    box_id_dtype = np.dtype(box_id_dtype)
+
+    if box_level_dtype is None:
+        box_level_dtype = np.int32
+    box_level_dtype = np.dtype(box_level_dtype)
+
+    if coord_dtype is None:
+        coord_dtype = bbox[0].dtype
+    coord_dtype = np.dtype(coord_dtype)
+
     box_centers = np.array(
-        [(bbox[0][iaxis] + bbox[1][iaxis]) * 0.5 for iaxis in range(dim)]
+        [(bbox[0][iaxis] + bbox[1][iaxis]) * 0.5 for iaxis in range(dim)],
+        dtype=coord_dtype,
         ).reshape(dim, 1)
     root_extent = single_valued(
-        np.array([(bbox[1][iaxis] - bbox[0][iaxis]) for iaxis in range(dim)]),
+        np.array(
+            [(bbox[1][iaxis] - bbox[0][iaxis]) for iaxis in range(dim)],
+            dtype=coord_dtype),
         equality_pred=np.allclose)
 
-    box_parent_ids = np.array([0], np.intp)
+    box_parent_ids = np.array([0], dtype=box_id_dtype)
     box_parent_ids[0] = -1  # root has no parent
 
-    from boxtree.tree import _tob_bounding_box
+    from boxtree.tree import box_flags_enum
     return TreeOfBoxes(
             box_centers=box_centers,
             root_extent=root_extent,
             box_parent_ids=box_parent_ids,
-            box_child_ids=np.array([0] * 2**dim, np.intp).reshape(2**dim, 1),
-            box_levels=np.array([0]),
+            box_child_ids=np.array([0] * 2**dim, box_id_dtype).reshape(2**dim, 1),
+            box_levels=np.array([0], box_level_dtype),
             bounding_box=_tob_bounding_box(box_centers, root_extent),
+
+            box_flags=np.empty(1, dtype=box_flags_enum.dtype),
+            level_start_box_nrs=np.array([0], dtype=box_level_dtype),
+
+            box_id_dtype=box_id_dtype,
+            box_level_dtype=box_level_dtype,
+            coord_dtype=coord_dtype,
+
+            # FIXME: do we need to specify these?
+            sources_have_extent=False,
+            targets_have_extent=False,
+            extent_norm="linf",
+            stick_out_factor=0,
+
+            _is_pruned=True,
             )
 
 # }}}

@@ -116,14 +116,6 @@ class box_flags_enum(Enum):  # noqa
 
 # {{{ tree of boxes
 
-def _tob_bounding_box(
-        box_centers: np.ndarray, root_extent: np.ndarray,
-        ) -> Tuple[np.ndarray, np.ndarray]:
-    lows = box_centers[:, 0] - 0.5 * root_extent
-    highs = lows + root_extent
-    return lows, highs
-
-
 @dataclass
 class TreeOfBoxes:
     """A quad/octree tree of pure boxes, excluding their contents (e.g.
@@ -176,11 +168,27 @@ class TreeOfBoxes:
 
     box_centers: np.ndarray
     root_extent: np.ndarray
+
     box_parent_ids: np.ndarray
     box_child_ids: np.ndarray
     box_levels: np.ndarray
 
     bounding_box: Tuple[np.ndarray, np.ndarray]
+
+    box_flags: np.ndarray
+    level_start_box_nrs: np.ndarray
+
+    # FIXME: these should be properties and take values from box_parent_ids, etc
+    box_id_dtype: np.dtype
+    box_level_dtype: np.dtype
+    coord_dtype: np.dtype
+
+    sources_have_extent: bool
+    targets_have_extent: bool
+    extent_norm: str
+    stick_out_factor: float
+
+    _is_pruned: bool
 
     @property
     def dimensions(self):
@@ -189,6 +197,10 @@ class TreeOfBoxes:
     @property
     def nboxes(self):
         return self.box_centers.shape[1]
+
+    @property
+    def aligned_nboxes(self):
+        return self.box_child_ids.shape[-1]
 
     @property
     def nlevels(self):
@@ -532,10 +544,6 @@ class Tree(DeviceDataRecord, TreeOfBoxes):
     @property
     def nlevels(self):
         return len(self.level_start_box_nrs) - 1
-
-    @property
-    def aligned_nboxes(self):
-        return self.box_child_ids.shape[-1]
 
     def plot(self, **kwargs):
         from boxtree.visualization import TreePlotter
