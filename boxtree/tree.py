@@ -155,19 +155,47 @@ class TreeOfBoxes:
         giving the (built) extent of the tree. Note that this may be slightly
         larger than what is required to contain all particles, if any.
 
+    .. attribute:: box_flags
+
+        :attr:`box_flags_enum.dtype` ``[nboxes]``
+
+        A bitwise combination of :class:`box_flags_enum` constants.
+
+    .. attribute:: level_start_box_nrs
+
+        ``box_id_t [nlevels+1]``
+
+        An array of box ids indicating the ID at which each level starts. Levels
+        are contiguous in box ID space. To determine how many boxes there are
+        in each level, access the start of the next level. This array is
+        built so that this works even for the last level.
+
+    .. attribute:: box_id_dtype
+    .. attribute:: box_level_dtype
+    .. attribute:: coord_dtype
+
+        See :class:`Tree` documentation.
+
     .. attribute:: leaf_flags
 
-        :mod:`numpy` vector of whether a box is leaf.
+        Array of flags denoting whether a box is a leaf or otherwise.
 
     .. attribute:: leaf_boxes
 
-        :mod:`numpy` vector of leaf boxes.
+        Array of leaf boxes.
+
+    .. attribute:: sources_have_extent
+    .. attribute:: targets_have_extent
+    .. attribute:: extent_norm
+    .. attribute:: stick_out_factor
+
+        See :class:`Tree` documentation.
 
     .. automethod:: __init__
     """
 
-    box_centers: np.ndarray
     root_extent: np.ndarray
+    box_centers: np.ndarray
 
     box_parent_ids: np.ndarray
     box_child_ids: np.ndarray
@@ -240,8 +268,8 @@ class TreeOfBoxes:
 # {{{ tree with particles
 
 class Tree(DeviceDataRecord, TreeOfBoxes):
-    r"""A quad/octree consisting of particles sorted into a hierarchy of boxes
-    that inherits from :class:`TreeOfBoxes`.
+    r"""A quad/octree consisting of particles sorted into a hierarchy of boxes.
+
     Optionally, particles may be designated 'sources' and 'targets'. They
     may also be assigned radii which restrict the minimum size of the box
     into which they may be sorted.
@@ -287,10 +315,6 @@ class Tree(DeviceDataRecord, TreeOfBoxes):
     .. rubric:: Counts and sizes
     .. ------------------------------------------------------------------------
 
-    .. attribute:: root_extent
-
-        the root box size, a scalar
-
     .. attribute:: stick_out_factor
 
         A scalar used for calculating how much particles with extent may
@@ -317,23 +341,21 @@ class Tree(DeviceDataRecord, TreeOfBoxes):
         particle has radius :math:`r`, and :attr:`stick_out_factor` is denoted
         :math:`\alpha`.
 
-    .. attribute:: nsources
-
-    .. attribute:: ntargets
-
     .. attribute:: nlevels
 
     .. attribute:: nboxes
+
+    .. attribute:: nsources
+
+    .. attribute:: ntargets
 
     .. attribute:: level_start_box_nrs
 
         ``box_id_t [nlevels+1]``
 
-        A :class:`numpy.ndarray` of box ids
-        indicating the ID at which each level starts. Levels
-        are contiguous in box ID space. To determine
-        how many boxes there are in each level,
-        access the start of the next level. This array is
+        An array of box ids indicating the ID at which each level starts. Levels
+        are contiguous in box ID space. To determine how many boxes there are
+        in each level, access the start of the next level. This array is
         built so that this works even for the last level.
 
     .. attribute:: level_start_box_nrs_dev
@@ -477,12 +499,6 @@ class Tree(DeviceDataRecord, TreeOfBoxes):
     .. attribute:: box_levels
 
         :attr:`box_level_dtype` ``box_level_t [nboxes]``
-
-    .. attribute:: box_flags
-
-        :attr:`box_flags_enum.dtype` ``[nboxes]``
-
-        A bitwise combination of :class:`box_flags_enum` constants.
 
     .. ------------------------------------------------------------------------
     .. rubric:: Particle-adaptive box extents

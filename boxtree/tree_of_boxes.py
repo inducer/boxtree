@@ -273,9 +273,9 @@ def refine_and_coarsen_tree_of_boxes(
     :returns: a processed copy of the tree.
     """
     if refine_flags is None:
-        refine_flags = np.zeros(tob.nboxes, bool)
+        refine_flags = np.zeros(tob.nboxes, dtype=bool)
     if coarsen_flags is None:
-        coarsen_flags = np.zeros(tob.nboxes, bool)
+        coarsen_flags = np.zeros(tob.nboxes, dtype=bool)
 
     if (refine_flags & coarsen_flags).any():
         raise ValueError("some boxes are simultaneously marked "
