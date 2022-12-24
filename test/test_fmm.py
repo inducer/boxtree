@@ -618,7 +618,7 @@ def test_interaction_list_particle_count_thresholding(actx_factory, enable_exten
     dims = 2
     nsources = 1000
     ntargets = 1000
-    dtype = np.float
+    dtype = np.float64
 
     max_particles_in_box = 30
     # Ensure that we have underfilled boxes.
