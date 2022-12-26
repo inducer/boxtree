@@ -1224,7 +1224,7 @@ BOX_INFO_KERNEL_TPL = ElementwiseTemplate(
         {
             // This box has children, it is not a leaf.
 
-            my_box_flags |= BOX_HAS_CHILDREN;
+            my_box_flags |= BOX_HAS_CHILD_PARTICLES;
 
             %if sources_are_targets:
                 if (particle_count - nonchild_srcntgt_count)
