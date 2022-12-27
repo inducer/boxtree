@@ -23,8 +23,6 @@ Tree data structure
 .. currentmodule:: boxtree
 
 .. autoclass:: box_flags_enum
-    :members:
-    :undoc-members:
 
 .. autoclass:: TreeOfBoxes
 
@@ -98,7 +96,19 @@ logger = logging.getLogger(__name__)
 # {{{ box flags
 
 class box_flags_enum(Enum):  # noqa
-    """Constants for box flags bit field."""
+    """Constants for box flags bit field.
+
+    .. rubric:: Flags for particle-based trees
+
+    .. attribute:: dtype
+
+    .. attribute:: HAS_OWN_SOURCES
+    .. attribute:: HAS_OWN_TARGETS
+    .. attribute:: HAS_OWN_SRCNTGTS
+    .. attribute:: HAS_CHILD_SOURCES
+    .. attribute:: HAS_CHILD_TARGETS
+    .. attribute:: HAS_CHILD_PARTICLES
+    """
 
     c_name = "box_flags_t"
     dtype = np.dtype(np.uint8)
