@@ -81,6 +81,7 @@ THE SOFTWARE.
 """
 
 from typing import Tuple
+from functools import cached_property
 
 import pyopencl as cl
 import numpy as np
@@ -214,8 +215,6 @@ class TreeOfBoxes:
     box_child_ids: np.ndarray
     box_levels: np.ndarray
 
-    bounding_box: Tuple[np.ndarray, np.ndarray]
-
     box_flags: np.ndarray
     level_start_box_nrs: np.ndarray
 
@@ -259,6 +258,12 @@ class TreeOfBoxes:
     def leaf_boxes(self):
         boxes = np.arange(self.nboxes)
         return boxes[self.leaf_flags]
+
+    @cached_property
+    def bounding_box(self) -> Tuple[np.ndarray, np.ndarray]:
+        lows = self.box_centers[:, 0] - 0.5 * self.root_extent
+        highs = lows + self.root_extent
+        return lows, highs
 
     # {{{ dummy interface for TreePlotter
 
