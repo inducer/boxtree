@@ -59,14 +59,6 @@ if TYPE_CHECKING or getattr(sys, "_BUILDING_SPHINX_DOCS", False):
 
 # {{{ utils for tree of boxes
 
-def _tob_bounding_box(
-        box_centers: np.ndarray, root_extent: np.ndarray,
-        ) -> Tuple[np.ndarray, np.ndarray]:
-    lows = box_centers[:, 0] - 0.5 * root_extent
-    highs = lows + root_extent
-    return lows, highs
-
-
 def _resized_array(arr: np.ndarray, new_size: int) -> np.ndarray:
     """Return a resized copy of the array. The new_size is a scalar which is
     applied to the last dimension.
@@ -173,7 +165,6 @@ def _apply_refine_flags_without_sorting(refine_flags, tob):
         box_parent_ids=box_parents,
         box_child_ids=box_children,
         box_levels=box_levels,
-        bounding_box=_tob_bounding_box(box_centers, tob.root_extent),
         )
 
 
@@ -236,7 +227,6 @@ def _sort_boxes_by_level(tob, queue=None):
         box_parent_ids=box_parent_ids,
         box_child_ids=box_child_ids,
         box_levels=box_levels,
-        bounding_box=_tob_bounding_box(box_centers, tob.root_extent),
         )
 
 
@@ -346,7 +336,6 @@ def make_tree_of_boxes_root(
             box_parent_ids=box_parent_ids,
             box_child_ids=np.array([0] * 2**dim, box_id_dtype).reshape(2**dim, 1),
             box_levels=np.array([0], box_level_dtype),
-            bounding_box=_tob_bounding_box(box_centers, root_extent),
 
             box_flags=np.empty(1, dtype=box_flags_enum.dtype),
             level_start_box_nrs=np.array([0], dtype=box_level_dtype),
