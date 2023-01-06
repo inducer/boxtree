@@ -155,24 +155,18 @@ class LocalTreeGeneratorCodeContainer:
                 particle_id_t=dtype_to_ctype(self.particle_id_dtype),
                 box_flag_t=box_flag_t
             ),
-            Template(r"""
-                // reset IS_TARGET_BOX and HAS_TARGET_CHILD_BOXES bits in the flag of
-                // each box
-                box_flags[i] &= (~${IS_TARGET_BOX});
-                box_flags[i] &= (~${HAS_TARGET_CHILD_BOXES});
+            r"""
+                // reset BOX_IS_TARGET_BOX and BOX_HAS_TARGET_CHILD_BOXES bits
+                // in the flag of each box
+                box_flags[i] &= (~BOX_IS_TARGET_BOX);
+                box_flags[i] &= (~BOX_HAS_TARGET_CHILD_BOXES);
 
-                // rebuild IS_TARGET_BOX and HAS_TARGET_CHILD_BOXES bits
-                if(box_target_counts_nonchild[i]) box_flags[i] |= ${IS_TARGET_BOX};
+                // rebuild BOX_IS_TARGET_BOX and BOX_HAS_TARGET_CHILD_BOXES bits
+                if(box_target_counts_nonchild[i]) box_flags[i] |= BOX_IS_TARGET_BOX;
                 if(box_target_counts_nonchild[i] < box_target_counts_cumul[i])
-                    box_flags[i] |= ${HAS_TARGET_CHILD_BOXES};
-            """).render(
-                IS_TARGET_BOX=(
-                    "(" + box_flag_t + ") " + str(box_flags_enum.IS_TARGET_BOX)
-                ),
-                HAS_TARGET_CHILD_BOXES=(
-                    "(" + box_flag_t + ") " + str(box_flags_enum.HAS_TARGET_CHILD_BOXES)
-                )
-            )
+                    box_flags[i] |= BOX_HAS_TARGET_CHILD_BOXES;
+            """,
+            preamble=box_flags_enum.get_c_defines()
         )
 
 
