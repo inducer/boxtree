@@ -50,13 +50,32 @@ from typing import Any, Optional, Tuple, TYPE_CHECKING
 
 import sys
 import numpy as np
-from boxtree.tree import TreeOfBoxes
+from boxtree.tree import TreeOfBoxes, box_flags_enum
 
 if TYPE_CHECKING or getattr(sys, "_BUILDING_SPHINX_DOCS", False):
     from meshmode.mesh import Mesh
 
 
 # {{{ utils for tree of boxes
+
+def _compute_tob_box_flags(box_child_ids: np.ndarray) -> np.ndarray:
+    nboxes = box_child_ids.shape[1]
+    # For the time being, we will work with the assumption that each box
+    # in the tree is both a source and a target box.
+    box_flags = np.full(
+            nboxes,
+            box_flags_enum.IS_SOURCE_BOX | box_flags_enum.IS_TARGET_BOX,
+            dtype=box_flags_enum.dtype)
+
+    box_is_leaf = np.all(box_child_ids == 0, axis=0)
+    box_flags[box_is_leaf] = box_flags[box_is_leaf] | box_flags_enum.IS_LEAF_BOX
+
+    box_flags[~box_is_leaf] = box_flags[~box_is_leaf] | (
+            box_flags_enum.HAS_SOURCE_CHILD_BOXES
+            | box_flags_enum.HAS_TARGET_CHILD_BOXES)
+
+    return box_flags
+
 
 def _resized_array(arr: np.ndarray, new_size: int) -> np.ndarray:
     """Return a resized copy of the array. The new_size is a scalar which is
@@ -99,7 +118,7 @@ def uniformly_refine_tree_of_boxes(tob: TreeOfBoxes) -> TreeOfBoxes:
     """Make a uniformly refined copy of `tob`.
     """
     refine_flags = np.zeros(tob.nboxes, bool)
-    refine_flags[tob.leaf_flags] = 1
+    refine_flags[tob.box_flags & box_flags_enum.IS_LEAF_BOX != 0] = 1
     return refine_tree_of_boxes(tob, refine_flags)
 
 
@@ -116,7 +135,9 @@ def coarsen_tree_of_boxes(
 
 
 def _apply_refine_flags_without_sorting(refine_flags, tob):
-    if refine_flags[~tob.leaf_flags].any():
+    box_is_leaf = tob.box_flags & box_flags_enum.IS_LEAF_BOX != 0
+
+    if refine_flags[~box_is_leaf].any():
         raise ValueError("attempting to split non-leaf")
 
     refine_parents, = np.where(refine_flags)
@@ -164,7 +185,7 @@ def _apply_refine_flags_without_sorting(refine_flags, tob):
         box_child_ids=box_children,
         box_levels=box_levels,
 
-        box_flags=None,
+        box_flags=_compute_tob_box_flags(box_children),
         level_start_box_nrs=None,
         box_id_dtype=tob.box_id_dtype,
         box_level_dtype=tob.box_level_dtype,
@@ -178,7 +199,8 @@ def _apply_refine_flags_without_sorting(refine_flags, tob):
 
 
 def _apply_coarsen_flags(coarsen_flags, tob, error_on_ignored_flags=True):
-    if coarsen_flags[~tob.leaf_flags].any():
+    box_is_leaf = tob.box_flags & box_flags_enum.IS_LEAF_BOX != 0
+    if coarsen_flags[~box_is_leaf].any():
         raise ValueError("attempting to coarsen non-leaf")
     coarsen_sources, = np.where(coarsen_flags)
     if coarsen_sources.size == 0:
@@ -186,7 +208,7 @@ def _apply_coarsen_flags(coarsen_flags, tob, error_on_ignored_flags=True):
 
     coarsen_parents = tob.box_parent_ids[coarsen_sources]
     coarsen_peers = tob.box_child_ids[:, coarsen_parents].reshape(-1)
-    coarsen_peer_is_leaf = tob.leaf_flags[coarsen_peers]
+    coarsen_peer_is_leaf = box_is_leaf[coarsen_peers]
     coarsen_exec_flags = np.all(coarsen_peer_is_leaf, axis=0)
 
     # when a leaf box marked for coarsening has non-leaf peers
@@ -220,7 +242,7 @@ def _apply_coarsen_flags(coarsen_flags, tob, error_on_ignored_flags=True):
         box_child_ids=box_children,
         box_levels=box_levels,
 
-        box_flags=None,
+        box_flags=_compute_tob_box_flags(box_children),
         level_start_box_nrs=None,
         box_id_dtype=tob.box_id_dtype,
         box_level_dtype=tob.box_level_dtype,
@@ -251,7 +273,7 @@ def _sort_boxes_by_level(tob, queue=None):
         box_child_ids=box_child_ids,
         box_levels=box_levels,
 
-        box_flags=None,
+        box_flags=_compute_tob_box_flags(box_child_ids),
         level_start_box_nrs=None,
         box_id_dtype=tob.box_id_dtype,
         box_level_dtype=tob.box_level_dtype,
@@ -276,7 +298,7 @@ def _sort_and_prune_deleted_boxes(tob):
         box_levels=tob.box_levels[:newn],
         box_centers=tob.box_centers[:, :newn],
 
-        box_flags=None,
+        box_flags=_compute_tob_box_flags(tob.box_child_ids[:, :newn]),
         level_start_box_nrs=None,
         box_id_dtype=tob.box_id_dtype,
         box_level_dtype=tob.box_level_dtype,
@@ -377,15 +399,16 @@ def make_tree_of_boxes_root(
     box_parent_ids = np.array([0], dtype=box_id_dtype)
     box_parent_ids[0] = -1  # root has no parent
 
-    from boxtree.tree import box_flags_enum
+    box_child_ids = np.array([0] * 2**dim, box_id_dtype).reshape(2**dim, 1)
+
     return TreeOfBoxes(
             box_centers=box_centers,
             root_extent=root_extent,
             box_parent_ids=box_parent_ids,
-            box_child_ids=np.array([0] * 2**dim, box_id_dtype).reshape(2**dim, 1),
+            box_child_ids=box_child_ids,
             box_levels=np.array([0], box_level_dtype),
 
-            box_flags=np.empty(1, dtype=box_flags_enum.dtype),
+            box_flags=_compute_tob_box_flags(box_child_ids),
             level_start_box_nrs=np.array([0], dtype=box_level_dtype),
 
             box_id_dtype=box_id_dtype,
