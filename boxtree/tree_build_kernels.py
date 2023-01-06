@@ -1224,11 +1224,12 @@ BOX_INFO_KERNEL_TPL = ElementwiseTemplate(
         {
             // This box has children, it is not a leaf.
 
-            my_box_flags |= BOX_HAS_CHILD_PARTICLES;
+            my_box_flags |= BOX_HAS_SOURCE_OR_TARGET_CHILD_BOXES;
 
             %if sources_are_targets:
                 if (particle_count - nonchild_srcntgt_count)
-                    my_box_flags |= BOX_HAS_CHILD_SOURCES | BOX_HAS_CHILD_TARGETS;
+                    my_box_flags |=
+                        BOX_HAS_SOURCE_CHILD_BOXES | BOX_HAS_TARGET_CHILD_BOXES;
             %else:
                 particle_id_t source_count = box_source_counts_cumul[box_id];
                 particle_id_t target_count = box_target_counts_cumul[box_id];
@@ -1237,15 +1238,15 @@ BOX_INFO_KERNEL_TPL = ElementwiseTemplate(
                 dbg_assert(target_count >= nonchild_target_count);
 
                 if (source_count - nonchild_source_count)
-                    my_box_flags |= BOX_HAS_CHILD_SOURCES;
+                    my_box_flags |= BOX_HAS_SOURCE_CHILD_BOXES;
                 if (target_count - nonchild_target_count)
-                    my_box_flags |= BOX_HAS_CHILD_TARGETS;
+                    my_box_flags |= BOX_HAS_TARGET_CHILD_BOXES;
             %endif
 
             if (nonchild_source_count)
-                my_box_flags |= BOX_HAS_OWN_SOURCES;
+                my_box_flags |= BOX_IS_SOURCE_BOX;
             if (nonchild_target_count)
-                my_box_flags |= BOX_HAS_OWN_TARGETS;
+                my_box_flags |= BOX_IS_TARGET_BOX;
         }
         else
         {
@@ -1253,7 +1254,7 @@ BOX_INFO_KERNEL_TPL = ElementwiseTemplate(
 
             %if sources_are_targets:
                 if (particle_count)
-                    my_box_flags |= BOX_HAS_OWN_SOURCES | BOX_HAS_OWN_TARGETS;
+                    my_box_flags |= BOX_IS_SOURCE_BOX | BOX_IS_TARGET_BOX;
 
                 box_source_counts_nonchild[box_id] = particle_count;
                 dbg_assert(box_source_counts_nonchild == box_target_counts_nonchild);
@@ -1262,9 +1263,9 @@ BOX_INFO_KERNEL_TPL = ElementwiseTemplate(
                 particle_id_t my_target_count = particle_count - my_source_count;
 
                 if (my_source_count)
-                    my_box_flags |= BOX_HAS_OWN_SOURCES;
+                    my_box_flags |= BOX_IS_SOURCE_BOX;
                 if (my_target_count)
-                    my_box_flags |= BOX_HAS_OWN_TARGETS;
+                    my_box_flags |= BOX_IS_TARGET_BOX;
 
                 box_source_counts_nonchild[box_id] = my_source_count;
                 box_target_counts_nonchild[box_id] = my_target_count;

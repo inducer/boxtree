@@ -103,27 +103,28 @@ class box_flags_enum(Enum):  # noqa
 
     .. attribute:: dtype
 
-    .. attribute:: HAS_OWN_SOURCES
-    .. attribute:: HAS_OWN_TARGETS
-    .. attribute:: HAS_OWN_SRCNTGTS
-    .. attribute:: HAS_CHILD_SOURCES
-    .. attribute:: HAS_CHILD_TARGETS
-    .. attribute:: HAS_CHILD_PARTICLES
+    .. attribute:: IS_SOURCE_BOX
+    .. attribute:: IS_TARGET_BOX
+    .. attribute:: IS_SOURCE_OR_TARGET_BOX
+    .. attribute:: HAS_SOURCE_CHILD_BOXES
+    .. attribute:: HAS_TARGET_CHILD_BOXES
+    .. attribute:: HAS_SOURCE_OR_TARGET_CHILD_BOXES
     """
 
     c_name = "box_flags_t"
     dtype = np.dtype(np.uint8)
     c_value_prefix = "BOX_"
 
-    HAS_OWN_SOURCES = 1 << 0
-    HAS_OWN_TARGETS = 1 << 1
-    HAS_OWN_SRCNTGTS = (HAS_OWN_SOURCES | HAS_OWN_TARGETS)
-    HAS_CHILD_SOURCES = 1 << 2
-    HAS_CHILD_TARGETS = 1 << 3
-    HAS_CHILD_PARTICLES = (HAS_CHILD_SOURCES | HAS_CHILD_TARGETS)
+    IS_SOURCE_BOX = 1 << 0
+    IS_TARGET_BOX = 1 << 1
+    IS_SOURCE_OR_TARGET_BOX = (IS_SOURCE_BOX | IS_TARGET_BOX)
+    HAS_SOURCE_CHILD_BOXES = 1 << 2
+    HAS_TARGET_CHILD_BOXES = 1 << 3
+    HAS_SOURCE_OR_TARGET_CHILD_BOXES = (
+            HAS_SOURCE_CHILD_BOXES | HAS_TARGET_CHILD_BOXES)
 
     # Deprecated alias, do not use.
-    HAS_CHILDREN = HAS_CHILD_PARTICLES
+    HAS_CHILDREN = HAS_SOURCE_OR_TARGET_CHILD_BOXES
 
 # }}}
 
