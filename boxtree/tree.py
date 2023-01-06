@@ -80,7 +80,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-from typing import Tuple
+from typing import Optional, Tuple
 from functools import cached_property
 
 import pyopencl as cl
@@ -215,8 +215,8 @@ class TreeOfBoxes:
     box_child_ids: np.ndarray
     box_levels: np.ndarray
 
-    box_flags: np.ndarray
-    level_start_box_nrs: np.ndarray
+    box_flags: Optional[np.ndarray]
+    level_start_box_nrs: Optional[np.ndarray]
 
     # FIXME: these should be properties and take values from box_parent_ids, etc
     box_id_dtype: np.dtype

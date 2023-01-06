@@ -46,7 +46,6 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-from dataclasses import replace
 from typing import Any, Optional, Tuple, TYPE_CHECKING
 
 import sys
@@ -158,13 +157,23 @@ def _apply_refine_flags_without_sorting(refine_flags, tob):
         box_centers[:, children_i] = (
                 box_centers[:, refine_parents] + offsets)
 
-    return replace(
-        tob,
+    return TreeOfBoxes(
         box_centers=box_centers,
         root_extent=tob.root_extent,
         box_parent_ids=box_parents,
         box_child_ids=box_children,
         box_levels=box_levels,
+
+        box_flags=None,
+        level_start_box_nrs=None,
+        box_id_dtype=tob.box_id_dtype,
+        box_level_dtype=tob.box_level_dtype,
+        coord_dtype=tob.coord_dtype,
+        sources_have_extent=tob.sources_have_extent,
+        targets_have_extent=tob.targets_have_extent,
+        extent_norm=tob.extent_norm,
+        stick_out_factor=tob.stick_out_factor,
+        _is_pruned=tob._is_pruned,
         )
 
 
@@ -204,9 +213,24 @@ def _apply_coarsen_flags(coarsen_flags, tob, error_on_ignored_flags=True):
     box_levels = tob.box_levels.copy()
     box_levels[coarsen_peers] = np.inf
 
-    from dataclasses import replace
-    return replace(tob, box_parent_ids=box_parents,
-                   box_child_ids=box_children, box_levels=box_levels)
+    return TreeOfBoxes(
+        box_centers=tob.box_centers,
+        root_extent=tob.root_extent,
+        box_parent_ids=box_parents,
+        box_child_ids=box_children,
+        box_levels=box_levels,
+
+        box_flags=None,
+        level_start_box_nrs=None,
+        box_id_dtype=tob.box_id_dtype,
+        box_level_dtype=tob.box_level_dtype,
+        coord_dtype=tob.coord_dtype,
+        sources_have_extent=tob.sources_have_extent,
+        targets_have_extent=tob.targets_have_extent,
+        extent_norm=tob.extent_norm,
+        stick_out_factor=tob.stick_out_factor,
+        _is_pruned=tob._is_pruned,
+        )
 
 
 def _sort_boxes_by_level(tob, queue=None):
@@ -220,13 +244,23 @@ def _sort_boxes_by_level(tob, queue=None):
     box_child_ids = tob.box_child_ids[:, neworder]
     box_levels = tob.box_levels[neworder]
 
-    return replace(
-        tob,
+    return TreeOfBoxes(
         box_centers=box_centers,
         root_extent=tob.root_extent,
         box_parent_ids=box_parent_ids,
         box_child_ids=box_child_ids,
         box_levels=box_levels,
+
+        box_flags=None,
+        level_start_box_nrs=None,
+        box_id_dtype=tob.box_id_dtype,
+        box_level_dtype=tob.box_level_dtype,
+        coord_dtype=tob.coord_dtype,
+        sources_have_extent=tob.sources_have_extent,
+        targets_have_extent=tob.targets_have_extent,
+        extent_norm=tob.extent_norm,
+        stick_out_factor=tob.stick_out_factor,
+        _is_pruned=tob._is_pruned,
         )
 
 
@@ -234,11 +268,25 @@ def _sort_and_prune_deleted_boxes(tob):
     tob = _sort_boxes_by_level(tob)
     n_stale_boxes = np.sum(tob.box_levels == np.inf)
     newn = tob.nboxes - n_stale_boxes
-    from dataclasses import replace
-    return replace(tob, box_parent_ids=tob.box_parent_ids[:newn],
-                   box_child_ids=tob.box_child_ids[:, :newn],
-                   box_levels=tob.box_levels[:newn],
-                   box_centers=tob.box_centers[:, :newn])
+
+    return TreeOfBoxes(
+        root_extent=tob.root_extent,
+        box_parent_ids=tob.box_parent_ids[:newn],
+        box_child_ids=tob.box_child_ids[:, :newn],
+        box_levels=tob.box_levels[:newn],
+        box_centers=tob.box_centers[:, :newn],
+
+        box_flags=None,
+        level_start_box_nrs=None,
+        box_id_dtype=tob.box_id_dtype,
+        box_level_dtype=tob.box_level_dtype,
+        coord_dtype=tob.coord_dtype,
+        sources_have_extent=tob.sources_have_extent,
+        targets_have_extent=tob.targets_have_extent,
+        extent_norm=tob.extent_norm,
+        stick_out_factor=tob.stick_out_factor,
+        _is_pruned=tob._is_pruned,
+        )
 
 
 def refine_and_coarsen_tree_of_boxes(
@@ -343,13 +391,10 @@ def make_tree_of_boxes_root(
             box_id_dtype=box_id_dtype,
             box_level_dtype=box_level_dtype,
             coord_dtype=coord_dtype,
-
-            # FIXME: do we need to specify these?
             sources_have_extent=False,
             targets_have_extent=False,
             extent_norm="linf",
             stick_out_factor=0,
-
             _is_pruned=True,
             )
 
