@@ -1904,7 +1904,9 @@ class FMMTraversalBuilder:
         from pytools import div_ceil
         max_levels = div_ceil(tree.nlevels, 5) * 5
 
-        level_start_box_nrs = cl.array.to_device(queue, tree.level_start_box_nrs)
+        level_start_box_nrs = (
+                None if tree.level_start_box_nrs is None else
+                cl.array.to_device(queue, tree.level_start_box_nrs))
 
         knl_info = self.get_kernel_info(
                 dimensions=tree.dimensions,
@@ -1958,6 +1960,9 @@ class FMMTraversalBuilder:
         # {{{ figure out level starts in *_parent_boxes
 
         def extract_level_start_box_nrs(box_list, wait_for):
+            if level_start_box_nrs is None:
+                return None, []
+
             result = cl.array.empty(queue,
                     tree.nlevels+1, tree.box_id_dtype) \
                             .fill(len(box_list))
@@ -1977,7 +1982,7 @@ class FMMTraversalBuilder:
                 result[ilev] = prev_start = \
                         min(result[ilev], prev_start)
 
-            return result, evt
+            return result, [evt]
 
         fin_debug("finding level starts in source boxes array")
         level_start_source_box_nrs, evt_s = \
@@ -1999,7 +2004,7 @@ class FMMTraversalBuilder:
                 extract_level_start_box_nrs(
                         target_or_target_parent_boxes, wait_for=wait_for)
 
-        wait_for = [evt_s, evt_sp, evt_t, evt_tp]
+        wait_for = evt_s + evt_sp + evt_t + evt_tp
 
         # }}}
 
