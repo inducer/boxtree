@@ -141,7 +141,7 @@ def run_build_test(builder, actx, dims, dtype, nparticles, visualize,
     for ibox in range(tree.nboxes):
         # Empty boxes exist in non-pruned trees--which themselves are undocumented.
         # These boxes will fail these tests.
-        if not (tree.box_flags[ibox] & bfe.HAS_OWN_SRCNTGTS):
+        if not (tree.box_flags[ibox] & bfe.IS_SOURCE_OR_TARGET_BOX):
             continue
 
         extent_low, extent_high = tree.get_box_extent(ibox)
@@ -195,7 +195,7 @@ def run_build_test(builder, actx, dims, dtype, nparticles, visualize,
         if not all_good_here:
             print("BAD BOX", ibox)
 
-        if not (tree.box_flags[ibox] & bfe.HAS_CHILD_PARTICLES):
+        if not (tree.box_flags[ibox] & bfe.HAS_SOURCE_OR_TARGET_CHILD_BOXES):
             # Check that leaf particle density is as promised.
             nparticles_in_box = tree.box_source_counts_cumul[ibox]
             if max_particles_in_box is not None:
@@ -709,7 +709,7 @@ def test_leaves_to_balls_query(actx_factory, dims, visualize=False):
 
     for ibox in range(tree.nboxes):
         # We only want leaves here.
-        if tree.box_flags[ibox] & box_flags_enum.HAS_CHILD_PARTICLES:
+        if tree.box_flags[ibox] & box_flags_enum.HAS_SOURCE_OR_TARGET_CHILD_BOXES:
             continue
 
         box_center = tree.box_centers[:, ibox]
@@ -744,7 +744,8 @@ def run_area_query_test(actx, tree, ball_centers, ball_radii):
 
     from boxtree import box_flags_enum
     leaf_boxes, = (
-            tree.box_flags & box_flags_enum.HAS_CHILD_PARTICLES == 0).nonzero()
+            tree.box_flags & box_flags_enum.HAS_SOURCE_OR_TARGET_CHILD_BOXES == 0
+            ).nonzero()
 
     leaf_box_radii = np.empty(len(leaf_boxes))
     dims = len(tree.sources)
@@ -960,7 +961,8 @@ def test_level_restriction(
     # Find leaf boxes.
     from boxtree import box_flags_enum
     leaf_boxes, = (
-            tree.box_flags & box_flags_enum.HAS_CHILD_PARTICLES == 0).nonzero()
+            tree.box_flags & box_flags_enum.HAS_SOURCE_OR_TARGET_CHILD_BOXES == 0
+            ).nonzero()
 
     leaf_box_radii = np.empty(len(leaf_boxes))
     leaf_box_centers = np.empty((dims, len(leaf_boxes)))
@@ -1041,7 +1043,7 @@ def test_space_invader_query(actx_factory, dims, dtype, visualize=False):
 
     for ibox in range(tree.nboxes):
         # We only want leaves here.
-        if tree.box_flags[ibox] & box_flags_enum.HAS_CHILD_PARTICLES:
+        if tree.box_flags[ibox] & box_flags_enum.HAS_SOURCE_OR_TARGET_CHILD_BOXES:
             continue
 
         start, end = lbl.balls_near_box_starts[ibox:ibox + 2]

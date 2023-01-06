@@ -156,21 +156,21 @@ class LocalTreeGeneratorCodeContainer:
                 box_flag_t=box_flag_t
             ),
             Template(r"""
-                // reset HAS_OWN_TARGETS and HAS_CHILD_TARGETS bits in the flag of
+                // reset IS_TARGET_BOX and HAS_TARGET_CHILD_BOXES bits in the flag of
                 // each box
-                box_flags[i] &= (~${HAS_OWN_TARGETS});
-                box_flags[i] &= (~${HAS_CHILD_TARGETS});
+                box_flags[i] &= (~${IS_TARGET_BOX});
+                box_flags[i] &= (~${HAS_TARGET_CHILD_BOXES});
 
-                // rebuild HAS_OWN_TARGETS and HAS_CHILD_TARGETS bits
-                if(box_target_counts_nonchild[i]) box_flags[i] |= ${HAS_OWN_TARGETS};
+                // rebuild IS_TARGET_BOX and HAS_TARGET_CHILD_BOXES bits
+                if(box_target_counts_nonchild[i]) box_flags[i] |= ${IS_TARGET_BOX};
                 if(box_target_counts_nonchild[i] < box_target_counts_cumul[i])
-                    box_flags[i] |= ${HAS_CHILD_TARGETS};
+                    box_flags[i] |= ${HAS_TARGET_CHILD_BOXES};
             """).render(
-                HAS_OWN_TARGETS=(
-                    "(" + box_flag_t + ") " + str(box_flags_enum.HAS_OWN_TARGETS)
+                IS_TARGET_BOX=(
+                    "(" + box_flag_t + ") " + str(box_flags_enum.IS_TARGET_BOX)
                 ),
-                HAS_CHILD_TARGETS=(
-                    "(" + box_flag_t + ") " + str(box_flags_enum.HAS_CHILD_TARGETS)
+                HAS_TARGET_CHILD_BOXES=(
+                    "(" + box_flag_t + ") " + str(box_flags_enum.HAS_TARGET_CHILD_BOXES)
                 )
             )
         )

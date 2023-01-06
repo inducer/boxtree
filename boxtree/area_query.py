@@ -217,7 +217,7 @@ GUIDING_BOX_FINDER_MACRO = r"""//CL:mako//
                 for (unsigned box_level = 0;; ++box_level)
                 {
                     if (/* Found leaf? */
-                        !(box_flags[${box}] & BOX_HAS_CHILD_PARTICLES)
+                        !(box_flags[${box}] & BOX_HAS_SOURCE_OR_TARGET_CHILD_BOXES)
                         /* Found guiding box? */
                         || (LEVEL_TO_RAD(box_level) / 2 < query_radius
                             && query_radius <= LEVEL_TO_RAD(box_level)))
@@ -285,7 +285,7 @@ AREA_QUERY_WALKER_BODY = r"""
     {
         box_id_t peer_box = peer_lists[pb_i];
 
-        if (!(box_flags[peer_box] & BOX_HAS_CHILD_PARTICLES))
+        if (!(box_flags[peer_box] & BOX_HAS_SOURCE_OR_TARGET_CHILD_BOXES))
         {
             bool is_overlapping;
 
@@ -307,7 +307,8 @@ AREA_QUERY_WALKER_BODY = r"""
 
                 if (walk_box_id)
                 {
-                    if (!(box_flags[walk_box_id] & BOX_HAS_CHILD_PARTICLES))
+                    if (!(box_flags[walk_box_id]
+                            & BOX_HAS_SOURCE_OR_TARGET_CHILD_BOXES))
                     {
                         bool is_overlapping;
 
@@ -400,7 +401,8 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t box_id)
                 {
                     APPEND_peers(walk_box_id);
                 }
-                else if (!(box_flags[walk_box_id] & BOX_HAS_CHILD_PARTICLES))
+                else if (!(box_flags[walk_box_id]
+                                & BOX_HAS_SOURCE_OR_TARGET_CHILD_BOXES))
                 {
                     APPEND_peers(walk_box_id);
                 }

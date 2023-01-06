@@ -291,26 +291,26 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t box_id)
     box_flags_t flags = box_flags[box_id];
 
     %if source_boxes_has_mask:
-        if (flags & BOX_HAS_OWN_SOURCES && source_boxes_mask[box_id])
+        if (flags & BOX_IS_SOURCE_BOX && source_boxes_mask[box_id])
         { APPEND_source_boxes(box_id); }
     %else:
-        if (flags & BOX_HAS_OWN_SOURCES)
+        if (flags & BOX_IS_SOURCE_BOX)
         { APPEND_source_boxes(box_id); }
     %endif
 
     %if source_parent_boxes_has_mask:
-        if (flags & BOX_HAS_CHILD_SOURCES && source_parent_boxes_mask[box_id])
+        if (flags & BOX_HAS_SOURCE_CHILD_BOXES && source_parent_boxes_mask[box_id])
         { APPEND_source_parent_boxes(box_id); }
     %else:
-        if (flags & BOX_HAS_CHILD_SOURCES)
+        if (flags & BOX_HAS_SOURCE_CHILD_BOXES)
         { APPEND_source_parent_boxes(box_id); }
     %endif
 
     %if not sources_are_targets:
-        if (flags & BOX_HAS_OWN_TARGETS)
+        if (flags & BOX_IS_TARGET_BOX)
         { APPEND_target_boxes(box_id); }
     %endif
-    if (flags & (BOX_HAS_CHILD_TARGETS | BOX_HAS_OWN_TARGETS))
+    if (flags & (BOX_HAS_TARGET_CHILD_BOXES | BOX_IS_TARGET_BOX))
     { APPEND_target_or_target_parent_boxes(box_id); }
 }
 """
@@ -449,7 +449,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
 
     {
         box_flags_t root_flags = box_flags[0];
-        if (root_flags & BOX_HAS_OWN_SOURCES)
+        if (root_flags & BOX_IS_SOURCE_BOX)
         {
             APPEND_neighbor_source_boxes(0);
         }
@@ -479,14 +479,14 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
             {
                 box_flags_t flags = box_flags[walk_box_id];
                 /* walk_box_id == box_id is ok */
-                if (flags & BOX_HAS_OWN_SOURCES)
+                if (flags & BOX_IS_SOURCE_BOX)
                 {
                     dbg_printf(("    neighbor source box\n"));
 
                     APPEND_neighbor_source_boxes(walk_box_id);
                 }
 
-                if (flags & BOX_HAS_CHILD_SOURCES)
+                if (flags & BOX_HAS_SOURCE_CHILD_BOXES)
                 {
                     // We want to descend into this box. Put the current state
                     // on the stack.
@@ -640,7 +640,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
 
             if (walk_box_id &&
                     (child_box_flags &
-                            (BOX_HAS_OWN_SOURCES | BOX_HAS_CHILD_SOURCES)))
+                            (BOX_IS_SOURCE_BOX | BOX_HAS_SOURCE_CHILD_BOXES)))
             {
                 ${load_center("walk_center", "walk_box_id")}
 
@@ -651,7 +651,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
 
                 if (in_list_1)
                 {
-                    if (child_box_flags & BOX_HAS_CHILD_SOURCES)
+                    if (child_box_flags & BOX_HAS_SOURCE_CHILD_BOXES)
                     {
                         // We want to descend into this box. Put the current state
                         // on the stack.
@@ -816,11 +816,11 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
                         // (not per level) to generate list 3 close.
 
                         if (
-                               (child_box_flags & BOX_HAS_OWN_SOURCES)
+                               (child_box_flags & BOX_IS_SOURCE_BOX)
                                && (from_sep_smaller_source_level == -1))
                             APPEND_from_sep_close_smaller(walk_box_id);
 
-                        if (child_box_flags & BOX_HAS_CHILD_SOURCES)
+                        if (child_box_flags & BOX_HAS_SOURCE_CHILD_BOXES)
                         {
                             ${walk_push("walk_box_id")}
                             continue;
@@ -990,7 +990,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
         {
             box_id_t slnws_box_id = same_level_non_well_sep_boxes_lists[i];
 
-            if (box_flags[slnws_box_id] & BOX_HAS_OWN_SOURCES)
+            if (box_flags[slnws_box_id] & BOX_IS_SOURCE_BOX)
             {
                 ${load_center("slnws_center", "slnws_box_id")}
 
@@ -1021,7 +1021,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t itarget_or_target_parent_box)
                         it in list 4 close.
                         */
 
-                        if (tgt_box_flags & BOX_HAS_OWN_TARGETS)
+                        if (tgt_box_flags & BOX_IS_TARGET_BOX)
                         {
                             APPEND_from_sep_close_bigger(slnws_box_id);
                         }
