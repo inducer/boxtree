@@ -109,6 +109,11 @@ class box_flags_enum(Enum):  # noqa
     .. attribute:: HAS_SOURCE_CHILD_BOXES
     .. attribute:: HAS_TARGET_CHILD_BOXES
     .. attribute:: HAS_SOURCE_OR_TARGET_CHILD_BOXES
+    .. attribute:: IS_LEAF_BOX
+
+    .. warning ::
+
+        :attr:`IS_LEAF_BOX` is only used for :class:`TreeOfBoxes` for the moment.
     """
 
     c_name = "box_flags_t"
@@ -122,6 +127,9 @@ class box_flags_enum(Enum):  # noqa
     HAS_TARGET_CHILD_BOXES = 1 << 3
     HAS_SOURCE_OR_TARGET_CHILD_BOXES = (
             HAS_SOURCE_CHILD_BOXES | HAS_TARGET_CHILD_BOXES)
+
+    # FIXME: Only used for TreeOfBoxes for now
+    IS_LEAF_BOX = 1 << 4
 
     # Deprecated alias, do not use.
     HAS_CHILDREN = HAS_SOURCE_OR_TARGET_CHILD_BOXES
@@ -191,10 +199,6 @@ class TreeOfBoxes:
 
         See :class:`Tree` documentation.
 
-    .. attribute:: leaf_flags
-
-        Array of flags denoting whether a box is a leaf or otherwise.
-
     .. attribute:: leaf_boxes
 
         Array of leaf boxes.
@@ -252,13 +256,9 @@ class TreeOfBoxes:
             return max(self.box_levels) + 1
 
     @property
-    def leaf_flags(self):
-        return np.all(self.box_child_ids == 0, axis=0)
-
-    @property
     def leaf_boxes(self):
         boxes = np.arange(self.nboxes)
-        return boxes[self.leaf_flags]
+        return boxes[self.box_flags & box_flags_enum.IS_LEAF_BOX != 0]
 
     @cached_property
     def bounding_box(self) -> Tuple[np.ndarray, np.ndarray]:
