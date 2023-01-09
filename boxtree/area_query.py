@@ -662,22 +662,23 @@ class AreaQueryBuilder:
             + AREA_QUERY_TEMPLATE,
             strict_undefined=True)
 
-        render_vars = dict(
-            np=np,
-            dimensions=dimensions,
-            dtype_to_ctype=dtype_to_ctype,
-            box_id_dtype=box_id_dtype,
-            particle_id_dtype=None,
-            coord_dtype=coord_dtype,
-            get_coord_vec_dtype=get_coord_vec_dtype,
-            cvec_sub=partial(coord_vec_subscript_code, dimensions),
-            max_levels=max_levels,
-            AXIS_NAMES=AXIS_NAMES,
-            box_flags_enum=box_flags_enum,
-            peer_list_idx_dtype=peer_list_idx_dtype,
-            ball_id_dtype=ball_id_dtype,
-            debug=False,
-            root_extent_stretch_factor=TreeBuilder.ROOT_EXTENT_STRETCH_FACTOR)
+        render_vars = {
+            "np": np,
+            "dimensions": dimensions,
+            "dtype_to_ctype": dtype_to_ctype,
+            "box_id_dtype": box_id_dtype,
+            "particle_id_dtype": None,
+            "coord_dtype": coord_dtype,
+            "get_coord_vec_dtype": get_coord_vec_dtype,
+            "cvec_sub": partial(coord_vec_subscript_code, dimensions),
+            "max_levels": max_levels,
+            "AXIS_NAMES": AXIS_NAMES,
+            "box_flags_enum": box_flags_enum,
+            "peer_list_idx_dtype": peer_list_idx_dtype,
+            "ball_id_dtype": ball_id_dtype,
+            "debug": False,
+            "root_extent_stretch_factor": TreeBuilder.ROOT_EXTENT_STRETCH_FACTOR,
+            }
 
         from boxtree.tools import ScalarArg, VectorArg
         arg_decls = [
@@ -1075,23 +1076,23 @@ class PeerListFinder:
             + PEER_LIST_FINDER_TEMPLATE,
             strict_undefined=True)
 
-        render_vars = dict(
-            np=np,
-            dimensions=dimensions,
-            dtype_to_ctype=dtype_to_ctype,
-            box_id_dtype=box_id_dtype,
-            particle_id_dtype=None,
-            coord_dtype=coord_dtype,
-            get_coord_vec_dtype=get_coord_vec_dtype,
-            cvec_sub=partial(
-                coord_vec_subscript_code, dimensions),
-            max_levels=max_levels,
-            AXIS_NAMES=AXIS_NAMES,
-            box_flags_enum=box_flags_enum,
-            debug=False,
+        render_vars = {
+            "np": np,
+            "dimensions": dimensions,
+            "dtype_to_ctype": dtype_to_ctype,
+            "box_id_dtype": box_id_dtype,
+            "particle_id_dtype": None,
+            "coord_dtype": coord_dtype,
+            "get_coord_vec_dtype": get_coord_vec_dtype,
+            "cvec_sub": partial(coord_vec_subscript_code, dimensions),
+            "max_levels": max_levels,
+            "AXIS_NAMES": AXIS_NAMES,
+            "box_flags_enum": box_flags_enum,
+            "debug": False,
             # For calls to the helper is_adjacent_or_overlapping()
-            targets_have_extent=False,
-            sources_have_extent=False)
+            "targets_have_extent": False,
+            "sources_have_extent": False,
+            }
 
         from boxtree.tools import ScalarArg, VectorArg
         arg_decls = [

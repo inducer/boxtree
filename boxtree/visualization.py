@@ -122,7 +122,7 @@ class TreePlotter:
             lev = int(tree.box_levels[ibox])
             pt.text(x, y, str(ibox), fontsize=20*1.15**(-lev),
                     ha="center", va="center",
-                    bbox=dict(facecolor="white", alpha=0.5, lw=0))
+                    bbox={"facecolor": "white", "alpha": 0.5, "lw": 0})
 
     def get_tikz_for_tree(self):
         if self.tree.dimensions != 2:
