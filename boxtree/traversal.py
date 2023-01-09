@@ -1289,7 +1289,7 @@ class _ListMerger:
                     queue=queue,
                     wait_for=[evt])
 
-        return dict(starts=new_starts, lists=new_lists), evt
+        return {"starts": new_starts, "lists": new_lists}, evt
 
 # }}}
 
@@ -1712,27 +1712,27 @@ class FMMTraversalBuilder:
         from pyopencl.tools import dtype_to_ctype
 
         from boxtree.tree import box_flags_enum
-        render_vars = dict(
-                np=np,
-                dimensions=dimensions,
-                dtype_to_ctype=dtype_to_ctype,
-                particle_id_dtype=particle_id_dtype,
-                box_id_dtype=box_id_dtype,
-                box_flags_enum=box_flags_enum,
-                coord_dtype=coord_dtype,
-                get_coord_vec_dtype=get_coord_vec_dtype,
-                cvec_sub=partial(coord_vec_subscript_code, dimensions),
-                max_levels=max_levels,
-                AXIS_NAMES=AXIS_NAMES,
-                debug=debug,
-                sources_are_targets=sources_are_targets,
-                sources_have_extent=sources_have_extent,
-                targets_have_extent=targets_have_extent,
-                well_sep_is_n_away=self.well_sep_is_n_away,
-                from_sep_smaller_crit=from_sep_smaller_crit,
-                source_boxes_has_mask=source_boxes_has_mask,
-                source_parent_boxes_has_mask=source_parent_boxes_has_mask
-                )
+        render_vars = {
+                "np": np,
+                "dimensions": dimensions,
+                "dtype_to_ctype": dtype_to_ctype,
+                "particle_id_dtype": particle_id_dtype,
+                "box_id_dtype": box_id_dtype,
+                "box_flags_enum": box_flags_enum,
+                "coord_dtype": coord_dtype,
+                "get_coord_vec_dtype": get_coord_vec_dtype,
+                "cvec_sub": partial(coord_vec_subscript_code, dimensions),
+                "max_levels": max_levels,
+                "AXIS_NAMES": AXIS_NAMES,
+                "debug": debug,
+                "sources_are_targets": sources_are_targets,
+                "sources_have_extent": sources_have_extent,
+                "targets_have_extent": targets_have_extent,
+                "well_sep_is_n_away": self.well_sep_is_n_away,
+                "from_sep_smaller_crit": from_sep_smaller_crit,
+                "source_boxes_has_mask": source_boxes_has_mask,
+                "source_parent_boxes_has_mask": source_parent_boxes_has_mask,
+                }
         from pyopencl.algorithm import ListOfListsBuilder
 
         from boxtree.tools import ScalarArg, VectorArg

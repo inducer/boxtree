@@ -649,16 +649,16 @@ class AbstractFMMCostModel(ABC):
 
     @staticmethod
     def get_unit_calibration_params():
-        return dict(
-            c_l2l=1.0,
-            c_l2p=1.0,
-            c_m2l=1.0,
-            c_m2m=1.0,
-            c_m2p=1.0,
-            c_p2l=1.0,
-            c_p2m=1.0,
-            c_p2p=1.0,
-        )
+        return {
+            "c_l2l": 1.0,
+            "c_l2p": 1.0,
+            "c_m2l": 1.0,
+            "c_m2m": 1.0,
+            "c_m2p": 1.0,
+            "c_p2l": 1.0,
+            "c_p2m": 1.0,
+            "c_p2p": 1.0,
+            }
 
     _FMM_STAGE_TO_CALIBRATION_PARAMETER = {
         "form_multipoles": "c_p2m",

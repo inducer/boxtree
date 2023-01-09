@@ -914,18 +914,18 @@ def build_level_restrict_kernel(context, preamble_with_dtype_decls,
              for ax in axis_names]  # [nboxes]
         )
 
-    render_vars = dict(
-        AXIS_NAMES=axis_names,
-        dimensions=dimensions,
-        max_levels=max_levels,
+    render_vars = {
+        "AXIS_NAMES": axis_names,
+        "dimensions": dimensions,
+        "max_levels": max_levels,
         # Entries below are needed by HELPER_FUNCTION_TEMPLATE
         # and/or TRAVERSAL_PREAMBLE_MAKO_DEFS:
-        debug=False,
-        targets_have_extent=False,
-        sources_have_extent=False,
-        get_coord_vec_dtype=get_coord_vec_dtype,
-        cvec_sub=partial(coord_vec_subscript_code, dimensions),
-        )
+        "debug": False,
+        "targets_have_extent": False,
+        "sources_have_extent": False,
+        "get_coord_vec_dtype": get_coord_vec_dtype,
+        "cvec_sub": partial(coord_vec_subscript_code, dimensions),
+        }
 
     from pyopencl.elementwise import ElementwiseKernel
 
@@ -1419,33 +1419,33 @@ def get_tree_build_kernel_info(context, dimensions, coord_dtype,
 
     from boxtree.tools import padded_bin
     from boxtree.tree import box_flags_enum
-    codegen_args = dict(
-            dimensions=dimensions,
-            axis_names=axis_names,
-            padded_bin=padded_bin,
-            coord_dtype=coord_dtype,
-            coord_vec_dtype=coord_vec_dtype,
-            bbox_dtype=bbox_dtype,
-            refine_weight_dtype=refine_weight_dtype,
-            particle_id_dtype=particle_id_dtype,
-            morton_bin_count_dtype=morton_bin_count_dtype,
-            morton_nr_dtype=morton_nr_dtype,
-            box_id_dtype=box_id_dtype,
-            box_level_dtype=box_level_dtype,
-            dtype_to_ctype=dtype_to_ctype,
-            AXIS_NAMES=AXIS_NAMES,
-            box_flags_enum=box_flags_enum,
+    codegen_args = {
+            "dimensions": dimensions,
+            "axis_names": axis_names,
+            "padded_bin": padded_bin,
+            "coord_dtype": coord_dtype,
+            "coord_vec_dtype": coord_vec_dtype,
+            "bbox_dtype": bbox_dtype,
+            "refine_weight_dtype": refine_weight_dtype,
+            "particle_id_dtype": particle_id_dtype,
+            "morton_bin_count_dtype": morton_bin_count_dtype,
+            "morton_nr_dtype": morton_nr_dtype,
+            "box_id_dtype": box_id_dtype,
+            "box_level_dtype": box_level_dtype,
+            "dtype_to_ctype": dtype_to_ctype,
+            "AXIS_NAMES": AXIS_NAMES,
+            "box_flags_enum": box_flags_enum,
 
-            adaptive=adaptive,
-            level_restrict=level_restrict,
+            "adaptive": adaptive,
+            "level_restrict": level_restrict,
 
-            sources_are_targets=sources_are_targets,
-            srcntgts_have_extent=srcntgts_extent_norm is not None,
-            srcntgts_extent_norm=srcntgts_extent_norm,
+            "sources_are_targets": sources_are_targets,
+            "srcntgts_have_extent": srcntgts_extent_norm is not None,
+            "srcntgts_extent_norm": srcntgts_extent_norm,
 
-            enable_assert=False,
-            enable_printf=False,
-            )
+            "enable_assert": False,
+            "enable_printf": False,
+            }
 
     # }}}
 
