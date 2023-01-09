@@ -58,15 +58,17 @@ Cost Model Classes
 .. autoclass:: FMMCostModel
 """
 
+from functools import partial
+
 import numpy as np
 import pyopencl as cl
 import pyopencl.array  # noqa: F401
+from mako.template import Template
+from pymbolic import evaluate, var
 from pyopencl.elementwise import ElementwiseKernel
 from pyopencl.tools import dtype_to_ctype
-from mako.template import Template
-from functools import partial
-from pymbolic import var, evaluate
 from pytools import memoize_method
+
 
 Template = partial(Template, strict_undefined=True)
 

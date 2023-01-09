@@ -34,23 +34,25 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+import logging
 from functools import partial
 
 import numpy as np
-from pytools import Record, memoize_method
 import pyopencl as cl
 import pyopencl.array  # noqa
 import pyopencl.cltypes  # noqa
-from pyopencl.elementwise import ElementwiseTemplate
 from mako.template import Template
-from boxtree.tools import (AXIS_NAMES, DeviceDataRecord,
-        get_coord_vec_dtype, coord_vec_subscript_code)
+from pyopencl.elementwise import ElementwiseTemplate
+from pytools import Record, memoize_method
+
+from boxtree.tools import (
+    AXIS_NAMES, DeviceDataRecord, coord_vec_subscript_code, get_coord_vec_dtype)
 
 
-import logging
 logger = logging.getLogger(__name__)
 
 from pytools import ProcessLogger, log_process
+
 
 # {{{ preamble
 
@@ -1708,6 +1710,7 @@ class FMMTraversalBuilder:
         debug = False
 
         from pyopencl.tools import dtype_to_ctype
+
         from boxtree.tree import box_flags_enum
         render_vars = dict(
                 np=np,
@@ -1731,7 +1734,8 @@ class FMMTraversalBuilder:
                 source_parent_boxes_has_mask=source_parent_boxes_has_mask
                 )
         from pyopencl.algorithm import ListOfListsBuilder
-        from boxtree.tools import VectorArg, ScalarArg
+
+        from boxtree.tools import ScalarArg, VectorArg
 
         result = {}
 

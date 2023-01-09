@@ -22,8 +22,9 @@ THE SOFTWARE.
 
 from arraycontext import PyOpenCLArrayContext as PyOpenCLArrayContextBase
 from arraycontext.pytest import (
-        _PytestPyOpenCLArrayContextFactoryWithClass,
-        register_pytest_array_context_factory)
+    _PytestPyOpenCLArrayContextFactoryWithClass,
+    register_pytest_array_context_factory)
+
 
 __doc__ = """
 .. autoclass:: PyOpenCLArrayContext

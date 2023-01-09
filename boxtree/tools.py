@@ -20,19 +20,18 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+import sys
+from functools import partial
 from typing import Any, Dict
 
-import sys
 import numpy as np
-from pytools import Record, memoize_method
 import pyopencl as cl
 import pyopencl.array  # noqa
 import pyopencl.cltypes as cltypes
-from pyopencl.tools import dtype_to_c_struct, ScalarArg, VectorArg as _VectorArg
 from mako.template import Template
+from pyopencl.tools import ScalarArg, VectorArg as _VectorArg, dtype_to_c_struct
+from pytools import Record, memoize_method
 from pytools.obj_array import make_obj_array
-
-from functools import partial
 
 
 # Use offsets in VectorArg by default.
@@ -845,6 +844,7 @@ def run_mpi(script: str, num_processes: int, env: Dict[str, Any]) -> None:
     env = {**os.environ, **env}
 
     import subprocess
+
     from mpi4py import MPI
 
     # Using "-m mpi4py" is necessary for avoiding deadlocks on exception cleanup

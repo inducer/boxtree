@@ -37,14 +37,16 @@ THE SOFTWARE.
 
 
 import logging
+
+
 logger = logging.getLogger(__name__)
 import enum
 
 import numpy as np
+from pytools import log_process, memoize_method
 
-from pytools import memoize_method, log_process
+from boxtree.fmm import ExpansionWranglerInterface, TreeIndependentDataForWrangler
 from boxtree.timing import return_timing_data
-from boxtree.fmm import TreeIndependentDataForWrangler, ExpansionWranglerInterface
 
 
 # {{{ rotation data interface

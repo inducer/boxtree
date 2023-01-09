@@ -102,13 +102,16 @@ of :class:`boxtree.distributed.calculation.DistributedExpansionWrangler` in
 
 """
 
-from mpi4py import MPI
 import enum
+import warnings
+
 import numpy as np
 import pyopencl as cl
 import pyopencl.array
-import warnings
+from mpi4py import MPI
+
 from boxtree.cost import FMMCostModel
+
 
 __all__ = ["DistributedFMMRunner"]
 

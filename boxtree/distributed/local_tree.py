@@ -21,17 +21,20 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-from boxtree import Tree
+import logging
+import time
+from dataclasses import dataclass
+from typing import Optional
+
+import numpy as np
+import pyopencl as cl
 from mako.template import Template
 from pyopencl.tools import dtype_to_ctype
 from pytools import memoize_method
-import numpy as np
-import pyopencl as cl
-from dataclasses import dataclass
-from typing import Optional
-import time
 
-import logging
+from boxtree import Tree
+
+
 logger = logging.getLogger(__name__)
 
 

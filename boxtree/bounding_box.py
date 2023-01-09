@@ -21,11 +21,12 @@ THE SOFTWARE.
 """
 
 
-import pyopencl as cl  # noqa
-from boxtree.tools import get_type_moniker
-from pytools import memoize, memoize_method
-from pyopencl.reduction import ReductionTemplate
 import numpy as np
+import pyopencl as cl  # noqa
+from pyopencl.reduction import ReductionTemplate
+from pytools import memoize, memoize_method
+
+from boxtree.tools import get_type_moniker
 
 
 @memoize

@@ -20,25 +20,24 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+import logging
 import os
 import sys
-import pytest
-
-from arraycontext import pytest_generate_tests_for_array_contexts
-from boxtree.array_context import (                                 # noqa: F401
-        PytestPyOpenCLArrayContextFactory, _acf)
 
 import numpy as np
 import numpy.linalg as la
+import pytest
+from arraycontext import pytest_generate_tests_for_array_contexts
 
-from boxtree.pyfmmlib_integration import (
-    Kernel, FMMLibTreeIndependentDataForWrangler,
-    FMMLibExpansionWrangler)
+from boxtree.array_context import PytestPyOpenCLArrayContextFactory  # noqa: F401
+from boxtree.array_context import _acf
 from boxtree.constant_one import (
     ConstantOneExpansionWrangler as ConstantOneExpansionWranglerBase,
     ConstantOneTreeIndependentDataForWrangler)
+from boxtree.pyfmmlib_integration import (
+    FMMLibExpansionWrangler, FMMLibTreeIndependentDataForWrangler, Kernel)
 
-import logging
+
 logger = logging.getLogger(__name__)
 
 pytest_generate_tests = pytest_generate_tests_for_array_contexts([
@@ -118,8 +117,8 @@ def _test_against_shared(
         # Compute FMM using the distributed implementation
 
         def wrangler_factory(local_traversal, global_traversal):
-            from boxtree.distributed.calculation import \
-                    DistributedFMMLibExpansionWrangler
+            from boxtree.distributed.calculation import (
+                DistributedFMMLibExpansionWrangler)
 
             return DistributedFMMLibExpansionWrangler(
                 actx.context, comm, tree_indep, local_traversal, global_traversal,

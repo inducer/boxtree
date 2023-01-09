@@ -80,17 +80,19 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-from typing import Optional, Tuple
+import logging
+from dataclasses import dataclass
 from functools import cached_property
+from typing import Optional, Tuple
 
-import pyopencl as cl
 import numpy as np
-from boxtree.tools import DeviceDataRecord
+import pyopencl as cl
 from cgen import Enum
 from pytools import memoize_method
-from dataclasses import dataclass
 
-import logging
+from boxtree.tools import DeviceDataRecord
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -820,8 +822,8 @@ def link_point_sources(queue, tree, point_source_starts, point_sources,
             dest_indices=tree_order_point_source_starts,
             out=[source_boundaries])
 
-    from boxtree.tree_build_kernels import \
-            POINT_SOURCE_LINKING_USER_POINT_SOURCE_ID_SCAN_TPL
+    from boxtree.tree_build_kernels import (
+        POINT_SOURCE_LINKING_USER_POINT_SOURCE_ID_SCAN_TPL)
 
     logger.debug("point source linking: point source id scan")
 
@@ -1015,10 +1017,11 @@ class ParticleListFilter:
     @memoize_method
     def get_filter_target_lists_in_user_order_kernel(self, particle_id_dtype,
             user_order_flags_dtype):
-        from boxtree.tools import VectorArg
-        from pyopencl.tools import dtype_to_ctype
-        from pyopencl.algorithm import ListOfListsBuilder
         from mako.template import Template
+        from pyopencl.algorithm import ListOfListsBuilder
+        from pyopencl.tools import dtype_to_ctype
+
+        from boxtree.tools import VectorArg
 
         builder = ListOfListsBuilder(self.context,
             [("filt_tgt_list", particle_id_dtype)], Template("""//CL//
@@ -1085,8 +1088,7 @@ class ParticleListFilter:
     @memoize_method
     def get_filter_target_lists_in_tree_order_kernels(self, particle_id_dtype):
         from boxtree.tree_build_kernels import (
-                TREE_ORDER_TARGET_FILTER_SCAN_TPL,
-                TREE_ORDER_TARGET_FILTER_INDEX_TPL)
+            TREE_ORDER_TARGET_FILTER_INDEX_TPL, TREE_ORDER_TARGET_FILTER_SCAN_TPL)
 
         scan_knl = TREE_ORDER_TARGET_FILTER_SCAN_TPL.build(
             self.context,

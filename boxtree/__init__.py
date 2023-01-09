@@ -20,12 +20,14 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-from boxtree.tree import (TreeOfBoxes, Tree, TreeWithLinkedPointSources,
-    box_flags_enum)
-from boxtree.tree_of_boxes import (make_tree_of_boxes_root, refine_tree_of_boxes,
-    uniformly_refine_tree_of_boxes, coarsen_tree_of_boxes,
-    refine_and_coarsen_tree_of_boxes, make_meshmode_mesh_from_leaves)
+from boxtree.tree import (
+    Tree, TreeOfBoxes, TreeWithLinkedPointSources, box_flags_enum)
 from boxtree.tree_build import TreeBuilder
+from boxtree.tree_of_boxes import (
+    coarsen_tree_of_boxes, make_meshmode_mesh_from_leaves, make_tree_of_boxes_root,
+    refine_and_coarsen_tree_of_boxes, refine_tree_of_boxes,
+    uniformly_refine_tree_of_boxes)
+
 
 __all__ = [
     "TreeOfBoxes", "make_tree_of_boxes_root",

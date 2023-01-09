@@ -27,14 +27,15 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-from abc import ABC, abstractmethod
 import logging
+from abc import ABC, abstractmethod
+
+
 logger = logging.getLogger(__name__)
-from boxtree.tree import Tree
-from boxtree.traversal import FMMTraversalInfo
-
-
 from pytools import ProcessLogger
+
+from boxtree.traversal import FMMTraversalInfo
+from boxtree.tree import Tree
 
 
 # {{{ expansion wrangler interface
