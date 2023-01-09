@@ -23,18 +23,20 @@ THE SOFTWARE.
 """
 
 
+import logging
 from functools import partial
 
 import numpy as np
 import pyopencl as cl
-import pyopencl.cltypes  # noqa
 import pyopencl.array  # noqa
+import pyopencl.cltypes  # noqa
 from mako.template import Template
-from boxtree.tools import (AXIS_NAMES, DeviceDataRecord,
-        get_coord_vec_dtype, coord_vec_subscript_code)
-from pytools import memoize_method, ProcessLogger
+from pytools import ProcessLogger, memoize_method
 
-import logging
+from boxtree.tools import (
+    AXIS_NAMES, DeviceDataRecord, coord_vec_subscript_code, get_coord_vec_dtype)
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -449,6 +451,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t box_id)
 
 
 from pyopencl.elementwise import ElementwiseTemplate
+
 from boxtree.tools import InlineBinarySearch
 
 
@@ -531,12 +534,12 @@ class AreaQueryElementwiseTemplate:
                  peer_list_idx_dtype, max_levels,
                  extra_var_values=(), extra_type_aliases=(),
                  extra_preamble=""):
+        from pyopencl.cltypes import vec_types
         from pyopencl.tools import dtype_to_ctype
+
         from boxtree import box_flags_enum
         from boxtree.traversal import TRAVERSAL_PREAMBLE_TYPEDEFS_AND_DEFINES
         from boxtree.tree_build import TreeBuilder
-
-        from pyopencl.cltypes import vec_types
         render_vars = (
             ("np", np),
             ("dimensions", dimensions),
@@ -646,6 +649,7 @@ class AreaQueryBuilder:
     def get_area_query_kernel(self, dimensions, coord_dtype, box_id_dtype,
                               ball_id_dtype, peer_list_idx_dtype, max_levels):
         from pyopencl.tools import dtype_to_ctype
+
         from boxtree import box_flags_enum
 
         logger.debug("start building area query kernel")
@@ -675,7 +679,7 @@ class AreaQueryBuilder:
             debug=False,
             root_extent_stretch_factor=TreeBuilder.ROOT_EXTENT_STRETCH_FACTOR)
 
-        from boxtree.tools import VectorArg, ScalarArg
+        from boxtree.tools import ScalarArg, VectorArg
         arg_decls = [
             VectorArg(coord_dtype, "box_centers", with_offset=False),
             ScalarArg(coord_dtype, "root_extent"),
@@ -741,6 +745,7 @@ class AreaQueryBuilder:
         ball_id_dtype = tree.particle_id_dtype  # ?
 
         from pytools import div_ceil
+
         # Avoid generating too many kernels.
         max_levels = div_ceil(tree.nlevels, 10) * 10
 
@@ -970,6 +975,7 @@ class SpaceInvaderQueryBuilder:
             raise TypeError("ball_radii dtype must match tree.coord_dtype")
 
         from pytools import div_ceil
+
         # Avoid generating too many kernels.
         max_levels = div_ceil(tree.nlevels, 10) * 10
 
@@ -1055,12 +1061,13 @@ class PeerListFinder:
     def get_peer_list_finder_kernel(self, dimensions, coord_dtype,
                                     box_id_dtype, max_levels):
         from pyopencl.tools import dtype_to_ctype
+
         from boxtree import box_flags_enum
 
         logger.debug("start building peer list finder kernel")
 
         from boxtree.traversal import (
-            TRAVERSAL_PREAMBLE_TEMPLATE, HELPER_FUNCTION_TEMPLATE)
+            HELPER_FUNCTION_TEMPLATE, TRAVERSAL_PREAMBLE_TEMPLATE)
 
         template = Template(
             TRAVERSAL_PREAMBLE_TEMPLATE
@@ -1086,7 +1093,7 @@ class PeerListFinder:
             targets_have_extent=False,
             sources_have_extent=False)
 
-        from boxtree.tools import VectorArg, ScalarArg
+        from boxtree.tools import ScalarArg, VectorArg
         arg_decls = [
             VectorArg(coord_dtype, "box_centers", with_offset=False),
             ScalarArg(coord_dtype, "root_extent"),

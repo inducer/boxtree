@@ -20,16 +20,19 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+import logging
 from functools import partial
+
 import numpy as np
+from mako.template import Template
 from pyopencl.elementwise import ElementwiseTemplate
 from pyopencl.scan import ScanTemplate
-from mako.template import Template
-from pytools import Record, memoize, log_process
-from boxtree.tools import (get_type_moniker, get_coord_vec_dtype,
-        coord_vec_subscript_code)
+from pytools import Record, log_process, memoize
 
-import logging
+from boxtree.tools import (
+    coord_vec_subscript_code, get_coord_vec_dtype, get_type_moniker)
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -792,6 +795,7 @@ PARTICLE_RENUMBERER_KERNEL_TPL = Template(r"""//CL//
 
 from boxtree.traversal import TRAVERSAL_PREAMBLE_MAKO_DEFS
 
+
 LEVEL_RESTRICT_TPL = Template(
     TRAVERSAL_PREAMBLE_MAKO_DEFS + r"""//CL:mako//
     <%def name="my_load_center(name, box_id)">
@@ -888,7 +892,7 @@ LEVEL_RESTRICT_TPL = Template(
 def build_level_restrict_kernel(context, preamble_with_dtype_decls,
             dimensions, axis_names, box_id_dtype, coord_dtype,
             box_level_dtype, max_levels):
-    from boxtree.tools import VectorArg, ScalarArg
+    from boxtree.tools import ScalarArg, VectorArg
 
     arguments = (
         [
@@ -923,8 +927,9 @@ def build_level_restrict_kernel(context, preamble_with_dtype_decls,
         cvec_sub=partial(coord_vec_subscript_code, dimensions),
         )
 
-    from boxtree.traversal import HELPER_FUNCTION_TEMPLATE
     from pyopencl.elementwise import ElementwiseKernel
+
+    from boxtree.traversal import HELPER_FUNCTION_TEMPLATE
 
     return ElementwiseKernel(
             context,
@@ -1462,7 +1467,7 @@ def get_tree_build_kernel_info(context, dimensions, coord_dtype,
             + str(MORTON_NR_SCAN_PREAMBLE_TPL.render(**codegen_args))
             )
 
-    from boxtree.tools import VectorArg, ScalarArg
+    from boxtree.tools import ScalarArg, VectorArg
     common_arguments = (
             [
                 # box-local morton bin counts for each particle at the current level

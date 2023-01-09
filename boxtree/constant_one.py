@@ -26,11 +26,13 @@ THE SOFTWARE.
 """
 
 import numpy as np
-from boxtree.fmm import TreeIndependentDataForWrangler, ExpansionWranglerInterface
+
+from boxtree.fmm import ExpansionWranglerInterface, TreeIndependentDataForWrangler
 from boxtree.timing import DummyTimingFuture
 
 
 # {{{ constant one wrangler
+
 
 class ConstantOneTreeIndependentDataForWrangler(TreeIndependentDataForWrangler):
     """

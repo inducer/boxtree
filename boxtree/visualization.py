@@ -95,8 +95,8 @@ class TreePlotter:
             el += (center-el)*shrink_factor
             eh += (center-eh)*shrink_factor
 
-        import matplotlib.pyplot as pt
         import matplotlib.patches as mpatches
+        import matplotlib.pyplot as pt
         from matplotlib.path import Path
 
         pathdata = [

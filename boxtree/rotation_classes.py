@@ -32,13 +32,16 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+import logging
+
 import numpy as np
 import pyopencl as cl
 import pyopencl.array  # noqa
+
 from boxtree.tools import DeviceDataRecord
 from boxtree.translation_classes import TranslationClassesBuilder
 
-import logging
+
 logger = logging.getLogger(__name__)
 
 from pytools import log_process

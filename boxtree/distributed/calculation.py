@@ -1,5 +1,6 @@
 from __future__ import division
 
+
 __copyright__ = "Copyright (C) 2013 Andreas Kloeckner \
                  Copyright (C) 2018 Hao Gao"
 
@@ -23,18 +24,21 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+import logging
+
 import numpy as np
 import pyopencl as cl
-from boxtree.distributed import MPITags
-from mpi4py import MPI
-from boxtree.pyfmmlib_integration import FMMLibExpansionWrangler
-from boxtree.fmm import ExpansionWranglerInterface
-from pytools import memoize_method
-from pyopencl.tools import dtype_to_ctype
-from pyopencl.elementwise import ElementwiseKernel
 from mako.template import Template
+from mpi4py import MPI
+from pyopencl.elementwise import ElementwiseKernel
+from pyopencl.tools import dtype_to_ctype
+from pytools import memoize_method
 
-import logging
+from boxtree.distributed import MPITags
+from boxtree.fmm import ExpansionWranglerInterface
+from boxtree.pyfmmlib_integration import FMMLibExpansionWrangler
+
+
 logger = logging.getLogger(__name__)
 
 

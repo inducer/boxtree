@@ -21,12 +21,13 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+from dataclasses import dataclass
+
 import numpy as np
 import pyopencl as cl
-from pyopencl.tools import dtype_to_ctype
 from mako.template import Template
+from pyopencl.tools import dtype_to_ctype
 from pytools import memoize_method
-from dataclasses import dataclass
 
 
 def get_box_ids_dfs_order(tree):

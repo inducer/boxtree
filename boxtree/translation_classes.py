@@ -32,20 +32,23 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+import logging
 from functools import partial
 
 import numpy as np
-from pytools import Record, memoize_method
 import pyopencl as cl
 import pyopencl.array  # noqa
 import pyopencl.cltypes  # noqa
-from pyopencl.elementwise import ElementwiseTemplate
 from mako.template import Template
-from boxtree.tools import (DeviceDataRecord, InlineBinarySearch,
-        get_coord_vec_dtype, coord_vec_subscript_code)
+from pyopencl.elementwise import ElementwiseTemplate
+from pytools import Record, memoize_method
+
+from boxtree.tools import (
+    DeviceDataRecord, InlineBinarySearch, coord_vec_subscript_code,
+    get_coord_vec_dtype)
 from boxtree.traversal import TRAVERSAL_PREAMBLE_MAKO_DEFS
 
-import logging
+
 logger = logging.getLogger(__name__)
 
 from pytools import log_process

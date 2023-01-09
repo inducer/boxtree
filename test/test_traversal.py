@@ -20,18 +20,18 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-import pytest
+import logging
 
 import numpy as np
 import numpy.linalg as la
-
+import pytest
 from arraycontext import pytest_generate_tests_for_array_contexts
-from boxtree.array_context import (                                 # noqa: F401
-        PytestPyOpenCLArrayContextFactory, _acf)
 
+from boxtree.array_context import _acf  # noqa: F401
+from boxtree.array_context import PytestPyOpenCLArrayContextFactory
 from boxtree.tools import make_normal_particle_array
 
-import logging
+
 logger = logging.getLogger(__name__)
 
 pytest_generate_tests = pytest_generate_tests_for_array_contexts([
@@ -87,6 +87,7 @@ def test_tree_connectivity(actx_factory, dims, sources_are_targets):
 
     if 0:
         import matplotlib.pyplot as pt
+
         from boxtree.visualization import TreePlotter
         plotter = TreePlotter(tree)
         plotter.draw_tree(fill=False, edgecolor="black")
@@ -346,9 +347,9 @@ def test_from_sep_siblings_translation_and_rotation_classes(
 
     # {{{ build traversal
 
-    from boxtree.traversal import FMMTraversalBuilder
     from boxtree.rotation_classes import RotationClassesBuilder
     from boxtree.translation_classes import TranslationClassesBuilder
+    from boxtree.traversal import FMMTraversalBuilder
 
     tg = FMMTraversalBuilder(actx.context, well_sep_is_n_away=well_sep_is_n_away)
     trav, _ = tg(actx.queue, tree)

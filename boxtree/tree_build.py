@@ -43,15 +43,17 @@ THE SOFTWARE.
 """
 
 
+import logging
+from functools import partial
+
 import numpy as np
-from pytools import memoize_method
 import pyopencl as cl
 import pyopencl.array  # noqa
-from functools import partial
-from boxtree.tree import Tree
-from pytools import ProcessLogger, DebugProcessLogger
+from pytools import DebugProcessLogger, ProcessLogger, memoize_method
 
-import logging
+from boxtree.tree import Tree
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -583,7 +585,6 @@ class TreeBuilder:
         from pytools import div_ceil
 
         # {{{ level loop
-
         # Level 0 starts at 0 and always contains box 0 and nothing else.
         # Level 1 therefore starts at 1.
         level_start_box_nrs = [0, 1]

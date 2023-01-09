@@ -21,20 +21,19 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
-import pytest
+import logging
 
 import numpy as np
-
+import pytest
 from arraycontext import pytest_generate_tests_for_array_contexts
-from boxtree.array_context import (                                 # noqa: F401
-        PytestPyOpenCLArrayContextFactory, _acf)
 
+from boxtree.array_context import _acf  # noqa: F401
+from boxtree.array_context import PytestPyOpenCLArrayContextFactory
 from boxtree.tools import (  # noqa: F401
-        make_normal_particle_array as p_normal,
-        make_surface_particle_array as p_surface,
-        make_uniform_particle_array as p_uniform)
+    make_normal_particle_array as p_normal, make_surface_particle_array as p_surface,
+    make_uniform_particle_array as p_uniform)
 
-import logging
+
 logger = logging.getLogger(__name__)
 
 pytest_generate_tests = pytest_generate_tests_for_array_contexts([
@@ -49,7 +48,6 @@ def test_allreduce_comm_pattern(p):
     from boxtree.tools import AllReduceCommPattern
 
     # This models the parallel allreduce communication pattern.
-
     # processor -> communication pattern of the processor
     patterns = [AllReduceCommPattern(i, p) for i in range(p)]
     # processor -> list of data items on the processor

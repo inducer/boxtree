@@ -1,7 +1,10 @@
 # STARTEXAMPLE
-import pyopencl as cl
-import numpy as np
 import logging
+
+import numpy as np
+import pyopencl as cl
+
+
 logging.basicConfig(level="INFO")
 
 ctx = cl.create_some_context()
@@ -14,9 +17,13 @@ nparticles = 500
 # generate some random particle positions
 # -----------------------------------------------------------------------------
 from pyopencl.clrandom import PhiloxGenerator
+
+
 rng = PhiloxGenerator(ctx, seed=15)
 
 from pytools.obj_array import make_obj_array
+
+
 particles = make_obj_array([
     rng.normal(queue, nparticles, dtype=np.float64)
     for i in range(dims)])
@@ -25,10 +32,14 @@ particles = make_obj_array([
 # build tree and traversals (lists)
 # -----------------------------------------------------------------------------
 from boxtree import TreeBuilder
+
+
 tb = TreeBuilder(ctx)
 tree, _ = tb(queue, particles, max_particles_in_box=5)
 
 from boxtree.traversal import FMMTraversalBuilder
+
+
 tg = FMMTraversalBuilder(ctx)
 trav, _ = tg(queue, tree)
 
@@ -40,9 +51,12 @@ trav, _ = tg(queue, tree)
 
 import matplotlib.pyplot as pt
 
+
 pt.plot(particles[0].get(), particles[1].get(), "+")
 
 from boxtree.visualization import TreePlotter
+
+
 plotter = TreePlotter(tree.get(queue=queue))
 plotter.draw_tree(fill=False, edgecolor="black")
 #plotter.draw_box_numbers()

@@ -20,19 +20,20 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+import logging
 import sys
-import pytest
 
 import numpy as np
-
+import pytest
 from arraycontext import pytest_generate_tests_for_array_contexts
-from boxtree.array_context import (                                 # noqa: F401
-        PytestPyOpenCLArrayContextFactory, _acf)
 
-from boxtree import (make_tree_of_boxes_root, make_meshmode_mesh_from_leaves,
-                     uniformly_refine_tree_of_boxes)
+from boxtree import (
+    make_meshmode_mesh_from_leaves, make_tree_of_boxes_root,
+    uniformly_refine_tree_of_boxes)
+from boxtree.array_context import _acf  # noqa: F401
+from boxtree.array_context import PytestPyOpenCLArrayContextFactory
 
-import logging
+
 logger = logging.getLogger(__name__)
 
 pytest_generate_tests = pytest_generate_tests_for_array_contexts([
@@ -43,15 +44,15 @@ pytest_generate_tests = pytest_generate_tests_for_array_contexts([
 # {{{ make_global_leaf_quadrature
 
 def make_global_leaf_quadrature(actx, tob, order):
-    from meshmode.discretization.poly_element import \
-        GaussLegendreTensorProductGroupFactory
+    from meshmode.discretization.poly_element import (
+        GaussLegendreTensorProductGroupFactory)
     group_factory = GaussLegendreTensorProductGroupFactory(order=order)
 
     mesh, _ = make_meshmode_mesh_from_leaves(tob)
 
     if 0:
-        from meshmode.mesh import visualization as mvis
         import matplotlib.pyplot as plt
+        from meshmode.mesh import visualization as mvis
         mvis.draw_2d_mesh(mesh,
                           set_bounding_box=True,
                           draw_vertex_numbers=False,

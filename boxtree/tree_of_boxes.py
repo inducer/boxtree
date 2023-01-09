@@ -46,11 +46,13 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-from typing import Any, Optional, Tuple, TYPE_CHECKING
-
 import sys
+from typing import TYPE_CHECKING, Any, Optional, Tuple
+
 import numpy as np
+
 from boxtree.tree import TreeOfBoxes, box_flags_enum
+
 
 if TYPE_CHECKING or getattr(sys, "_BUILDING_SPHINX_DOCS", False):
     from meshmode.mesh import Mesh

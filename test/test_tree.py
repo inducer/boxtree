@@ -20,17 +20,18 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+import logging
 import sys
-import pytest
 
 import numpy as np
-
+import pytest
 from arraycontext import pytest_generate_tests_for_array_contexts
-from boxtree.array_context import (                                 # noqa: F401
-        PytestPyOpenCLArrayContextFactory, _acf)
+
+from boxtree.array_context import _acf  # noqa: F401
+from boxtree.array_context import PytestPyOpenCLArrayContextFactory
 from boxtree.tools import make_normal_particle_array
 
-import logging
+
 logger = logging.getLogger(__name__)
 
 pytest_generate_tests = pytest_generate_tests_for_array_contexts([
@@ -46,8 +47,8 @@ pytest_generate_tests = pytest_generate_tests_for_array_contexts([
 def test_bounding_box(actx_factory, dtype, dims, nparticles):
     actx = actx_factory()
 
-    from boxtree.tools import AXIS_NAMES
     from boxtree.bounding_box import BoundingBoxFinder
+    from boxtree.tools import AXIS_NAMES
     bbf = BoundingBoxFinder(actx.context)
 
     axis_names = AXIS_NAMES[:dims]
@@ -866,8 +867,7 @@ def test_area_query_elwise(actx_factory, dims, visualize=False):
     ball_centers = make_normal_particle_array(actx.queue, nballs, dims, dtype)
     ball_radii = 0.1 + actx.zeros(nballs, dtype)
 
-    from boxtree.area_query import (
-        AreaQueryElementwiseTemplate, PeerListFinder)
+    from boxtree.area_query import AreaQueryElementwiseTemplate, PeerListFinder
 
     template = AreaQueryElementwiseTemplate(
         extra_args="""

@@ -1,9 +1,10 @@
-import numpy as np
-import pyopencl as cl
-import sys
-
 import logging
 import os
+import sys
+
+import numpy as np
+import pyopencl as cl
+
 
 # Configure the root logger
 logging.basicConfig(level=os.environ.get("LOGLEVEL", "WARNING"))
@@ -25,9 +26,7 @@ def demo_cost_model():
         )
 
     from boxtree.pyfmmlib_integration import (
-            Kernel,
-            FMMLibTreeIndependentDataForWrangler,
-            FMMLibExpansionWrangler)
+        FMMLibExpansionWrangler, FMMLibTreeIndependentDataForWrangler, Kernel)
 
     nsources_list = [1000, 2000, 3000, 4000, 5000]
     ntargets_list = [1000, 2000, 3000, 4000, 5000]
@@ -94,8 +93,7 @@ def demo_cost_model():
 
     time_field_name = "process_elapsed"
 
-    from boxtree.cost import FMMCostModel
-    from boxtree.cost import make_pde_aware_translation_cost_model
+    from boxtree.cost import FMMCostModel, make_pde_aware_translation_cost_model
     cost_model = FMMCostModel(make_pde_aware_translation_cost_model)
 
     model_results = []
