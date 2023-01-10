@@ -43,6 +43,7 @@ logger = logging.getLogger(__name__)
 import enum
 
 import numpy as np
+
 from pytools import log_process, memoize_method
 
 from boxtree.fmm import ExpansionWranglerInterface, TreeIndependentDataForWrangler

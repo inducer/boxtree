@@ -47,6 +47,7 @@ import logging
 from functools import partial
 
 import numpy as np
+
 import pyopencl as cl
 import pyopencl.array  # noqa
 from pytools import DebugProcessLogger, ProcessLogger, memoize_method

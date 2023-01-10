@@ -27,9 +27,10 @@ THE SOFTWARE.
 import logging
 
 import numpy as np
-import pyopencl as cl
 from mako.template import Template
 from mpi4py import MPI
+
+import pyopencl as cl
 from pyopencl.elementwise import ElementwiseKernel
 from pyopencl.tools import dtype_to_ctype
 from pytools import memoize_method

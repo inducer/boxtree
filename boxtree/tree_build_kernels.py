@@ -25,6 +25,7 @@ from functools import partial
 
 import numpy as np
 from mako.template import Template
+
 from pyopencl.elementwise import ElementwiseTemplate
 from pyopencl.scan import ScanTemplate
 from pytools import Record, log_process, memoize

@@ -35,6 +35,7 @@ THE SOFTWARE.
 import logging
 
 import numpy as np
+
 import pyopencl as cl
 import pyopencl.array  # noqa
 
