@@ -27,8 +27,9 @@ from dataclasses import dataclass
 from typing import Optional
 
 import numpy as np
-import pyopencl as cl
 from mako.template import Template
+
+import pyopencl as cl
 from pyopencl.tools import dtype_to_ctype
 from pytools import memoize_method
 

@@ -106,9 +106,10 @@ import enum
 import warnings
 
 import numpy as np
+from mpi4py import MPI
+
 import pyopencl as cl
 import pyopencl.array
-from mpi4py import MPI
 
 from boxtree.cost import FMMCostModel
 

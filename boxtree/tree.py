@@ -86,6 +86,7 @@ from functools import cached_property
 from typing import Optional, Tuple
 
 import numpy as np
+
 import pyopencl as cl
 from cgen import Enum
 from pytools import memoize_method
@@ -1018,6 +1019,7 @@ class ParticleListFilter:
     def get_filter_target_lists_in_user_order_kernel(self, particle_id_dtype,
             user_order_flags_dtype):
         from mako.template import Template
+
         from pyopencl.algorithm import ListOfListsBuilder
         from pyopencl.tools import dtype_to_ctype
 

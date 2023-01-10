@@ -25,10 +25,11 @@ from functools import partial
 from typing import Any, Dict
 
 import numpy as np
+from mako.template import Template
+
 import pyopencl as cl
 import pyopencl.array  # noqa
 import pyopencl.cltypes as cltypes
-from mako.template import Template
 from pyopencl.tools import ScalarArg, VectorArg as _VectorArg, dtype_to_c_struct
 from pytools import Record, memoize_method
 from pytools.obj_array import make_obj_array

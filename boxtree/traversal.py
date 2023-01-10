@@ -38,10 +38,11 @@ import logging
 from functools import partial
 
 import numpy as np
+from mako.template import Template
+
 import pyopencl as cl
 import pyopencl.array  # noqa
 import pyopencl.cltypes  # noqa
-from mako.template import Template
 from pyopencl.elementwise import ElementwiseTemplate
 from pytools import Record, memoize_method
 

@@ -22,6 +22,7 @@ THE SOFTWARE.
 
 
 import numpy as np
+
 import pyopencl as cl  # noqa
 from pyopencl.reduction import ReductionTemplate
 from pytools import memoize, memoize_method
