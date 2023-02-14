@@ -482,7 +482,7 @@ def test_pyfmmlib_fmm(actx_factory, dims, use_dipoles, helmholtz_k):
         have_sumpy = False
         from warnings import warn
         warn("sumpy unavailable: cannot compute independent reference "
-                "values for pyfmmlib")
+                "values for pyfmmlib", stacklevel=1)
     else:
         have_sumpy = True
 

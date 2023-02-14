@@ -223,7 +223,7 @@ def _apply_coarsen_flags(coarsen_flags, tob, error_on_ignored_flags=True):
             raise RuntimeError(msg)
         else:
             import warnings
-            warnings.warn(msg)
+            warnings.warn(msg, stacklevel=3)
 
     # deleted boxes are marked as:
     # level = inf

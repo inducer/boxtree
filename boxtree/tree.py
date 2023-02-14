@@ -1191,7 +1191,7 @@ def filter_target_lists_in_user_order(queue, tree, flags):
             "filter_target_lists_in_user_order() is deprecated and will go "
             "away in a future release. Use "
             "ParticleListFilter.filter_target_lists_in_user_order() instead.",
-            DeprecationWarning)
+            DeprecationWarning, stacklevel=2)
 
     return (ParticleListFilter(queue.context)
             .filter_target_lists_in_user_order(queue, tree, flags))
@@ -1206,7 +1206,7 @@ def filter_target_lists_in_tree_order(queue, tree, flags):
             "filter_target_lists_in_tree_order() is deprecated and will go "
             "away in a future release. Use "
             "ParticleListFilter.filter_target_lists_in_tree_order() instead.",
-            DeprecationWarning)
+            DeprecationWarning, stacklevel=2)
 
     return (ParticleListFilter(queue.context)
             .filter_target_lists_in_tree_order(queue, tree, flags))
