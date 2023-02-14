@@ -217,7 +217,8 @@ def make_distributed_wrangler(
             # TODO: should replace the default calibration params with a more
             # accurate one
             warnings.warn("Calibration parameters for the cost model are not "
-                        "supplied. The default one will be used.")
+                          "supplied. The default one will be used.",
+                          stacklevel=2)
             calibration_params = \
                 FMMCostModel.get_unit_calibration_params()
 
