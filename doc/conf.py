@@ -1,5 +1,6 @@
 from urllib.request import urlopen
 
+
 _conf_url = \
         "https://raw.githubusercontent.com/inducer/sphinxconfig/main/sphinxconfig.py"
 with urlopen(_conf_url) as _inf:
@@ -15,13 +16,13 @@ version = ".".join(str(x) for x in ver_dic["VERSION"])
 release = ver_dic["VERSION_TEXT"]
 
 intersphinx_mapping = {
-        "https://docs.python.org/3/": None,
-        "https://numpy.org/doc/stable/": None,
-        "https://documen.tician.de/pyopencl/": None,
-        "https://documen.tician.de/meshmode/": None,
-        "https://documen.tician.de/arraycontext/": None,
-        "https://documen.tician.de/pytential/": None,
-        }
+    "arraycontext": ("https://documen.tician.de/arraycontext", None),
+    "meshmode": ("https://documen.tician.de/meshmode", None),
+    "numpy": ("https://numpy.org/doc/stable", None),
+    "pyopencl": ("https://documen.tician.de/pyopencl", None),
+    "pytential": ("https://documen.tician.de/pytential", None),
+    "python": ("https://docs.python.org/3", None),
+}
 
 nitpick_ignore_regex = [
     ["py:class", r"numpy._?typing._generic_alias.ScalarType"],
@@ -37,4 +38,6 @@ nitpick_ignore_regex = [
 # this needs a setting of the same name across all packages involved, that's
 # why this name is as global-sounding as it is.
 import sys
+
+
 sys._BUILDING_SPHINX_DOCS = True
