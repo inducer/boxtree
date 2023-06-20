@@ -1137,7 +1137,7 @@ class ParticleListFilter:
                 nfiltered_targets,
                 queue=queue)
 
-        nfiltered_targets = int(nfiltered_targets.get())
+        nfiltered_targets = int(nfiltered_targets.get().item())
 
         unfiltered_from_filtered_target_indices = \
                 unfiltered_from_filtered_target_indices[:nfiltered_targets]
