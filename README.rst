@@ -10,6 +10,9 @@ boxtree: Quad/Octrees, FMM Traversals, Geometric Queries
 .. image:: https://badge.fury.io/py/boxtree.png
     :alt: Python Package Index Release Page
     :target: https://pypi.org/project/boxtree/
+.. image:: https://zenodo.org/badge/7193697.svg
+    :alt: Zenodo DOI for latest release
+    :target: https://zenodo.org/badge/latestdoi/7193697
 
 boxtree is a package that, given some point locations in two or three
 dimensions, sorts them into an adaptive quad/octree of boxes, efficiently, in

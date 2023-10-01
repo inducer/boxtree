@@ -17,4 +17,6 @@ authors:
 
 title: "boxtree"
 version: 2023.1
+date-released: 2023-10-01
+doi: 10.5281/zenodo.8397396
 url: "https://github.com/inducer/boxtree"
