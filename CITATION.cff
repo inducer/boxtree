@@ -1,0 +1,20 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+authors:
+- family-names: "Kloeckner"
+  given-names: "Andreas"
+  orcid: "https://orcid.org/0000-0003-1228-519X"
+- family-names: "Fikl"
+  given-names: "Alex"
+- family-names: "Gao"
+  given-names: "Hao"
+- family-names: "Fernando"
+  given-names: "Isuru"
+- family-names: "Wala"
+  given-names: "Matt"
+- family-names: "Wei"
+  given-names: "Xiaoyu"
+
+title: "boxtree"
+version: 2023.1
+url: "https://github.com/inducer/boxtree"
