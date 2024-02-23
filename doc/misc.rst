@@ -24,13 +24,24 @@ for instructions.
 User-visible Changes
 ====================
 
-Version 2019.1
---------------
-
 .. note::
 
-    This version is currently under development. You can get snapshots from
-    boxtree's `git repository <https://github.com/inducer/boxtree>`_
+    You can get snapshots of in-development versions from
+    :mod:`boxtree`'s `git repository <https://github.com/inducer/boxtree>`_.
+
+Version 2022.1
+--------------
+
+* Use :mod:`arraycontext` as the main array abstraction (over :mod:`pyopencl`
+  only at the moment). This changed the API of many functions and classes,
+  since most of them now take an :class:`~arraycontext.ArrayContext` instead
+  of a :class:`pyopencl.Context`.
+* Remove (temporarily) cost model support. This removed the *timing_data*
+  parameter and return values from the FMM driver.
+* Removed *DeviceDataRecord* in favour of array containers from :mod:`arraycontext`.
+
+Version 2019.1
+--------------
 
 * Faster M2Ls in the FMMLIB backend using precomputed rotation matrices.  This
   change adds an optional *rotation_data* parameter to the FMMLIB geometry wrangler

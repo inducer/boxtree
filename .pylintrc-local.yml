@@ -1,6 +1,2 @@
 - arg: extension-pkg-whitelist
   val: pyfmmlib
-
-# Needed for boxtree.tools
-- arg: init-hook
-  val: import sys; sys.setrecursionlimit(2000)
