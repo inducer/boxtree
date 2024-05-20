@@ -208,7 +208,7 @@ def run_build_test(builder, actx, dims, dtype, nparticles, visualize,
             else:
                 assert refine_weights is not None
                 box_weight = np.sum(
-                    refine_weights_reordered[start:start+nparticles_in_box])
+                    refine_weights_reordered[start:start+nparticles_in_box])  # pylint: disable=possibly-used-before-assignment  # noqa: E501
                 if box_weight > max_leaf_refine_weight:
                     print("refine weight exceeded ({} > {}); box {}".format(
                         box_weight, max_leaf_refine_weight, ibox))
