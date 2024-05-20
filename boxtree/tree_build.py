@@ -1111,7 +1111,7 @@ class TreeBuilder:
                     wait_for.extend(have_upper_level_split_box.events)
 
                     # writes: force_split_box, have_upper_level_split_box
-                    evt = level_restrict_kernel(
+                    evt = level_restrict_kernel(  # pylint: disable=possibly-used-before-assignment  # noqa: E501
                         upper_level,
                         root_extent,
                         box_has_children,
@@ -1451,8 +1451,8 @@ class TreeBuilder:
                     box_target_starts, box_target_counts_cumul,
                     )
                 + ((
-                    box_source_counts_nonchild,
-                    box_target_counts_nonchild,
+                    box_source_counts_nonchild,  # pylint: disable=possibly-used-before-assignment  # noqa: E501
+                    box_target_counts_nonchild,  # pylint: disable=possibly-used-before-assignment  # noqa: E501
                     ) if srcntgts_have_extent else ())
                 ),
                 queue=queue, range=slice(nsrcntgts),
