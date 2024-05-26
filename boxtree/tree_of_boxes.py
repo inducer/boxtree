@@ -452,7 +452,7 @@ def make_meshmode_mesh_from_leaves(tob: TreeOfBoxes) -> Tuple["Mesh", np.ndarray
     )
 
     # FIXME: purge redundant vertices
-    from meshmode.mesh import Mesh, TensorProductElementGroup
+    from meshmode.mesh import TensorProductElementGroup, make_mesh
     from meshmode.mesh.generation import make_group_from_vertices
 
     vertex_indices = np.arange(
@@ -462,7 +462,7 @@ def make_meshmode_mesh_from_leaves(tob: TreeOfBoxes) -> Tuple["Mesh", np.ndarray
         group_cls=TensorProductElementGroup,
         unit_nodes=None)
 
-    return Mesh(vertices=lfvertices, groups=[group]), tob.leaf_boxes
+    return make_mesh(lfvertices, [group]), tob.leaf_boxes
 
 # }}}
 
