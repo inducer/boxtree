@@ -191,7 +191,7 @@ typedef ${dtype_to_ctype(box_id_dtype)} box_id_t;
 typedef ${dtype_to_ctype(coord_dtype)} coord_t;
 typedef ${dtype_to_ctype(get_coord_vec_dtype(coord_dtype, dimensions))} coord_vec_t;
 
-#define COORD_T_MACH_EPS ((coord_t) ${ repr(np.finfo(coord_dtype).eps) })
+#define COORD_T_MACH_EPS ((coord_t) ${ repr(float(np.finfo(coord_dtype).eps)) })
 
 #define NLEVELS ${max_levels}
 
