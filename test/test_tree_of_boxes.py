@@ -25,14 +25,15 @@ import sys
 
 import numpy as np
 import pytest
+# This means boxtree's tests have a hard dependency on meshmode. That's OK.
+from meshmode import _acf  # noqa: F401
+from meshmode.array_context import PytestPyOpenCLArrayContextFactory
 
 from arraycontext import pytest_generate_tests_for_array_contexts
 
 from boxtree import (
     make_meshmode_mesh_from_leaves, make_tree_of_boxes_root,
     uniformly_refine_tree_of_boxes)
-from boxtree.array_context import _acf  # noqa: F401
-from boxtree.array_context import PytestPyOpenCLArrayContextFactory
 
 
 logger = logging.getLogger(__name__)
