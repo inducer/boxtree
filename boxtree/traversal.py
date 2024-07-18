@@ -1700,15 +1700,15 @@ class FMMTraversalBuilder:
                 from_sep_smaller_crit = "static_linf"
 
         else:
-            raise ValueError("unexpected value of 'extent_norm': %s"
-                    % extent_norm)
+            raise ValueError(f"unexpected value of 'extent_norm': {extent_norm}")
 
         if from_sep_smaller_crit not in [
                 "static_linf", "precise_linf",
                 "static_l2",
                 ]:
-            raise ValueError("unexpected value of 'from_sep_smaller_crit': %s"
-                    % from_sep_smaller_crit)
+            raise ValueError(
+                "unexpected value of 'from_sep_smaller_crit': "
+                f"{from_sep_smaller_crit}")
 
         # }}}
 

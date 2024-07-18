@@ -89,7 +89,7 @@ def run_build_test(builder, actx, dims, dtype, nparticles, visualize,
     elif dtype == np.float64:
         tol = 1e-12
     else:
-        raise RuntimeError("unsupported dtype: %s" % dtype)
+        raise RuntimeError(f"unsupported dtype: {dtype}")
 
     logger.info(75 * "-")
 
@@ -203,16 +203,16 @@ def run_build_test(builder, actx, dims, dtype, nparticles, visualize,
             nparticles_in_box = tree.box_source_counts_cumul[ibox]
             if max_particles_in_box is not None:
                 if nparticles_in_box > max_particles_in_box:
-                    print("too many particles ({} > {}); box {}".format(
-                        nparticles_in_box, max_particles_in_box, ibox))
+                    print("too many particles "
+                          f"({nparticles_in_box} > {max_particles_in_box}); box {ibox}")
                     all_good_here = False
             else:
                 assert refine_weights is not None
                 box_weight = np.sum(
                     refine_weights_reordered[start:start+nparticles_in_box])  # pylint: disable=possibly-used-before-assignment  # noqa: E501
                 if box_weight > max_leaf_refine_weight:
-                    print("refine weight exceeded ({} > {}); box {}".format(
-                        box_weight, max_leaf_refine_weight, ibox))
+                    print("refine weight exceeded "
+                          f"({box_weight} > {max_leaf_refine_weight}); box {ibox}")
                     all_good_here = False
 
         all_good_so_far = all_good_so_far and all_good_here

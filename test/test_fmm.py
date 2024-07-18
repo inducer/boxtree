@@ -806,11 +806,11 @@ def test_fmm_with_optimized_3d_m2l(actx_factory, nsrcntgts, helmholtz_k,
 
     baseline_time = baseline_timing_data["multipole_to_local"]["process_elapsed"]
     if baseline_time is not None:
-        print("Baseline M2L time : %#.4g s" % baseline_time)
+        print(f"Baseline M2L time : {baseline_time:#.4g} s")
 
     opt_time = optimized_timing_data["multipole_to_local"]["process_elapsed"]
     if opt_time is not None:
-        print("Optimized M2L time: %#.4g s" % opt_time)
+        print(f"Optimized M2L time: {opt_time:#.4g} s")
 
     assert np.allclose(baseline_pot, optimized_pot, atol=1e-13, rtol=1e-13)
 

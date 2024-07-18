@@ -655,7 +655,7 @@ class Tree(DeviceDataRecord, TreeOfBoxes):
         exclude_fields = set(exclude_fields)
         exclude_fields.add("level_start_box_nrs")
 
-        return super(Tree, self).to_host_device_array(
+        return super().to_host_device_array(
             queue, frozenset(exclude_fields))
 
 # }}}
