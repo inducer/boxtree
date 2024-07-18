@@ -313,7 +313,7 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
             warn("Passing order is deprecated. Pass fmm_level_to_order instead.",
                     DeprecationWarning, stacklevel=2)
 
-            def fmm_level_to_order(tree, level):  # noqa pylint:disable=function-redefined
+            def fmm_level_to_order(tree, level):  # pylint:disable=function-redefined
                 return order
 
         super().__init__(tree_indep, traversal)
@@ -907,7 +907,7 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
                 kwargs["ier"] = ier
 
             expn2 = np.zeros(
-                    (ntgt_boxes,) + self.expansion_shape(self.level_orders[lev]),
+                    (ntgt_boxes, *self.expansion_shape(self.level_orders[lev])),
                     dtype=self.tree_indep.dtype)
 
             kwargs.update(self.kernel_kwargs)

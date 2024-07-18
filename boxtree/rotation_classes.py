@@ -37,7 +37,7 @@ import logging
 import numpy as np
 
 import pyopencl as cl
-import pyopencl.array  # noqa
+import pyopencl.array
 
 from boxtree.tools import DeviceDataRecord
 from boxtree.translation_classes import TranslationClassesBuilder

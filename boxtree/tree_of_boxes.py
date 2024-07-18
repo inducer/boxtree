@@ -86,12 +86,12 @@ def _resized_array(arr: np.ndarray, new_size: int) -> np.ndarray:
     old_size = arr.shape[-1]
     prefix = (slice(None), ) * (arr.ndim - 1)
     if old_size >= new_size:
-        return arr[prefix + (slice(new_size), )].copy()
+        return arr[(*prefix, slice(new_size))].copy()
     else:
         new_shape = list(arr.shape)
         new_shape[-1] = new_size
         new_arr = np.zeros(new_shape, arr.dtype)
-        new_arr[prefix + (slice(old_size), )] = arr
+        new_arr[(*prefix, slice(old_size))] = arr
         return new_arr
 
 

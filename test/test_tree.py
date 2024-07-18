@@ -209,7 +209,7 @@ def run_build_test(builder, actx, dims, dtype, nparticles, visualize,
             else:
                 assert refine_weights is not None
                 box_weight = np.sum(
-                    refine_weights_reordered[start:start+nparticles_in_box])  # pylint: disable=possibly-used-before-assignment  # noqa: E501
+                    refine_weights_reordered[start:start+nparticles_in_box])  # pylint: disable=possibly-used-before-assignment
                 if box_weight > max_leaf_refine_weight:
                     print("refine weight exceeded "
                           f"({box_weight} > {max_leaf_refine_weight}); box {ibox}")
@@ -603,7 +603,7 @@ def test_extent_tree(actx_factory, dims, extent_norm, visualize=False):
                 good = np.all(
                         (check_particles + check_radii
                             < extent_high[:, np.newaxis] + stick_out_dist)
-                        &  # noqa: W504
+                        &
                         (extent_low[:, np.newaxis] - stick_out_dist
                             <= check_particles - check_radii),
                         axis=0)

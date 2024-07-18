@@ -1,4 +1,4 @@
-__copyright__ = "Copyright (C) 2013 Andreas Kloeckner"
+# __copyright__ = "Copyright (C) 2013 Andreas Kloeckner"
 
 __license__ = """
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -1630,13 +1630,11 @@ def get_tree_build_kernel_info(context, dimensions, coord_dtype,
     from pyopencl.elementwise import ElementwiseKernel
     particle_renumberer_kernel = ElementwiseKernel(
             context,
-            common_arguments
-            + [
+            [*common_arguments,
                 VectorArg(np.int32, "box_has_children"),
                 VectorArg(np.int32, "box_force_split"),
                 VectorArg(particle_id_dtype, "new_user_srcntgt_ids"),
-                VectorArg(box_id_dtype, "new_srcntgt_box_ids"),
-                ],
+                VectorArg(box_id_dtype, "new_srcntgt_box_ids")],
             str(particle_renumberer_kernel_source), name="renumber_particles",
             preamble=(
                 preamble_with_dtype_decls

@@ -49,7 +49,7 @@ from functools import partial
 import numpy as np
 
 import pyopencl as cl
-import pyopencl.array  # noqa
+import pyopencl.array
 from pytools import DebugProcessLogger, ProcessLogger, memoize_method
 
 from boxtree.tree import Tree
@@ -998,10 +998,12 @@ class TreeBuilder:
             # {{{ split boxes
 
             box_splitter_args = (
-                common_args
-                + (box_has_children, force_split_box, root_extent)
-                + box_child_ids
-                + box_centers)
+                *common_args,
+                box_has_children,
+                force_split_box,
+                root_extent,
+                *box_child_ids,
+                *box_centers)
 
             evt = knl_info.box_splitter_kernel(*box_splitter_args,
                     range=slice(level_start_box_nrs[-1]),
@@ -1036,9 +1038,11 @@ class TreeBuilder:
             new_srcntgt_box_ids = cl.array.empty_like(srcntgt_box_ids)
 
             particle_renumberer_args = (
-                common_args
-                + (box_has_children, force_split_box,
-                   new_user_srcntgt_ids, new_srcntgt_box_ids))
+                *common_args,
+                box_has_children,
+                force_split_box,
+                new_user_srcntgt_ids,
+                new_srcntgt_box_ids)
 
             evt = knl_info.particle_renumberer_kernel(*particle_renumberer_args,
                     range=slice(nsrcntgts), wait_for=wait_for)
@@ -1110,7 +1114,7 @@ class TreeBuilder:
                     wait_for.extend(have_upper_level_split_box.events)
 
                     # writes: force_split_box, have_upper_level_split_box
-                    evt = level_restrict_kernel(  # pylint: disable=possibly-used-before-assignment  # noqa: E501
+                    evt = level_restrict_kernel(  # pylint: disable=possibly-used-before-assignment
                         upper_level,
                         root_extent,
                         box_has_children,
@@ -1449,8 +1453,8 @@ class TreeBuilder:
                     box_target_starts, box_target_counts_cumul,
                     )
                 + ((
-                    box_source_counts_nonchild,  # pylint: disable=possibly-used-before-assignment  # noqa: E501
-                    box_target_counts_nonchild,  # pylint: disable=possibly-used-before-assignment  # noqa: E501
+                    box_source_counts_nonchild,  # pylint: disable=possibly-used-before-assignment
+                    box_target_counts_nonchild,  # pylint: disable=possibly-used-before-assignment
                     ) if srcntgts_have_extent else ())
                 ),
                 queue=queue, range=slice(nsrcntgts),
@@ -1705,18 +1709,16 @@ class TreeBuilder:
                     continue
 
                 args = (
-                        (
-                            aligned_nboxes,
-                            box_child_ids,
-                            box_centers,
-                            pstarts, pcounts,)
-                        + tuple(particles)
-                        + (
-                            particle_radii,
-                            enable_radii,
-
-                            box_bounding_box_min,
-                            box_bounding_box_max))
+                    aligned_nboxes,
+                    box_child_ids,
+                    box_centers,
+                    pstarts,
+                    pcounts,
+                    *particles,
+                    particle_radii,
+                    enable_radii,
+                    box_bounding_box_min,
+                    box_bounding_box_max)
 
                 evt = knl_info.box_extents_finder_kernel(
                         *args,
