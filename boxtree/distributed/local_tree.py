@@ -95,7 +95,7 @@ class LocalTreeGeneratorCodeContainer:
             output_statement="scan[i + 1] = item;"
         )
 
-    fetch_local_paticles_arguments = Template("""
+    fetch_local_particles_arguments = Template("""
         __global const ${mask_t} *particle_mask,
         __global const ${mask_t} *particle_scan
         % for dim in range(ndims):
@@ -126,7 +126,7 @@ class LocalTreeGeneratorCodeContainer:
     def fetch_local_particles_kernel(self, particles_have_extent):
         return cl.elementwise.ElementwiseKernel(
             self.cl_context,
-            self.fetch_local_paticles_arguments.render(
+            self.fetch_local_particles_arguments.render(
                 mask_t=dtype_to_ctype(self.particle_id_dtype),
                 coord_t=dtype_to_ctype(self.coord_dtype),
                 ndims=self.dimensions,
@@ -386,7 +386,7 @@ def generate_local_tree(queue, global_traversal, responsible_boxes_list, comm):
     # Note: We do not change the source box flags despite the local tree may only
     # contain a subset of sources. This is because evaluating target potentials in
     # the responsible boxes of the current rank may depend on the multipole
-    # expansions formed by souces in other ranks. Modifying the source box flags
+    # expansions formed by sources in other ranks. Modifying the source box flags
     # could result in incomplete interaction lists.
 
     local_box_flags = global_tree_dev.box_flags.copy(queue=queue)

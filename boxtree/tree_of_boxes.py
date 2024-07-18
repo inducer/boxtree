@@ -442,9 +442,9 @@ def make_meshmode_mesh_from_leaves(tob: TreeOfBoxes) -> Tuple["Mesh", np.ndarray
     lfradii = tob.root_extent / 2 / (2**lflevels)
 
     # use tensor product nodes ordering
-    import modepy.nodes as nd
+    import modepy as mp
     cell_nodes_1d = np.array([-1, 1])
-    cell_nodes = nd.tensor_product_nodes(dim, cell_nodes_1d)
+    cell_nodes = mp.tensor_product_nodes(dim, cell_nodes_1d)
 
     lfvertices = (
         np.repeat(lfcenters, 2**dim, axis=1)

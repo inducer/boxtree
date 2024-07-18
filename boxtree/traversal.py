@@ -431,7 +431,7 @@ void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t box_id)
 
 # {{{ neighbor source boxes ("list 1")
 
-NEIGBHOR_SOURCE_BOXES_TEMPLATE = r"""//CL//
+NEIGHBOR_SOURCE_BOXES_TEMPLATE = r"""//CL//
 
 void generate(LIST_ARG_DECL USER_ARG_DECL box_id_t target_box_number)
 {
@@ -1792,7 +1792,7 @@ class FMMTraversalBuilder:
         for list_name, template, extra_args, extra_lists, eliminate_empty_list in [
                 ("same_level_non_well_sep_boxes",
                     SAME_LEVEL_NON_WELL_SEP_BOXES_TEMPLATE, [], [], []),
-                ("neighbor_source_boxes", NEIGBHOR_SOURCE_BOXES_TEMPLATE,
+                ("neighbor_source_boxes", NEIGHBOR_SOURCE_BOXES_TEMPLATE,
                         [
                             VectorArg(box_id_dtype, "target_boxes"),
                             ], [], []),
@@ -1878,7 +1878,7 @@ class FMMTraversalBuilder:
         :arg tree: A :class:`boxtree.Tree` instance.
         :arg wait_for: may either be *None* or a list of :class:`pyopencl.Event`
             instances for whose completion this command waits before starting
-            exeuction.
+            execution.
         :arg source_boxes_mask: Only boxes passing this mask will be considered for
             `source_boxes`. Used by the distributed implementation.
         :arg source_parent_boxes_mask: Only boxes passing this mask will be
