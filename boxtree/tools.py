@@ -133,7 +133,7 @@ def make_surface_particle_array(queue, nparticles, dims, dtype, seed=15):
 
             return knl
 
-        evt, result = get_2d_knl(dtype)(queue, n=nparticles)
+        _evt, result = get_2d_knl(dtype)(queue, n=nparticles)
 
         result = [x.ravel() for x in result]
 
@@ -163,7 +163,7 @@ def make_surface_particle_array(queue, nparticles, dims, dtype, seed=15):
 
             return knl
 
-        evt, result = get_3d_knl(dtype)(queue, n=n)
+        _evt, result = get_3d_knl(dtype)(queue, n=n)
 
         result = [x.ravel() for x in result]
 
@@ -205,7 +205,7 @@ def make_uniform_particle_array(queue, nparticles, dims, dtype, seed=15):
 
             return knl
 
-        evt, result = get_2d_knl(dtype)(queue, n=n)
+        _evt, result = get_2d_knl(dtype)(queue, n=n)
 
         result = [x.ravel() for x in result]
 
@@ -249,7 +249,7 @@ def make_uniform_particle_array(queue, nparticles, dims, dtype, seed=15):
 
             return knl
 
-        evt, result = get_3d_knl(dtype)(queue, n=n)
+        _evt, result = get_3d_knl(dtype)(queue, n=n)
 
         result = [x.ravel() for x in result]
 

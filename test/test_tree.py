@@ -60,7 +60,7 @@ def test_bounding_box(actx_factory, dtype, dims, nparticles):
     bbox_min = [np.min(actx.to_numpy(x)) for x in particles]
     bbox_max = [np.max(actx.to_numpy(x)) for x in particles]
 
-    bbox_cl, evt = bbf(particles, radii=None)
+    bbox_cl, _evt = bbf(particles, radii=None)
     bbox_cl = actx.to_numpy(bbox_cl)
 
     bbox_min_cl = np.empty(dims, dtype)
@@ -484,7 +484,7 @@ def test_extent_tree(actx_factory, dims, extent_norm, visualize=False):
             refine_weights=refine_weights,
             max_leaf_refine_weight=20,
 
-            #max_particles_in_box=10,
+            # max_particles_in_box=10,
 
             # Set artificially small, to exercise the reallocation code.
             nboxes_guess=10,
@@ -1125,7 +1125,7 @@ def test_max_levels_error(actx_factory):
     sources = [actx.zeros(11, np.float64) for i in range(2)]
     from boxtree.tree_build import MaxLevelsExceeded
     with pytest.raises(MaxLevelsExceeded):
-        tree, _ = tb(actx.queue, sources, max_particles_in_box=10, debug=True)
+        _tree, _ = tb(actx.queue, sources, max_particles_in_box=10, debug=True)
 
 # }}}
 

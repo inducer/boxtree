@@ -132,7 +132,7 @@ class BoundingBoxFinder:
 
     @memoize_method
     def get_kernel(self, dimensions, coord_dtype, have_radii):
-        bbox_dtype, bbox_cdecl = make_bounding_box_dtype(
+        bbox_dtype, _bbox_cdecl = make_bounding_box_dtype(
                 self.context.devices[0], dimensions, coord_dtype)
 
         from boxtree.tools import AXIS_NAMES

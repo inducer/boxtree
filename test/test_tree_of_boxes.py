@@ -227,7 +227,7 @@ def test_traversal_from_tob(actx_factory):
 
     from boxtree.traversal import FMMTraversalBuilder
     tg = FMMTraversalBuilder(actx.context)
-    trav, _ = tg(actx.queue, tob)
+    _trav, _ = tg(actx.queue, tob)
 
 # }}}
 

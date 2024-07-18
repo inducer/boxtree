@@ -1075,7 +1075,7 @@ class ParticleListFilter:
         kernel = self.get_filter_target_lists_in_user_order_kernel(
                 tree.particle_id_dtype, user_order_flags.dtype)
 
-        result, evt = kernel(queue, tree.nboxes,
+        result, _evt = kernel(queue, tree.nboxes,
                 user_order_flags,
                 user_target_ids,
                 tree.box_target_starts,

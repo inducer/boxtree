@@ -197,7 +197,7 @@ class FMMLibTreeIndependentDataForWrangler(TreeIndependentDataForWrangler):
             def wrapper(*args, **kwargs):
                 kwargs["ifgrad"] = self.ifgrad
                 kwargs["ifhess"] = False
-                pot, grad, hess = rout(*args, **kwargs)
+                pot, grad, _hess = rout(*args, **kwargs)
 
                 if not self.ifgrad:
                     grad = 0
@@ -238,7 +238,7 @@ class FMMLibTreeIndependentDataForWrangler(TreeIndependentDataForWrangler):
                 kwargs["ifgrad"] = self.ifgrad
                 kwargs["ifhess"] = False
 
-                pot, grad, hess = rout(*args, **kwargs)
+                pot, grad, _hess = rout(*args, **kwargs)
                 if not self.ifgrad:
                     grad = 0
 
