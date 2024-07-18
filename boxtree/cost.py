@@ -59,12 +59,13 @@ Cost Model Classes
 """
 
 from functools import partial
+from typing import ClassVar, Mapping
 
 import numpy as np
 from mako.template import Template
 
 import pyopencl as cl
-import pyopencl.array  # noqa: F401
+import pyopencl.array
 from pymbolic import evaluate, var
 from pyopencl.elementwise import ElementwiseKernel
 from pyopencl.tools import dtype_to_ctype
@@ -661,7 +662,7 @@ class AbstractFMMCostModel(ABC):
             "c_p2p": 1.0,
             }
 
-    _FMM_STAGE_TO_CALIBRATION_PARAMETER = {
+    _FMM_STAGE_TO_CALIBRATION_PARAMETER: ClassVar[Mapping[str, str]] = {
         "form_multipoles": "c_p2m",
         "coarsen_multipoles": "c_m2m",
         "eval_direct": "c_p2p",

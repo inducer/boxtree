@@ -33,12 +33,18 @@ from boxtree.tree_of_boxes import (
 
 
 __all__ = [
-    "TreeOfBoxes", "make_tree_of_boxes_root",
-    "refine_tree_of_boxes", "uniformly_refine_tree_of_boxes",
-    "coarsen_tree_of_boxes", "refine_and_coarsen_tree_of_boxes",
+    "Tree",
+    "TreeBuilder",
+    "TreeOfBoxes",
+    "TreeWithLinkedPointSources",
+    "box_flags_enum",
+    "coarsen_tree_of_boxes",
     "make_meshmode_mesh_from_leaves",
-    "Tree", "TreeWithLinkedPointSources",
-    "TreeBuilder", "box_flags_enum"]
+    "make_tree_of_boxes_root",
+    "refine_and_coarsen_tree_of_boxes",
+    "refine_tree_of_boxes",
+    "uniformly_refine_tree_of_boxes",
+]
 
 __doc__ = r"""
 :mod:`boxtree` can do three main things:

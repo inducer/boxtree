@@ -30,8 +30,8 @@ import numpy as np
 from mako.template import Template
 
 import pyopencl as cl
-import pyopencl.array  # noqa
-import pyopencl.cltypes  # noqa
+import pyopencl.array
+import pyopencl.cltypes
 from pytools import ProcessLogger, memoize_method
 
 from boxtree.tools import (
@@ -493,7 +493,10 @@ class AreaQueryElementwiseTemplate:
                 tree.box_child_ids,
                 tree.box_flags,
                 peer_lists.peer_list_starts,
-                peer_lists.peer_lists) + tuple(tree.bounding_box[0]) + args
+                peer_lists.peer_lists,
+                *tree.bounding_box[0],
+                *args
+            )
 
     def __init__(self, extra_args, ball_center_and_radius_expr,
                  leaf_found_op, preamble="", name="area_query_elwise"):
@@ -586,7 +589,8 @@ class AreaQueryElementwiseTemplate:
                     ("peer_list_idx_t", peer_list_idx_dtype),
                     ("box_level_t", np.uint8),
                     ("box_flags_t", box_flags_enum.dtype),
-                ) + extra_type_aliases,
+                    *extra_type_aliases,
+                ),
                 var_values=render_vars + extra_var_values,
                 more_preamble=preamble + extra_preamble)
 

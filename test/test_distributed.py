@@ -30,7 +30,7 @@ import pytest
 from arraycontext import pytest_generate_tests_for_array_contexts
 
 from boxtree.array_context import (
-    PytestPyOpenCLArrayContextFactory,  # noqa: F401
+    PytestPyOpenCLArrayContextFactory,
     _acf,
 )
 from boxtree.constant_one import (

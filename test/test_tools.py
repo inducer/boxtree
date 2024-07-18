@@ -31,7 +31,7 @@ from boxtree.array_context import (
     PytestPyOpenCLArrayContextFactory,
     _acf,  # noqa: F401
 )
-from boxtree.tools import (  # noqa: F401
+from boxtree.tools import (
     make_normal_particle_array as p_normal,
     make_surface_particle_array as p_surface,
     make_uniform_particle_array as p_uniform,

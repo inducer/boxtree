@@ -41,8 +41,8 @@ import numpy as np
 from mako.template import Template
 
 import pyopencl as cl
-import pyopencl.array  # noqa
-import pyopencl.cltypes  # noqa
+import pyopencl.array
+import pyopencl.cltypes
 from pyopencl.elementwise import ElementwiseTemplate
 from pytools import Record, memoize_method
 
@@ -1262,12 +1262,12 @@ class _ListMerger:
         assert len(input_starts) == len(input_lists)
         nlists = len(input_starts)
 
-        evt = self.get_list_merger_kernel(nlists, True)(*(
+        evt = self.get_list_merger_kernel(nlists, True)(
                     # input:
-                    (output_to_input_box,)
-                    + input_starts
+                    output_to_input_box,
+                    *input_starts,
                     # output:
-                    + (new_counts,)),
+                    new_counts,
                     range=slice(noutput_boxes),
                     queue=queue,
                     wait_for=wait_for)
@@ -1282,14 +1282,14 @@ class _ListMerger:
 
         new_lists.fill(999999999)
 
-        evt = self.get_list_merger_kernel(nlists, False)(*(
+        evt = self.get_list_merger_kernel(nlists, False)(
                     # input:
-                    (output_to_input_box,)
-                    + input_starts
-                    + input_lists
-                    + (new_starts,)
+                    output_to_input_box,
+                    *input_starts,
+                    *input_lists,
+                    new_starts,
                     # output:
-                    + (new_lists,)),
+                    new_lists,
                     range=slice(noutput_boxes),
                     queue=queue,
                     wait_for=[evt])
@@ -2096,7 +2096,7 @@ class FMMTraversalBuilder:
             fin_debug("finding separated smaller ('list 3 level %d')" % ilevel)
 
             result, evt = knl_info.from_sep_smaller_builder(
-                    *(from_sep_smaller_base_args + (ilevel,)),
+                    *from_sep_smaller_base_args, ilevel,
                     omit_lists=("from_sep_close_smaller",) if with_extent else (),
                     wait_for=wait_for)
 
@@ -2110,7 +2110,8 @@ class FMMTraversalBuilder:
         if with_extent:
             fin_debug("finding separated smaller close ('list 3 close')")
             result, evt = knl_info.from_sep_smaller_builder(
-                    *(from_sep_smaller_base_args + (-1,)),
+                    *from_sep_smaller_base_args,
+                     -1,
                     omit_lists=("from_sep_smaller",),
                     wait_for=wait_for)
             from_sep_close_smaller_starts = result["from_sep_close_smaller"].starts

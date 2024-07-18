@@ -157,7 +157,7 @@ class ConstantOneExpansionWranglerWithFilteredTargetsInUserOrder(
             (3, 5 * 10**5, 4*10**4, "t", p_normal, p_normal, None, "linf", "static_linf"),  # noqa: E501
             (3, 5 * 10**5, 4*10**4, "t", p_normal, p_normal, None, "linf", "precise_linf"),  # noqa: E501
             (3, 5 * 10**5, 4*10**4, "t", p_normal, p_normal, None, "l2", "precise_linf"),  # noqa: E501
-            (3, 5 * 10**5, 4*10**4, "t", p_normal, p_normal, None, "l2", "static_l2"),  # noqa: E501
+            (3, 5 * 10**5, 4*10**4, "t", p_normal, p_normal, None, "l2", "static_l2"),
 
             ])
 def test_fmm_completeness(actx_factory, dims, nsources_req, ntargets_req,
@@ -354,7 +354,7 @@ def test_fmm_completeness(actx_factory, dims, nsources_req, ntargets_req,
             from boxtree.visualization import draw_box_lists
             draw_box_lists(
                     plotter,
-                    pre_merge_host_trav if who_has_extent else host_trav,  # pylint: disable=possibly-used-before-assignment  # noqa: E501
+                    pre_merge_host_trav if who_has_extent else host_trav,  # pylint: disable=possibly-used-before-assignment
                     22)
             # from boxtree.visualization import draw_same_level_non_well_sep_boxes
             # draw_same_level_non_well_sep_boxes(plotter, host_trav, 2)

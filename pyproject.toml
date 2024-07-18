@@ -14,9 +14,9 @@ extend-select = [
     "Q",   # flake8-quotes
     "I",   # flake8-isort
     "UP",  # pyupgrade
+    "RUF", # ruff
 
     # TODO
-    # "RUF", # ruff
     # "W",   # pycodestyle
     # "SIM",
 ]

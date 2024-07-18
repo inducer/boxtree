@@ -39,8 +39,8 @@ import numpy as np
 from mako.template import Template
 
 import pyopencl as cl
-import pyopencl.array  # noqa
-import pyopencl.cltypes  # noqa
+import pyopencl.array
+import pyopencl.cltypes
 from pyopencl.elementwise import ElementwiseTemplate
 from pytools import Record, memoize_method
 
