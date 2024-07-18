@@ -62,10 +62,10 @@ from functools import partial
 
 import numpy as np
 from mako.template import Template
-from pymbolic import evaluate, var
 
 import pyopencl as cl
 import pyopencl.array  # noqa: F401
+from pymbolic import evaluate, var
 from pyopencl.elementwise import ElementwiseKernel
 from pyopencl.tools import dtype_to_ctype
 from pytools import memoize_method

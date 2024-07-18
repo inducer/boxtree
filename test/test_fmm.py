@@ -25,16 +25,22 @@ import logging
 import numpy as np
 import numpy.linalg as la
 import pytest
-
 from arraycontext import pytest_generate_tests_for_array_contexts
 
-from boxtree.array_context import _acf  # noqa: F401
-from boxtree.array_context import PytestPyOpenCLArrayContextFactory
+from boxtree.array_context import (
+    PytestPyOpenCLArrayContextFactory,
+    _acf,  # noqa: F401
+)
 from boxtree.constant_one import (
-    ConstantOneExpansionWrangler, ConstantOneTreeIndependentDataForWrangler)
+    ConstantOneExpansionWrangler,
+    ConstantOneTreeIndependentDataForWrangler,
+)
 from boxtree.tools import (  # noqa: F401
-    make_normal_particle_array as p_normal, make_surface_particle_array as p_surface,
-    make_uniform_particle_array as p_uniform, particle_array_to_host)
+    make_normal_particle_array as p_normal,
+    make_surface_particle_array as p_surface,
+    make_uniform_particle_array as p_uniform,
+    particle_array_to_host,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -444,7 +450,10 @@ def test_pyfmmlib_fmm(actx_factory, dims, use_dipoles, helmholtz_k):
         return result
 
     from boxtree.pyfmmlib_integration import (
-        FMMLibExpansionWrangler, FMMLibTreeIndependentDataForWrangler, Kernel)
+        FMMLibExpansionWrangler,
+        FMMLibTreeIndependentDataForWrangler,
+        Kernel,
+    )
     tree_indep = FMMLibTreeIndependentDataForWrangler(
             trav.tree.dimensions,
             Kernel.HELMHOLTZ if helmholtz_k else Kernel.LAPLACE)
@@ -488,7 +497,10 @@ def test_pyfmmlib_fmm(actx_factory, dims, use_dipoles, helmholtz_k):
 
     if have_sumpy:
         from sumpy.kernel import (  # pylint:disable=import-error
-            DirectionalSourceDerivative, HelmholtzKernel, LaplaceKernel)
+            DirectionalSourceDerivative,
+            HelmholtzKernel,
+            LaplaceKernel,
+        )
         from sumpy.p2p import P2P  # pylint:disable=import-error
 
         sumpy_extra_kwargs = {}
@@ -564,8 +576,11 @@ def test_pyfmmlib_numerical_stability(actx_factory, dims, helmholtz_k, order):
     weights = np.ones_like(sources[0])
 
     from boxtree.pyfmmlib_integration import (
-        FMMLibExpansionWrangler, FMMLibRotationData,
-        FMMLibTreeIndependentDataForWrangler, Kernel)
+        FMMLibExpansionWrangler,
+        FMMLibRotationData,
+        FMMLibTreeIndependentDataForWrangler,
+        Kernel,
+    )
 
     def fmm_level_to_order(tree, lev):
         return order
@@ -759,8 +774,11 @@ def test_fmm_with_optimized_3d_m2l(actx_factory, nsrcntgts, helmholtz_k,
         return result
 
     from boxtree.pyfmmlib_integration import (
-        FMMLibExpansionWrangler, FMMLibRotationData,
-        FMMLibTreeIndependentDataForWrangler, Kernel)
+        FMMLibExpansionWrangler,
+        FMMLibRotationData,
+        FMMLibTreeIndependentDataForWrangler,
+        Kernel,
+    )
 
     tree_indep = FMMLibTreeIndependentDataForWrangler(
             trav.tree.dimensions,

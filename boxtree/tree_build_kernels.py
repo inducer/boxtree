@@ -31,7 +31,10 @@ from pyopencl.scan import ScanTemplate
 from pytools import Record, log_process, memoize
 
 from boxtree.tools import (
-    coord_vec_subscript_code, get_coord_vec_dtype, get_type_moniker)
+    coord_vec_subscript_code,
+    get_coord_vec_dtype,
+    get_type_moniker,
+)
 
 
 logger = logging.getLogger(__name__)

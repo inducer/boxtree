@@ -25,11 +25,12 @@ import logging
 import numpy as np
 import numpy.linalg as la
 import pytest
-
 from arraycontext import pytest_generate_tests_for_array_contexts
 
-from boxtree.array_context import _acf  # noqa: F401
-from boxtree.array_context import PytestPyOpenCLArrayContextFactory
+from boxtree.array_context import (
+    PytestPyOpenCLArrayContextFactory,
+    _acf,  # noqa: F401
+)
 from boxtree.tools import make_normal_particle_array
 
 

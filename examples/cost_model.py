@@ -27,7 +27,10 @@ def demo_cost_model():
         )
 
     from boxtree.pyfmmlib_integration import (
-        FMMLibExpansionWrangler, FMMLibTreeIndependentDataForWrangler, Kernel)
+        FMMLibExpansionWrangler,
+        FMMLibTreeIndependentDataForWrangler,
+        Kernel,
+    )
 
     nsources_list = [1000, 2000, 3000, 4000, 5000]
     ntargets_list = [1000, 2000, 3000, 4000, 5000]

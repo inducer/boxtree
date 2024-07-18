@@ -25,14 +25,17 @@ import logging
 
 import numpy as np
 import pytest
-
 from arraycontext import pytest_generate_tests_for_array_contexts
 
-from boxtree.array_context import _acf  # noqa: F401
-from boxtree.array_context import PytestPyOpenCLArrayContextFactory
+from boxtree.array_context import (
+    PytestPyOpenCLArrayContextFactory,
+    _acf,  # noqa: F401
+)
 from boxtree.tools import (  # noqa: F401
-    make_normal_particle_array as p_normal, make_surface_particle_array as p_surface,
-    make_uniform_particle_array as p_uniform)
+    make_normal_particle_array as p_normal,
+    make_surface_particle_array as p_surface,
+    make_uniform_particle_array as p_uniform,
+)
 
 
 logger = logging.getLogger(__name__)

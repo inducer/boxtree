@@ -45,8 +45,11 @@ from pyopencl.elementwise import ElementwiseTemplate
 from pytools import Record, memoize_method
 
 from boxtree.tools import (
-    DeviceDataRecord, InlineBinarySearch, coord_vec_subscript_code,
-    get_coord_vec_dtype)
+    DeviceDataRecord,
+    InlineBinarySearch,
+    coord_vec_subscript_code,
+    get_coord_vec_dtype,
+)
 from boxtree.traversal import TRAVERSAL_PREAMBLE_MAKO_DEFS
 
 

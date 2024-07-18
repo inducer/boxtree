@@ -47,7 +47,11 @@ from pyopencl.elementwise import ElementwiseTemplate
 from pytools import Record, memoize_method
 
 from boxtree.tools import (
-    AXIS_NAMES, DeviceDataRecord, coord_vec_subscript_code, get_coord_vec_dtype)
+    AXIS_NAMES,
+    DeviceDataRecord,
+    coord_vec_subscript_code,
+    get_coord_vec_dtype,
+)
 
 
 logger = logging.getLogger(__name__)

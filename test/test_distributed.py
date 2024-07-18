@@ -27,16 +27,21 @@ import sys
 import numpy as np
 import numpy.linalg as la
 import pytest
-
 from arraycontext import pytest_generate_tests_for_array_contexts
 
-from boxtree.array_context import PytestPyOpenCLArrayContextFactory  # noqa: F401
-from boxtree.array_context import _acf
+from boxtree.array_context import (
+    PytestPyOpenCLArrayContextFactory,  # noqa: F401
+    _acf,
+)
 from boxtree.constant_one import (
     ConstantOneExpansionWrangler as ConstantOneExpansionWranglerBase,
-    ConstantOneTreeIndependentDataForWrangler)
+    ConstantOneTreeIndependentDataForWrangler,
+)
 from boxtree.pyfmmlib_integration import (
-    FMMLibExpansionWrangler, FMMLibTreeIndependentDataForWrangler, Kernel)
+    FMMLibExpansionWrangler,
+    FMMLibTreeIndependentDataForWrangler,
+    Kernel,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -119,7 +124,8 @@ def _test_against_shared(
 
         def wrangler_factory(local_traversal, global_traversal):
             from boxtree.distributed.calculation import (
-                DistributedFMMLibExpansionWrangler)
+                DistributedFMMLibExpansionWrangler,
+            )
 
             return DistributedFMMLibExpansionWrangler(
                 actx.context, comm, tree_indep, local_traversal, global_traversal,
