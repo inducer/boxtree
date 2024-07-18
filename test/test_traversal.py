@@ -300,7 +300,7 @@ def test_plot_traversal(actx_factory, well_sep_is_n_away=1, visualize=False):
         from boxtree.visualization import TreePlotter
         plotter = TreePlotter(tree)
         plotter.draw_tree(fill=False, edgecolor="black")
-        #plotter.draw_box_numbers()
+        # plotter.draw_box_numbers()
         plotter.set_bounding_box()
 
         from boxtree.visualization import draw_box_lists

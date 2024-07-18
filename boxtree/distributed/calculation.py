@@ -419,7 +419,7 @@ class DistributedFMMLibExpansionWrangler(
             self, tree_indep, local_traversal,
             fmm_level_to_order=fmm_level_to_order, **kwargs)
 
-    #TODO: use log_process like FMMLibExpansionWrangler?
+    # TODO: use log_process like FMMLibExpansionWrangler?
     def reorder_sources(self, source_array):
         if self.comm.Get_rank() == 0:
             return source_array[..., self.global_traversal.tree.user_source_ids]

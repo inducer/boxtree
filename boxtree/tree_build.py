@@ -58,7 +58,7 @@ from boxtree.tree import Tree
 logger = logging.getLogger(__name__)
 
 
-class MaxLevelsExceeded(RuntimeError):
+class MaxLevelsExceeded(RuntimeError):  # noqa: N818
     pass
 
 
@@ -945,7 +945,7 @@ class TreeBuilder:
 
             # }}}
 
-            logger.debug("LEVEL %d -> %d boxes" % (level, nboxes_new))
+            logger.debug("LEVEL %d -> %d boxes", level, nboxes_new)
 
             assert (
                 level_start_box_nrs[-1] != nboxes_new
@@ -1135,13 +1135,12 @@ class TreeBuilder:
 
                 if debug:
                     total_boxes_split = sum(boxes_split)
-                    logger.debug("level restriction: {total_boxes_split} boxes split"
-                                 .format(total_boxes_split=total_boxes_split))
+                    logger.debug("level restriction: %d boxes split",
+                                 total_boxes_split)
                     from itertools import count
                     for level_, nboxes_split in zip(
                             count(level - 2, step=-1), boxes_split[:-1]):
-                        logger.debug("level {level}: {nboxes_split} boxes split"
-                            .format(level=level_, nboxes_split=nboxes_split))
+                        logger.debug("level %d: %d boxes split", level_, nboxes_split)
                     del boxes_split
 
                 if int(have_oversize_split_box.get()) == 0 and did_upper_level_split:
@@ -1277,9 +1276,9 @@ class TreeBuilder:
                     size=nboxes, wait_for=wait_for)
             wait_for = [evt]
             nboxes_post_prune = int(nboxes_post_prune_dev.get())
-            logger.debug("{} boxes after pruning "
-                        "({} empty leaves and/or unused boxes removed)"
-                    .format(nboxes_post_prune, nboxes - nboxes_post_prune))
+            logger.debug("%d boxes after pruning "
+                        "(%d empty leaves and/or unused boxes removed)",
+                        nboxes_post_prune, nboxes - nboxes_post_prune)
             should_prune = True
         elif knl_info.level_restrict:
             # Remove unused boxes from the tree.
@@ -1305,8 +1304,8 @@ class TreeBuilder:
 
             nboxes_post_prune = new_level_start_box_nrs[-1]
 
-            logger.info("{} boxes after pruning ({} unused boxes removed)"
-                    .format(nboxes_post_prune, nboxes - nboxes_post_prune))
+            logger.info("%d boxes after pruning (%d unused boxes removed)",
+                        nboxes_post_prune, nboxes - nboxes_post_prune)
             should_prune = True
         else:
             should_prune = False
@@ -1600,14 +1599,14 @@ class TreeBuilder:
             # (before we overwrite them)
 
             try:
-                box_source_counts_nonchild
+                box_source_counts_nonchild  # noqa: B018
             except NameError:
                 pass
             else:
                 raise AssertionError
 
             try:
-                box_target_counts_nonchild
+                box_target_counts_nonchild  # noqa: B018
             except NameError:
                 pass
             else:

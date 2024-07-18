@@ -1412,7 +1412,7 @@ def get_tree_build_kernel_info(context, dimensions, coord_dtype,
             srcntgts_have_extent=srcntgts_extent_norm is not None)
 
     from boxtree.bounding_box import make_bounding_box_dtype
-    bbox_dtype, bbox_type_decl = make_bounding_box_dtype(
+    bbox_dtype, _bbox_type_decl = make_bounding_box_dtype(
             dev, dimensions, coord_dtype)
 
     from boxtree.tools import AXIS_NAMES

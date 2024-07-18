@@ -133,7 +133,7 @@ class ConstantOneExpansionWrangler(ExpansionWranglerInterface):
             src_sum = 0
             nsrcs = 0
             start, end = neighbor_sources_starts[itgt_box:itgt_box+2]
-            #print "DIR: %s <- %s" % (tgt_ibox, neighbor_sources_lists[start:end])
+            # print "DIR: %s <- %s" % (tgt_ibox, neighbor_sources_lists[start:end])
             for src_ibox in neighbor_sources_lists[start:end]:
                 src_pslice = self._get_source_slice(src_ibox)
                 nsrcs += src_weights[src_pslice].size
@@ -156,7 +156,7 @@ class ConstantOneExpansionWrangler(ExpansionWranglerInterface):
             start, end = starts[itgt_box:itgt_box+2]
 
             contrib = 0
-            #print tgt_ibox, "<-", lists[start:end]
+            # print tgt_ibox, "<-", lists[start:end]
             for src_ibox in lists[start:end]:
                 contrib += mpole_exps[src_ibox]
                 ops += 1
@@ -197,7 +197,7 @@ class ConstantOneExpansionWrangler(ExpansionWranglerInterface):
         for itgt_box, tgt_ibox in enumerate(target_or_target_parent_boxes):
             start, end = starts[itgt_box:itgt_box+2]
 
-            #print "LIST 4", tgt_ibox, "<-", lists[start:end]
+            # print "LIST 4", tgt_ibox, "<-", lists[start:end]
             contrib = 0
             nsrcs = 0
             for src_ibox in lists[start:end]:

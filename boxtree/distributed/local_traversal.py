@@ -58,8 +58,6 @@ def generate_local_travs(
     if merge_close_lists and local_tree.targets_have_extent:
         local_trav = local_trav.merge_close_lists(queue)
 
-    logger.info("Generate local traversal in {} sec.".format(
-        str(time.time() - start_time))
-    )
+    logger.info("Generate local traversal in %f sec.", time.time() - start_time)
 
     return local_trav

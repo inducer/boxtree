@@ -225,7 +225,7 @@ def test_fmm_completeness(actx_factory, dims, nsources_req, ntargets_req,
         pre_merge_trav = trav
         trav = trav.merge_close_lists(actx.queue)
 
-    #weights = np.random.randn(nsources)
+    # weights = np.random.randn(nsources)
     weights = np.ones(nsources)
     weights_sum = np.sum(weights)
 
@@ -506,7 +506,7 @@ def test_pyfmmlib_fmm(actx_factory, dims, use_dipoles, helmholtz_k):
                 [knl],
                 exclude_self=False)
 
-        evt, (sumpy_ref_pot,) = p2p(
+        _evt, (sumpy_ref_pot,) = p2p(
                 actx.queue, targets, sources, (weights,),
                 out_host=True, **sumpy_extra_kwargs)
 

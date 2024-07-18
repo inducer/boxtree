@@ -1,0 +1,79 @@
+[tool.ruff]
+target-version = "py38"
+preview = true
+
+[tool.ruff.lint]
+extend-select = [
+    "B",   # flake8-bugbear
+    "C",   # flake8-comprehensions
+    "E",   # pycodestyle
+    "F",   # pyflakes
+    "G",   # flake8-logging-format
+    "N",   # pep8-naming
+    "NPY", # numpy
+    "Q",   # flake8-quotes
+
+    # TODO
+    # "UP",  # pyupgrade
+    # "RUF", # ruff
+    # "W",   # pycodestyle
+    # "I",   # flake8-isort
+    # "SIM",
+]
+extend-ignore = [
+    "C90",  # McCabe complexity
+    "E221", # multiple spaces before operator
+    "E226", # missing whitespace around arithmetic operator
+    "E402", # module-level import not at top of file
+
+    # TODO
+    "NPY002", # legacy numpy rng
+]
+
+[tool.ruff.lint.flake8-quotes]
+docstring-quotes = "double"
+inline-quotes = "double"
+multiline-quotes = "double"
+
+[tool.ruff.lint.isort]
+combine-as-imports = true
+known-first-party = [
+    "pytools",
+    "pymbolic",
+    "arraycontext",
+    "loopy",
+    "pyopencl",
+]
+known-local-folder = [
+    "boxtree",
+]
+lines-after-imports = 2
+# required-imports = ["from __future__ import annotations"]
+
+[tool.ruff.lint.per-file-ignores]
+"doc/**/*.py" = ["I002"]
+"examples/**/*.py" = ["I002"]
+"setup.py" = ["I002"]
+
+[tool.typos.default]
+extend-ignore-re = [
+  "(?Rm)^.*(#|//)\\s*spellchecker:\\s*disable-line$"
+]
+
+[tool.typos.default.extend-words]
+# arange like np.arange
+arange = "arange"
+
+[tool.typos.files]
+extend-exclude = [
+  "contrib/*/*.ipynb",
+  "notes/*/*.eps",
+]
+
+[tool.pytest.ini_options]
+markers = [
+    "opencl: uses OpenCL",
+    "geo_lookup: test geometric lookups",
+    "area_query: test area queries",
+    "mpi: test distributed FMM",
+]

@@ -104,7 +104,7 @@ def test_masked_matrix_compression(actx_factory, order):
     arr = (rng.random((n, m)) > 0.5).astype(np.int8).copy(order=order)
     d_arr = actx.from_numpy(arr)
 
-    arr_starts, arr_lists, evt = matcompr(actx.queue, d_arr)
+    arr_starts, arr_lists, _evt = matcompr(actx.queue, d_arr)
     arr_starts = actx.to_numpy(arr_starts)
     arr_lists = actx.to_numpy(arr_lists)
 
@@ -130,7 +130,7 @@ def test_masked_list_compression(actx_factory):
     arr = (np.random.rand(n) > 0.5).astype(np.int8)
     d_arr = actx.from_numpy(arr)
 
-    arr_list, evt = listcompr(actx.queue, d_arr)
+    arr_list, _evt = listcompr(actx.queue, d_arr)
     arr_list = actx.to_numpy(arr_list)
 
     assert set(arr_list) == set(arr.nonzero()[0])
