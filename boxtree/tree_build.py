@@ -193,8 +193,7 @@ class TreeBuilder:
             extent_norm = "linf"
 
         if extent_norm not in ["linf", "l2"]:
-            raise ValueError("unexpected value of 'extent_norm': %s"
-                    % extent_norm)
+            raise ValueError(f"unexpected value of 'extent_norm': {extent_norm}")
 
         srcntgts_extent_norm = extent_norm
         srcntgts_have_extent = sources_have_extent or targets_have_extent
@@ -368,8 +367,8 @@ class TreeBuilder:
             max_leaf_refine_weight = max_particles_in_box
         elif specified_refine_weights:
             if refine_weights.dtype != refine_weight_dtype:
-                raise TypeError("refine_weights must have dtype '%s'"
-                        % refine_weight_dtype)
+                raise TypeError(
+                        f"refine_weights must have dtype '{refine_weight_dtype}'")
 
         if max_leaf_refine_weight < cl.array.max(refine_weights).get():
             raise ValueError(

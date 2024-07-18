@@ -141,10 +141,10 @@ def make_morton_bin_count_type(device, dimensions, particle_id_dtype,
 
     from boxtree.tools import padded_bin
     for mnr in range(2**dimensions):
-        fields.append(("pcnt%s" % padded_bin(mnr, dimensions), particle_id_dtype))
+        fields.append((f"pcnt{padded_bin(mnr, dimensions)}", particle_id_dtype))
     # Morton bin weight totals
     for mnr in range(2**dimensions):
-        fields.append(("pwt%s" % padded_bin(mnr, dimensions), refine_weight_dtype))
+        fields.append((f"pwt{padded_bin(mnr, dimensions)}", refine_weight_dtype))
 
     dtype = np.dtype(fields)
 
@@ -1538,15 +1538,14 @@ def get_tree_build_kernel_info(context, dimensions, coord_dtype,
             context, morton_bin_count_dtype,
             arguments=morton_count_scan_arguments,
             input_expr=(
-                "scan_t_from_particle(%s)"
-                % ", ".join([
+                "scan_t_from_particle({})".format(", ".join([
                     "i", "box_levels[srcntgt_box_ids[i]]", "&bbox", "morton_nrs",
                     "user_srcntgt_ids",
                     "refine_weights",
                     ]
-                    + ["%s" % ax for ax in axis_names]
+                    + [f"{ax}" for ax in axis_names]
                     + (["srcntgt_radii, stick_out_factor"]
-                       if srcntgts_extent_norm is not None else []))),
+                       if srcntgts_extent_norm is not None else [])))),
             scan_expr="scan_t_add(a, b, across_seg_boundary)",
             neutral="scan_t_neutral()",
             is_segment_start_expr="box_start_flags[i]",

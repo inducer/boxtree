@@ -149,10 +149,7 @@ class FMMLibTreeIndependentDataForWrangler(TreeIndependentDataForWrangler):
 
     def get_routine(self, name, suffix=""):
         import pyfmmlib
-        return getattr(pyfmmlib, "{}{}{}".format(
-            self.eqn_letter,
-            name % self.dim,
-            suffix))
+        return getattr(pyfmmlib, f"{self.eqn_letter}{name % self.dim}{suffix}")
 
     def get_vec_routine(self, name):
         return self.get_routine(name, "_vec")
@@ -180,7 +177,7 @@ class FMMLibTreeIndependentDataForWrangler(TreeIndependentDataForWrangler):
 
                 val, ier = rout(*args, **kwargs)
                 if (ier != 0).any():
-                    raise RuntimeError("%s failed with nonzero ier" % name)
+                    raise RuntimeError(f"{name} failed with nonzero ier")
 
                 return val
 
@@ -230,7 +227,7 @@ class FMMLibTreeIndependentDataForWrangler(TreeIndependentDataForWrangler):
             raise ValueError("unsupported dimensionality")
 
     def get_expn_eval_routine(self, expn_kind):
-        name = "%%dd%seval" % expn_kind
+        name = f"%dd{expn_kind}eval"
         rout = self.get_routine(name, "_vec")
 
         if self.dim == 2:
@@ -255,7 +252,7 @@ class FMMLibTreeIndependentDataForWrangler(TreeIndependentDataForWrangler):
                 pot, fld, ier = rout(*args, **kwargs)
 
                 if (ier != 0).any():
-                    raise RuntimeError("%s failed with nonzero ier" % name)
+                    raise RuntimeError(f"{name} failed with nonzero ier")
 
                 if self.ifgrad:
                     grad = -fld

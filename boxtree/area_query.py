@@ -499,11 +499,11 @@ class AreaQueryElementwiseTemplate:
                  leaf_found_op, preamble="", name="area_query_elwise"):
 
         def wrap_in_macro(decl, expr):
-            return """
+            return f"""
             <%def name=\"{decl}\">
             {expr}
             </%def>
-            """.format(decl=decl, expr=expr)
+            """
 
         from boxtree.traversal import TRAVERSAL_PREAMBLE_MAKO_DEFS
 

@@ -1,4 +1,3 @@
-from __future__ import division
 
 
 __copyright__ = "Copyright (C) 2013 Andreas Kloeckner \

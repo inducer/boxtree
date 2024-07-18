@@ -157,7 +157,7 @@ class GetBoxMasksCodeContainer:
         return cl.elementwise.ElementwiseKernel(
             self.cl_context,
             "__global char *current, __global char *parent, "
-            "__global %s *box_parent_ids" % dtype_to_ctype(self.box_id_dtype),
+            f"__global {dtype_to_ctype(self.box_id_dtype)} *box_parent_ids",
             "if(i != 0 && current[i]) parent[box_parent_ids[i]] = 1"
         )
 
