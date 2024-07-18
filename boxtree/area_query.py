@@ -732,7 +732,7 @@ class AreaQueryBuilder:
             :class:`PeerListLookup` associated with `tree`.
         :arg wait_for: may either be *None* or a list of :class:`pyopencl.Event`
             instances for whose completion this command waits before starting
-            exeuction.
+            execution.
         :returns: a tuple *(aq, event)*, where *aq* is an instance of
             :class:`AreaQueryResult`, and *event* is a :class:`pyopencl.Event`
             for dependency management.

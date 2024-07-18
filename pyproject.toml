@@ -64,6 +64,9 @@ extend-ignore-re = [
 # arange like np.arange
 arange = "arange"
 
+# as in mis-implements
+mis = "mis"
+
 [tool.typos.files]
 extend-exclude = [
   "contrib/*/*.ipynb",

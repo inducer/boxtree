@@ -197,7 +197,7 @@ def get_point_src_boxes_mask(
         ``(tree.nboxes,)`` whose i-th entry is 1 if ``i`` is either a responsible box
         or an ancestor of the responsible boxes.
     :return: A :class:`pyopencl.array.Array` object of shape ``(tree.nboxes,)`` whose
-        i-th entry is 1 if souces of box ``i`` are needed for evaluating the
+        i-th entry is 1 if sources of box ``i`` are needed for evaluating the
         potentials of targets in boxes represented by *responsible_boxes_mask*.
     """
 

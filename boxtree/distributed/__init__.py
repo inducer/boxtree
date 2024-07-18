@@ -49,7 +49,7 @@ Distributed Algorithm Overview
    local tree and propagates the partial multipole expansions upwards.
 6. Communicate multipole expansions so that all ranks have the complete multipole
    expansions needed.
-7. Each ranks indepedently forms local expansions, propagates the local expansions
+7. Each rank independently forms local expansions, propagates the local expansions
    downwards, and evaluate potentials of target points in its partition. The
    calculated potentials are then assembled on the root rank.
 

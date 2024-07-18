@@ -127,11 +127,11 @@ def _test_against_shared(
                 communicate_mpoles_via_allreduce=communicate_mpoles_via_allreduce)
 
         from boxtree.distributed import DistributedFMMRunner
-        distribued_fmm_info = DistributedFMMRunner(
+        distributed_fmm_info = DistributedFMMRunner(
             actx.queue, global_tree_host, tg, wrangler_factory, comm=comm)
 
         timing_data = {}
-        pot_dfmm = distribued_fmm_info.drive_dfmm(
+        pot_dfmm = distributed_fmm_info.drive_dfmm(
                     [sources_weights], timing_data=timing_data)
         assert timing_data
 
