@@ -25,15 +25,17 @@ import sys
 
 import numpy as np
 import pytest
+from arraycontext import pytest_generate_tests_for_array_contexts
+
 # This means boxtree's tests have a hard dependency on meshmode. That's OK.
 from meshmode import _acf  # noqa: F401
 from meshmode.array_context import PytestPyOpenCLArrayContextFactory
 
-from arraycontext import pytest_generate_tests_for_array_contexts
-
 from boxtree import (
-    make_meshmode_mesh_from_leaves, make_tree_of_boxes_root,
-    uniformly_refine_tree_of_boxes)
+    make_meshmode_mesh_from_leaves,
+    make_tree_of_boxes_root,
+    uniformly_refine_tree_of_boxes,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -47,13 +49,15 @@ pytest_generate_tests = pytest_generate_tests_for_array_contexts([
 
 def make_global_leaf_quadrature(actx, tob, order):
     from meshmode.discretization.poly_element import (
-        GaussLegendreTensorProductGroupFactory)
+        GaussLegendreTensorProductGroupFactory,
+    )
     group_factory = GaussLegendreTensorProductGroupFactory(order=order)
 
     mesh, _ = make_meshmode_mesh_from_leaves(tob)
 
     if 0:
         import matplotlib.pyplot as plt
+
         from meshmode.mesh import visualization as mvis
         mvis.draw_2d_mesh(mesh,
                           set_bounding_box=True,

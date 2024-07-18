@@ -30,13 +30,17 @@ import time
 
 import numpy as np
 import pytest
-
 from arraycontext import pytest_generate_tests_for_array_contexts
 
-from boxtree.array_context import _acf  # noqa: F401
-from boxtree.array_context import PytestPyOpenCLArrayContextFactory
+from boxtree.array_context import (
+    PytestPyOpenCLArrayContextFactory,
+    _acf,  # noqa: F401
+)
 from boxtree.cost import (
-    FMMCostModel, _PythonFMMCostModel, make_pde_aware_translation_cost_model)
+    FMMCostModel,
+    _PythonFMMCostModel,
+    make_pde_aware_translation_cost_model,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -374,7 +378,10 @@ def test_compare_cl_and_py_cost_model(actx_factory, nsources, ntargets, dims, dt
 @pytest.mark.opencl
 def test_estimate_calibration_params(actx_factory):
     from boxtree.pyfmmlib_integration import (
-        FMMLibExpansionWrangler, FMMLibTreeIndependentDataForWrangler, Kernel)
+        FMMLibExpansionWrangler,
+        FMMLibTreeIndependentDataForWrangler,
+        Kernel,
+    )
 
     nsources_list = [1000, 2000, 3000, 4000]
     ntargets_list = [1000, 2000, 3000, 4000]
@@ -549,7 +556,9 @@ def test_cost_model_op_counts_agree_with_constantone_wrangler(
     trav = trav_dev.get(queue=actx.queue)
 
     from boxtree.constant_one import (
-        ConstantOneExpansionWrangler, ConstantOneTreeIndependentDataForWrangler)
+        ConstantOneExpansionWrangler,
+        ConstantOneTreeIndependentDataForWrangler,
+    )
     tree_indep = ConstantOneTreeIndependentDataForWrangler()
     wrangler = ConstantOneExpansionWrangler(tree_indep, trav)
 

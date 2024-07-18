@@ -25,11 +25,12 @@ import sys
 
 import numpy as np
 import pytest
-
 from arraycontext import pytest_generate_tests_for_array_contexts
 
-from boxtree.array_context import _acf  # noqa: F401
-from boxtree.array_context import PytestPyOpenCLArrayContextFactory
+from boxtree.array_context import (
+    PytestPyOpenCLArrayContextFactory,
+    _acf,  # noqa: F401
+)
 from boxtree.tools import make_normal_particle_array
 
 
@@ -1018,8 +1019,7 @@ def test_space_invader_query(actx_factory, dims, dtype, visualize=False):
     ball_centers = make_normal_particle_array(actx.queue, nballs, dims, dtype)
     ball_radii = 0.1 + actx.zeros(nballs, dtype)
 
-    from boxtree.area_query import (
-        LeavesToBallsLookupBuilder, SpaceInvaderQueryBuilder)
+    from boxtree.area_query import LeavesToBallsLookupBuilder, SpaceInvaderQueryBuilder
 
     siqb = SpaceInvaderQueryBuilder(actx.context)
     # We can use leaves-to-balls lookup to get the set of overlapping balls for

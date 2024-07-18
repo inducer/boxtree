@@ -35,7 +35,11 @@ import pyopencl.cltypes  # noqa
 from pytools import ProcessLogger, memoize_method
 
 from boxtree.tools import (
-    AXIS_NAMES, DeviceDataRecord, coord_vec_subscript_code, get_coord_vec_dtype)
+    AXIS_NAMES,
+    DeviceDataRecord,
+    coord_vec_subscript_code,
+    get_coord_vec_dtype,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -1069,7 +1073,9 @@ class PeerListFinder:
         logger.debug("start building peer list finder kernel")
 
         from boxtree.traversal import (
-            HELPER_FUNCTION_TEMPLATE, TRAVERSAL_PREAMBLE_TEMPLATE)
+            HELPER_FUNCTION_TEMPLATE,
+            TRAVERSAL_PREAMBLE_TEMPLATE,
+        )
 
         template = Template(
             TRAVERSAL_PREAMBLE_TEMPLATE
