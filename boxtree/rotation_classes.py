@@ -36,8 +36,8 @@ import logging
 from dataclasses import dataclass
 
 import numpy as np
-from arraycontext import Array
 
+from arraycontext import Array
 from pytools import log_process
 
 from boxtree.array_context import PyOpenCLArrayContext, dataclass_array_container

@@ -21,6 +21,7 @@ THE SOFTWARE.
 """
 
 import numpy as np
+
 from arraycontext import (  # noqa: F401
     PyOpenCLArrayContext as PyOpenCLArrayContextBase,
     deserialize_container,
@@ -32,7 +33,6 @@ from arraycontext.pytest import (
     _PytestPyOpenCLArrayContextFactoryWithClass,
     register_pytest_array_context_factory,
 )
-
 from pyopencl.algorithm import BuiltList
 
 

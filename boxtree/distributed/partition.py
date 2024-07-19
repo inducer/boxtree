@@ -24,9 +24,9 @@ THE SOFTWARE.
 from dataclasses import dataclass
 
 import numpy as np
-from arraycontext import Array
 from mako.template import Template
 
+from arraycontext import Array
 from pyopencl.elementwise import ElementwiseKernel
 from pyopencl.tools import dtype_to_ctype
 from pytools import memoize_method

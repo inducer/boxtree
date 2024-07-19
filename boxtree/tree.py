@@ -81,8 +81,8 @@ from dataclasses import dataclass, field
 from functools import cached_property
 
 import numpy as np
-from arraycontext import Array
 
+from arraycontext import Array
 from cgen import Enum
 from pytools import memoize_method
 
