@@ -62,10 +62,10 @@ from pytools import DebugProcessLogger, ProcessLogger, memoize_method, obj_array
 
 
 if TYPE_CHECKING:
-    from arraycontext import Array
     from numpy.typing import NDArray
 
     import pyopencl as cl
+    from arraycontext import Array
     from pyopencl.cl_array import Allocator
     from pyopencl.typing import WaitList
 

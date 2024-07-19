@@ -28,9 +28,9 @@ import sys
 
 import numpy as np
 import pytest
-from arraycontext import pytest_generate_tests_for_array_contexts
 
 import pytools.obj_array as obj_array
+from arraycontext import pytest_generate_tests_for_array_contexts
 
 # This means boxtree's tests have a hard dependency on meshmode. That's OK.
 from meshmode import _acf  # noqa: F401

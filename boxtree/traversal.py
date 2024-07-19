@@ -56,6 +56,8 @@ from typing import TYPE_CHECKING, Literal, TypeAlias
 import numpy as np
 from mako.template import Template
 
+from arraycontext import Array
+from pyopencl.algorithm import ListOfListsBuilder
 from pyopencl.elementwise import ElementwiseKernel, ElementwiseTemplate
 from pytools import ProcessLogger, log_process, memoize_method, obj_array
 
@@ -68,9 +70,8 @@ from boxtree.tree import Tree  # noqa: TC001
 
 
 if TYPE_CHECKING:
-    from arraycontext import Array
-
     import pyopencl as cl
+    from arraycontext import Array
     from pyopencl.algorithm import ListOfListsBuilder
 
     from boxtree.tree_build import ExtentNorm
