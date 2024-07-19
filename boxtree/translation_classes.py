@@ -37,9 +37,9 @@ from dataclasses import dataclass
 from functools import partial
 
 import numpy as np
-from arraycontext import Array
 from mako.template import Template
 
+from arraycontext import Array
 from pyopencl.elementwise import ElementwiseKernel, ElementwiseTemplate
 from pytools import memoize_method
 
