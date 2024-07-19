@@ -28,8 +28,8 @@ import sys
 
 import numpy as np
 import pytest
-from arraycontext import pytest_generate_tests_for_array_contexts
 
+from arraycontext import pytest_generate_tests_for_array_contexts
 from pytools import obj_array
 
 from boxtree.array_context import PytestPyOpenCLArrayContextFactory, _acf  # noqa: F401

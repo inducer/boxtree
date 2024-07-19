@@ -85,6 +85,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from arraycontext import Array
 from cgen import Enum
 from pytools import memoize_method, obj_array
 

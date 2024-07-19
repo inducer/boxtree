@@ -64,9 +64,9 @@ from boxtree.tree import Tree
 
 
 if TYPE_CHECKING:
-    from arraycontext import Array
     from numpy.typing import NDArray
 
+    from arraycontext import Array
     from pyopencl.cl_array import Allocator
     from pyopencl.typing import WaitList
 

@@ -34,6 +34,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 from mako.template import Template
 
+from arraycontext import Array
 from pyopencl.elementwise import ElementwiseTemplate
 from pytools import ProcessLogger, memoize_method
 

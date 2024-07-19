@@ -42,6 +42,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 from mako.template import Template
 
+from arraycontext import Array
 from pyopencl.elementwise import ElementwiseKernel, ElementwiseTemplate
 from pytools import memoize_method
 
