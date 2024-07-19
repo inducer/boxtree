@@ -30,7 +30,10 @@ from arraycontext import pytest_generate_tests_for_array_contexts
 
 # This means boxtree's tests have a hard dependency on meshmode. That's OK.
 from meshmode import _acf  # noqa: F401
-from meshmode.array_context import PytestPyOpenCLArrayContextFactory
+from meshmode.array_context import (
+    PyOpenCLArrayContext,
+    PytestPyOpenCLArrayContextFactory,
+)
 
 from boxtree import (
     make_meshmode_mesh_from_leaves,
@@ -39,10 +42,24 @@ from boxtree import (
 )
 
 
-logger = logging.getLogger(__name__)
+class ArrayContext(PyOpenCLArrayContext):
+    def _rec_map_container(self, func, array, allowed_types=None, *,
+            default_scalar=None, strict=False):
+        from boxtree.array_context import _boxtree_rec_map_container
+        return _boxtree_rec_map_container(
+            self, func, array,
+            allowed_types=allowed_types,
+            default_scalar=default_scalar,
+            strict=strict)
 
+
+class ContextFactory(PytestPyOpenCLArrayContextFactory):
+    actx_class = ArrayContext
+
+
+logger = logging.getLogger(__name__)
 pytest_generate_tests = pytest_generate_tests_for_array_contexts([
-    PytestPyOpenCLArrayContextFactory,
+    ContextFactory,
     ])
 
 
