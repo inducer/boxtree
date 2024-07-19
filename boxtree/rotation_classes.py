@@ -40,6 +40,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from arraycontext import Array
 from pytools import log_process
 
 from boxtree.array_context import PyOpenCLArrayContext, dataclass_array_container
