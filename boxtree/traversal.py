@@ -57,7 +57,6 @@ import numpy as np
 from mako.template import Template
 
 from arraycontext import Array
-from pyopencl.algorithm import ListOfListsBuilder
 from pyopencl.elementwise import ElementwiseKernel, ElementwiseTemplate
 from pytools import ProcessLogger, log_process, memoize_method, obj_array
 
