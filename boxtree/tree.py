@@ -82,8 +82,8 @@ from functools import cached_property
 from typing import Optional, Tuple
 
 import numpy as np
-from arraycontext import Array
 
+from arraycontext import Array
 from cgen import Enum
 from pytools import memoize_method
 

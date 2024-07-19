@@ -25,6 +25,7 @@ import sys
 
 import numpy as np
 import pytest
+
 from arraycontext import pytest_generate_tests_for_array_contexts
 
 # This means boxtree's tests have a hard dependency on meshmode. That's OK.

@@ -27,6 +27,7 @@ import sys
 import numpy as np
 import numpy.linalg as la
 import pytest
+
 from arraycontext import pytest_generate_tests_for_array_contexts
 
 from boxtree.array_context import (
