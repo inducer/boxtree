@@ -1,5 +1,74 @@
+[build-system]
+build-backend = "setuptools.build_meta"
+requires = [
+    "setuptools>=63",
+]
+
+[project]
+name = "boxtree"
+version = "2023.1"
+description = "Quadtree/octree building in Python and OpenCL"
+readme = "README.rst"
+license = { text = "MIT" }
+authors = [
+    { name = "Andreas Kloeckner", email = "inform@tiker.net" },
+]
+requires-python = ">=3.8"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Other Audience",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Natural Language :: English",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+    "Topic :: Scientific/Engineering :: Mathematics",
+    "Topic :: Scientific/Engineering :: Visualization",
+    "Topic :: Software Development :: Libraries",
+    "Topic :: Utilities",
+]
+dependencies = [
+    "arraycontext>=2021.1",
+    "cgen>=2020.1",
+    "mako",
+    "pymbolic>=2022.2",
+    "pyopencl>=2022.1",
+    "pytools>=2022.1",
+]
+
+[project.optional-dependencies]
+doc = [
+    "furo",
+    "sphinx-copybutton",
+    "sphinx>=4",
+]
+fmmlib = [
+    "pyfmmlib>=2023.1",
+]
+meshmode = [
+    "loopy>=2024.1",
+    "meshmode>=2021.2",
+    "modepy>=2021.1",
+]
+test = [
+    "pylint",
+    "pytest",
+    "ruff",
+]
+
+[project.urls]
+Documentation = "https://documen.tician.de/boxtree"
+Repository = "https://github.com/inducer/boxtree"
+
+[tool.setuptools.packages.find]
+include = [
+    "boxtree*",
+]
+
 [tool.ruff]
-target-version = "py38"
 preview = true
 
 [tool.ruff.lint]
@@ -65,7 +134,6 @@ extend-ignore-re = [
 [tool.typos.default.extend-words]
 # arange like np.arange
 arange = "arange"
-
 # as in mis-implements
 mis = "mis"
 
@@ -78,7 +146,7 @@ extend-exclude = [
 [tool.pytest.ini_options]
 markers = [
     "opencl: uses OpenCL",
-    "geo_lookup: test geometric lookups",
-    "area_query: test area queries",
-    "mpi: test distributed FMM",
+    "geo_lookup: tests geometric lookups",
+    "area_query: tests area queries",
+    "mpi: tests distributed FMM",
 ]
