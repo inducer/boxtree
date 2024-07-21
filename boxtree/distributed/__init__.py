@@ -197,11 +197,7 @@ def make_distributed_wrangler(
 
     global_trav_dev, _ = traversal_builder(queue, global_tree_dev)
     global_trav_host = global_trav_dev.get(queue)
-
-    if tree_in_device_memory:
-        global_trav = global_trav_dev
-    else:
-        global_trav = global_trav_host
+    global_trav = global_trav_dev if tree_in_device_memory else global_trav_host
 
     # }}}
 

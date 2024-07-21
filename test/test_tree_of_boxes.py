@@ -98,8 +98,9 @@ def make_global_leaf_quadrature(actx, tob, order):
 def test_uniform_tree_of_boxes(actx_factory, dim, order, nlevels):
     actx = actx_factory()
 
-    lower_bounds = np.random.rand(dim)
-    radius = np.random.rand() + 0.1
+    rng = np.random.default_rng(seed=42)
+    lower_bounds = rng.random(dim)
+    radius = rng.random() + 0.1
     upper_bounds = lower_bounds + radius
     tob = make_tree_of_boxes_root((lower_bounds, upper_bounds))
 

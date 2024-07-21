@@ -158,11 +158,7 @@ class BoundingBoxFinder:
         from pytools import single_valued
         coord_dtype = single_valued(coord.dtype for coord in particles)
 
-        if radii is None:
-            radii_tuple = ()
-        else:
-            radii_tuple = (radii,)
-
+        radii_tuple = () if radii is None else (radii,)
         knl = self.get_kernel(dimensions, coord_dtype,
                 # have_radii:
                 radii is not None)

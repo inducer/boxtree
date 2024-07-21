@@ -154,11 +154,7 @@ def make_pde_aware_translation_cost_model(dim, nlevels):
     p_fmm = np.array([var("p_fmm_lev%d" % i) for i in range(nlevels)])
     ncoeffs_fmm = (p_fmm + 1) ** (dim - 1)
 
-    if dim == 3:
-        uses_point_and_shoot = True
-    else:
-        uses_point_and_shoot = False
-
+    uses_point_and_shoot = dim == 3
     return FMMTranslationCostModel(
             ncoeffs_fmm_by_level=ncoeffs_fmm,
             uses_point_and_shoot=uses_point_and_shoot

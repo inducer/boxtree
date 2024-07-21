@@ -426,16 +426,10 @@ def test_pyfmmlib_fmm(actx_factory, dims, use_dipoles, helmholtz_k):
     rng = np.random.default_rng(20)
     weights = rng.uniform(0.0, 1.0, (nsources,))
 
-    if use_dipoles:
-        np.random.seed(13)
-        dipole_vec = np.random.randn(dims, nsources)
-    else:
-        dipole_vec = None
+    rng = np.random.default_rng(seed=42)
+    dipole_vec = rng.normal(size=(dims, nsources)) if use_dipoles else None
 
-    if dims == 2 and helmholtz_k == 0:
-        base_order = 20
-    else:
-        base_order = 10
+    base_order = 20 if (dims == 2 and helmholtz_k == 0) else 10
 
     def fmm_level_to_order(tree, lev):
         result = base_order
@@ -608,11 +602,7 @@ def test_pyfmmlib_numerical_stability(actx_factory, dims, helmholtz_k, order):
     rel_err = la.norm(pot - ref_pot, np.inf) / la.norm(ref_pot, np.inf)
     logger.info("relative l2 error vs fmmlib direct: %g", rel_err)
 
-    if dims == 2:
-        error_bound = (1/2) ** (1 + order)
-    else:
-        error_bound = (3/4) ** (1 + order)
-
+    error_bound = (1/2) ** (1 + order) if dims == 2 else (3/4) ** (1 + order)
     assert rel_err < error_bound, rel_err
 
     # }}}

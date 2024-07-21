@@ -171,6 +171,10 @@ class TreePlotter:
 # {{{ traversal plotting
 
 def _draw_box_list(tree_plotter, ibox, starts, lists, key_to_box=None, **kwargs):
+    rng = kwargs.pop("rng", None)
+    if rng is None:
+        rng = np.random.default_rng()
+
     default_facecolor = "blue"
 
     if key_to_box is not None:
@@ -183,7 +187,7 @@ def _draw_box_list(tree_plotter, ibox, starts, lists, key_to_box=None, **kwargs)
                     "edgecolor": getattr(kwargs, "facecolor", default_facecolor),
                     "fill": False,
                     "alpha": 0.5,
-                    "shrink_factor": -0.1+0.1*np.random.rand(),
+                    "shrink_factor": -0.1+0.1*rng.random(),
                     }
             tree_plotter.draw_box(ibox, **actual_kwargs)
             return
@@ -198,7 +202,7 @@ def _draw_box_list(tree_plotter, ibox, starts, lists, key_to_box=None, **kwargs)
             "facecolor": default_facecolor,
             "linewidth": 0,
             "alpha": 0.5,
-            "shrink_factor": 0.1 + np.random.rand()*0.2,
+            "shrink_factor": 0.1 + rng.random()*0.2,
             }
     actual_kwargs.update(kwargs)
     print(actual_kwargs["facecolor"], ibox, lists[start:end])

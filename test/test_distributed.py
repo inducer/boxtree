@@ -173,13 +173,13 @@ def test_against_shared(
 
     from boxtree.tools import run_mpi
     run_mpi(__file__, num_processes, {
-        "PYTEST": "shared",
-        "dims": dims,
-        "nsources": nsources,
-        "ntargets": ntargets,
         "OMP_NUM_THREADS": 1,
-        "tmp_cache_basedir": tmp_path / "boxtree_distributed_test",
-        "communicate_mpoles_via_allreduce": communicate_mpoles_via_allreduce
+        "_BOXTREE_TEST_NAME": "shared",
+        "_BOXTREE_TEST_DIMS": dims,
+        "_BOXTREE_TEST_NSOURCES": nsources,
+        "_BOXTREE_TEST_NTARGETS": ntargets,
+        "_BOXTREE_TEST_TMP_CACHE_BASEDIR": tmp_path / "boxtree_distributed_test",
+        "_BOXTREE_TEST_MPOLES_ALLREDUCE": communicate_mpoles_via_allreduce
         })
 
 # }}}
@@ -275,13 +275,13 @@ def test_constantone(tmp_path, num_processes, dims, nsources, ntargets):
 
     from boxtree.tools import run_mpi
     run_mpi(__file__, num_processes, {
-        "PYTEST": "constantone",
-        "dims": dims,
-        "nsources": nsources,
-        "ntargets": ntargets,
         "OMP_NUM_THREADS": 1,
-        "tmp_cache_basedir": tmp_path / "boxtree_distributed_test",
-        "communicate_mpoles_via_allreduce": False
+        "_BOXTREE_TEST_NAME": "constantone",
+        "_BOXTREE_TEST_DIMS": dims,
+        "_BOXTREE_TEST_NSOURCES": nsources,
+        "_BOXTREE_TEST_NTARGETS": ntargets,
+        "_BOXTREE_TEST_TMP_CACHE_BASEDIR": tmp_path / "boxtree_distributed_test",
+        "_BOXTREE_TEST_MPOLES_ALLREDUCE": False
         })
 
 # }}}
@@ -289,22 +289,22 @@ def test_constantone(tmp_path, num_processes, dims, nsources, ntargets):
 
 if __name__ == "__main__":
     dtype = np.float64
-    tmp_cache_basedir = os.environ.get("tmp_cache_basedir", _cachedir())
+    tmp_cache_basedir = os.environ.get("_BOXTREE_TEST_TMP_CACHE_BASEDIR", _cachedir())
 
-    if "PYTEST" in os.environ:
-        dims = int(os.environ["dims"])
-        nsources = int(os.environ["nsources"])
-        ntargets = int(os.environ["ntargets"])
+    if "_BOXTREE_TEST_DIMS" in os.environ:
+        dims = int(os.environ["_BOXTREE_TEST_DIMS"])
+        nsources = int(os.environ["_BOXTREE_TEST_NSOURCES"])
+        ntargets = int(os.environ["_BOXTREE_TEST_NTARGETS"])
         communicate_mpoles_via_allreduce = (
-                True if os.environ["communicate_mpoles_via_allreduce"] == "True"
-                else False)
+                os.environ["_BOXTREE_TEST_MPOLES_ALLREDUCE"] == "True"
+                )
 
-        if os.environ["PYTEST"] == "shared":
+        if os.environ["_BOXTREE_TEST_NAME"] == "shared":
             _test_against_shared(
                 tmp_cache_basedir,
                 dims, nsources, ntargets, dtype,
                 communicate_mpoles_via_allreduce=communicate_mpoles_via_allreduce)
-        elif os.environ["PYTEST"] == "constantone":
+        elif os.environ["_BOXTREE_TEST_NAME"] == "constantone":
             _test_constantone(tmp_cache_basedir, dims, nsources, ntargets, dtype)
     else:
         if len(sys.argv) > 1:

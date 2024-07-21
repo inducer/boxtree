@@ -107,7 +107,7 @@ def test_tree_connectivity(actx_factory, dims, sources_are_targets):
             assert ibox in nbl
 
         for jbox in nbl:
-            assert np.all(0 == children[jbox]), (ibox, jbox, children[jbox])
+            assert np.all(children[jbox] == 0), (ibox, jbox, children[jbox])
 
     logger.info("list 1 consists of source boxes")
 

@@ -122,15 +122,14 @@ def test_masked_matrix_compression(actx_factory, order):
 
 def test_masked_list_compression(actx_factory):
     actx = actx_factory()
+    rng = np.random.default_rng(seed=42)
 
     from boxtree.tools import MaskCompressorKernel
     listcompr = MaskCompressorKernel(actx.context)
 
     n = 20
 
-    np.random.seed(15)
-
-    arr = (np.random.rand(n) > 0.5).astype(np.int8)
+    arr = (rng.random(n) > 0.5).astype(np.int8)
     d_arr = actx.from_numpy(arr)
 
     arr_list, _evt = listcompr(actx.queue, d_arr)

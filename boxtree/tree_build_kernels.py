@@ -1393,7 +1393,7 @@ def get_tree_build_kernel_info(context, dimensions, coord_dtype,
     """
 
     level_restrict = (kind == "adaptive-level-restricted")
-    adaptive = not (kind == "non-adaptive")
+    adaptive = (kind != "non-adaptive")
 
     # {{{ preparation
 
