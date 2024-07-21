@@ -175,10 +175,7 @@ class TreeBuilder:
             raise ValueError(f"unknown tree kind '{kind}'")
 
         # we'll modify this below, so copy it
-        if wait_for is None:
-            wait_for = []
-        else:
-            wait_for = list(wait_for)
+        wait_for = [] if wait_for is None else list(wait_for)
 
         dimensions = len(particles)
 
@@ -301,10 +298,7 @@ class TreeBuilder:
                         "dtype")
 
             def combine_srcntgt_arrays(ary1, ary2=None):
-                if ary2 is None:
-                    dtype = ary1.dtype
-                else:
-                    dtype = ary2.dtype
+                dtype = ary1.dtype if ary2 is None else ary2.dtype
 
                 result = empty(nsrcntgts, dtype)
                 if (ary1 is None) or (ary2 is None):
@@ -365,7 +359,7 @@ class TreeBuilder:
             event, = refine_weights.events
             prep_events.append(event)
             max_leaf_refine_weight = max_particles_in_box
-        elif specified_refine_weights:
+        elif specified_refine_weights:  # noqa: SIM102
             if refine_weights.dtype != refine_weight_dtype:
                 raise TypeError(
                         f"refine_weights must have dtype '{refine_weight_dtype}'")
@@ -373,7 +367,7 @@ class TreeBuilder:
         if max_leaf_refine_weight < cl.array.max(refine_weights).get():
             raise ValueError(
                     "entries of refine_weights cannot exceed max_leaf_refine_weight")
-        if 0 > cl.array.min(refine_weights).get():
+        if cl.array.min(refine_weights).get() < 0:
             raise ValueError("all entries of refine_weights must be nonnegative")
         if max_leaf_refine_weight <= 0:
             raise ValueError("max_leaf_refine_weight must be positive")
@@ -607,10 +601,7 @@ class TreeBuilder:
 
         tree_build_proc = ProcessLogger(logger, "tree build")
 
-        if total_refine_weight > max_leaf_refine_weight:
-            level = 1
-        else:
-            level = 0
+        level = 1 if total_refine_weight > max_leaf_refine_weight else 0
 
         # INVARIANTS -- Upon entry to this loop:
         #
@@ -1461,7 +1452,7 @@ class TreeBuilder:
                 wait_for=wait_for)
             wait_for = [evt]
 
-            if srcntgts_have_extent:
+            if srcntgts_have_extent:  # noqa: SIM102
                 if debug:
                     assert (
                             box_srcntgt_counts_nonchild.get()
@@ -1471,7 +1462,7 @@ class TreeBuilder:
             if debug:
                 usi_host = user_source_ids.get()
                 assert (usi_host < nsources).all()
-                assert (0 <= usi_host).all()
+                assert (usi_host >= 0).all()
                 del usi_host
 
                 sti_host = srcntgt_target_ids.get()

@@ -383,6 +383,8 @@ def test_estimate_calibration_params(actx_factory):
         Kernel,
     )
 
+    rng = np.random.default_rng(seed=42)
+
     nsources_list = [1000, 2000, 3000, 4000]
     ntargets_list = [1000, 2000, 3000, 4000]
     dims = 3
@@ -437,7 +439,7 @@ def test_estimate_calibration_params(actx_factory):
 
         timing_data = {}
         from boxtree.fmm import drive_fmm
-        src_weights = np.random.rand(tree.nsources).astype(tree.coord_dtype)
+        src_weights = rng.random(size=tree.nsources, dtype=tree.coord_dtype)
         drive_fmm(wrangler, (src_weights,), timing_data=timing_data)
 
         timing_results.append(timing_data)
@@ -564,7 +566,7 @@ def test_cost_model_op_counts_agree_with_constantone_wrangler(
 
     timing_data = {}
     from boxtree.fmm import drive_fmm
-    src_weights = np.random.rand(tree.nsources).astype(tree.coord_dtype)
+    src_weights = rng.random(size=tree.nsources, dtype=tree.coord_dtype)
     drive_fmm(wrangler, (src_weights,), timing_data=timing_data)
 
     cost_model = FMMCostModel(

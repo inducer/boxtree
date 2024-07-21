@@ -51,7 +51,7 @@ def realloc_array(queue, allocator, new_shape, ary, zero_fill=False, wait_for=No
     if wait_for is None:
         wait_for = []
 
-    if zero_fill:
+    if zero_fill:  # noqa: SIM108
         array_maker = cl.array.zeros
     else:
         array_maker = cl.array.empty
@@ -491,7 +491,7 @@ class GappyCopyAndMapKernel:
                 if debug:
                     assert int(cl.array.max(dst_indices).get()) < new_shape
 
-        if zero_fill:
+        if zero_fill:  # noqa: SIM108
             array_maker = cl.array.zeros
         else:
             array_maker = cl.array.empty
@@ -897,10 +897,7 @@ class ImmutableHostDeviceArray:
     def svm_capable(self):
         svm_capabilities = \
             self.queue.device.get_info(cl.device_info.SVM_CAPABILITIES)
-        if svm_capabilities & cl.device_svm_capabilities.FINE_GRAIN_BUFFER != 0:
-            return True
-        else:
-            return False
+        return svm_capabilities & cl.device_svm_capabilities.FINE_GRAIN_BUFFER != 0
 
     @property
     def host(self):

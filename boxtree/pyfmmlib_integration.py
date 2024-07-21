@@ -213,10 +213,8 @@ class FMMLibTreeIndependentDataForWrangler(TreeIndependentDataForWrangler):
             def wrapper(*args, **kwargs):
                 kwargs["iffld"] = self.ifgrad
                 pot, fld = rout(*args, **kwargs)
-                if self.ifgrad:
-                    grad = -fld
-                else:
-                    grad = 0
+                grad = -fld if self.ifgrad else 0
+
                 return pot, grad
 
             # Doesn't work in in Py2
@@ -254,11 +252,7 @@ class FMMLibTreeIndependentDataForWrangler(TreeIndependentDataForWrangler):
                 if (ier != 0).any():
                     raise RuntimeError(f"{name} failed with nonzero ier")
 
-                if self.ifgrad:
-                    grad = -fld
-                else:
-                    grad = 0
-
+                grad = -fld if self.ifgrad else 0
                 return pot, grad
 
             # Doesn't work in in Py2
@@ -604,11 +598,11 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
 
         ier, rotmatf = (
                 rotmat_builder(rotmat_order, m2l_rotation_angles))
-        assert (0 == ier).all()
+        assert (ier == 0).all()
 
         ier, rotmatb = (
                 rotmat_builder(rotmat_order, -m2l_rotation_angles))
-        assert (0 == ier).all()
+        assert (ier == 0).all()
 
         return (rotmatf, rotmatb, rotmat_order)
 

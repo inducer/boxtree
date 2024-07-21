@@ -32,6 +32,7 @@ def demo_cost_model():
         Kernel,
     )
 
+    rng = np.random.default_rng(seed=42)
     nsources_list = [1000, 2000, 3000, 4000, 5000]
     ntargets_list = [1000, 2000, 3000, 4000, 5000]
     dims = 3
@@ -56,8 +57,9 @@ def demo_cost_model():
         targets = p_normal(queue, ntargets, dims, dtype, seed=18)
 
         from pyopencl.clrandom import PhiloxGenerator
-        rng = PhiloxGenerator(queue.context, seed=22)
-        target_radii = rng.uniform(
+
+        clrng = PhiloxGenerator(queue.context, seed=22)
+        target_radii = clrng.uniform(
             queue, ntargets, a=0, b=0.05, dtype=dtype
         ).get()
 
@@ -90,7 +92,7 @@ def demo_cost_model():
 
         timing_data = {}
         from boxtree.fmm import drive_fmm
-        src_weights = np.random.rand(tree.nsources).astype(tree.coord_dtype)
+        src_weights = rng.random(size=tree.nsources, dtype=tree.coord_dtype)
         drive_fmm(wrangler, (src_weights,), timing_data=timing_data)
 
         timing_results.append(timing_data)

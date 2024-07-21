@@ -892,7 +892,7 @@ def link_point_sources(queue, tree, point_source_starts, point_sources,
 
     tree_attrs = {}
     for attr_name in tree.__class__.fields:
-        try:
+        try:  # noqa: SIM105
             tree_attrs[attr_name] = getattr(tree, attr_name)
         except AttributeError:
             pass
