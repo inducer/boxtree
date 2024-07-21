@@ -1,3 +1,5 @@
+import sys
+from importlib import metadata
 from urllib.request import urlopen
 
 
@@ -7,13 +9,8 @@ with urlopen(_conf_url) as _inf:
     exec(compile(_inf.read(), _conf_url, "exec"), globals())
 
 copyright = "2013-21, Andreas Kloeckner"
-
-ver_dic = {}
-exec(compile(open("../boxtree/version.py").read(), "../boxtree/version.py", "exec"),
-        ver_dic)
-version = ".".join(str(x) for x in ver_dic["VERSION"])
-# The full version, including alpha/beta/rc tags.
-release = ver_dic["VERSION_TEXT"]
+release = metadata.version("boxtree")
+version = ".".join(release.split(".")[:2])
 
 intersphinx_mapping = {
     "arraycontext": ("https://documen.tician.de/arraycontext", None),
@@ -37,7 +34,4 @@ nitpick_ignore_regex = [
 # docstring can be read by sphinx when building meshmode, a dependent package),
 # this needs a setting of the same name across all packages involved, that's
 # why this name is as global-sounding as it is.
-import sys
-
-
 sys._BUILDING_SPHINX_DOCS = True
