@@ -62,7 +62,7 @@ class ExpansionWranglerInterface(ABC):
     """Abstract expansion handling interface for use with :func:`drive_fmm`.
 
     See this
-    `test code <https://github.com/inducer/boxtree/blob/master/test/test_fmm.py>`_
+    `test code <https://github.com/inducer/boxtree/blob/main/test/test_fmm.py>`__
     for a very simple sample implementation.
 
     .. note::
@@ -330,7 +330,7 @@ def drive_fmm(wrangler: ExpansionWranglerInterface, src_weight_vecs,
 
     In part, this is intended as a template for custom FMMs, in the sense that
     you may copy and paste its
-    `source code <https://github.com/inducer/boxtree/blob/master/boxtree/fmm.py>`_
+    `source code <https://github.com/inducer/boxtree/blob/main/boxtree/fmm.py>`__
     as a starting point.
 
     Nonetheless, many common applications (such as point-to-point FMMs) can be

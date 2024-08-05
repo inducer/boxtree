@@ -2,6 +2,5 @@ FMM driver
 ==========
 
 .. automodule:: boxtree.fmm
-.. automodule:: boxtree.pyfmmlib_integration
 
-.. vim: sw=4
+.. automodule:: boxtree.pyfmmlib_integration

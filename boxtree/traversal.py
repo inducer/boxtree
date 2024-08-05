@@ -1310,7 +1310,7 @@ class FMMTraversalInfo(DeviceDataRecord):
         Carrier, J., Greengard, L. and Rokhlin, V. "A Fast
         Adaptive Multipole Algorithm for Particle Simulations." SIAM Journal on
         Scientific and Statistical Computing 9, no. 4 (July 1988): 669-686.
-        `DOI: 10.1137/0909044 <http://dx.doi.org/10.1137/0909044>`_.
+        `DOI: 10.1137/0909044 <https://dx.doi.org/10.1137/0909044>`__.
 
     Unless otherwise indicated, all bulk data in this data structure is stored
     in a :class:`pyopencl.array.Array`. See also :meth:`get`.

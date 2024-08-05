@@ -8,8 +8,8 @@ generates FMM interaction lists.
 
 Other places on the web to find boxtree stuff:
 
-* `wiki home page <http://wiki.tiker.net/BoxTree>`_
-* `github (source code, bug tracker) <http://github.com/inducer/boxtree>`_
+* `documentation page <https://documen.tician.de/boxtree>`__
+* `Github (source code, bug tracker) <https://github.com/inducer/boxtree>`__
 
 Now you obviously want to watch the library do something (at least mildly)
 cool? Well, sit back and watch:
@@ -54,5 +54,3 @@ Indices and tables
 * :ref:`genindex`
 * :ref:`modindex`
 * :ref:`search`
-
-.. vim: sw=4
