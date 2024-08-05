@@ -1,6 +1,6 @@
 """
 Integrates :mod:`boxtree` with
-`pyfmmlib <http://pypi.python.org/pypi/pyfmmlib>`_.
+`pyfmmlib <https://pypi.org/project/pyfmmlib>`__.
 
 .. autoclass:: FMMLibTreeIndependentDataForWrangler
 .. autoclass:: FMMLibExpansionWrangler

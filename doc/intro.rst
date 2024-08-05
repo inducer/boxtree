@@ -2,5 +2,5 @@ Introduction
 ------------
 
 .. automodule:: boxtree
-.. moduleauthor:: Andreas Kloeckner <inform@tiker.net>
 
+.. moduleauthor:: Andreas Kloeckner <inform@tiker.net>

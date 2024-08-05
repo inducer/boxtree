@@ -6,7 +6,7 @@ This command should install the latest release of :mod:`boxtree` directly from P
     pip install boxtree
 
 You may need to run this with :command:`sudo` if you are not in a virtual environment
-(not recommended). If you don't already have `pip <https://pypi.python.org/pypi/pip>`__,
+(not recommended). If you don't already have `pip <https://pypi.org/project/pip>`__,
 run this beforehand::
 
     python -m ensurepip
@@ -15,9 +15,9 @@ For a more manual installation, download the source, unpack it, and run::
 
     pip install .
 
-This should also install all the required dependencies. The main one is PyOpenCL,
-which has extensive installation instruction on the
-`PyOpenCL Wiki <http://wiki.tiker.net/PyOpenCL/Installation>`__.
+This should also install all the required dependencies (see ``pyproject.toml``
+for a complete list). The main one is PyOpenCL, which has extensive installation
+instructions on the `PyOpenCL Wiki <https://wiki.tiker.net/PyOpenCL/Installation>`__.
 
 For development, you may want to install in `editable mode
 <https://setuptools.pypa.io/en/latest/userguide/development_mode.html>`__::
@@ -33,7 +33,7 @@ Version 2019.1
 .. note::
 
     This version is currently under development. You can get snapshots from
-    boxtree's `git repository <https://github.com/inducer/boxtree>`_
+    boxtree's `git repository <https://github.com/inducer/boxtree>`__
 
 * Faster M2Ls in the FMMLIB backend using precomputed rotation matrices.  This
   change adds an optional *rotation_data* parameter to the FMMLIB geometry wrangler
