@@ -1,25 +1,28 @@
 Installation
 ============
 
-This command should install :mod:`boxtree`::
+This command should install the latest release of :mod:`boxtree` directly from PyPI::
 
     pip install boxtree
 
-You may need to run this with :command:`sudo`.
-If you don't already have `pip <https://pypi.python.org/pypi/pip>`_,
+You may need to run this with :command:`sudo` if you are not in a virtual environment
+(not recommended). If you don't already have `pip <https://pypi.python.org/pypi/pip>`__,
 run this beforehand::
 
-    curl -O https://raw.github.com/pypa/pip/master/contrib/get-pip.py
-    python get-pip.py
+    python -m ensurepip
 
-For a more manual installation, download the source, unpack it,
-and say::
+For a more manual installation, download the source, unpack it, and run::
 
-    python setup.py install
+    pip install .
 
-In addition, you need to have PyOpenCL installed. See the
-`PyOpenCL Wiki <http://wiki.tiker.net/PyOpenCL/Installation>`_
-for instructions.
+This should also install all the required dependencies. The main one is PyOpenCL,
+which has extensive installation instruction on the
+`PyOpenCL Wiki <http://wiki.tiker.net/PyOpenCL/Installation>`__.
+
+For development, you may want to install in `editable mode
+<https://setuptools.pypa.io/en/latest/userguide/development_mode.html>`__::
+
+    pip install --no-build-isolation --editable .[test]
 
 User-visible Changes
 ====================
@@ -81,12 +84,6 @@ WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
 FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 OTHER DEALINGS IN THE SOFTWARE.
 
-Frequently Asked Questions
-==========================
-
-The FAQ is maintained collaboratively on the
-`Wiki FAQ page <http://wiki.tiker.net/BoxTree/FrequentlyAskedQuestions>`_.
-
 Acknowledgments
 ===============
 
@@ -99,7 +96,6 @@ AK also gratefully acknowledges a hardware gift from Nvidia Corporation.
 
 The views and opinions expressed herein do not necessarily reflect those of the
 funding agencies.
-
 
 Cross-References to Other Documentation
 =======================================
