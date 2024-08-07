@@ -35,19 +35,18 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-
-import logging
-
-
-logger = logging.getLogger(__name__)
 import enum
+import logging
 
 import numpy as np
 
 from pytools import log_process, memoize_method
 
+from boxtree.array_context import PyOpenCLArrayContext
 from boxtree.fmm import ExpansionWranglerInterface, TreeIndependentDataForWrangler
-from boxtree.timing import return_timing_data
+
+
+logger = logging.getLogger(__name__)
 
 
 # {{{ rotation data interface
@@ -80,8 +79,8 @@ class FMMLibRotationData(FMMLibRotationDataInterface):
     .. automethod:: __init__
     """
 
-    def __init__(self, queue, trav):
-        self.queue = queue
+    def __init__(self, array_context: PyOpenCLArrayContext, trav):
+        self._setup_actx = array_context
         self.trav = trav
         self.tree = trav.tree
 
@@ -89,27 +88,27 @@ class FMMLibRotationData(FMMLibRotationDataInterface):
     @memoize_method
     def rotation_classes_builder(self):
         from boxtree.rotation_classes import RotationClassesBuilder
-        return RotationClassesBuilder(self.queue.context)
+        return RotationClassesBuilder(self._setup_actx)
 
     @memoize_method
     def build_rotation_classes_lists(self):
-        trav = self.trav.to_device(self.queue)
-        tree = self.tree.to_device(self.queue)
-        return self.rotation_classes_builder(self.queue, trav, tree)[0]
+        trav = self._setup_actx.from_numpy(self.trav)
+        tree = self._setup_actx.from_numpy(self.tree)
+        return self.rotation_classes_builder(self._setup_actx, trav, tree)[0]
 
     @memoize_method
     def m2l_rotation_lists(self):
-        return (self
-                .build_rotation_classes_lists()
-                .from_sep_siblings_rotation_classes
-                .get(self.queue))
+        return self._setup_actx.to_numpy(
+            self.build_rotation_classes_lists()
+                .from_sep_siblings_rotation_classes,
+            )
 
     @memoize_method
     def m2l_rotation_angles(self):
-        return (self
-                .build_rotation_classes_lists()
-                .from_sep_siblings_rotation_class_to_angle
-                .get(self.queue))
+        return self._setup_actx.to_numpy(
+            self.build_rotation_classes_lists()
+                .from_sep_siblings_rotation_class_to_angle,
+            )
 
 
 class FMMLibRotationDataNotSuppliedWarning(UserWarning):
@@ -271,11 +270,7 @@ class FMMLibTreeIndependentDataForWrangler(TreeIndependentDataForWrangler):
 
 class FMMLibExpansionWrangler(ExpansionWranglerInterface):
     """Implements the :class:`boxtree.fmm.ExpansionWranglerInterface`
-    by using pyfmmlib.
-
-    Timing results returned by this wrangler contains the values *wall_elapsed*
-    and (optionally, if supported) *process_elapsed*, which measure wall time
-    and process time in seconds, respectively.
+    by using ``pyfmmlib``.
     """
 
     # {{{ constructor
@@ -675,8 +670,9 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
         return potentials[self.tree.sorted_target_ids]
 
     @log_process(logger)
-    @return_timing_data
-    def form_multipoles(self, level_start_source_box_nrs, source_boxes,
+    def form_multipoles(self, actx: PyOpenCLArrayContext,
+            level_start_source_box_nrs,
+            source_boxes,
             src_weight_vecs):
         src_weights, = src_weight_vecs
         formmp = self.tree_indep.get_routine(
@@ -718,9 +714,10 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
         return mpoles
 
     @log_process(logger)
-    @return_timing_data
-    def coarsen_multipoles(self, level_start_source_parent_box_nrs,
-            source_parent_boxes, mpoles):
+    def coarsen_multipoles(self, actx: PyOpenCLArrayContext,
+            level_start_source_parent_box_nrs,
+            source_parent_boxes,
+            mpoles):
         tree = self.tree
 
         mpmp = self.tree_indep.get_translation_routine(self, "%ddmpmp")
@@ -774,9 +771,11 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
         return mpoles
 
     @log_process(logger)
-    @return_timing_data
-    def eval_direct(self, target_boxes, neighbor_sources_starts,
-            neighbor_sources_lists, src_weight_vecs):
+    def eval_direct(self, actx: PyOpenCLArrayContext,
+            target_boxes,
+            neighbor_sources_starts,
+            neighbor_sources_lists,
+            src_weight_vecs):
         src_weights, = src_weight_vecs
         output = self.output_zeros()
 
@@ -818,8 +817,7 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
         return output
 
     @log_process(logger)
-    @return_timing_data
-    def multipole_to_local(self,
+    def multipole_to_local(self, actx: PyOpenCLArrayContext,
             level_start_target_or_target_parent_box_nrs,
             target_or_target_parent_boxes,
             starts, lists, mpole_exps):
@@ -933,9 +931,9 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
         return local_exps
 
     @log_process(logger)
-    @return_timing_data
-    def eval_multipoles(self,
-            target_boxes_by_source_level, sep_smaller_nonsiblings_by_level,
+    def eval_multipoles(self, actx: PyOpenCLArrayContext,
+            target_boxes_by_source_level,
+            sep_smaller_nonsiblings_by_level,
             mpole_exps):
         output = self.output_zeros()
 
@@ -976,10 +974,10 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
         return output
 
     @log_process(logger)
-    @return_timing_data
-    def form_locals(self,
+    def form_locals(self, actx: PyOpenCLArrayContext,
             level_start_target_or_target_parent_box_nrs,
-            target_or_target_parent_boxes, starts, lists, src_weight_vecs):
+            target_or_target_parent_boxes,
+            starts, lists, src_weight_vecs):
         src_weights, = src_weight_vecs
         local_exps = self.local_expansion_zeros()
 
@@ -1056,9 +1054,10 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
         return local_exps
 
     @log_process(logger)
-    @return_timing_data
-    def refine_locals(self, level_start_target_or_target_parent_box_nrs,
-            target_or_target_parent_boxes, local_exps):
+    def refine_locals(self, actx: PyOpenCLArrayContext,
+            level_start_target_or_target_parent_box_nrs,
+            target_or_target_parent_boxes,
+            local_exps):
 
         locloc = self.tree_indep.get_translation_routine(self, "%ddlocloc")
 
@@ -1103,8 +1102,10 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
         return local_exps
 
     @log_process(logger)
-    @return_timing_data
-    def eval_locals(self, level_start_target_box_nrs, target_boxes, local_exps):
+    def eval_locals(self, actx: PyOpenCLArrayContext,
+            level_start_target_box_nrs,
+            target_boxes,
+            local_exps):
         output = self.output_zeros()
         taeval = self.tree_indep.get_expn_eval_routine("ta")
 
@@ -1139,7 +1140,7 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
         return output
 
     @log_process(logger)
-    def finalize_potentials(self, potential, template_ary):
+    def finalize_potentials(self, actx: PyOpenCLArrayContext, potential):
         if self.tree_indep.eqn_letter == "l" and self.dim == 2:
             scale_factor = -1/(2*np.pi)
         elif self.tree_indep.eqn_letter == "h" and self.dim == 2:

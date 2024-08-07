@@ -29,10 +29,11 @@ from mako.template import Template
 
 import pyopencl as cl
 import pyopencl.array
-import pyopencl.cltypes as cltypes
 from pyopencl.tools import ScalarArg, VectorArg as _VectorArg, dtype_to_c_struct
 from pytools import Record, memoize_method
 from pytools.obj_array import make_obj_array
+
+from boxtree.array_context import PyOpenCLArrayContext
 
 
 # Use offsets in VectorArg by default.
@@ -47,28 +48,26 @@ def padded_bin(i, nbits):
 
 
 # NOTE: Order of positional args should match GappyCopyAndMapKernel.__call__()
-def realloc_array(queue, allocator, new_shape, ary, zero_fill=False, wait_for=None):
+def realloc_array(actx, new_shape, ary, zero_fill=False, wait_for=None):
     if wait_for is None:
         wait_for = []
 
     if zero_fill:  # noqa: SIM108
-        array_maker = cl.array.zeros
+        array_maker = actx.zeros
     else:
-        array_maker = cl.array.empty
+        array_maker = actx.empty
 
-    new_ary = array_maker(queue, shape=new_shape, dtype=ary.dtype,
-                          allocator=allocator)
-
-    evt = cl.enqueue_copy(queue, new_ary.data, ary.data, byte_count=ary.nbytes,
-                          wait_for=wait_for + new_ary.events)
+    new_ary = array_maker(shape=new_shape, dtype=ary.dtype)
+    evt = cl.enqueue_copy(actx.queue, new_ary.data, ary.data,
+        byte_count=ary.nbytes,
+        wait_for=wait_for + new_ary.events)
 
     return new_ary, evt
 
 
-def reverse_index_array(indices, target_size=None, result_fill_value=None,
-        queue=None):
+def reverse_index_array(actx, indices, target_size=None, result_fill_value=None):
     """For an array of *indices*, return a new array *result* that satisfies
-    ``result[indices] == arange(len(indices))
+    ``result[indices] == arange(len(indices))``
 
     :arg target_n: The length of the result, or *None* if the result is to
         have the same length as *indices*.
@@ -76,38 +75,34 @@ def reverse_index_array(indices, target_size=None, result_fill_value=None,
         prior to storing reversed indices.
     """
 
-    queue = queue or indices.queue
-
     if target_size is None:
         target_size = len(indices)
 
-    result = cl.array.empty(queue, target_size, indices.dtype)
+    result = actx.empty(target_size, indices.dtype)
 
     if result_fill_value is not None:
         result.fill(result_fill_value)
 
     cl.array.multi_put(
-            [cl.array.arange(queue, len(indices), dtype=indices.dtype,
-                allocator=indices.allocator)],
+            [actx.from_numpy(np.arange(len(indices), dtype=indices.dtype))],
             indices,
             out=[result],
-            queue=queue)
+            queue=actx.queue)
 
     return result
 
 
 # {{{ particle distribution generators
 
-def make_normal_particle_array(queue, nparticles, dims, dtype, seed=15):
-    from pyopencl.clrandom import PhiloxGenerator
-    rng = PhiloxGenerator(queue.context, seed=seed)
-
+def make_normal_particle_array(actx, nparticles, dims, dtype, seed=15):
+    rng = np.random.default_rng(seed)
     return make_obj_array([
-        rng.normal(queue, nparticles, dtype=dtype)
-        for i in range(dims)])
+        actx.from_numpy(rng.standard_normal(nparticles, dtype=dtype))
+        for i in range(dims)
+        ])
 
 
-def make_surface_particle_array(queue, nparticles, dims, dtype, seed=15):
+def make_surface_particle_array(actx, nparticles, dims, dtype, seed=15):
     import loopy as lp
 
     if dims == 2:
@@ -133,7 +128,7 @@ def make_surface_particle_array(queue, nparticles, dims, dtype, seed=15):
 
             return knl
 
-        _evt, result = get_2d_knl(dtype)(queue, n=nparticles)
+        _evt, result = get_2d_knl(dtype)(actx.queue, n=nparticles)
 
         result = [x.ravel() for x in result]
 
@@ -163,7 +158,7 @@ def make_surface_particle_array(queue, nparticles, dims, dtype, seed=15):
 
             return knl
 
-        _evt, result = get_3d_knl(dtype)(queue, n=n)
+        _evt, result = get_3d_knl(dtype)(actx.queue, n=n)
 
         result = [x.ravel() for x in result]
 
@@ -172,7 +167,7 @@ def make_surface_particle_array(queue, nparticles, dims, dtype, seed=15):
         raise NotImplementedError
 
 
-def make_uniform_particle_array(queue, nparticles, dims, dtype, seed=15):
+def make_uniform_particle_array(actx, nparticles, dims, dtype, seed=15):
     import loopy as lp
 
     if dims == 2:
@@ -205,7 +200,7 @@ def make_uniform_particle_array(queue, nparticles, dims, dtype, seed=15):
 
             return knl
 
-        _evt, result = get_2d_knl(dtype)(queue, n=n)
+        _evt, result = get_2d_knl(dtype)(actx.queue, n=n)
 
         result = [x.ravel() for x in result]
 
@@ -249,7 +244,7 @@ def make_uniform_particle_array(queue, nparticles, dims, dtype, seed=15):
 
             return knl
 
-        _evt, result = get_3d_knl(dtype)(queue, n=n)
+        _evt, result = get_3d_knl(dtype)(actx.queue, n=n)
 
         result = [x.ravel() for x in result]
 
@@ -258,31 +253,30 @@ def make_uniform_particle_array(queue, nparticles, dims, dtype, seed=15):
         raise NotImplementedError
 
 
-def make_rotated_uniform_particle_array(queue, nparticles, dims, dtype, seed=15):
+def make_rotated_uniform_particle_array(actx, nparticles, dims, dtype, seed=15):
     raise NotImplementedError
 
 # }}}
 
 
-def particle_array_to_host(parray):
-    return np.array([x.get() for x in parray], order="F").T
+def particle_array_to_host(actx, particles):
+    return np.array([actx.to_numpy(x) for x in particles], order="F").T
 
 
 # {{{ host/device data storage
 
 class DeviceDataRecord(Record):
-    """A record of array-type data. Some of this data may live in
-    :class:`pyopencl.array.Array` objects. :meth:`get` can then be
-    called to convert all these device arrays into :mod:`numpy.ndarray`
-    instances on the host.
+    """A record of array-type data.
+
+    Some of this data may live in :class:`pyopencl.array.Array` objects.
+    :meth:`get` can then be called to convert all these device arrays into
+    :mod:`numpy.ndarray` instances on the host.
     """
 
     def _transform_arrays(self, f, exclude_fields=frozenset()):
-        result = {}
-
         def transform_val(val):
             from pyopencl.algorithm import BuiltList
-            if isinstance(val, np.ndarray) and val.dtype == object:
+            if isinstance(val, np.ndarray) and val.dtype.char == "O":
                 from pytools.obj_array import obj_array_vectorize
                 return obj_array_vectorize(f, val)
             elif isinstance(val, list):
@@ -296,7 +290,17 @@ class DeviceDataRecord(Record):
             else:
                 return f(val)
 
-        for field_name in self.__class__.fields:
+        from dataclasses import fields, is_dataclass
+
+        if is_dataclass(self):
+            fields = [f.name for f in fields(self)]
+        elif isinstance(self, Record):
+            fields = self.__class__.fields
+        else:
+            raise TypeError(f"unknown record type: '{type(self).__name__}'")
+
+        result = {}
+        for field_name in fields:
             if field_name in exclude_fields:
                 continue
 
@@ -310,81 +314,67 @@ class DeviceDataRecord(Record):
         return self.copy(**result)
 
     def get(self, queue, **kwargs):
-        """Return a copy of `self` in which all data lives on the host, i.e.
-        all :class:`pyopencl.array.Array` and `ImmutableHostDeviceArray` objects are
-        replaced by corresponding :class:`numpy.ndarray` instances on the host.
         """
-        def try_get(attr):
-            if isinstance(attr, ImmutableHostDeviceArray):
-                return attr.host
+        :returns: a copy of *self* in which all data lives on the host, i.e.
+            all :class:`pyopencl.array.Array` objects are replaced by
+            corresponding :class:`numpy.ndarray` instances on the host.
+        """
+        from warnings import warn
+        warn(f"{type(self).__name__}.get is deprecated and will be removed "
+            "in 2025. Switch to using arraycontext.to_numpy instead.",
+            DeprecationWarning, stacklevel=2)
 
+        def try_get(attr):
             try:
-                get_meth = attr.get
+                return attr.get(queue=queue, **kwargs)
             except AttributeError:
                 return attr
-
-            return get_meth(queue=queue, **kwargs)
 
         return self._transform_arrays(try_get)
 
     def with_queue(self, queue):
-        """Return a copy of `self` in
-        all :class:`pyopencl.array.Array` objects are assigned to
-        :class:`pyopencl.CommandQueue` *queue*.
         """
+        :returns: a copy of *self* in all :class:`pyopencl.array.Array` objects
+            are assigned to the :class:`pyopencl.CommandQueue` *queue*.
+        """
+        from warnings import warn
+        warn(f"{type(self).__name__}.with_queue is deprecated and will be removed "
+            "in 2025. Switch to using arraycontext.with_array_context instead.",
+            DeprecationWarning, stacklevel=2)
 
         def try_with_queue(attr):
             if isinstance(attr, cl.array.Array):
                 attr.finish()
 
             try:
-                wq_meth = attr.with_queue
+                return attr.with_queue(queue)
             except AttributeError:
                 return attr
-
-            ary = wq_meth(queue)
-            return ary
 
         return self._transform_arrays(try_with_queue)
 
     def to_device(self, queue, exclude_fields=frozenset()):
-        """Return a copy of `self` in all :class:`numpy.ndarray` arrays are
-        transferred to device memory as :class:`pyopencl.array.Array` objects.
-
-        :arg exclude_fields: a :class:`frozenset` containing fields excluding from
-            transferring to the device memory.
         """
+        :arg exclude_fields: a :class:`frozenset` containing fields excluded
+            from transferring to the device memory.
+
+        :returns: a copy of *self* in all :class:`numpy.ndarray` arrays are
+            transferred to device memory as :class:`pyopencl.array.Array` objects.
+        """
+        from warnings import warn
+        warn(f"{type(self).__name__}.to_device is deprecated and will be removed "
+            "in 2025. Switch to using arraycontext.from_numpy instead.",
+            DeprecationWarning, stacklevel=2)
 
         def _to_device(attr):
             if isinstance(attr, np.ndarray):
                 return cl.array.to_device(queue, attr).with_queue(None)
-            elif isinstance(attr, ImmutableHostDeviceArray):
-                return attr.device
             elif isinstance(attr, DeviceDataRecord):
                 return attr.to_device(queue)
             else:
                 return attr
 
         return self._transform_arrays(_to_device, exclude_fields=exclude_fields)
-
-    def to_host_device_array(self, queue, exclude_fields=frozenset()):
-        """Return a copy of `self` where all device and host arrays are transformed
-        to `ImmutableHostDeviceArray` objects.
-
-        :arg exclude_fields: a :class:`frozenset` containing fields excluding from
-            transformed to `ImmutableHostDeviceArray`.
-        """
-        def _to_host_device_array(attr):
-            if isinstance(attr, (np.ndarray, cl.array.Array)):
-                return ImmutableHostDeviceArray(queue, attr)
-            elif isinstance(attr, DeviceDataRecord):
-                return attr.to_host_device_array(queue)
-            else:
-                return attr
-
-        return self._transform_arrays(
-            _to_host_device_array, exclude_fields=exclude_fields
-        )
 
 # }}}
 
@@ -424,8 +414,12 @@ GAPPY_COPY_TPL = Template(r"""//CL//
 
 
 class GappyCopyAndMapKernel:
-    def __init__(self, context):
-        self.context = context
+    def __init__(self, array_context: PyOpenCLArrayContext):
+        self._setup_actx = array_context
+
+    @property
+    def context(self):
+        return self._setup_actx.queue.context
 
     @memoize_method
     def _get_kernel(self, dtype, src_index_dtype, dst_index_dtype,
@@ -463,7 +457,7 @@ class GappyCopyAndMapKernel:
                 name="gappy_copy_and_map")
 
     # NOTE: Order of positional args should match realloc_array()
-    def __call__(self, queue, allocator, new_shape, ary, src_indices=None,
+    def __call__(self, actx, new_shape, ary, src_indices=None,
                  dst_indices=None, map_values=None, zero_fill=False,
                  wait_for=None, range=None, debug=False):
         """Compresses box info arrays after empty leaf pruning and, optionally,
@@ -485,18 +479,18 @@ class GappyCopyAndMapKernel:
             elif have_src_indices:
                 range = slice(src_indices.shape[0])
                 if debug:
-                    assert int(cl.array.max(src_indices).get()) < len(ary)
+                    assert int(actx.to_numpy(actx.np.amax(src_indices))) < len(ary)
             elif have_dst_indices:
                 range = slice(dst_indices.shape[0])
                 if debug:
-                    assert int(cl.array.max(dst_indices).get()) < new_shape
+                    assert int(actx.to_numpy(actx.np.amax(dst_indices))) < new_shape
 
         if zero_fill:  # noqa: SIM108
-            array_maker = cl.array.zeros
+            array_maker = actx.zeros
         else:
-            array_maker = cl.array.empty
+            array_maker = actx.empty
 
-        result = array_maker(queue, new_shape, ary.dtype, allocator=allocator)
+        result = array_maker(new_shape, ary.dtype)
 
         kernel = self._get_kernel(ary.dtype,
                                   src_indices.dtype if have_src_indices else None,
@@ -510,7 +504,7 @@ class GappyCopyAndMapKernel:
         args += (dst_indices,) if have_dst_indices else ()
         args += (map_values,) if have_map_values else ()
 
-        evt = kernel(*args, queue=queue, range=range, wait_for=wait_for)
+        evt = kernel(*args, queue=actx.queue, range=range, wait_for=wait_for)
 
         return result, evt
 
@@ -535,9 +529,12 @@ MAP_VALUES_TPL = ElementwiseTemplate(
 
 
 class MapValuesKernel:
+    def __init__(self, array_context: PyOpenCLArrayContext):
+        self._setup_actx = array_context
 
-    def __init__(self, context):
-        self.context = context
+    @property
+    def context(self):
+        return self._setup_actx.queue.context
 
     @memoize_method
     def _get_kernel(self, dst_dtype, src_dtype):
@@ -651,8 +648,12 @@ class MaskCompressorKernel:
     """
     .. automethod:: __call__
     """
-    def __init__(self, context):
-        self.context = context
+    def __init__(self, array_context: PyOpenCLArrayContext):
+        self._setup_actx = array_context
+
+    @property
+    def context(self):
+        return self._setup_actx.context
 
     @memoize_method
     def get_list_compressor_kernel(self, mask_dtype, list_dtype):
@@ -683,7 +684,7 @@ class MaskCompressorKernel:
                 ],
                 name_prefix="compress_matrix")
 
-    def __call__(self, queue, mask, list_dtype=None):
+    def __call__(self, actx, mask, list_dtype=None):
         """Convert a mask to a list in :ref:`csr` format.
 
         :arg mask: Either a 1D or 2D array.
@@ -705,7 +706,7 @@ class MaskCompressorKernel:
 
         if len(mask.shape) == 1:
             knl = self.get_list_compressor_kernel(mask.dtype, list_dtype)
-            result, evt = knl(queue, mask.shape[0], mask.data)
+            result, evt = knl(actx.queue, mask.shape[0], mask.data)
             return (result["output"].lists, evt)
         elif len(mask.shape) == 2:
             # FIXME: This is efficient for small column sizes but may not be
@@ -713,7 +714,7 @@ class MaskCompressorKernel:
             knl = self.get_matrix_compressor_kernel(mask.dtype, list_dtype)
             size = mask.dtype.itemsize
             assert size > 0
-            result, evt = knl(queue, mask.shape[0], mask.shape[1],
+            result, evt = knl(actx.queue, mask.shape[0], mask.shape[1],
                               mask.strides[0] // size, mask.strides[1] // size,
                               mask.data)
             return (result["output"].starts, result["output"].lists, evt)
@@ -868,59 +869,11 @@ def run_mpi(script: str, num_processes: int, env: Dict[str, Any]) -> None:
 # }}}
 
 
-# {{{ HostDeviceArray
-
-class ImmutableHostDeviceArray:
-    """Interface for arrays on both host and device.
-
-    .. note:: This interface assumes the array is immutable. The behavior of
-    modifying the content of either the host array or the device array is undefined.
-
-    @TODO: Once available, replace this implementation with PyOpenCL's in-house
-    implementation.
-    """
-    def __init__(self, queue, array):
-        self.queue = queue
-        self.shape = array.shape
-        self.host_array = None
-        self.device_array = None
-
-        if isinstance(array, np.ndarray):
-            self.host_array = array
-        elif isinstance(array, cl.array.Array):
-            self.device_array = array
-
-    def with_queue(self, queue):
-        self.queue = queue
-
-    @property
-    def svm_capable(self):
-        svm_capabilities = \
-            self.queue.device.get_info(cl.device_info.SVM_CAPABILITIES)
-        return svm_capabilities & cl.device_svm_capabilities.FINE_GRAIN_BUFFER != 0
-
-    @property
-    def host(self):
-        if self.host_array is None:
-            self.host_array = self.device_array.get(self.queue)
-        return self.host_array
-
-    @property
-    def device(self):
-        if self.device_array is None:
-            # @TODO: Use SVM
-            self.device_array = cl.array.to_device(self.queue, self.host_array)
-
-        self.device_array.with_queue(self.queue)
-        return self.device_array
-
-# }}}
-
-
 # {{{ coord_vec tools
 
 def get_coord_vec_dtype(
         coord_dtype: np.dtype, dimensions: int) -> np.dtype:
+    import pyopencl.cltypes as cltypes
     if dimensions == 1:
         return coord_dtype
     else:
