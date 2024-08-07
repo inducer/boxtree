@@ -267,7 +267,7 @@ def test_fmm_completeness(actx_factory, dims, nsources_req, ntargets_req,
             raise ValueError("unsupported value of 'filter_kind'")
     else:
         wrangler = ConstantOneExpansionWrangler(tree_indep, host_trav)
-        flags = 1 + actx.zeros(ntargets or nsources, dtype=np.int8)
+        flags = 1 + actx.np.zeros(ntargets or nsources, dtype=np.int8)
 
     if ntargets is None and not filter_kind:
         # This check only works for targets == sources.
