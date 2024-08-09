@@ -462,7 +462,7 @@ def test_extent_tree(actx_factory, dims, extent_norm, visualize=False):
     targets = make_normal_particle_array(actx.queue, ntargets, dims, dtype,
             seed=19)
 
-    refine_weights = actx.zeros(nsources + ntargets, np.int32)
+    refine_weights = actx.np.zeros(nsources + ntargets, np.int32)
     refine_weights[:nsources] = 1
 
     rng = np.random.default_rng(13)
@@ -693,7 +693,7 @@ def test_leaves_to_balls_query(actx_factory, dims, visualize=False):
 
     nballs = 10**4
     ball_centers = make_normal_particle_array(actx.queue, nballs, dims, dtype)
-    ball_radii = 0.1 + actx.zeros(nballs, dtype)
+    ball_radii = 0.1 + actx.np.zeros(nballs, dtype)
 
     from boxtree.area_query import LeavesToBallsLookupBuilder
     lblb = LeavesToBallsLookupBuilder(actx.context)
@@ -797,7 +797,7 @@ def test_area_query(actx_factory, dims, visualize=False):
 
     nballs = 10**4
     ball_centers = make_normal_particle_array(actx.queue, nballs, dims, dtype)
-    ball_radii = 0.1 + actx.zeros(nballs, dtype)
+    ball_radii = 0.1 + actx.np.zeros(nballs, dtype)
 
     run_area_query_test(actx, tree, ball_centers, ball_radii)
 
@@ -838,7 +838,7 @@ def test_area_query_balls_outside_bbox(actx_factory, dims, visualize=False):
         actx.from_numpy(
             rng.uniform(bbox_min - 1, bbox_max + 1, nballs).astype(dtype))
         for i in range(dims)])
-    ball_radii = 0.1 + actx.zeros(nballs, dtype)
+    ball_radii = 0.1 + actx.np.zeros(nballs, dtype)
 
     run_area_query_test(actx, tree, ball_centers, ball_radii)
 
@@ -867,7 +867,7 @@ def test_area_query_elwise(actx_factory, dims, visualize=False):
 
     nballs = 10**4
     ball_centers = make_normal_particle_array(actx.queue, nballs, dims, dtype)
-    ball_radii = 0.1 + actx.zeros(nballs, dtype)
+    ball_radii = 0.1 + actx.np.zeros(nballs, dtype)
 
     from boxtree.area_query import AreaQueryElementwiseTemplate, PeerListFinder
 
@@ -1017,7 +1017,7 @@ def test_space_invader_query(actx_factory, dims, dtype, visualize=False):
 
     nballs = 10**4
     ball_centers = make_normal_particle_array(actx.queue, nballs, dims, dtype)
-    ball_radii = 0.1 + actx.zeros(nballs, dtype)
+    ball_radii = 0.1 + actx.np.zeros(nballs, dtype)
 
     from boxtree.area_query import LeavesToBallsLookupBuilder, SpaceInvaderQueryBuilder
 
@@ -1088,7 +1088,7 @@ def test_same_tree_with_zero_weight_particles(actx_factory, dims):
             sources = actx.from_numpy(sources)
             targets = actx.from_numpy(targets)
 
-            refine_weights = actx.empty(nsources + ntargets, np.int32)
+            refine_weights = actx.np.zeros(nsources + ntargets, np.int32)
             refine_weights[:nsources] = 1
             refine_weights[nsources:] = 0
 
@@ -1122,7 +1122,7 @@ def test_max_levels_error(actx_factory):
     from boxtree import TreeBuilder
     tb = TreeBuilder(actx.context)
 
-    sources = [actx.zeros(11, np.float64) for i in range(2)]
+    sources = [actx.np.zeros(11, np.float64) for i in range(2)]
     from boxtree.tree_build import MaxLevelsExceeded
     with pytest.raises(MaxLevelsExceeded):
         _tree, _ = tb(actx.queue, sources, max_particles_in_box=10, debug=True)
