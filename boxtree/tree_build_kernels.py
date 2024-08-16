@@ -152,10 +152,10 @@ def make_morton_bin_count_type(device, dimensions, particle_id_dtype,
     if srcntgts_have_extent:
         name_suffix = "_ext"
 
-    name = "boxtree_morton_bin_count_%dd_p%s%s_t" % (
-            dimensions,
-            get_type_moniker(particle_id_dtype),
-            name_suffix)
+    type_moniker = get_type_moniker(particle_id_dtype)
+    name = (
+        f"boxtree_morton_bin_count_{dimensions}d_p{type_moniker}{name_suffix}_t"
+    )
 
     from pyopencl.tools import get_or_register_dtype, match_dtype_to_c_struct
     dtype, c_decl = match_dtype_to_c_struct(device, name, dtype)

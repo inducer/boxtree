@@ -95,7 +95,7 @@ def test_compare_cl_and_py_cost_model(actx_factory, nsources, ntargets, dims, dt
 
     constant_one_params = cl_cost_model.get_unit_calibration_params().copy()
     for ilevel in range(trav.tree.nlevels):
-        constant_one_params["p_fmm_lev%d" % ilevel] = 10
+        constant_one_params[f"p_fmm_lev{ilevel}"] = 10
 
     xlat_cost = make_pde_aware_translation_cost_model(dims, trav.tree.nlevels)
 

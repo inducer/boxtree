@@ -1148,9 +1148,8 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
             scale_factor = 1/(4*np.pi)
         else:
             raise NotImplementedError(
-                    "scale factor for pyfmmlib %s for %d dimensions" % (
-                        self.tree_indep.eqn_letter,
-                        self.dim))
+                    f"scale factor for pyfmmlib {self.tree_indep.eqn_letter} "
+                    f"for {self.dim} dimensions")
 
         if self.tree_indep.eqn_letter == "l" and self.dim == 2:
             potential = potential.real

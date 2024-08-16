@@ -1188,7 +1188,7 @@ class TreeBuilder:
                         has_mismatch = True
 
                 assert not has_mismatch
-                print("LEVEL %d OK" % level)
+                print(f"LEVEL {level} OK")
 
                 # Cannot delete in Py 2.7: referred to from nested scope.
                 h_box_srcntgt_counts_cumul = None
