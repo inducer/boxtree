@@ -431,7 +431,7 @@ def test_source_target_tree(actx_factory, dims, visualize=False):
                 pt.show()
 
             if not all_good_here:
-                print("BAD BOX %s %d" % (what, ibox))
+                print(f"BAD BOX {what} {ibox}")
 
             all_good_so_far = all_good_so_far and all_good_here
 
@@ -624,8 +624,7 @@ def test_extent_tree(actx_factory, dims, extent_norm, visualize=False):
             all_good_here = np.all(good)
 
             if not all_good_here:
-                print("BAD BOX %s %d level %d"
-                        % (what, ibox, tree.box_levels[ibox]))
+                print(f"BAD BOX {what} {ibox} level {tree.box_levels[ibox]}")
 
             all_good_so_far = all_good_so_far and all_good_here
             assert all_good_here

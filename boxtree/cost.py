@@ -151,7 +151,7 @@ def make_pde_aware_translation_cost_model(dim, nlevels):
     For example, this factory is used for complex Taylor and Fourier-Bessel
     expansions in 2D, and spherical harmonics (with point-and-shoot) in 3D.
     """
-    p_fmm = np.array([var("p_fmm_lev%d" % i) for i in range(nlevels)])
+    p_fmm = np.array([var(f"p_fmm_lev{i}") for i in range(nlevels)])
     ncoeffs_fmm = (p_fmm + 1) ** (dim - 1)
 
     uses_point_and_shoot = dim == 3
@@ -165,7 +165,7 @@ def make_taylor_translation_cost_model(dim, nlevels):
     """Create a cost model for FMM translation based on Taylor expansions
     in Cartesian coordinates.
     """
-    p_fmm = np.array([var("p_fmm_lev%d" % i) for i in range(nlevels)])
+    p_fmm = np.array([var(f"p_fmm_lev{i}") for i in range(nlevels)])
     ncoeffs_fmm = (p_fmm + 1) ** dim
 
     return FMMTranslationCostModel(
@@ -507,7 +507,7 @@ class AbstractFMMCostModel(ABC):
         result = self.zero_cost_per_box(queue, nboxes)
 
         for ilevel in range(tree.nlevels):
-            calibration_params["p_fmm_lev%d" % ilevel] = level_to_order[ilevel]
+            calibration_params[f"p_fmm_lev{ilevel}"] = level_to_order[ilevel]
 
         xlat_cost = self.translation_cost_model_factory(
             tree.dimensions, tree.nlevels
@@ -586,7 +586,7 @@ class AbstractFMMCostModel(ABC):
         result = {}
 
         for ilevel in range(tree.nlevels):
-            calibration_params["p_fmm_lev%d" % ilevel] = level_to_order[ilevel]
+            calibration_params[f"p_fmm_lev{ilevel}"] = level_to_order[ilevel]
 
         xlat_cost = self.translation_cost_model_factory(
             tree.dimensions, tree.nlevels

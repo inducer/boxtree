@@ -392,7 +392,7 @@ class DeviceDataRecord(Record):
 # {{{ type mangling
 
 def get_type_moniker(dtype):
-    return "%s%d" % (dtype.kind, dtype.itemsize)
+    return f"{dtype.kind}{dtype.itemsize}"
 
 # }}}
 

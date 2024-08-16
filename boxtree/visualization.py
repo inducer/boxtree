@@ -37,7 +37,7 @@ def int_to_roman(inp):
     if inp == 0:
         return "Z"
     if not 0 < inp < 4000:
-        raise ValueError("Argument must be between 1 and 3999 (got %d)" % inp)
+        raise ValueError(f"Argument must be between 1 and 3999 (got {inp})")
     ints = (1000, 900, 500, 400, 100, 90, 50, 40, 10, 9, 5, 4, 1)
     nums = ("M", "CM", "D", "CD", "C", "XC", "L", "XL", "X", "IX", "V", "IV", "I")
     result = ""
@@ -130,26 +130,28 @@ class TreePlotter:
 
         lines = []
 
-        lines.append(r"\def\nboxes{%d}" % self.tree.nboxes)
-        lines.append(r"\def\lastboxnr{%d}" % (self.tree.nboxes-1))
+        lines.append(r"\def\nboxes{%d}" % self.tree.nboxes)  # noqa: UP031
+        lines.append(r"\def\lastboxnr{%d}" % (self.tree.nboxes-1))  # noqa: UP031
         for ibox in range(self.tree.nboxes):
             el, eh = self.tree.get_box_extent(ibox)
+            el_0, el_1 = float(el[0]), float(el[1])
+            eh_0, eh_1 = float(eh[0]), float(eh[1])
 
             c = self.tree.box_centers[:, ibox]
+            c_0, c_1 = float(c[0]), float(c[1])
 
             lines.append(
-                    r"\coordinate (boxl%d) at (%r, %r);"
-                    % (ibox, float(el[0]), float(el[1])))
+                fr"\coordinate (boxl{ibox}) at ({el_0!r}, {el_1!r});")
             lines.append(
-                    r"\coordinate (boxh%d) at (%r, %r);"
-                    % (ibox, float(eh[0]), float(eh[1])))
+                fr"\coordinate (boxh{ibox}) at ({eh_0!r}, {eh_1!r});")
             lines.append(
-                    r"\coordinate (boxc%d) at (%r, %r);"
-                    % (ibox, float(c[0]), float(c[1])))
+                fr"\coordinate (boxc{ibox}) at ({c_0!r}, {c_1!r});")
             lines.append(
-                    rf"\def\boxsize{int_to_roman(ibox)}{{{float(eh[0]-el[0])!r}}}")
+                r"\def\boxsize%s{%r}" % (int_to_roman(ibox), eh_0 - el_0)   # noqa: UP031
+                )
             lines.append(
-                    rf"\def\boxlevel{int_to_roman(ibox)}{{{self.tree.box_levels[ibox]!r}}}")
+                r"\dev\boxlevel%s{%r}" % (int_to_roman(ibox),               # noqa: UP031
+                                          self.tree.box_levels[ibox]))
 
         lines.append(
                 r"\def\boxpath#1{(boxl#1) rectangle (boxh#1)}")

@@ -39,8 +39,8 @@ def make_bounding_box_dtype(device, dimensions, coord_dtype):
         fields.append((f"max_{AXIS_NAMES[i]}", coord_dtype))
 
     dtype = np.dtype(fields)
-
-    name = "boxtree_bbox_%dd_%s_t" % (dimensions, get_type_moniker(coord_dtype))
+    type_moniker = get_type_moniker(coord_dtype)
+    name = f"boxtree_bbox_{dimensions}d_{type_moniker}_t"
 
     from pyopencl.tools import get_or_register_dtype, match_dtype_to_c_struct
     dtype, c_decl = match_dtype_to_c_struct(device, name, dtype)

@@ -2093,7 +2093,7 @@ class FMMTraversalBuilder:
         target_boxes_sep_smaller_by_source_level = []
 
         for ilevel in range(tree.nlevels):
-            fin_debug("finding separated smaller ('list 3 level %d')" % ilevel)
+            fin_debug(f"finding separated smaller ('list 3 level {ilevel}')")
 
             result, evt = knl_info.from_sep_smaller_builder(
                     *from_sep_smaller_base_args, ilevel,

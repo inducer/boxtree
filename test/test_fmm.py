@@ -59,13 +59,12 @@ def get_fmmlib_ref_pot(wrangler, weights, sources_host, targets_host,
     use_dipoles = dipole_vec is not None
 
     import pyfmmlib
+
+    name = "fld" if dims == 3 else "grad"
+    dp = "_dp" if use_dipoles else ""
     fmmlib_routine = getattr(
             pyfmmlib,
-            "%spot%s%ddall%s_vec" % (
-                eqn_letter,
-                "fld" if dims == 3 else "grad",
-                dims,
-                "_dp" if use_dipoles else ""))
+            f"{eqn_letter}pot{name}{dims}dall{dp}_vec")
 
     kwargs = {}
     if dims == 3:
