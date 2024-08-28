@@ -14,17 +14,17 @@ boxtree: Quad/Octrees, FMM Traversals, Geometric Queries
     :alt: Zenodo DOI for latest release
     :target: https://zenodo.org/badge/latestdoi/7193697
 
-boxtree is a package that, given some point locations in two or three
+``boxtree`` is a package that, given some point locations in two or three
 dimensions, sorts them into an adaptive quad/octree of boxes, efficiently, in
-parallel, using `PyOpenCL <http://mathema.tician.de/software/pyopencl>`__.
+parallel, using `PyOpenCL <https://mathema.tician.de/software/pyopencl>`__.
 
 It can also generate traversal lists needed for adaptive fast multipole methods
 and related algorithms and tree-based look-up tables for geometric proximity.
 
-boxtree is under the MIT license.
+``boxtree`` is under the MIT license.
 
 Resources:
 
-* `documentation <http://documen.tician.de/boxtree>`__
-* `wiki home page <http://wiki.tiker.net/BoxTree>`__
-* `source code via git <https://github.com/inducer/boxtree>`__
+* `Documentation <https://documen.tician.de/boxtree>`__
+* `PyPI package <https://pypi.org/project/boxtree>`__
+* `Source Code (GitHub) <https://github.com/inducer/boxtree>`__
