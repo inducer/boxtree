@@ -120,18 +120,18 @@ def make_surface_particle_array(queue, nparticles, dims, dtype, seed=15):
                         x[i] = 0.5* (3*cos(phi) + 2*sin(3*phi))
                         y[i] = 0.5* (1*sin(phi) + 1.5*sin(2*phi))
                     end
-                    """,
+                """,
                 [
                     lp.GlobalArg("x,y", dtype, shape=lp.auto),
                     lp.ValueArg("n", np.int32),
-                    ],
-                name="make_surface_dist",
+                ],
+                name="make_surface_particles_2d",
                 lang_version=lp.MOST_RECENT_LANGUAGE_VERSION,
                 )
 
             knl = lp.split_iname(knl, "i", 128, outer_tag="g.0", inner_tag="l.0")
 
-            return knl
+            return knl.executor(queue.context)
 
         _evt, result = get_2d_knl(dtype)(queue, n=nparticles)
 
@@ -152,16 +152,20 @@ def make_surface_particle_array(queue, nparticles, dims, dtype, seed=15):
                         y[i,j] = 5*sin(phi) * (3 + cos(theta))
                         z[i,j] = 5*sin(theta)
                     end
-                    """,
+                """,
                 [
                     lp.GlobalArg("x,y,z,", dtype, shape=lp.auto),
                     lp.ValueArg("n", np.int32),
-                    ])
+                ],
+                assumptions="n>0",
+                name="make_surface_particles_3d",
+                lang_version=lp.MOST_RECENT_LANGUAGE_VERSION,
+                )
 
             knl = lp.split_iname(knl, "i", 16, outer_tag="g.1", inner_tag="l.1")
             knl = lp.split_iname(knl, "j", 16, outer_tag="g.0", inner_tag="l.0")
 
-            return knl
+            return knl.executor(queue.context)
 
         _evt, result = get_3d_knl(dtype)(queue, n=n)
 
@@ -191,19 +195,20 @@ def make_uniform_particle_array(queue, nparticles, dims, dtype, seed=15):
                         x[i,j] = c*xx + s*yy - 2
                         y[i,j] = -s*xx + c*yy - 2
                     end
-                    """,
+                """,
                 [
                     lp.GlobalArg("x,y", dtype, shape=lp.auto),
                     lp.ValueArg("n", np.int32),
-                    ],
+                ],
                 assumptions="n>0",
+                name="make_uniform_particles_2d",
                 lang_version=lp.MOST_RECENT_LANGUAGE_VERSION,
                 )
 
             knl = lp.split_iname(knl, "i", 16, outer_tag="g.1", inner_tag="l.1")
             knl = lp.split_iname(knl, "j", 16, outer_tag="g.0", inner_tag="l.0")
 
-            return knl
+            return knl.executor(queue.context)
 
         _evt, result = get_2d_knl(dtype)(queue, n=n)
 
@@ -238,16 +243,20 @@ def make_uniform_particle_array(queue, nparticles, dims, dtype, seed=15):
                         y[i,j,k] = 4 * yyy - 2
                         z[i,j,k] = 4 * (-s2*xxx + c2*zzz) - 2
                     end
-                    """,
+                """,
                 [
                     lp.GlobalArg("x,y,z", dtype, shape=lp.auto),
                     lp.ValueArg("n", np.int32),
-                    ], assumptions="n>0")
+                ],
+                assumptions="n>0",
+                name="make_uniform_particles_3d",
+                lang_version=lp.MOST_RECENT_LANGUAGE_VERSION,
+                )
 
             knl = lp.split_iname(knl, "j", 16, outer_tag="g.1", inner_tag="l.1")
             knl = lp.split_iname(knl, "k", 16, outer_tag="g.0", inner_tag="l.0")
 
-            return knl
+            return knl.executor(queue.context)
 
         _evt, result = get_3d_knl(dtype)(queue, n=n)
 
