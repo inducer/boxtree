@@ -400,7 +400,7 @@ def test_estimate_calibration_params(actx_factory):
     def fmm_level_to_order(tree, ilevel):
         return 10
 
-    for nsources, ntargets in zip(nsources_list, ntargets_list):
+    for nsources, ntargets in zip(nsources_list, ntargets_list, strict=True):
         # {{{ Generate sources, targets and target_radii
 
         from boxtree.tools import make_normal_particle_array as p_normal

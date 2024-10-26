@@ -45,6 +45,7 @@ THE SOFTWARE.
 
 import logging
 from functools import partial
+from itertools import pairwise
 
 import numpy as np
 
@@ -315,7 +316,7 @@ class TreeBuilder:
             from pytools.obj_array import make_obj_array
             srcntgts = make_obj_array([
                 combine_srcntgt_arrays(src_i, tgt_i)
-                for src_i, tgt_i in zip(particles, targets)
+                for src_i, tgt_i in zip(particles, targets, strict=True)
                 ])
 
             if srcntgts_have_extent:
@@ -502,16 +503,18 @@ class TreeBuilder:
 
         # pointer to child box, by morton number
         box_child_ids, evts = zip(
-            *(zeros(nboxes_guess, dtype=box_id_dtype) for d in range(2**dimensions)))
+            *(zeros(nboxes_guess, dtype=box_id_dtype) for d in range(2**dimensions)),
+            strict=True)
         prep_events.extend(evts)
 
         # box centers, by dimension
         box_centers, evts = zip(
-            *(zeros(nboxes_guess, dtype=coord_dtype) for d in range(dimensions)))
+            *(zeros(nboxes_guess, dtype=coord_dtype) for d in range(dimensions)),
+            strict=True)
         prep_events.extend(evts)
 
         # Initialize box_centers[0] to contain the root box's center
-        for d, (ax, evt) in enumerate(zip(axis_names, evts)):
+        for d, (ax, evt) in enumerate(zip(axis_names, evts, strict=True)):
             center_ax = bbox["min_"+ax] + (bbox["max_"+ax] - bbox["min_"+ax]) / 2
             box_centers[d][0].fill(center_ax, wait_for=[evt])
 
@@ -793,8 +796,9 @@ class TreeBuilder:
                         shape=old_box_count, dtype=box_id_dtype)
 
                 for level_start, new_level_start, level_len in zip(
-                        level_start_box_nrs, new_level_start_box_nrs,
-                        curr_upper_level_lengths):
+                        level_start_box_nrs[:-1],
+                        new_level_start_box_nrs[:-1],
+                        curr_upper_level_lengths, strict=True):
                     dst_box_id[level_start:level_start + level_len] = \
                             cl.array.arange(queue,
                                             new_level_start,
@@ -891,12 +895,12 @@ class TreeBuilder:
                 resize_events.append(evt)
 
                 box_centers, evts = zip(
-                    *(my_realloc(ary) for ary in box_centers))
+                    *(my_realloc(ary) for ary in box_centers), strict=True)
                 resize_events.extend(evts)
 
                 box_child_ids, evts = zip(
                     *(my_realloc_zeros_and_renumber(ary)
-                      for ary in box_child_ids))
+                      for ary in box_child_ids), strict=True)
                 resize_events.extend(evts)
 
                 box_parent_ids, evt = my_realloc_zeros_and_renumber(box_parent_ids)
@@ -908,8 +912,8 @@ class TreeBuilder:
                 else:
                     box_levels, evt = my_realloc_zeros_nocopy(box_levels)
                     cl.wait_for_events([evt])
-                    for box_level, (level_start, level_end) in enumerate(zip(
-                            level_start_box_nrs, level_start_box_nrs[1:])):
+                    for box_level, (level_start, level_end) in enumerate(
+                            pairwise(level_start_box_nrs)):
                         box_levels[level_start:level_end].fill(box_level)
                     resize_events.extend(box_levels.events)
 
@@ -967,9 +971,9 @@ class TreeBuilder:
             level_leaf_counts = new_level_leaf_counts
             if debug:
                 for level_start, level_nboxes, leaf_count in zip(
-                        level_start_box_nrs,
+                        level_start_box_nrs[:-1],
                         level_used_box_counts,
-                        level_leaf_counts):
+                        level_leaf_counts, strict=True):
                     if level_nboxes == 0:
                         assert leaf_count == 0
                         continue
@@ -1096,7 +1100,7 @@ class TreeBuilder:
                         # At this point, the last entry in level_start_box_nrs
                         # already refers to (level + 1).
                         level_start_box_nrs[-4::-1],
-                        level_used_box_counts[-3::-1]):
+                        level_used_box_counts[-3::-1], strict=False):
 
                     upper_level_slice = slice(
                         upper_level_start, upper_level_start + upper_level_box_count)
@@ -1283,8 +1287,9 @@ class TreeBuilder:
             new_level_start_box_nrs[0] = 0
             new_level_start_box_nrs[1:] = np.cumsum(level_used_box_counts)
             for level_start, new_level_start, level_used_box_count in zip(
-                    level_start_box_nrs, new_level_start_box_nrs,
-                    level_used_box_counts):
+                    level_start_box_nrs[:-1],
+                    new_level_start_box_nrs[:-1],
+                    level_used_box_counts, strict=True):
                 def make_slice(start, offset=level_used_box_count):
                     return slice(start, start + offset)
 
@@ -1341,11 +1346,11 @@ class TreeBuilder:
 
             box_child_ids, evts = zip(
                 *(prune_empty(ary, map_values=dst_box_id)
-                  for ary in box_child_ids))
+                  for ary in box_child_ids), strict=True)
             prune_events.extend(evts)
 
             box_centers, evts = zip(
-                *(prune_empty(ary) for ary in box_centers))
+                *(prune_empty(ary) for ary in box_centers), strict=True)
             prune_events.extend(evts)
 
             # Update box counts and level start box indices.

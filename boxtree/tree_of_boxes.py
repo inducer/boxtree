@@ -47,7 +47,7 @@ THE SOFTWARE.
 """
 
 import sys
-from typing import TYPE_CHECKING, Any, Optional, Tuple
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
@@ -318,8 +318,8 @@ def _sort_and_prune_deleted_boxes(tob):
 
 def refine_and_coarsen_tree_of_boxes(
         tob: TreeOfBoxes,
-        refine_flags: Optional[np.ndarray] = None,
-        coarsen_flags: Optional[np.ndarray] = None, *,
+        refine_flags: np.ndarray | None = None,
+        coarsen_flags: np.ndarray | None = None, *,
         error_on_ignored_flags: bool = True,
         ) -> TreeOfBoxes:
     """Make a refined/coarsened copy. When children of the same parent box
@@ -357,7 +357,7 @@ def refine_and_coarsen_tree_of_boxes(
 # {{{ make_tree_of_boxes_root
 
 def make_tree_of_boxes_root(
-        bbox: Tuple[np.ndarray, np.ndarray], *,
+        bbox: tuple[np.ndarray, np.ndarray], *,
         box_id_dtype: Any = None,
         box_level_dtype: Any = None,
         coord_dtype: Any = None,
@@ -431,7 +431,7 @@ def make_tree_of_boxes_root(
 
 # {{{ make_meshmode_mesh_from_leaves
 
-def make_meshmode_mesh_from_leaves(tob: TreeOfBoxes) -> Tuple["Mesh", np.ndarray]:
+def make_meshmode_mesh_from_leaves(tob: TreeOfBoxes) -> tuple["Mesh", np.ndarray]:
     """Make a :class:`~meshmode.mesh.Mesh` from the leaf boxes of the tree
     of boxes *tob*.
 

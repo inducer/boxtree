@@ -760,7 +760,7 @@ def run_area_query_test(actx, tree, ball_centers, ball_radii):
         leaf_box_centers[idx] = box_center
 
     for ball_nr, (ball_center, ball_radius) \
-            in enumerate(zip(ball_centers, ball_radii)):
+            in enumerate(zip(ball_centers, ball_radii, strict=True)):
         linf_box_dists = np.max(np.abs(ball_center - leaf_box_centers), axis=-1)
         near_leaves_indices, \
             = np.where(linf_box_dists < ball_radius + leaf_box_radii)
