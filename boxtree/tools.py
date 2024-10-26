@@ -22,7 +22,7 @@ THE SOFTWARE.
 
 import sys
 from functools import partial
-from typing import Any, Dict
+from typing import Any
 
 import numpy as np
 from mako.template import Template
@@ -384,7 +384,7 @@ class DeviceDataRecord(Record):
             transformed to `ImmutableHostDeviceArray`.
         """
         def _to_host_device_array(attr):
-            if isinstance(attr, (np.ndarray, cl.array.Array)):
+            if isinstance(attr, np.ndarray | cl.array.Array):
                 return ImmutableHostDeviceArray(queue, attr)
             elif isinstance(attr, DeviceDataRecord):
                 return attr.to_host_device_array(queue)
@@ -839,7 +839,7 @@ class AllReduceCommPattern:
 
 # {{{ MPI launcher
 
-def run_mpi(script: str, num_processes: int, env: Dict[str, Any]) -> None:
+def run_mpi(script: str, num_processes: int, env: dict[str, Any]) -> None:
     """Launch MPI processes.
 
     This function forks another process and uses ``mpiexec`` to launch

@@ -83,7 +83,6 @@ THE SOFTWARE.
 import logging
 from dataclasses import dataclass
 from functools import cached_property
-from typing import Optional, Tuple
 
 import numpy as np
 
@@ -223,8 +222,8 @@ class TreeOfBoxes:
     box_child_ids: np.ndarray
     box_levels: np.ndarray
 
-    box_flags: Optional[np.ndarray]
-    level_start_box_nrs: Optional[np.ndarray]
+    box_flags: np.ndarray | None
+    level_start_box_nrs: np.ndarray | None
 
     # FIXME: these should be properties and take values from box_parent_ids, etc
     box_id_dtype: np.dtype
@@ -264,7 +263,7 @@ class TreeOfBoxes:
         return boxes[self.box_flags & box_flags_enum.IS_LEAF_BOX != 0]
 
     @cached_property
-    def bounding_box(self) -> Tuple[np.ndarray, np.ndarray]:
+    def bounding_box(self) -> tuple[np.ndarray, np.ndarray]:
         lows = self.box_centers[:, 0] - 0.5 * self.root_extent
         highs = lows + self.root_extent
         return lows, highs

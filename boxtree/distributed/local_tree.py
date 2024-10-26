@@ -24,7 +24,6 @@ THE SOFTWARE.
 import logging
 import time
 from dataclasses import dataclass
-from typing import Optional
 
 import numpy as np
 from mako.template import Template
@@ -177,7 +176,7 @@ class LocalTreeGeneratorCodeContainer:
 @dataclass
 class LocalParticlesAndLists:
     particles: np.ndarray
-    particle_radii: Optional[cl.array.Array]
+    particle_radii: cl.array.Array | None
     box_particle_starts: cl.array.Array
     box_particle_counts_nonchild: cl.array.Array
     box_particle_counts_cumul: cl.array.Array

@@ -58,8 +58,9 @@ Cost Model Classes
 .. autoclass:: FMMCostModel
 """
 
+from collections.abc import Mapping
 from functools import partial
-from typing import ClassVar, Mapping
+from typing import ClassVar
 
 import numpy as np
 from mako.template import Template
