@@ -1892,9 +1892,11 @@ class FMMTraversalBuilder:
             :class:`FMMTraversalInfo` and *event* is a :class:`pyopencl.Event`
             for dependency management.
         """
-        if _from_sep_smaller_min_nsources_cumul is None:
+        from_sep_smaller_min_nsources_cumul = _from_sep_smaller_min_nsources_cumul
+
+        if from_sep_smaller_min_nsources_cumul is None:
             # default to old no-threshold behavior
-            _from_sep_smaller_min_nsources_cumul = 0
+            from_sep_smaller_min_nsources_cumul = 0
 
         if not tree._is_pruned:
             raise ValueError("tree must be pruned for traversal generation")
@@ -2085,7 +2087,7 @@ class FMMTraversalBuilder:
                    tree.box_target_bounding_box_max.data,
                    tree.box_source_counts_cumul]
                   if tree.targets_have_extent else []),
-                _from_sep_smaller_min_nsources_cumul,
+                from_sep_smaller_min_nsources_cumul,
                 )
 
         from_sep_smaller_wait_for = []
