@@ -373,16 +373,17 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
         # It's not super bad because the dipole vectors are typically geometry
         # normals and thus change about at the same time as the tree... but there's
         # still no reason for them to be here.
-        self.use_dipoles = dipole_vec is not None
-        if self.use_dipoles:
-            assert dipole_vec.shape == (self.dim, self.tree.nsources)
+        if not hasattr(self, "use_dipoles"):
+            self.use_dipoles = dipole_vec is not None
+            if self.use_dipoles:
+                assert dipole_vec.shape == (self.dim, self.tree.nsources)
 
-            if not dipoles_already_reordered:
-                dipole_vec = self.reorder_sources(dipole_vec)
+                if not dipoles_already_reordered:
+                    dipole_vec = self.reorder_sources(dipole_vec)
 
-            self.dipole_vec = dipole_vec.copy(order="F")
-        else:
-            self.dipole_vec = None
+                self.dipole_vec = dipole_vec.copy(order="F")
+            else:
+                self.dipole_vec = None
 
     # }}}
 
