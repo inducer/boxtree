@@ -37,7 +37,7 @@ def _acf():
     ctx = cl.create_some_context()
     queue = cl.CommandQueue(ctx)
 
-    return PyOpenCLArrayContext(queue, force_device_scalars=True)
+    return PyOpenCLArrayContext(queue)
 
 
 class PyOpenCLArrayContext(PyOpenCLArrayContextBase):
