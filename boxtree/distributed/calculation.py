@@ -165,7 +165,7 @@ class DistributedExpansionWrangler(ExpansionWranglerInterface):
             if stop > start:
                 level_start_box_idx, mpoles_current_level = (
                     self.multipole_expansions_view(mpoles, ilevel))
-                mpoles_shape = (stop - start,) + mpoles_current_level.shape[1:]
+                mpoles_shape = (stop - start, *mpoles_current_level.shape[1:])
 
                 from pytools import product
                 mpole_updates_end = mpole_updates_start + product(mpoles_shape)
