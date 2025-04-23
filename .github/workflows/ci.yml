@@ -89,8 +89,8 @@ jobs:
                 curl -L -O https://tiker.net/ci-support-v0
                 . ci-support-v0
 
-                if [[ "$DOWNSTREAM_PROJECT" == "pytential" && "$GITHUB_HEAD_REF" == "rename-nterms" ]]; then
-                   DOWNSTREAM_PROJECT=https://github.com/gaohao95/pytential.git@rename-nterms
+                if [[ "$GITHUB_HEAD_REF" == "towards-array-context" ]]; then
+                   DOWNSTREAM_PROJECT=https://github.com/alexfikl/${DOWNSTREAM_PROJECT}.git@towards-array-context
                 fi
                 test_downstream "$DOWNSTREAM_PROJECT"
 

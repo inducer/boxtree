@@ -20,13 +20,12 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-
 import numpy as np
 
-import pyopencl as cl  # noqa
 from pyopencl.reduction import ReductionTemplate
 from pytools import memoize, memoize_method
 
+from boxtree.array_context import PyOpenCLArrayContext
 from boxtree.tools import get_type_moniker
 
 
@@ -121,17 +120,22 @@ BBOX_REDUCTION_TPL = ReductionTemplate(
 
 
 class BoundingBoxFinder:
-    def __init__(self, context):
-        self.context = context
+    def __init__(self, array_context: PyOpenCLArrayContext):
+        self._setup_actx = array_context
 
-        for dev in context.devices:
+        for dev in self.context.devices:
             if (dev.vendor == "Intel(R) Corporation"
                     and dev.version == "OpenCL 1.2 (Build 56860)"):
                 raise RuntimeError("bounding box finder does not work "
                         "properly with this CL runtime.")
 
+    @property
+    def context(self):
+        return self._setup_actx.queue.context
+
     @memoize_method
     def get_kernel(self, dimensions, coord_dtype, have_radii):
+        # FIXME: Why does this just use `devices[0]`?
         bbox_dtype, _bbox_cdecl = make_bounding_box_dtype(
                 self.context.devices[0], dimensions, coord_dtype)
 
@@ -152,18 +156,18 @@ class BoundingBoxFinder:
                     )
                 )
 
-    def __call__(self, particles, radii, wait_for=None):
+    def __call__(self, actx, particles, radii, wait_for=None):
         dimensions = len(particles)
 
         from pytools import single_valued
         coord_dtype = single_valued(coord.dtype for coord in particles)
-
         radii_tuple = () if radii is None else (radii,)
-        knl = self.get_kernel(dimensions, coord_dtype,
-                # have_radii:
-                radii is not None)
-        return knl(*(tuple(particles) + radii_tuple),
-                wait_for=wait_for, return_event=True)
+
+        knl = self.get_kernel(dimensions, coord_dtype, have_radii=radii is not None)
+        return knl(
+            *(tuple(particles) + radii_tuple),
+            queue=actx.queue,
+            wait_for=wait_for, return_event=True)
 
 # }}}
 
