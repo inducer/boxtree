@@ -150,8 +150,8 @@ class TreePlotter:
                 r"\def\boxsize%s{%r}" % (int_to_roman(ibox), eh_0 - el_0)   # noqa: UP031
                 )
             lines.append(
-                r"\dev\boxlevel%s{%r}" % (int_to_roman(ibox),               # noqa: UP031
-                                          self.tree.box_levels[ibox]))
+                r"\def\boxlevel%s{%r}" % (int_to_roman(ibox),               # noqa: UP031
+                                          int(self.tree.box_levels[ibox])))
 
         lines.append(
                 r"\def\boxpath#1{(boxl#1) rectangle (boxh#1)}")
