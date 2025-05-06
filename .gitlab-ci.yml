@@ -32,38 +32,6 @@ Python 3 POCL Titan V:
         reports:
             junit: test/pytest.xml
 
-Python 3 POCL Titan X:
-    script: |
-      export PYOPENCL_TEST=portable:titan
-
-      curl -L -O https://tiker.net/ci-support-v0
-      . ci-support-v0
-      build_py_project_in_conda_env
-      test_py_project
-    tags:
-    - nvidia-titan-x
-    except:
-    - tags
-    artifacts:
-        reports:
-            junit: test/pytest.xml
-
-Python 3 POCL K40:
-    script: |
-      export PYOPENCL_TEST=portable:k40
-
-      curl -L -O https://tiker.net/ci-support-v0
-      . ci-support-v0
-      build_py_project_in_conda_env
-      test_py_project
-    tags:
-    - nvidia-k40
-    except:
-    - tags
-    artifacts:
-        reports:
-            junit: test/pytest.xml
-
 Python 3 POCL MPI:
     script: |
       export PYOPENCL_TEST=portable
