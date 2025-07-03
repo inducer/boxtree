@@ -109,10 +109,11 @@ known-local-folder = [
 lines-after-imports = 2
 
 # TODO: enable postponed annotations at some point
-# required-imports = ["from __future__ import annotations"]
-# [tool.ruff.lint.per-file-ignores]
-# "doc/**/*.py" = ["I002"]
-# "examples/**/*.py" = ["I002"]
+required-imports = ["from __future__ import annotations"]
+
+[tool.ruff.lint.per-file-ignores]
+"doc/**/*.py" = ["I002"]
+"examples/**/*.py" = ["I002"]
 
 [tool.typos.default]
 extend-ignore-re = [

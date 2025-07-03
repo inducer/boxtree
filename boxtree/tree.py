@@ -57,6 +57,8 @@ Tools
 
 .. autofunction:: filter_target_lists_in_tree_order
 """
+from __future__ import annotations
+
 
 __copyright__ = "Copyright (C) 2013 Andreas Kloeckner"
 

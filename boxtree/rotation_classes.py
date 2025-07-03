@@ -9,6 +9,8 @@ Build rotation classes
 
 .. autoclass:: RotationClassesBuilder
 """
+from __future__ import annotations
+
 
 __copyright__ = "Copyright (C) 2019 Matt Wala"
 
