@@ -14,3 +14,4 @@ distribute*tar.gz
 a.out
 
 .cache
+doc/_build
