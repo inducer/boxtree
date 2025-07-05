@@ -139,3 +139,77 @@ markers = [
     "area_query: tests area queries",
     "mpi: tests distributed FMM",
 ]
+
+
+[tool.basedpyright]
+reportImplicitStringConcatenation = "none"
+reportUnnecessaryIsInstance = "none"
+reportUnusedCallResult = "none"
+reportExplicitAny = "none"
+reportUnusedParameter = "hint"
+
+# This reports even cycles that are qualified by 'if TYPE_CHECKING'. Not what
+# we care about at this moment.
+# https://github.com/microsoft/pyright/issues/746
+reportImportCycles = "none"
+
+reportPrivateUsage = "hint"
+reportMissingTypeStubs = "hint"
+
+pythonVersion = "3.10"
+pythonPlatform = "All"
+
+ignore = [
+    "doc/conf.py",
+    "build",
+    "doc",
+    ".conda-root",
+]
+
+[[tool.basedpyright.executionEnvironments]]
+root = "test"
+reportAny = "none"
+reportArgumentType = "hint"
+reportAttributeAccessIssue = "hint"
+reportCallIssue = "hint"
+reportGeneralTypeIssues = "hint"
+reportImplicitOverride = "hint"
+reportIndexIssue = "hint"
+reportMissingParameterType = "hint"
+reportMissingTypeStubs = "hint"
+reportOperatorIssue = "hint"
+reportOptionalSubscript = "hint"
+reportPossiblyUnboundVariable = "hint"
+reportPrivateImportUsage = "hint"
+reportPrivateLocalImportUsage = "hint"
+reportPrivateUsage = "hint"
+reportUnannotatedClassAttribute = "hint"
+reportUnknownArgumentType = "hint"
+reportUnknownLambdaType = "hint"
+reportUnknownMemberType = "hint"
+reportUnknownParameterType = "hint"
+reportUnknownVariableType = "hint"
+
+[[tool.basedpyright.executionEnvironments]]
+root = "examples"
+reportAny = "none"
+reportArgumentType = "hint"
+reportAttributeAccessIssue = "hint"
+reportCallIssue = "hint"
+reportGeneralTypeIssues = "hint"
+reportImplicitOverride = "hint"
+reportIndexIssue = "hint"
+reportMissingParameterType = "hint"
+reportMissingTypeStubs = "hint"
+reportOperatorIssue = "hint"
+reportOptionalSubscript = "hint"
+reportPossiblyUnboundVariable = "hint"
+reportPrivateImportUsage = "hint"
+reportPrivateLocalImportUsage = "hint"
+reportPrivateUsage = "hint"
+reportUnannotatedClassAttribute = "hint"
+reportUnknownArgumentType = "hint"
+reportUnknownLambdaType = "hint"
+reportUnknownMemberType = "hint"
+reportUnknownParameterType = "hint"
+reportUnknownVariableType = "hint"
