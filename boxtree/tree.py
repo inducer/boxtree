@@ -88,7 +88,7 @@ from functools import cached_property
 
 import numpy as np
 
-import pyopencl as cl
+import pyopencl.array as cl_array
 from cgen import Enum
 from pytools import memoize_method
 
@@ -254,7 +254,7 @@ class TreeOfBoxes:
     @property
     def nlevels(self):
         # level starts from 0
-        if isinstance(self.box_levels, cl.array.Array):
+        if isinstance(self.box_levels, cl_array.Array):
             return int(max(self.box_levels).get()) + 1
         else:
             return max(self.box_levels) + 1
@@ -761,16 +761,16 @@ def link_point_sources(queue, tree, point_source_starts, point_sources,
     if not tree.sources_have_extent:
         raise ValueError("only allowed on trees whose sources have extent")
 
-    npoint_sources_dev = cl.array.empty(queue, (), tree.particle_id_dtype)
+    npoint_sources_dev = cl_array.empty(queue, (), tree.particle_id_dtype)
 
     # {{{ compute tree_order_point_source_{starts, counts}
 
     # Scan over lengths of point source lists in tree order to determine
     # indices of point source starts for each source.
 
-    tree_order_point_source_starts = cl.array.empty(
+    tree_order_point_source_starts = cl_array.empty(
             queue, tree.nsources, tree.particle_id_dtype)
-    tree_order_point_source_counts = cl.array.empty(
+    tree_order_point_source_counts = cl_array.empty(
             queue, tree.nsources, tree.particle_id_dtype)
 
     from boxtree.tree_build_kernels import POINT_SOURCE_LINKING_SOURCE_SCAN_TPL
@@ -797,14 +797,14 @@ def link_point_sources(queue, tree, point_source_starts, point_sources,
 
     # A list of point source starts, indexed in tree order,
     # but giving point source indices in user order.
-    tree_order_index_user_point_source_starts = cl.array.take(
+    tree_order_index_user_point_source_starts = cl_array.take(
             point_source_starts, tree.user_source_ids,
             queue=queue)
 
-    user_point_source_ids = cl.array.empty(
+    user_point_source_ids = cl_array.empty(
             queue, npoint_sources, tree.particle_id_dtype)
     user_point_source_ids.fill(1)
-    cl.array.multi_put([tree_order_index_user_point_source_starts],
+    cl_array.multi_put([tree_order_index_user_point_source_starts],
             dest_indices=tree_order_point_source_starts,
             out=[user_point_source_ids])
 
@@ -813,13 +813,13 @@ def link_point_sources(queue, tree, point_source_starts, point_sources,
         assert (ups_host >= 0).all()
         assert (ups_host < npoint_sources).all()
 
-    source_boundaries = cl.array.zeros(queue, npoint_sources, np.int8)
+    source_boundaries = cl_array.zeros(queue, npoint_sources, np.int8)
 
     # FIXME: Should be a scalar, in principle.
-    ones = cl.array.empty(queue, tree.nsources, np.int8)
+    ones = cl_array.empty(queue, tree.nsources, np.int8)
     ones.fill(1)
 
-    cl.array.multi_put(
+    cl_array.multi_put(
             [ones],
             dest_indices=tree_order_point_source_starts,
             out=[source_boundaries])
@@ -850,7 +850,7 @@ def link_point_sources(queue, tree, point_source_starts, point_sources,
 
     from pytools.obj_array import make_obj_array
     tree_order_point_sources = make_obj_array([
-        cl.array.take(point_sources[i], user_point_source_ids,
+        cl_array.take(point_sources[i], user_point_source_ids,
             queue=queue)
         for i in range(tree.dimensions)
         ])
@@ -869,11 +869,11 @@ def link_point_sources(queue, tree, point_source_starts, point_sources,
 
     logger.debug("point source linking: box point sources")
 
-    box_point_source_starts = cl.array.empty(
+    box_point_source_starts = cl_array.empty(
             queue, tree.nboxes, tree.particle_id_dtype)
-    box_point_source_counts_nonchild = cl.array.empty(
+    box_point_source_counts_nonchild = cl_array.empty(
             queue, tree.nboxes, tree.particle_id_dtype)
-    box_point_source_counts_cumul = cl.array.empty(
+    box_point_source_counts_cumul = cl_array.empty(
             queue, tree.nboxes, tree.particle_id_dtype)
 
     knl(
@@ -1069,9 +1069,9 @@ class ParticleListFilter:
         user_order_flags = flags
         del flags
 
-        user_target_ids = cl.array.empty(queue, tree.ntargets,
+        user_target_ids = cl_array.empty(queue, tree.ntargets,
                 tree.sorted_target_ids.dtype)
-        user_target_ids[tree.sorted_target_ids] = cl.array.arange(
+        user_target_ids[tree.sorted_target_ids] = cl_array.arange(
                 queue, tree.ntargets, user_target_ids.dtype)
 
         kernel = self.get_filter_target_lists_in_user_order_kernel(
@@ -1122,15 +1122,15 @@ class ParticleListFilter:
         :returns: A :class:`FilteredTargetListsInTreeOrder`
         """
 
-        tree_order_flags = cl.array.empty(queue, tree.ntargets, np.int8)
+        tree_order_flags = cl_array.empty(queue, tree.ntargets, np.int8)
         tree_order_flags[tree.sorted_target_ids] = flags
 
-        filtered_from_unfiltered_target_indices = cl.array.empty(
+        filtered_from_unfiltered_target_indices = cl_array.empty(
                 queue, tree.ntargets, tree.particle_id_dtype)
-        unfiltered_from_filtered_target_indices = cl.array.empty(
+        unfiltered_from_filtered_target_indices = cl_array.empty(
                 queue, tree.ntargets, tree.particle_id_dtype)
 
-        nfiltered_targets = cl.array.empty(queue, 1, tree.particle_id_dtype)
+        nfiltered_targets = cl_array.empty(queue, 1, tree.particle_id_dtype)
 
         scan_knl, index_knl = self.get_filter_target_lists_in_tree_order_kernels(
                 tree.particle_id_dtype)
@@ -1153,9 +1153,9 @@ class ParticleListFilter:
             ])
 
         box_target_starts_filtered = \
-                cl.array.empty_like(tree.box_target_starts)
+                cl_array.empty_like(tree.box_target_starts)
         box_target_counts_nonchild_filtered = \
-                cl.array.empty_like(tree.box_target_counts_nonchild)
+                cl_array.empty_like(tree.box_target_counts_nonchild)
 
         index_knl(
                 # input

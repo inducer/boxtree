@@ -24,7 +24,7 @@ THE SOFTWARE.
 """
 
 from boxtree.tree import Tree, TreeOfBoxes, TreeWithLinkedPointSources, box_flags_enum
-from boxtree.tree_build import TreeBuilder
+from boxtree.tree_build import ExtentNorm, TreeBuilder, TreeKind
 from boxtree.tree_of_boxes import (
     coarsen_tree_of_boxes,
     make_meshmode_mesh_from_leaves,
@@ -36,8 +36,10 @@ from boxtree.tree_of_boxes import (
 
 
 __all__ = [
+    "ExtentNorm",
     "Tree",
     "TreeBuilder",
+    "TreeKind",
     "TreeOfBoxes",
     "TreeWithLinkedPointSources",
     "box_flags_enum",

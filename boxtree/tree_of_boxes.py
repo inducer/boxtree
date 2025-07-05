@@ -22,6 +22,13 @@ These functions manipulate instances of :class:`TreeOfBoxes`.
 .. autofunction:: coarsen_tree_of_boxes
 .. autofunction:: refine_and_coarsen_tree_of_boxes
 .. autofunction:: make_meshmode_mesh_from_leaves
+
+References
+----------
+
+.. class:: Mesh
+
+    See :class:`meshmode.mesh.Mesh`.
 """
 from __future__ import annotations
 
@@ -56,8 +63,12 @@ import numpy as np
 from boxtree.tree import TreeOfBoxes, box_flags_enum
 
 
-if TYPE_CHECKING or getattr(sys, "_BUILDING_SPHINX_DOCS", False):
+if TYPE_CHECKING:
     from meshmode.mesh import Mesh
+
+
+if getattr(sys, "_BUILDING_SPHINX_DOCS", False):
+    from meshmode.mesh import Mesh  # noqa: TC001
 
 
 # {{{ utils for tree of boxes
@@ -433,7 +444,7 @@ def make_tree_of_boxes_root(
 
 # {{{ make_meshmode_mesh_from_leaves
 
-def make_meshmode_mesh_from_leaves(tob: TreeOfBoxes) -> tuple["Mesh", np.ndarray]:
+def make_meshmode_mesh_from_leaves(tob: TreeOfBoxes) -> tuple[Mesh, np.ndarray]:
     """Make a :class:`~meshmode.mesh.Mesh` from the leaf boxes of the tree
     of boxes *tob*.
 

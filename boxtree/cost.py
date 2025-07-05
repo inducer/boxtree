@@ -61,15 +61,14 @@ Cost Model Classes
 .. autoclass:: FMMCostModel
 """
 
-from collections.abc import Mapping
 from functools import partial
-from typing import ClassVar
+from typing import TYPE_CHECKING, ClassVar
 
 import numpy as np
 from mako.template import Template
 
 import pyopencl as cl
-import pyopencl.array
+import pyopencl.array as cl_array
 from pymbolic import evaluate, var
 from pyopencl.elementwise import ElementwiseKernel
 from pyopencl.tools import dtype_to_ctype
@@ -79,6 +78,10 @@ from pytools import memoize_method
 Template = partial(Template, strict_undefined=True)
 
 from abc import ABC, abstractmethod
+
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
 
 
 # {{{ FMMTranslationCostModel
@@ -401,7 +404,7 @@ class AbstractFMMCostModel(ABC):
             if not isinstance(cost_factors[name], np.ndarray):
                 cost_factors_dev[name] = cost_factors[name]
                 continue
-            cost_factors_dev[name] = cl.array.to_device(
+            cost_factors_dev[name] = cl_array.to_device(
                 queue, cost_factors[name]
             ).with_queue(None)
 
@@ -778,7 +781,7 @@ class FMMCostModel(AbstractFMMCostModel):
 
     def process_form_multipoles(self, queue, traversal, p2m_cost):
         tree = traversal.tree
-        np2m = cl.array.zeros(queue, len(traversal.source_boxes), dtype=np.float64)
+        np2m = cl_array.zeros(queue, len(traversal.source_boxes), dtype=np.float64)
 
         process_form_multipoles_knl = self.process_form_multipoles_knl(
             queue.context,
@@ -845,7 +848,7 @@ class FMMCostModel(AbstractFMMCostModel):
 
     def process_coarsen_multipoles(self, queue, traversal, m2m_cost):
         tree = traversal.tree
-        nm2m = cl.array.zeros(
+        nm2m = cl_array.zeros(
             queue, len(traversal.source_parent_boxes), dtype=np.float64
         )
 
@@ -915,7 +918,7 @@ class FMMCostModel(AbstractFMMCostModel):
             queue.context, particle_id_dtype, box_id_dtype
         )
 
-        ndirect_sources_by_itgt_box = cl.array.zeros(
+        ndirect_sources_by_itgt_box = cl_array.zeros(
             queue, ntarget_boxes, dtype=particle_id_dtype
         )
 
@@ -1000,7 +1003,7 @@ class FMMCostModel(AbstractFMMCostModel):
         box_level_dtype = tree.box_level_dtype
 
         ntarget_or_target_parent_boxes = len(traversal.target_or_target_parent_boxes)
-        nm2l = cl.array.zeros(
+        nm2l = cl_array.zeros(
             queue, (ntarget_or_target_parent_boxes,), dtype=np.float64
         )
 
@@ -1053,7 +1056,7 @@ class FMMCostModel(AbstractFMMCostModel):
     def process_list3(self, queue, traversal, m2p_cost,
                       box_target_counts_nonchild=None):
         tree = traversal.tree
-        nm2p = cl.array.zeros(queue, tree.nboxes, dtype=np.float64)
+        nm2p = cl_array.zeros(queue, tree.nboxes, dtype=np.float64)
 
         if box_target_counts_nonchild is None:
             box_target_counts_nonchild = tree.box_target_counts_nonchild
@@ -1116,7 +1119,7 @@ class FMMCostModel(AbstractFMMCostModel):
     def process_list4(self, queue, traversal, p2l_cost):
         tree = traversal.tree
         target_or_target_parent_boxes = traversal.target_or_target_parent_boxes
-        nm2p = cl.array.zeros(
+        nm2p = cl_array.zeros(
             queue, len(target_or_target_parent_boxes), dtype=np.float64
         )
 
@@ -1173,7 +1176,7 @@ class FMMCostModel(AbstractFMMCostModel):
                             box_target_counts_nonchild=None):
         tree = traversal.tree
         ntarget_boxes = len(traversal.target_boxes)
-        neval_locals = cl.array.zeros(queue, ntarget_boxes, dtype=np.float64)
+        neval_locals = cl_array.zeros(queue, ntarget_boxes, dtype=np.float64)
 
         if box_target_counts_nonchild is None:
             box_target_counts_nonchild = traversal.tree.box_target_counts_nonchild
@@ -1225,7 +1228,7 @@ class FMMCostModel(AbstractFMMCostModel):
             queue.context, tree.box_id_dtype
         )
 
-        level_start_target_or_target_parent_box_nrs = cl.array.to_device(
+        level_start_target_or_target_parent_box_nrs = cl_array.to_device(
             queue, traversal.level_start_target_or_target_parent_box_nrs
         )
 
@@ -1240,13 +1243,13 @@ class FMMCostModel(AbstractFMMCostModel):
     # }}}
 
     def zero_cost_per_box(self, queue, nboxes):
-        return cl.array.zeros(queue, (nboxes,), dtype=np.float64)
+        return cl_array.zeros(queue, (nboxes,), dtype=np.float64)
 
     def aggregate_over_boxes(self, per_box_result):
         if isinstance(per_box_result, float):
             return per_box_result
         else:
-            return cl.array.sum(per_box_result).get().reshape(-1)[0]
+            return cl_array.sum(per_box_result).get().reshape(-1)[0]
 
     def fmm_cost_factors_for_kernels_from_model(
             self, queue, nlevels, xlat_cost, context):

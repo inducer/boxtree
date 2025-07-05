@@ -1,3 +1,5 @@
+# pyright: reportPossiblyUnboundVariable=none
+
 """
 .. currentmodule:: boxtree
 
@@ -15,6 +17,41 @@ These functions produce instances of the particle-based :class:`Tree`.
     :mod:`arraycontext` in the future.
 
 .. autoclass:: TreeBuilder
+
+.. currentmodule:: boxtree.tree_build
+
+.. autodata:: TreeKind
+    :noindex:
+.. class:: TreeKind
+
+    See above.
+.. autodata:: ExtentNorm
+    :noindex:
+.. class:: ExtentNorm
+
+    See above.
+
+References
+----------
+
+.. class:: ObjectArray1D
+
+    See :attr:`pytools.obj_array.ObjectArray1D`.
+
+.. class:: NDArray
+
+    See :data:`numpy.typing.NDArray`
+
+.. currentmodule:: cl_array
+
+.. class:: Array
+    See :class:`pyopencl.array.Array`.
+
+.. currentmodule:: np
+
+.. class:: floating
+
+    See :class`numpy.floating`.
 """
 from __future__ import annotations
 
@@ -48,14 +85,21 @@ THE SOFTWARE.
 import logging
 from functools import partial
 from itertools import pairwise
+from typing import TYPE_CHECKING, Literal, TypeAlias
 
 import numpy as np
 
 import pyopencl as cl
-import pyopencl.array
+import pyopencl.array as cl_array
 from pytools import DebugProcessLogger, ProcessLogger, memoize_method
 
 from boxtree.tree import Tree
+
+
+if TYPE_CHECKING:
+    from numpy.typing import NDArray
+
+    from pytools.obj_array import ObjectArray1D
 
 
 logger = logging.getLogger(__name__)
@@ -63,6 +107,14 @@ logger = logging.getLogger(__name__)
 
 class MaxLevelsExceeded(RuntimeError):  # noqa: N818
     pass
+
+
+TreeKind: TypeAlias = Literal[
+    "adaptive",
+    "adaptive-level-restricted",
+    "non-adaptive"]
+
+ExtentNorm: TypeAlias = Literal["l2", "linf"]
 
 
 # {{{ tree builder
@@ -78,7 +130,7 @@ class TreeBuilder:
         :arg context: A :class:`pyopencl.Context`.
         """
 
-        self.context = context
+        self.context: cl.Context = context
 
         from boxtree.bounding_box import BoundingBoxFinder
         self.bbox_finder = BoundingBoxFinder(self.context)
@@ -109,13 +161,23 @@ class TreeBuilder:
 
     # {{{ run control
 
-    def __call__(self, queue, particles, kind="adaptive",
-            max_particles_in_box=None, allocator=None, debug=False,
-            targets=None, source_radii=None, target_radii=None,
-            stick_out_factor=None, refine_weights=None,
-            max_leaf_refine_weight=None, wait_for=None,
-            extent_norm=None, bbox=None,
-            **kwargs):
+    def __call__(self,
+                 queue: cl.CommandQueue,
+                 particles: ObjectArray1D[cl_array.Array],
+                 kind: TreeKind = "adaptive",
+                 max_particles_in_box: int | None = None,
+                 allocator: cl_array.Allocator | None = None,
+                 debug: bool = False,
+                 targets: ObjectArray1D[cl_array.Array] | None = None,
+                 source_radii: cl_array.Array | None = None,
+                 target_radii: cl_array.Array | None = None,
+                 stick_out_factor: float | None = None,
+                 refine_weights=None,
+                 max_leaf_refine_weight=None,
+                 wait_for: cl.WaitList = None,
+                 extent_norm: ExtentNorm | None = None,
+                 bbox: NDArray[np.floating] | None = None,
+                 **kwargs):
         """
         :arg queue: a :class:`pyopencl.CommandQueue` instance
         :arg particles: an object array of (XYZ) point coordinate arrays.
@@ -243,10 +305,10 @@ class TreeBuilder:
 
         # }}}
 
-        empty = partial(cl.array.empty, queue, allocator=allocator)
+        empty = partial(cl_array.empty, queue, allocator=allocator)
 
         def zeros(shape, dtype):
-            result = cl.array.zeros(queue, shape, dtype, allocator=allocator)
+            result = cl_array.zeros(queue, shape, dtype, allocator=allocator)
             if result.events:
                 event, = result.events
             else:
@@ -331,7 +393,7 @@ class TreeBuilder:
 
         del particles
 
-        user_srcntgt_ids = cl.array.arange(queue, nsrcntgts, dtype=particle_id_dtype,
+        user_srcntgt_ids = cl_array.arange(queue, nsrcntgts, dtype=particle_id_dtype,
                 allocator=allocator)
 
         evt, = user_srcntgt_ids.events
@@ -356,7 +418,7 @@ class TreeBuilder:
                     "refine_weights/max_leaf_refine_weight")
         elif specified_max_particles_in_box:
             refine_weights = (
-                cl.array.empty(
+                cl_array.empty(
                     queue, nsrcntgts, refine_weight_dtype, allocator=allocator)
                 .fill(1))
             event, = refine_weights.events
@@ -367,15 +429,15 @@ class TreeBuilder:
                 raise TypeError(
                         f"refine_weights must have dtype '{refine_weight_dtype}'")
 
-        if max_leaf_refine_weight < cl.array.max(refine_weights).get():
+        if max_leaf_refine_weight < cl_array.max(refine_weights).get():
             raise ValueError(
                     "entries of refine_weights cannot exceed max_leaf_refine_weight")
-        if cl.array.min(refine_weights).get() < 0:
+        if cl_array.min(refine_weights).get() < 0:
             raise ValueError("all entries of refine_weights must be nonnegative")
         if max_leaf_refine_weight <= 0:
             raise ValueError("max_leaf_refine_weight must be positive")
 
-        total_refine_weight = cl.array.sum(
+        total_refine_weight = cl_array.sum(
                 refine_weights, dtype=np.dtype(np.int64)).get()
 
         del max_particles_in_box
@@ -794,7 +856,7 @@ class TreeBuilder:
 
                 old_box_count = level_start_box_nrs[-1]
                 # Where should I put this box?
-                dst_box_id = cl.array.empty(queue,
+                dst_box_id = cl_array.empty(queue,
                         shape=old_box_count, dtype=box_id_dtype)
 
                 for level_start, new_level_start, level_len in zip(
@@ -802,7 +864,7 @@ class TreeBuilder:
                         new_level_start_box_nrs[:-1],
                         curr_upper_level_lengths, strict=True):
                     dst_box_id[level_start:level_start + level_len] = \
-                            cl.array.arange(queue,
+                            cl_array.arange(queue,
                                             new_level_start,
                                             new_level_start + level_len,
                                             dtype=box_id_dtype)
@@ -851,11 +913,11 @@ class TreeBuilder:
                     nboxes_guess *= 2
 
                 def my_realloc_nocopy(ary, shape=nboxes_guess):
-                    return cl.array.empty(queue, allocator=allocator,
+                    return cl_array.empty(queue, allocator=allocator,
                             shape=shape, dtype=ary.dtype)
 
                 def my_realloc_zeros_nocopy(ary, shape=nboxes_guess):
-                    result = cl.array.zeros(queue, allocator=allocator,
+                    result = cl_array.zeros(queue, allocator=allocator,
                             shape=shape, dtype=ary.dtype)
                     return result, result.events[0]
 
@@ -980,7 +1042,7 @@ class TreeBuilder:
                         assert leaf_count == 0
                         continue
                     nleaves_actual = level_nboxes - int(
-                        cl.array.sum(box_has_children[
+                        cl_array.sum(box_has_children[
                             level_start:level_start + level_nboxes]).get())
                     assert leaf_count == nleaves_actual
 
@@ -1031,8 +1093,8 @@ class TreeBuilder:
 
             # {{{ renumber particles within split boxes
 
-            new_user_srcntgt_ids = cl.array.empty_like(user_srcntgt_ids)
-            new_srcntgt_box_ids = cl.array.empty_like(srcntgt_box_ids)
+            new_user_srcntgt_ids = cl_array.empty_like(user_srcntgt_ids)
+            new_srcntgt_box_ids = cl_array.empty_like(srcntgt_box_ids)
 
             particle_renumberer_args = (
                 *common_args,
@@ -1125,7 +1187,7 @@ class TreeBuilder:
 
                     if debug:
                         force_split_box.finish()
-                        boxes_split.append(int(cl.array.sum(
+                        boxes_split.append(int(cl_array.sum(
                             force_split_box[upper_level_slice]).get()))
 
                     if int(have_upper_level_split_box.get()) == 0:
@@ -1296,7 +1358,7 @@ class TreeBuilder:
                     return slice(start, start + offset)
 
                 def make_arange(start, offset=level_used_box_count):
-                    return cl.array.arange(
+                    return cl_array.arange(
                             queue, start, start + offset, dtype=box_id_dtype)
 
                 src_box_id[make_slice(new_level_start)] = make_arange(level_start)
@@ -1493,7 +1555,7 @@ class TreeBuilder:
 
         if targets is None:
             sources = targets = make_obj_array([
-                cl.array.empty_like(pt) for pt in srcntgts])
+                cl_array.empty_like(pt) for pt in srcntgts])
 
             fin_debug("srcntgt permuter (particles)")
             evt = knl_info.srcntgt_permuter(
@@ -1527,12 +1589,12 @@ class TreeBuilder:
 
             if srcntgt_radii is not None:
                 fin_debug("srcntgt permuter (source radii)")
-                source_radii = cl.array.take(
+                source_radii = cl_array.take(
                         srcntgt_radii, user_source_ids, queue=queue,
                         wait_for=wait_for)
 
                 fin_debug("srcntgt permuter (target radii)")
-                target_radii = cl.array.take(
+                target_radii = cl_array.take(
                         srcntgt_radii, srcntgt_target_ids, queue=queue,
                         wait_for=wait_for)
 
@@ -1652,10 +1714,10 @@ class TreeBuilder:
 
         fin_debug("finding box extents")
 
-        box_source_bounding_box_min = cl.array.empty(
+        box_source_bounding_box_min = cl_array.empty(
                 queue, (dimensions, aligned_nboxes),
                 dtype=coord_dtype)
-        box_source_bounding_box_max = cl.array.empty(
+        box_source_bounding_box_max = cl_array.empty(
                 queue, (dimensions, aligned_nboxes),
                 dtype=coord_dtype)
 
@@ -1663,14 +1725,14 @@ class TreeBuilder:
             box_target_bounding_box_min = box_source_bounding_box_min
             box_target_bounding_box_max = box_source_bounding_box_max
         else:
-            box_target_bounding_box_min = cl.array.empty(
+            box_target_bounding_box_min = cl_array.empty(
                     queue, (dimensions, aligned_nboxes),
                     dtype=coord_dtype)
-            box_target_bounding_box_max = cl.array.empty(
+            box_target_bounding_box_max = cl_array.empty(
                     queue, (dimensions, aligned_nboxes),
                     dtype=coord_dtype)
 
-        bogus_radii_array = cl.array.empty(queue, 1, dtype=coord_dtype)
+        bogus_radii_array = cl_array.empty(queue, 1, dtype=coord_dtype)
 
         # nlevels-1 is the highest valid level index
         for level in range(nlevels-1, -1, -1):

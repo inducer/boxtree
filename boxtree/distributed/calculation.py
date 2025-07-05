@@ -25,12 +25,15 @@ THE SOFTWARE.
 """
 
 import logging
+from abc import ABC
+from typing import TYPE_CHECKING
 
 import numpy as np
 from mako.template import Template
 from mpi4py import MPI
 
 import pyopencl as cl
+import pyopencl.array as cl_array
 from pyopencl.elementwise import ElementwiseKernel
 from pyopencl.tools import dtype_to_ctype
 from pytools import memoize_method
@@ -40,12 +43,16 @@ from boxtree.fmm import ExpansionWranglerInterface
 from boxtree.pyfmmlib_integration import FMMLibExpansionWrangler
 
 
+if TYPE_CHECKING:
+    from boxtree.traversal import FMMTraversalInfo
+
+
 logger = logging.getLogger(__name__)
 
 
 # {{{ Distributed FMM wrangler
 
-class DistributedExpansionWrangler(ExpansionWranglerInterface):
+class DistributedExpansionWrangler(ExpansionWranglerInterface, ABC):
     """Distributed expansion wrangler base class.
 
     This is an abstract class and should not be directly instantiated. Instead, it is
@@ -59,11 +66,11 @@ class DistributedExpansionWrangler(ExpansionWranglerInterface):
     def __init__(self, context, comm, global_traversal,
                  traversal_in_device_memory,
                  communicate_mpoles_via_allreduce=False):
-        self.context = context
-        self.comm = comm
-        self.global_traversal = global_traversal
-        self.traversal_in_device_memory = traversal_in_device_memory
-        self.communicate_mpoles_via_allreduce = communicate_mpoles_via_allreduce
+        self.context: cl.Context = context
+        self.comm: MPI.Intracomm = comm
+        self.global_traversal: FMMTraversalInfo = global_traversal
+        self.traversal_in_device_memory: bool = traversal_in_device_memory
+        self.communicate_mpoles_via_allreduce: bool = communicate_mpoles_via_allreduce
 
     def distribute_source_weights(self, src_weight_vecs, src_idx_all_ranks):
         mpi_rank = self.comm.Get_rank()
@@ -226,7 +233,7 @@ class DistributedExpansionWrangler(ExpansionWranglerInterface):
             ``contributing_boxes_list[i]`` is used by at least on box in the
             subrange specified.
         """
-        box_in_subrange = cl.array.zeros(
+        box_in_subrange = cl_array.zeros(
             contributing_boxes_list.queue,
             contributing_boxes_list.shape[0],
             dtype=np.int8
@@ -309,9 +316,9 @@ class DistributedExpansionWrangler(ExpansionWranglerInterface):
             box_to_user_rank_lists_dev = tree.box_to_user_rank_lists.with_queue(None)
         else:
             with cl.CommandQueue(self.context) as queue:
-                box_to_user_rank_starts_dev = cl.array.to_device(
+                box_to_user_rank_starts_dev = cl_array.to_device(
                     queue, tree.box_to_user_rank_starts).with_queue(None)
-                box_to_user_rank_lists_dev = cl.array.to_device(
+                box_to_user_rank_lists_dev = cl_array.to_device(
                     queue, tree.box_to_user_rank_lists).with_queue(None)
 
         while not comm_pattern.done():
@@ -327,7 +334,7 @@ class DistributedExpansionWrangler(ExpansionWranglerInterface):
                 )
 
                 with cl.CommandQueue(self.context) as queue:
-                    contributing_boxes_list_dev = cl.array.to_device(
+                    contributing_boxes_list_dev = cl_array.to_device(
                         queue, contributing_boxes_list)
 
                     box_in_subrange = self.find_boxes_used_by_subrange(

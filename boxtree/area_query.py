@@ -32,9 +32,7 @@ from functools import partial
 import numpy as np
 from mako.template import Template
 
-import pyopencl as cl
-import pyopencl.array
-import pyopencl.cltypes
+import pyopencl.array as cl_array
 from pytools import ProcessLogger, memoize_method
 
 from boxtree.tools import (
@@ -876,7 +874,7 @@ class LeavesToBallsLookupBuilder:
         # 2. Key-value sort the (ball number, box number) pairs by box number.
 
         starts_expander_knl = self.get_starts_expander_kernel(tree.box_id_dtype)
-        expanded_starts = cl.array.empty(
+        expanded_starts = cl_array.empty(
                 queue, len(area_query.leaves_near_ball_lists), tree.box_id_dtype)
         evt = starts_expander_knl(
                 expanded_starts,
@@ -1005,7 +1003,7 @@ class SpaceInvaderQueryBuilder:
 
         si_plog = ProcessLogger(logger, "space invader query")
 
-        outer_space_invader_dists = cl.array.zeros(queue, tree.nboxes, np.float32)
+        outer_space_invader_dists = cl_array.zeros(queue, tree.nboxes, np.float32)
         if not wait_for:
             wait_for = []
         wait_for = (wait_for

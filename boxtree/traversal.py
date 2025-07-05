@@ -43,8 +43,7 @@ import numpy as np
 from mako.template import Template
 
 import pyopencl as cl
-import pyopencl.array
-import pyopencl.cltypes
+import pyopencl.array as cl_array
 from pyopencl.elementwise import ElementwiseTemplate
 from pytools import Record, memoize_method
 
@@ -1250,16 +1249,16 @@ class _ListMerger:
             target_or_target_parent_boxes_from_all_boxes = reverse_index_array(
                     target_or_target_parent_boxes, target_size=nboxes,
                     queue=queue)
-            target_or_target_parent_boxes_from_target_boxes = cl.array.take(
+            target_or_target_parent_boxes_from_target_boxes = cl_array.take(
                     target_or_target_parent_boxes_from_all_boxes,
                     target_boxes, queue=queue)
 
             output_to_input_box = target_or_target_parent_boxes_from_target_boxes
         else:
-            output_to_input_box = cl.array.arange(
+            output_to_input_box = cl_array.arange(
                     queue, noutput_boxes, dtype=self.box_id_dtype)
 
-        new_counts = cl.array.empty(queue, noutput_boxes+1, self.box_id_dtype)
+        new_counts = cl_array.empty(queue, noutput_boxes+1, self.box_id_dtype)
 
         assert len(input_starts) == len(input_lists)
         nlists = len(input_starts)
@@ -1274,10 +1273,10 @@ class _ListMerger:
                     queue=queue,
                     wait_for=wait_for)
 
-        new_starts = cl.array.cumsum(new_counts)
+        new_starts = cl_array.cumsum(new_counts)
         del new_counts
 
-        new_lists = cl.array.empty(
+        new_lists = cl_array.empty(
                 queue,
                 int(new_starts[-1].get()),
                 self.box_id_dtype)
@@ -1919,7 +1918,7 @@ class FMMTraversalBuilder:
 
         level_start_box_nrs = (
                 None if tree.level_start_box_nrs is None else
-                cl.array.to_device(queue, tree.level_start_box_nrs))
+                cl_array.to_device(queue, tree.level_start_box_nrs))
 
         knl_info = self.get_kernel_info(
                 dimensions=tree.dimensions,
@@ -1976,7 +1975,7 @@ class FMMTraversalBuilder:
             if level_start_box_nrs is None:
                 return None, []
 
-            result = cl.array.empty(queue,
+            result = cl_array.empty(queue,
                     tree.nlevels+1, tree.box_id_dtype) \
                             .fill(len(box_list))
             evt = knl_info.level_start_box_nrs_extractor(

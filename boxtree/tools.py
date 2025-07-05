@@ -31,7 +31,7 @@ import numpy as np
 from mako.template import Template
 
 import pyopencl as cl
-import pyopencl.array
+import pyopencl.array as cl_array
 import pyopencl.cltypes as cltypes
 from pyopencl.tools import ScalarArg, VectorArg as _VectorArg, dtype_to_c_struct
 from pytools import Record, memoize_method
@@ -44,20 +44,27 @@ VectorArg = partial(_VectorArg, with_offset=True)
 AXIS_NAMES = ("x", "y", "z", "w")
 
 
-def padded_bin(i, nbits):
+def padded_bin(i: int, nbits: int):
     """Format *i* as binary number, pad it to length *nbits*."""
     return bin(i)[2:].rjust(nbits, "0")
 
 
 # NOTE: Order of positional args should match GappyCopyAndMapKernel.__call__()
-def realloc_array(queue, allocator, new_shape, ary, zero_fill=False, wait_for=None):
+def realloc_array(
+            queue: cl.CommandQueue,
+            allocator: cl_array.Allocator,
+            new_shape: tuple[int, ...],
+            ary: cl_array.Array,
+            zero_fill: bool = False,
+            wait_for: cl.WaitList = None
+        ) -> tuple[cl_array.Array, cl.Event]:
     if wait_for is None:
         wait_for = []
 
     if zero_fill:  # noqa: SIM108
-        array_maker = cl.array.zeros
+        array_maker = cl_array.zeros
     else:
-        array_maker = cl.array.empty
+        array_maker = cl_array.empty
 
     new_ary = array_maker(queue, shape=new_shape, dtype=ary.dtype,
                           allocator=allocator)
@@ -84,13 +91,13 @@ def reverse_index_array(indices, target_size=None, result_fill_value=None,
     if target_size is None:
         target_size = len(indices)
 
-    result = cl.array.empty(queue, target_size, indices.dtype)
+    result = cl_array.empty(queue, target_size, indices.dtype)
 
     if result_fill_value is not None:
         result.fill(result_fill_value)
 
-    cl.array.multi_put(
-            [cl.array.arange(queue, len(indices), dtype=indices.dtype,
+    cl_array.multi_put(
+            [cl_array.arange(queue, len(indices), dtype=indices.dtype,
                 allocator=indices.allocator)],
             indices,
             out=[result],
@@ -346,7 +353,7 @@ class DeviceDataRecord(Record):
         """
 
         def try_with_queue(attr):
-            if isinstance(attr, cl.array.Array):
+            if isinstance(attr, cl_array.Array):
                 attr.finish()
 
             try:
@@ -369,7 +376,7 @@ class DeviceDataRecord(Record):
 
         def _to_device(attr):
             if isinstance(attr, np.ndarray):
-                return cl.array.to_device(queue, attr).with_queue(None)
+                return cl_array.to_device(queue, attr).with_queue(None)
             elif isinstance(attr, ImmutableHostDeviceArray):
                 return attr.device
             elif isinstance(attr, DeviceDataRecord):
@@ -387,7 +394,7 @@ class DeviceDataRecord(Record):
             transformed to `ImmutableHostDeviceArray`.
         """
         def _to_host_device_array(attr):
-            if isinstance(attr, np.ndarray | cl.array.Array):
+            if isinstance(attr, np.ndarray | cl_array.Array):
                 return ImmutableHostDeviceArray(queue, attr)
             elif isinstance(attr, DeviceDataRecord):
                 return attr.to_host_device_array(queue)
@@ -403,7 +410,7 @@ class DeviceDataRecord(Record):
 
 # {{{ type mangling
 
-def get_type_moniker(dtype):
+def get_type_moniker(dtype: np.dtype[Any]):
     return f"{dtype.kind}{dtype.itemsize}"
 
 # }}}
@@ -436,8 +443,8 @@ GAPPY_COPY_TPL = Template(r"""//CL//
 
 
 class GappyCopyAndMapKernel:
-    def __init__(self, context):
-        self.context = context
+    def __init__(self, context: cl.Context):
+        self.context: cl.Context = context
 
     @memoize_method
     def _get_kernel(self, dtype, src_index_dtype, dst_index_dtype,
@@ -497,16 +504,16 @@ class GappyCopyAndMapKernel:
             elif have_src_indices:
                 range = slice(src_indices.shape[0])
                 if debug:
-                    assert int(cl.array.max(src_indices).get()) < len(ary)
+                    assert int(cl_array.max(src_indices).get()) < len(ary)
             elif have_dst_indices:
                 range = slice(dst_indices.shape[0])
                 if debug:
-                    assert int(cl.array.max(dst_indices).get()) < new_shape
+                    assert int(cl_array.max(dst_indices).get()) < new_shape
 
         if zero_fill:  # noqa: SIM108
-            array_maker = cl.array.zeros
+            array_maker = cl_array.zeros
         else:
-            array_maker = cl.array.empty
+            array_maker = cl_array.empty
 
         result = array_maker(queue, new_shape, ary.dtype, allocator=allocator)
 
@@ -549,7 +556,7 @@ MAP_VALUES_TPL = ElementwiseTemplate(
 class MapValuesKernel:
 
     def __init__(self, context):
-        self.context = context
+        self.context: cl.Context = context
 
     @memoize_method
     def _get_kernel(self, dst_dtype, src_dtype):
@@ -760,21 +767,22 @@ class AllReduceCommPattern:
     .. automethod:: done
     """
 
-    def __init__(self, rank, size):
+    def __init__(self, rank: int, size: int):
         """
         :arg rank: Current rank.
         :arg size: Total number of ranks.
         """
         assert 0 <= rank < size
-        self.rank = rank
-        self.left = 0
-        self.right = size
-        self.midpoint = size // 2
+        self.rank: int = rank
+        self.left: int = 0
+        self.right: int = size
+        self.midpoint: int = size // 2
 
     def sources(self):
         """Return the set of source nodes at the current communication stage. The
         current rank receives messages from these ranks.
         """
+        partners: set[int]
         if self.rank < self.midpoint:
             partner = self.midpoint + (self.rank - self.left)
             if self.rank == self.midpoint - 1 and partner == self.right:
@@ -899,7 +907,7 @@ class ImmutableHostDeviceArray:
 
         if isinstance(array, np.ndarray):
             self.host_array = array
-        elif isinstance(array, cl.array.Array):
+        elif isinstance(array, cl_array.Array):
             self.device_array = array
 
     def with_queue(self, queue):
@@ -921,7 +929,7 @@ class ImmutableHostDeviceArray:
     def device(self):
         if self.device_array is None:
             # @TODO: Use SVM
-            self.device_array = cl.array.to_device(self.queue, self.host_array)
+            self.device_array = cl_array.to_device(self.queue, self.host_array)
 
         self.device_array.with_queue(self.queue)
         return self.device_array

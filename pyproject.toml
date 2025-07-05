@@ -78,6 +78,7 @@ extend-select = [
     "SIM", # flake8-simplify
     "UP",  # pyupgrade
     "W",   # pycodestyle
+    "TC",
 ]
 extend-ignore = [
     "C90",  # McCabe complexity
@@ -125,6 +126,8 @@ extend-ignore-re = [
 arange = "arange"
 # as in mis-implements
 mis = "mis"
+
+"nd" = "nd"
 
 [tool.typos.files]
 extend-exclude = [

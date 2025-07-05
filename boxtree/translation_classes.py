@@ -41,8 +41,7 @@ import numpy as np
 from mako.template import Template
 
 import pyopencl as cl
-import pyopencl.array
-import pyopencl.cltypes
+import pyopencl.array as cl_array
 from pyopencl.elementwise import ElementwiseTemplate
 from pytools import Record, memoize_method
 
@@ -247,8 +246,8 @@ class TranslationClassesBuilder:
     .. automethod:: __call__
     """
 
-    def __init__(self, context):
-        self.context = context
+    def __init__(self, context: cl.Context):
+        self.context: cl.Context = context
 
     @memoize_method
     def get_kernel_info(self, dimensions, well_sep_is_n_away,
@@ -330,13 +329,13 @@ class TranslationClassesBuilder:
         if is_translation_per_level:
             ntranslation_classes = ntranslation_classes * tree.nlevels
 
-        translation_classes_lists = cl.array.empty(
+        translation_classes_lists = cl_array.empty(
                 queue, len(trav.from_sep_siblings_lists), dtype=np.int32)
 
-        translation_class_is_used = cl.array.zeros(
+        translation_class_is_used = cl_array.zeros(
                 queue, ntranslation_classes, dtype=np.int32)
 
-        error_flag = cl.array.zeros(queue, 1, dtype=np.int32)
+        error_flag = cl_array.zeros(queue, 1, dtype=np.int32)
 
         evt = knl_info.translation_class_finder(
                 trav.from_sep_siblings_lists,
@@ -406,12 +405,12 @@ class TranslationClassesBuilder:
         from_sep_siblings_translation_classes_level_starts[nlevels] = count
 
         translation_classes_lists = (
-                cl.array.take(
-                    cl.array.to_device(queue, used_translation_classes_map),
+                cl_array.take(
+                    cl_array.to_device(queue, used_translation_classes_map),
                     translation_classes_lists))
 
-        distances = cl.array.to_device(queue, distances)
-        from_sep_siblings_translation_classes_level_starts = cl.array.to_device(
+        distances = cl_array.to_device(queue, distances)
+        from_sep_siblings_translation_classes_level_starts = cl_array.to_device(
             queue, from_sep_siblings_translation_classes_level_starts)
 
         info = TranslationClassesInfo(
