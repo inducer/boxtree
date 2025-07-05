@@ -18,6 +18,22 @@ jobs:
                 pipx install ruff
                 ruff check
 
+    basedpyright:
+        runs-on: ubuntu-latest
+        steps:
+        -   uses: actions/checkout@v4
+        -   name: "Main Script"
+            run: |
+                EXTRA_INSTALL="pytest git+https://github.com/inducer/loopy.git \
+                    git+https://github.com/inducer/sumpy.git"
+                curl -L -O https://tiker.net/ci-support-v0
+                . ./ci-support-v0
+
+                build_py_project_in_conda_env
+                cipip install basedpyright
+
+                basedpyright "$(get_proj_name)" test
+
     typos:
         name: Typos
         runs-on: ubuntu-latest
