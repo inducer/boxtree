@@ -19,6 +19,7 @@ intersphinx_mapping = {
     "pyopencl": ("https://documen.tician.de/pyopencl", None),
     "pytential": ("https://documen.tician.de/pytential", None),
     "python": ("https://docs.python.org/3", None),
+    "pytools": ("https://documen.tician.de/pytools", None),
 }
 
 nitpick_ignore_regex = [

@@ -32,6 +32,8 @@ import numpy as np
 from mako.template import Template
 
 import pyopencl as cl
+import pyopencl.array as cl_array
+import pyopencl.elementwise as cl_elementwise
 from pyopencl.tools import dtype_to_ctype
 from pytools import memoize_method
 
@@ -59,7 +61,7 @@ class LocalTreeGeneratorCodeContainer:
 
     @memoize_method
     def particle_mask_kernel(self):
-        return cl.elementwise.ElementwiseKernel(
+        return cl_elementwise.ElementwiseKernel(
             self.cl_context,
             arguments=Template("""
                 __global char *responsible_boxes,
@@ -126,7 +128,7 @@ class LocalTreeGeneratorCodeContainer:
 
     @memoize_method
     def fetch_local_particles_kernel(self, particles_have_extent):
-        return cl.elementwise.ElementwiseKernel(
+        return cl_elementwise.ElementwiseKernel(
             self.cl_context,
             self.fetch_local_particles_arguments.render(
                 mask_t=dtype_to_ctype(self.particle_id_dtype),
@@ -151,7 +153,7 @@ class LocalTreeGeneratorCodeContainer:
         from boxtree import box_flags_enum
         box_flag_t = dtype_to_ctype(box_flags_enum.dtype)
 
-        return cl.elementwise.ElementwiseKernel(
+        return cl_elementwise.ElementwiseKernel(
             self.cl_context,
             Template("""
                 __global ${particle_id_t} *box_target_counts_nonchild,
@@ -179,10 +181,10 @@ class LocalTreeGeneratorCodeContainer:
 @dataclass
 class LocalParticlesAndLists:
     particles: np.ndarray
-    particle_radii: cl.array.Array | None
-    box_particle_starts: cl.array.Array
-    box_particle_counts_nonchild: cl.array.Array
-    box_particle_counts_cumul: cl.array.Array
+    particle_radii: cl_array.Array | None
+    box_particle_starts: cl_array.Array
+    box_particle_counts_nonchild: cl_array.Array
+    box_particle_counts_cumul: cl_array.Array
     particle_idx: np.ndarray
 
 
@@ -198,7 +200,7 @@ def construct_local_particles_and_lists(
     """
     # {{{ calculate the particle mask
 
-    particle_mask = cl.array.zeros(
+    particle_mask = cl_array.zeros(
         queue, num_global_particles, dtype=particle_id_dtype)
 
     code.particle_mask_kernel()(
@@ -208,7 +210,7 @@ def construct_local_particles_and_lists(
 
     # {{{ calculate the scan of the particle mask
 
-    global_to_local_particle_index = cl.array.empty(
+    global_to_local_particle_index = cl_array.empty(
         queue, num_global_particles + 1, dtype=particle_id_dtype)
 
     global_to_local_particle_index[0] = 0
@@ -221,7 +223,7 @@ def construct_local_particles_and_lists(
     num_local_particles = global_to_local_particle_index[-1].get(queue).item()
 
     local_particles = [
-        cl.array.empty(queue, num_local_particles, dtype=coord_dtype)
+        cl_array.empty(queue, num_local_particles, dtype=coord_dtype)
         for _ in range(dimensions)]
 
     from pytools.obj_array import make_obj_array
@@ -229,7 +231,7 @@ def construct_local_particles_and_lists(
 
     local_particle_radii = None
     if particles_have_extent:
-        local_particle_radii = cl.array.empty(
+        local_particle_radii = cl_array.empty(
             queue, num_local_particles, dtype=coord_dtype)
 
         code.fetch_local_particles_kernel(True)(
@@ -248,9 +250,9 @@ def construct_local_particles_and_lists(
 
     local_box_particle_starts = global_to_local_particle_index[box_particle_starts]
 
-    box_counts_all_zeros = cl.array.zeros(queue, num_boxes, dtype=particle_id_dtype)
+    box_counts_all_zeros = cl_array.zeros(queue, num_boxes, dtype=particle_id_dtype)
 
-    local_box_particle_counts_nonchild = cl.array.if_positive(
+    local_box_particle_counts_nonchild = cl_array.if_positive(
         box_mask, box_particle_counts_nonchild, box_counts_all_zeros)
 
     box_particle_ends_cumul = box_particle_starts + box_particle_counts_cumul
@@ -363,7 +365,7 @@ def generate_local_tree(queue, global_traversal, responsible_boxes_list, comm):
     box_to_user_rank_lists = None
 
     if mpi_rank == 0:
-        multipole_src_boxes_all_ranks = cl.array.to_device(
+        multipole_src_boxes_all_ranks = cl_array.to_device(
             queue, multipole_src_boxes_all_ranks)
 
         (box_to_user_rank_starts, box_to_user_rank_lists, evt) = \

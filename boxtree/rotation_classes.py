@@ -39,7 +39,7 @@ import logging
 import numpy as np
 
 import pyopencl as cl
-import pyopencl.array
+import pyopencl.array as cl_array
 
 from boxtree.tools import DeviceDataRecord
 from boxtree.translation_classes import TranslationClassesBuilder
@@ -90,8 +90,8 @@ class RotationClassesBuilder:
     """
 
     def __init__(self, context):
-        self.context = context
-        self.tcb = TranslationClassesBuilder(context)
+        self.context: cl.Context = context
+        self.tcb: TranslationClassesBuilder = TranslationClassesBuilder(context)
 
     @staticmethod
     def vec_gcd(vec):
@@ -179,11 +179,11 @@ class RotationClassesBuilder:
         assert len(rotation_angles) <= 2**(d-1) * (2*n+1)**d
 
         rotation_classes_lists = (
-                cl.array.take(
-                    cl.array.to_device(queue, translation_class_to_rotation_class),
+                cl_array.take(
+                    cl_array.to_device(queue, translation_class_to_rotation_class),
                     translation_classes_lists))
 
-        rotation_angles = cl.array.to_device(queue, np.array(rotation_angles))
+        rotation_angles = cl_array.to_device(queue, np.array(rotation_angles))
 
         return RotationClassesInfo(
                 from_sep_siblings_rotation_classes=rotation_classes_lists,

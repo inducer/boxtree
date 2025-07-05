@@ -29,7 +29,8 @@ from dataclasses import dataclass
 import numpy as np
 from mako.template import Template
 
-import pyopencl as cl
+import pyopencl.array as cl_array
+import pyopencl.elementwise as cl_elementwise
 from pyopencl.tools import dtype_to_ctype
 from pytools import memoize_method
 
@@ -130,7 +131,7 @@ class GetBoxMasksCodeContainer:
         """Given a ``responsible_boxes_mask`` and an interaction list, mark source
         boxes for target boxes in ``responsible_boxes_mask`` in a new separate mask.
         """
-        return cl.elementwise.ElementwiseKernel(
+        return cl_elementwise.ElementwiseKernel(
             self.cl_context,
             Template("""
                 __global ${box_id_t} *box_list,
@@ -157,7 +158,7 @@ class GetBoxMasksCodeContainer:
 
     @memoize_method
     def add_parent_boxes_kernel(self):
-        return cl.elementwise.ElementwiseKernel(
+        return cl_elementwise.ElementwiseKernel(
             self.cl_context,
             "__global char *current, __global char *parent, "
             f"__global {dtype_to_ctype(self.box_id_dtype)} *box_parent_ids",
@@ -174,11 +175,11 @@ def get_ancestor_boxes_mask(queue, code, traversal, responsible_boxes_mask):
         i-th entry is 1 if ``i`` is an ancestor of the responsible boxes specified by
         *responsible_boxes_mask*.
     """
-    ancestor_boxes = cl.array.zeros(queue, (traversal.tree.nboxes,), dtype=np.int8)
+    ancestor_boxes = cl_array.zeros(queue, (traversal.tree.nboxes,), dtype=np.int8)
     ancestor_boxes_last = responsible_boxes_mask.copy()
 
     while ancestor_boxes_last.any():
-        ancestor_boxes_new = cl.array.zeros(
+        ancestor_boxes_new = cl_array.zeros(
             queue, (traversal.tree.nboxes,), dtype=np.int8)
         code.add_parent_boxes_kernel()(
             ancestor_boxes_last, ancestor_boxes_new, traversal.tree.box_parent_ids)
@@ -262,7 +263,7 @@ def get_multipole_src_boxes_mask(
         the potentials of targets in boxes represented by *responsible_boxes_mask*.
     """
 
-    multipole_boxes_mask = cl.array.zeros(
+    multipole_boxes_mask = cl_array.zeros(
         queue, (traversal.tree.nboxes,), dtype=np.int8
     )
 
@@ -318,10 +319,10 @@ class BoxMasks:
 
         Current process needs multipole expressions in these boxes.
     """
-    responsible_boxes: cl.array.Array
-    ancestor_boxes: cl.array.Array
-    point_src_boxes: cl.array.Array
-    multipole_src_boxes: cl.array.Array
+    responsible_boxes: cl_array.Array
+    ancestor_boxes: cl_array.Array
+    point_src_boxes: cl_array.Array
+    multipole_src_boxes: cl_array.Array
 
 
 def get_box_masks(queue, traversal, responsible_boxes_list):
@@ -342,7 +343,7 @@ def get_box_masks(queue, traversal, responsible_boxes_list):
 
     responsible_boxes_mask = np.zeros((traversal.tree.nboxes,), dtype=np.int8)
     responsible_boxes_mask[responsible_boxes_list] = 1
-    responsible_boxes_mask = cl.array.to_device(queue, responsible_boxes_mask)
+    responsible_boxes_mask = cl_array.to_device(queue, responsible_boxes_mask)
 
     ancestor_boxes_mask = get_ancestor_boxes_mask(
         queue, code, traversal, responsible_boxes_mask)

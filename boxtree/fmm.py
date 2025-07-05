@@ -34,10 +34,14 @@ from abc import ABC, abstractmethod
 
 
 logger = logging.getLogger(__name__)
+from typing import TYPE_CHECKING
+
 from pytools import ProcessLogger
 
-from boxtree.traversal import FMMTraversalInfo
-from boxtree.tree import Tree
+
+if TYPE_CHECKING:
+    from boxtree.traversal import FMMTraversalInfo
+    from boxtree.tree import Tree
 
 
 # {{{ expansion wrangler interface
