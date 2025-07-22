@@ -46,6 +46,7 @@ import enum
 
 import numpy as np
 
+import pytools.obj_array as obj_array
 from pytools import log_process, memoize_method
 
 from boxtree.fmm import ExpansionWranglerInterface, TreeIndependentDataForWrangler
@@ -652,8 +653,7 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
         """
 
         if self.tree_indep.ifgrad:
-            from pytools.obj_array import make_obj_array
-            return make_obj_array([
+            return obj_array.new_1d([
                     np.zeros(self.tree.ntargets, self.tree_indep.dtype)
                     for i in range(1 + self.dim)])
         else:

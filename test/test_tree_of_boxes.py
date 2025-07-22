@@ -30,6 +30,8 @@ import numpy as np
 import pytest
 from arraycontext import pytest_generate_tests_for_array_contexts
 
+import pytools.obj_array as obj_array
+
 # This means boxtree's tests have a hard dependency on meshmode. That's OK.
 from meshmode import _acf  # noqa: F401
 from meshmode.array_context import PytestPyOpenCLArrayContextFactory
@@ -84,9 +86,8 @@ def make_global_leaf_quadrature(actx, tob, order):
         )
     q = weights * jacobians
 
-    from pytools.obj_array import make_obj_array
     nodes = discr.nodes()
-    x = make_obj_array([flatten(actx.thaw(axis), actx) for axis in nodes])
+    x = obj_array.new_1d([flatten(actx.thaw(axis), actx) for axis in nodes])
 
     return x, q
 

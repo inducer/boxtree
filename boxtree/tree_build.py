@@ -91,6 +91,7 @@ import numpy as np
 
 import pyopencl as cl
 import pyopencl.array as cl_array
+import pytools.obj_array as obj_array
 from pytools import DebugProcessLogger, ProcessLogger, memoize_method
 
 from boxtree.tree import Tree
@@ -339,8 +340,7 @@ class TreeBuilder:
             if isinstance(particles, np.ndarray) and particles.dtype.char == "O":
                 srcntgts = particles
             else:
-                from pytools.obj_array import make_obj_array
-                srcntgts = make_obj_array([
+                srcntgts = obj_array.new_1d([
                     p.with_queue(queue).copy() for p in particles
                     ])
 
@@ -377,8 +377,7 @@ class TreeBuilder:
 
                 return result
 
-            from pytools.obj_array import make_obj_array
-            srcntgts = make_obj_array([
+            srcntgts = obj_array.new_1d([
                 combine_srcntgt_arrays(src_i, tgt_i)
                 for src_i, tgt_i in zip(particles, targets, strict=True)
                 ])
@@ -632,7 +631,6 @@ class TreeBuilder:
 
             logger.debug(s)
 
-        from pytools.obj_array import make_obj_array
         have_oversize_split_box, evt = zeros((), np.int32)
         prep_events.append(evt)
 
@@ -1554,7 +1552,7 @@ class TreeBuilder:
         # {{{ permute and source/target-split (if necessary) particle array
 
         if targets is None:
-            sources = targets = make_obj_array([
+            sources = targets = obj_array.new_1d([
                 cl_array.empty_like(pt) for pt in srcntgts])
 
             fin_debug("srcntgt permuter (particles)")
@@ -1567,7 +1565,7 @@ class TreeBuilder:
             assert srcntgt_radii is None
 
         else:
-            sources = make_obj_array([
+            sources = obj_array.new_1d([
                 empty(nsources, coord_dtype) for i in range(dimensions)])
             fin_debug("srcntgt permuter (sources)")
             evt = knl_info.srcntgt_permuter(
@@ -1577,7 +1575,7 @@ class TreeBuilder:
                     wait_for=wait_for)
             wait_for = [evt]
 
-            targets = make_obj_array([
+            targets = obj_array.new_1d([
                 empty(ntargets, coord_dtype) for i in range(dimensions)])
             fin_debug("srcntgt permuter (targets)")
             evt = knl_info.srcntgt_permuter(

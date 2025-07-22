@@ -33,9 +33,9 @@ from mako.template import Template
 import pyopencl as cl
 import pyopencl.array as cl_array
 import pyopencl.cltypes as cltypes
+import pytools.obj_array as obj_array
 from pyopencl.tools import ScalarArg, VectorArg as _VectorArg, dtype_to_c_struct
 from pytools import Record, memoize_method
-from pytools.obj_array import make_obj_array
 
 
 # Use offsets in VectorArg by default.
@@ -112,7 +112,7 @@ def make_normal_particle_array(queue, nparticles, dims, dtype, seed=15):
     from pyopencl.clrandom import PhiloxGenerator
     rng = PhiloxGenerator(queue.context, seed=seed)
 
-    return make_obj_array([
+    return obj_array.new_1d([
         rng.normal(queue, nparticles, dtype=dtype)
         for i in range(dims)])
 
@@ -147,7 +147,7 @@ def make_surface_particle_array(queue, nparticles, dims, dtype, seed=15):
 
         result = [x.ravel() for x in result]
 
-        return make_obj_array(result)
+        return obj_array.new_1d(result)
     elif dims == 3:
         n = int(nparticles**0.5)
 
@@ -181,7 +181,7 @@ def make_surface_particle_array(queue, nparticles, dims, dtype, seed=15):
 
         result = [x.ravel() for x in result]
 
-        return make_obj_array(result)
+        return obj_array.new_1d(result)
     else:
         raise NotImplementedError
 
@@ -224,7 +224,7 @@ def make_uniform_particle_array(queue, nparticles, dims, dtype, seed=15):
 
         result = [x.ravel() for x in result]
 
-        return make_obj_array(result)
+        return obj_array.new_1d(result)
     elif dims == 3:
         n = int(nparticles**(1/3))
 
@@ -272,7 +272,7 @@ def make_uniform_particle_array(queue, nparticles, dims, dtype, seed=15):
 
         result = [x.ravel() for x in result]
 
-        return make_obj_array(result)
+        return obj_array.new_1d(result)
     else:
         raise NotImplementedError
 
@@ -302,8 +302,7 @@ class DeviceDataRecord(Record):
         def transform_val(val):
             from pyopencl.algorithm import BuiltList
             if isinstance(val, np.ndarray) and val.dtype == object:
-                from pytools.obj_array import obj_array_vectorize
-                return obj_array_vectorize(f, val)
+                return obj_array.vectorize(f, val)
             elif isinstance(val, list):
                 return [transform_val(i) for i in val]
             elif isinstance(val, BuiltList):

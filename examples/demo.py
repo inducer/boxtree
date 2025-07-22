@@ -4,6 +4,7 @@ import logging
 import numpy as np
 
 import pyopencl as cl
+import pytools.obj_array as obj_array
 
 
 logging.basicConfig(level="INFO")
@@ -22,10 +23,8 @@ from pyopencl.clrandom import PhiloxGenerator
 
 rng = PhiloxGenerator(ctx, seed=15)
 
-from pytools.obj_array import make_obj_array
 
-
-particles = make_obj_array([
+particles = obj_array.new_1d([
     rng.normal(queue, nparticles, dtype=np.float64)
     for i in range(dims)])
 

@@ -34,6 +34,7 @@ from mako.template import Template
 import pyopencl as cl
 import pyopencl.array as cl_array
 import pyopencl.elementwise as cl_elementwise
+import pytools.obj_array as obj_array
 from pyopencl.tools import dtype_to_ctype
 from pytools import memoize_method
 
@@ -226,8 +227,7 @@ def construct_local_particles_and_lists(
         cl_array.empty(queue, num_local_particles, dtype=coord_dtype)
         for _ in range(dimensions)]
 
-    from pytools.obj_array import make_obj_array
-    local_particles = make_obj_array(local_particles)
+    local_particles = obj_array.new_1d(local_particles)
 
     local_particle_radii = None
     if particles_have_extent:
@@ -401,11 +401,10 @@ def generate_local_tree(queue, global_traversal, responsible_boxes_list, comm):
 
     # }}}
 
-    from pytools.obj_array import make_obj_array
-    local_sources = make_obj_array([
+    local_sources = obj_array.new_1d([
         local_sources_idim.get(queue=queue)
         for local_sources_idim in local_sources_and_lists.particles])
-    local_targets = make_obj_array([
+    local_targets = obj_array.new_1d([
         local_target_idim.get(queue=queue)
         for local_target_idim in local_targets_and_lists.particles])
 
