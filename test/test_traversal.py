@@ -30,6 +30,8 @@ import numpy.linalg as la
 import pytest
 from arraycontext import pytest_generate_tests_for_array_contexts
 
+import pytools.obj_array as obj_array
+
 from boxtree.array_context import (
     PytestPyOpenCLArrayContextFactory,
     _acf,  # noqa: F401
@@ -282,9 +284,8 @@ def test_plot_traversal(actx_factory, well_sep_is_n_away=1, visualize=False):
         nparticles = 10**4
         dtype = np.float64
 
-        from pytools.obj_array import make_obj_array
         rng = np.random.default_rng(15)
-        particles = make_obj_array([
+        particles = obj_array.new_1d([
             actx.from_numpy(rng.normal(0.0, 1.0, (nparticles,)).astype(dtype))
             for i in range(dims)])
 
@@ -336,9 +337,8 @@ def test_from_sep_siblings_translation_and_rotation_classes(
 
     # {{{ build tree
 
-    from pytools.obj_array import make_obj_array
     rng = np.random.default_rng(15)
-    particles = make_obj_array([
+    particles = obj_array.new_1d([
         actx.from_numpy(rng.normal(0.0, 1.0, (nparticles,)).astype(dtype))
         for i in range(dims)])
 

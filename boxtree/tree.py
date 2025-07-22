@@ -89,6 +89,7 @@ from functools import cached_property
 import numpy as np
 
 import pyopencl.array as cl_array
+import pytools.obj_array as obj_array
 from cgen import Enum
 from pytools import memoize_method
 
@@ -848,8 +849,7 @@ def link_point_sources(queue, tree, point_source_starts, point_sources,
 
     # }}}
 
-    from pytools.obj_array import make_obj_array
-    tree_order_point_sources = make_obj_array([
+    tree_order_point_sources = obj_array.new_1d([
         cl_array.take(point_sources[i], user_point_source_ids,
             queue=queue)
         for i in range(tree.dimensions)
@@ -1146,8 +1146,7 @@ class ParticleListFilter:
         unfiltered_from_filtered_target_indices = \
                 unfiltered_from_filtered_target_indices[:nfiltered_targets]
 
-        from pytools.obj_array import make_obj_array
-        filtered_targets = make_obj_array([
+        filtered_targets = obj_array.new_1d([
             targets_i.with_queue(queue)[unfiltered_from_filtered_target_indices]
             for targets_i in tree.targets
             ])

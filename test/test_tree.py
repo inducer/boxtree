@@ -30,6 +30,8 @@ import numpy as np
 import pytest
 from arraycontext import pytest_generate_tests_for_array_contexts
 
+import pytools.obj_array as obj_array
+
 from boxtree.array_context import (
     PytestPyOpenCLArrayContextFactory,
     _acf,  # noqa: F401
@@ -642,8 +644,7 @@ def test_extent_tree(actx_factory, dims, extent_norm, visualize=False):
 
     logger.info("creating point sources")
 
-    from pytools.obj_array import make_obj_array
-    point_sources = make_obj_array([
+    point_sources = obj_array.new_1d([
             actx.from_numpy(
                 unsorted_sources[i][:, np.newaxis]
                 + unsorted_source_radii[:, np.newaxis]
@@ -834,9 +835,8 @@ def test_area_query_balls_outside_bbox(actx_factory, dims, visualize=False):
     bbox_min = tree.bounding_box[0].min()
     bbox_max = tree.bounding_box[1].max()
 
-    from pytools.obj_array import make_obj_array
     rng = np.random.default_rng(13)
-    ball_centers = make_obj_array([
+    ball_centers = obj_array.new_1d([
         actx.from_numpy(
             rng.uniform(bbox_min - 1, bbox_max + 1, nballs).astype(dtype))
         for i in range(dims)])
