@@ -21,37 +21,7 @@ These functions produce instances of the particle-based :class:`Tree`.
 .. currentmodule:: boxtree.tree_build
 
 .. autodata:: TreeKind
-    :noindex:
-.. class:: TreeKind
-
-    See above.
 .. autodata:: ExtentNorm
-    :noindex:
-.. class:: ExtentNorm
-
-    See above.
-
-References
-----------
-
-.. class:: ObjectArray1D
-
-    See :attr:`pytools.obj_array.ObjectArray1D`.
-
-.. class:: NDArray
-
-    See :data:`numpy.typing.NDArray`
-
-.. currentmodule:: cl_array
-
-.. class:: Array
-    See :class:`pyopencl.array.Array`.
-
-.. currentmodule:: np
-
-.. class:: floating
-
-    See :class`numpy.floating`.
 """
 from __future__ import annotations
 

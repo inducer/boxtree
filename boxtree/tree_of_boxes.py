@@ -22,13 +22,6 @@ These functions manipulate instances of :class:`TreeOfBoxes`.
 .. autofunction:: coarsen_tree_of_boxes
 .. autofunction:: refine_and_coarsen_tree_of_boxes
 .. autofunction:: make_meshmode_mesh_from_leaves
-
-References
-----------
-
-.. class:: Mesh
-
-    See :class:`meshmode.mesh.Mesh`.
 """
 from __future__ import annotations
 
