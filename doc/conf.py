@@ -1,4 +1,3 @@
-import sys
 from importlib import metadata
 from urllib.request import urlopen
 
@@ -31,6 +30,8 @@ sphinxconfig_missing_reference_aliases = {
     "ObjectArray1D": "obj:pytools.obj_array.ObjectArray1D",
     # pyopencl typing
     "cl_array.Array": "class:pyopencl.array.Array",
+    # meshmode typing
+    "Mesh": "class:meshmode.mesh.Mesh",
     # boxtree typing
     "TreeKind": "obj:boxtree.tree_build.TreeKind",
     "ExtentNorm": "obj:boxtree.tree_build.ExtentNorm",
@@ -39,15 +40,3 @@ sphinxconfig_missing_reference_aliases = {
 
 def setup(app):
     app.connect("missing-reference", process_autodoc_missing_reference)  # noqa: F821
-
-
-# Some modules need to import things just so that sphinx can resolve symbols in
-# type annotations. Often, we do not want these imports (e.g. of PyOpenCL) when
-# in normal use (because they would introduce unintended side effects or hard
-# dependencies). This flag exists so that these imports only occur during doc
-# build. Since sphinx appears to resolve type hints lexically (as it should),
-# this needs to be cross-module (since, e.g. an inherited arraycontext
-# docstring can be read by sphinx when building meshmode, a dependent package),
-# this needs a setting of the same name across all packages involved, that's
-# why this name is as global-sounding as it is.
-sys._BUILDING_SPHINX_DOCS = True
