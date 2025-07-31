@@ -22,9 +22,24 @@ intersphinx_mapping = {
     "pytools": ("https://documen.tician.de/pytools", None),
 }
 
-nitpick_ignore_regex = [
-    ["py:class", r"numpy._?typing._generic_alias.ScalarType"],
-]
+
+sphinxconfig_missing_reference_aliases = {
+    # numpy
+    "NDArray": "obj:numpy.typing.NDArray",
+    "np.floating": "class:numpy.floating",
+    # pytools typing
+    "ObjectArray1D": "obj:pytools.obj_array.ObjectArray1D",
+    # pyopencl typing
+    "cl_array.Array": "class:pyopencl.array.Array",
+    # boxtree typing
+    "TreeKind": "obj:boxtree.tree_build.TreeKind",
+    "ExtentNorm": "obj:boxtree.tree_build.ExtentNorm",
+}
+
+
+def setup(app):
+    app.connect("missing-reference", process_autodoc_missing_reference)  # noqa: F821
+
 
 # Some modules need to import things just so that sphinx can resolve symbols in
 # type annotations. Often, we do not want these imports (e.g. of PyOpenCL) when
