@@ -48,7 +48,6 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-import sys
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -58,10 +57,6 @@ from boxtree.tree import TreeOfBoxes, box_flags_enum
 
 if TYPE_CHECKING:
     from meshmode.mesh import Mesh
-
-
-if getattr(sys, "_BUILDING_SPHINX_DOCS", False):
-    from meshmode.mesh import Mesh  # noqa: TC001
 
 
 # {{{ utils for tree of boxes
