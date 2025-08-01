@@ -29,8 +29,14 @@ sphinxconfig_missing_reference_aliases = {
     "np.dtype": "class:numpy.dtype",
     # pytools typing
     "ObjectArray1D": "obj:pytools.obj_array.ObjectArray1D",
+    "obj_array.ObjectArray1D": "obj:pytools.obj_array.ObjectArray1D",
     # pyopencl typing
+    "Allocator": "class:pyopencl.array.Allocator",
+    "WaitList": "class:pyopencl.WaitList",
     "cl_array.Array": "class:pyopencl.array.Array",
+    # arraycontext
+    "Array": "class:arraycontext.typing.Array",
+    "ArrayContext": "class:arraycontext.ArrayContext",
     # meshmode typing
     "Mesh": "class:meshmode.mesh.Mesh",
     # boxtree typing
