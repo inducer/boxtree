@@ -11,7 +11,7 @@ Build Entrypoint
 
     .. automethod:: __call__
 
-.. autoclass:: FromSepSmallerCrit
+.. class:: FromSepSmallerCrit
 
     The criterion used to determine separation
     box dimensions and separation for
@@ -21,6 +21,9 @@ Build Entrypoint
     ``"precise_linf"`` (use the precise extent of targets in the box,
     including their radii), or ``"static_l2"`` (use the circumcircle of
     the box, possibly enlarged by :attr:`boxtree.Tree.stick_out_factor`).
+
+.. autodata:: FromSepSmallerCrit
+    :no-index:
 """
 from __future__ import annotations
 
