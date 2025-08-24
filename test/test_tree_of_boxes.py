@@ -28,13 +28,16 @@ import sys
 
 import numpy as np
 import pytest
-from arraycontext import pytest_generate_tests_for_array_contexts
 
 import pytools.obj_array as obj_array
+from arraycontext import pytest_generate_tests_for_array_contexts
 
 # This means boxtree's tests have a hard dependency on meshmode. That's OK.
 from meshmode import _acf  # noqa: F401
-from meshmode.array_context import PytestPyOpenCLArrayContextFactory
+from meshmode.array_context import (
+    PyOpenCLArrayContext,
+    PytestPyOpenCLArrayContextFactory,
+)
 
 from boxtree import (
     make_meshmode_mesh_from_leaves,
@@ -43,10 +46,24 @@ from boxtree import (
 )
 
 
-logger = logging.getLogger(__name__)
+class ArrayContext(PyOpenCLArrayContext):
+    def _rec_map_container(self, func, array, allowed_types=None, *,
+            default_scalar=None, strict=False):
+        from boxtree.array_context import _boxtree_rec_map_container
+        return _boxtree_rec_map_container(
+            self, func, array,
+            allowed_types=allowed_types,
+            default_scalar=default_scalar,
+            strict=strict)
 
+
+class ContextFactory(PytestPyOpenCLArrayContextFactory):
+    actx_class = ArrayContext
+
+
+logger = logging.getLogger(__name__)
 pytest_generate_tests = pytest_generate_tests_for_array_contexts([
-    PytestPyOpenCLArrayContextFactory,
+    ContextFactory,
     ])
 
 
@@ -232,11 +249,12 @@ def test_traversal_from_tob(actx_factory):
         box_child_ids=actx.from_numpy(tob.box_child_ids),
         box_levels=actx.from_numpy(tob.box_levels),
         box_flags=actx.from_numpy(tob.box_flags),
+        level_start_box_nrs=actx.from_numpy(tob.level_start_box_nrs),
         )
 
     from boxtree.traversal import FMMTraversalBuilder
-    tg = FMMTraversalBuilder(actx.context)
-    _trav, _ = tg(actx.queue, tob)
+    tg = FMMTraversalBuilder(actx)
+    _trav, _ = tg(actx, tob)
 
 # }}}
 

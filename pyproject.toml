@@ -96,13 +96,14 @@ multiline-quotes = "double"
 [tool.ruff.lint.isort]
 combine-as-imports = true
 known-first-party = [
-    "pytools",
-    "pymbolic",
+    "arraycontext",
+    "cgen",
     "loopy",
-    "pyopencl",
     "meshmode",
     "modepy",
-    "cgen"
+    "pymbolic",
+    "pyopencl",
+    "pytools",
 ]
 known-local-folder = [
     "boxtree",

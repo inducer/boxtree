@@ -4,13 +4,19 @@ import logging
 import numpy as np
 
 import pyopencl as cl
-import pytools.obj_array as obj_array
+from pytools import obj_array
+
+from boxtree import TreeBuilder
+from boxtree.array_context import PyOpenCLArrayContext
+from boxtree.traversal import FMMTraversalBuilder
+from boxtree.visualization import TreePlotter
 
 
 logging.basicConfig(level="INFO")
 
 ctx = cl.create_some_context()
 queue = cl.CommandQueue(ctx)
+actx = PyOpenCLArrayContext(queue, force_device_scalars=True)
 
 dims = 2
 nparticles = 500
@@ -18,46 +24,35 @@ nparticles = 500
 # -----------------------------------------------------------------------------
 # generate some random particle positions
 # -----------------------------------------------------------------------------
-from pyopencl.clrandom import PhiloxGenerator
-
-
-rng = PhiloxGenerator(ctx, seed=15)
-
+rng = np.random.default_rng(seed=15)
 
 particles = obj_array.new_1d([
-    rng.normal(queue, nparticles, dtype=np.float64)
+    actx.from_numpy(rng.normal(size=nparticles))
     for i in range(dims)])
 
 # -----------------------------------------------------------------------------
 # build tree and traversals (lists)
 # -----------------------------------------------------------------------------
-from boxtree import TreeBuilder
+tb = TreeBuilder(actx)
+tree, _ = tb(actx, particles, max_particles_in_box=5)
 
-
-tb = TreeBuilder(ctx)
-tree, _ = tb(queue, particles, max_particles_in_box=5)
-
-from boxtree.traversal import FMMTraversalBuilder
-
-
-tg = FMMTraversalBuilder(ctx)
-trav, _ = tg(queue, tree)
+tg = FMMTraversalBuilder(actx)
+trav, _ = tg(actx, tree)
 
 # ENDEXAMPLE
 
 # -----------------------------------------------------------------------------
 # plot the tree
 # -----------------------------------------------------------------------------
-
 import matplotlib.pyplot as pt
 
 
-pt.plot(particles[0].get(), particles[1].get(), "+")
+particles = actx.to_numpy(particles)
+tree = actx.to_numpy(tree)
 
-from boxtree.visualization import TreePlotter
+pt.plot(particles[0], particles[1], "+")
+plotter = TreePlotter(tree)
 
-
-plotter = TreePlotter(tree.get(queue=queue))
 plotter.draw_tree(fill=False, edgecolor="black")
 # plotter.draw_box_numbers()
 plotter.set_bounding_box()
