@@ -37,15 +37,17 @@ THE SOFTWARE.
 """
 
 import logging
+from dataclasses import dataclass
 from functools import partial
+from typing import TYPE_CHECKING, Literal, TypeAlias
 
 import numpy as np
 from mako.template import Template
 
 import pyopencl as cl
 import pyopencl.array as cl_array
-from pyopencl.elementwise import ElementwiseTemplate
-from pytools import Record, memoize_method
+from pyopencl.elementwise import ElementwiseKernel, ElementwiseTemplate
+from pytools import ProcessLogger, Record, log_process, memoize_method
 
 from boxtree.tools import (
     AXIS_NAMES,
@@ -57,7 +59,15 @@ from boxtree.tools import (
 
 logger = logging.getLogger(__name__)
 
-from pytools import ProcessLogger, log_process
+
+if TYPE_CHECKING:
+    from pyopencl.algorithm import ListOfListsBuilder
+
+    from boxtree.tree import Tree
+    from boxtree.tree_build import ExtentNorm
+
+
+FromSepSmallerCrit: TypeAlias = Literal["static_linf", "static_l2", "precise_linf"]
 
 
 # {{{ preamble
@@ -1633,8 +1643,18 @@ class FMMTraversalInfo(DeviceDataRecord):
 # }}}
 
 
+@dataclass(frozen=True)
 class _KernelInfo(Record):
-    pass
+    # FIXME: Incomplete?
+    same_level_non_well_sep_boxes_builder: ListOfListsBuilder
+    neighbor_source_boxes_builder: ListOfListsBuilder
+    from_sep_siblings_builder: ListOfListsBuilder
+    from_sep_smaller_builder: ListOfListsBuilder
+    from_sep_bigger_builder: ListOfListsBuilder
+
+    sources_parents_and_targets_builder: ListOfListsBuilder
+
+    level_start_box_nrs_extractor: ElementwiseKernel
 
 
 class FMMTraversalBuilder:
@@ -1642,7 +1662,15 @@ class FMMTraversalBuilder:
     .. automethod:: __init__
     """
 
-    def __init__(self, context, well_sep_is_n_away=1, from_sep_smaller_crit=None):
+    context: cl.Context
+    well_sep_is_n_away: int
+    from_sep_smaller_crit: FromSepSmallerCrit | None
+
+    def __init__(self,
+                context: cl.Context,
+                well_sep_is_n_away: int = 1,
+                from_sep_smaller_crit: FromSepSmallerCrit | None = None
+            ):
         """
         :arg well_sep_is_n_away: Either An integer 1 or greater.
             (Only 1 and 2 are tested.)
@@ -1666,12 +1694,20 @@ class FMMTraversalBuilder:
 
     @memoize_method
     @log_process(logger)
-    def get_kernel_info(self, *, dimensions, particle_id_dtype, box_id_dtype,
-            coord_dtype, box_level_dtype, max_levels,
-            sources_are_targets, sources_have_extent, targets_have_extent,
-            extent_norm,
-            source_boxes_has_mask,
-            source_parent_boxes_has_mask):
+    def get_kernel_info(self, *,
+                    dimensions: int,
+                    particle_id_dtype: np.dtype[np.integer] | None,
+                    box_id_dtype: np.dtype[np.integer],
+                    coord_dtype: np.dtype[np.floating],
+                    box_level_dtype: np.dtype[np.integer],
+                    max_levels: int,
+                    sources_are_targets: bool,
+                    sources_have_extent: bool,
+                    targets_have_extent: bool,
+                    extent_norm: ExtentNorm | None,
+                    source_boxes_has_mask: bool,
+                    source_parent_boxes_has_mask: bool,
+                ) -> _KernelInfo:
 
         # {{{ process from_sep_smaller_crit
 
@@ -1696,12 +1732,8 @@ class FMMTraversalBuilder:
         elif extent_norm is None:
             assert not (sources_have_extent or targets_have_extent)
 
-            if from_sep_smaller_crit is None:
-                # doesn't matter
-                from_sep_smaller_crit = "static_linf"
-
         else:
-            raise ValueError(f"unexpected value of 'extent_norm': {extent_norm}")
+            raise ValueError(f"unexpected value of 'extent_norm': {extent_norm}")  # pyright: ignore[reportUnreachable]
 
         if from_sep_smaller_crit not in [
                 "static_linf", "precise_linf",
@@ -1874,10 +1906,15 @@ class FMMTraversalBuilder:
 
     # {{{ driver
 
-    def __call__(self, queue, tree, wait_for=None, debug=False,
-                 _from_sep_smaller_min_nsources_cumul=None,
-                 source_boxes_mask=None,
-                 source_parent_boxes_mask=None):
+    def __call__(self,
+                queue: cl.CommandQueue,
+                tree: Tree,
+                wait_for: cl.WaitList = None,
+                debug: bool = False,
+                _from_sep_smaller_min_nsources_cumul: int | None = None,
+                source_boxes_mask=None,
+                source_parent_boxes_mask=None
+            ):
         """
         :arg queue: A :class:`pyopencl.CommandQueue` instance.
         :arg tree: A :class:`boxtree.Tree` instance.
