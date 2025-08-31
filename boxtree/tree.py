@@ -81,12 +81,13 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
-
 import logging
 from dataclasses import dataclass
 from functools import cached_property
+from typing import TYPE_CHECKING
 
 import numpy as np
+from typing_extensions import override
 
 import pyopencl.array as cl_array
 import pytools.obj_array as obj_array
@@ -94,6 +95,10 @@ from cgen import Enum
 from pytools import memoize_method
 
 from boxtree.tools import DeviceDataRecord
+
+
+if TYPE_CHECKING:
+    from boxtree.tree_build import ExtentNorm
 
 
 logger = logging.getLogger(__name__)
@@ -235,7 +240,7 @@ class TreeOfBoxes:
 
     sources_have_extent: bool
     targets_have_extent: bool
-    extent_norm: str
+    extent_norm: ExtentNorm
     stick_out_factor: float
 
     _is_pruned: bool
@@ -564,10 +569,12 @@ class Tree(DeviceDataRecord, TreeOfBoxes):
     """
 
     @property
+    @override
     def dimensions(self):
         return len(self.sources)
 
     @property
+    @override
     def nboxes(self):
         # box_flags is created after the level loop and therefore
         # reflects the right number of boxes.
@@ -582,8 +589,11 @@ class Tree(DeviceDataRecord, TreeOfBoxes):
         return len(self.targets[0])
 
     @property
+    @override
     def nlevels(self):
         return len(self.level_start_box_nrs) - 1
+
+    _is_pruned: bool
 
     def plot(self, **kwargs):
         from boxtree.visualization import TreePlotter
@@ -591,7 +601,7 @@ class Tree(DeviceDataRecord, TreeOfBoxes):
         plotter.draw_tree(**kwargs)
         plotter.set_bounding_box()
 
-    def get_box_extent(self, ibox):
+    def get_box_extent(self, ibox: int):
         lev = int(self.box_levels[ibox])
         box_size = self.root_extent / (1 << lev)
         extent_low = self.box_centers[:, ibox] - 0.5*box_size
