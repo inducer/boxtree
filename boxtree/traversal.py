@@ -10,6 +10,17 @@ Build Entrypoint
 .. autoclass:: FMMTraversalBuilder
 
     .. automethod:: __call__
+
+.. autoclass:: FromSepSmallerCrit
+
+    The criterion used to determine separation
+    box dimensions and separation for
+    :attr:`boxtree.traversal.FMMTraversalInfo.from_sep_smaller_by_level`
+    (List 3). May be one of ``"static_linf"`` (use the box square,
+    possibly enlarged by :attr:`boxtree.Tree.stick_out_factor`),
+    ``"precise_linf"`` (use the precise extent of targets in the box,
+    including their radii), or ``"static_l2"`` (use the circumcircle of
+    the box, possibly enlarged by :attr:`boxtree.Tree.stick_out_factor`).
 """
 from __future__ import annotations
 
@@ -1677,14 +1688,6 @@ class FMMTraversalBuilder:
             The spacing between boxes that is considered "well-separated" for
             :attr:`boxtree.traversal.FMMTraversalInfo.from_sep_siblings_starts`
             (List 2).
-        :arg from_sep_smaller_crit: The criterion used to determine separation
-            box dimensions and separation for
-            :attr:`boxtree.traversal.FMMTraversalInfo.from_sep_smaller_by_level`
-            (List 3). May be one of ``"static_linf"`` (use the box square,
-            possibly enlarged by :attr:`boxtree.Tree.stick_out_factor`),
-            ``"precise_linf"`` (use the precise extent of targets in the box,
-            including their radii), or ``"static_l2"`` (use the circumcircle of
-            the box, possibly enlarged by :attr:`boxtree.Tree.stick_out_factor`).
         """
         self.context = context
         self.well_sep_is_n_away = well_sep_is_n_away
