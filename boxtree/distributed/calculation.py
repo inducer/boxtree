@@ -64,6 +64,9 @@ class DistributedExpansionWranglerMixin:
     .. automethod:: gather_potential_results
     .. automethod:: communicate_mpoles
     """
+    comm: MPI.Intracomm  # pyright: ignore[reportUninitializedInstanceVariable]
+    traversal: FMMTraversalInfo  # pyright: ignore[reportUninitializedInstanceVariable]
+    global_traversal: FMMTraversalInfo  # pyright: ignore[reportUninitializedInstanceVariable]
 
     @property
     @memoize_method
