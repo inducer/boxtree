@@ -25,19 +25,16 @@ THE SOFTWARE.
 
 import sys
 from functools import partial
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import numpy as np
 from mako.template import Template
 
 import pyopencl as cl
 import pyopencl.array as cl_array
+from arraycontext import Array, ArrayContext, PyOpenCLArrayContext
 from pyopencl.tools import ScalarArg, VectorArg as _VectorArg, dtype_to_c_struct
 from pytools import Record, memoize_method, obj_array
-
-
-if TYPE_CHECKING:
-    from boxtree.array_context import PyOpenCLArrayContext
 
 
 # Use offsets in VectorArg by default.
@@ -53,12 +50,14 @@ def padded_bin(i: int, nbits: int):
 
 # NOTE: Order of positional args should match GappyCopyAndMapKernel.__call__()
 def realloc_array(
-            actx: PyOpenCLArrayContext,
+            actx: ArrayContext,
             new_shape: tuple[int, ...],
             ary: cl_array.Array,
             zero_fill: bool | None = None,
             wait_for: cl.WaitList = None
-        ) -> tuple[cl_array.Array, cl.Event]:
+        ) -> tuple[Array, cl.Event]:
+    assert isinstance(actx, PyOpenCLArrayContext)
+
     if wait_for is None:
         wait_for = []
 
@@ -433,10 +432,11 @@ GAPPY_COPY_TPL = Template(r"""//CL//
 
 class GappyCopyAndMapKernel:
     def __init__(self, array_context: PyOpenCLArrayContext):
-        self._setup_actx: PyOpenCLArrayContext = array_context
+        self._setup_actx: ArrayContext = array_context
 
     @property
     def context(self):
+        assert isinstance(self._setup_actx, PyOpenCLArrayContext)
         return self._setup_actx.queue.context
 
     @memoize_method
@@ -546,11 +546,12 @@ MAP_VALUES_TPL = ElementwiseTemplate(
 
 
 class MapValuesKernel:
-    def __init__(self, array_context: PyOpenCLArrayContext):
+    def __init__(self, array_context: ArrayContext) -> None:
         self._setup_actx = array_context
 
     @property
     def context(self):
+        assert isinstance(self._setup_actx, PyOpenCLArrayContext)
         return self._setup_actx.queue.context
 
     @memoize_method
@@ -665,11 +666,12 @@ class MaskCompressorKernel:
     """
     .. automethod:: __call__
     """
-    def __init__(self, array_context: PyOpenCLArrayContext):
+    def __init__(self, array_context: ArrayContext) -> None:
         self._setup_actx = array_context
 
     @property
     def context(self):
+        assert isinstance(self._setup_actx, PyOpenCLArrayContext)
         return self._setup_actx.context
 
     @memoize_method

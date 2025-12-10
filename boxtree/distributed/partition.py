@@ -25,21 +25,14 @@ THE SOFTWARE.
 """
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
 
 import numpy as np
 from mako.template import Template
 
-from arraycontext import Array
+from arraycontext import Array, ArrayContext, PyOpenCLArrayContext
 from pyopencl.elementwise import ElementwiseKernel
 from pyopencl.tools import dtype_to_ctype
 from pytools import memoize_method
-
-
-if TYPE_CHECKING:
-    from arraycontext import Array
-
-    from boxtree.array_context import PyOpenCLArrayContext
 
 
 def get_box_ids_dfs_order(tree):
@@ -129,7 +122,8 @@ def partition_work(cost_per_box, traversal, comm):
 
 
 class GetBoxMasksCodeContainer:
-    def __init__(self, array_context: PyOpenCLArrayContext, box_id_dtype):
+    def __init__(self, array_context: ArrayContext, box_id_dtype) -> None:
+        assert isinstance(array_context, PyOpenCLArrayContext)
         self._setup_actx = array_context
         self.box_id_dtype = box_id_dtype
 

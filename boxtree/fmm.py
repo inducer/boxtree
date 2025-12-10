@@ -40,7 +40,8 @@ from boxtree.tree import Tree
 
 
 if TYPE_CHECKING:
-    from boxtree.array_context import PyOpenCLArrayContext
+    from arraycontext import ArrayContext
+
     from boxtree.traversal import FMMTraversalInfo
     from boxtree.tree import Tree
 
@@ -166,7 +167,7 @@ class ExpansionWranglerInterface(ABC):
 
     @abstractmethod
     def form_multipoles(self,
-            actx: PyOpenCLArrayContext,
+            actx: ArrayContext,
             level_start_source_box_nrs, source_boxes,
             src_weight_vecs):
         """
@@ -177,7 +178,7 @@ class ExpansionWranglerInterface(ABC):
 
     @abstractmethod
     def coarsen_multipoles(self,
-            actx: PyOpenCLArrayContext,
+            actx: ArrayContext,
             level_start_source_parent_box_nrs,
             source_parent_boxes, mpoles):
         """For each box in *source_parent_boxes*, gather (and translate) the
@@ -189,7 +190,7 @@ class ExpansionWranglerInterface(ABC):
 
     @abstractmethod
     def eval_direct(self,
-            actx: PyOpenCLArrayContext,
+            actx: ArrayContext,
             target_boxes, neighbor_sources_starts,
             neighbor_sources_lists, src_weight_vecs):
         """For each box in *target_boxes*, evaluate the influence of the
@@ -201,7 +202,7 @@ class ExpansionWranglerInterface(ABC):
 
     @abstractmethod
     def multipole_to_local(self,
-            actx: PyOpenCLArrayContext,
+            actx: ArrayContext,
             level_start_target_or_target_parent_box_nrs,
             target_or_target_parent_boxes,
             starts, lists, mpole_exps):
@@ -215,7 +216,7 @@ class ExpansionWranglerInterface(ABC):
 
     @abstractmethod
     def eval_multipoles(self,
-            actx: PyOpenCLArrayContext,
+            actx: ArrayContext,
             target_boxes_by_source_level, from_sep_smaller_by_level, mpole_exps):
         """For a level *i*, each box in *target_boxes_by_source_level[i]*, evaluate
         the multipole expansion in *mpole_exps* in the nearby boxes given in
@@ -228,7 +229,7 @@ class ExpansionWranglerInterface(ABC):
 
     @abstractmethod
     def form_locals(self,
-            actx: PyOpenCLArrayContext,
+            actx: ArrayContext,
             level_start_target_or_target_parent_box_nrs,
             target_or_target_parent_boxes, starts, lists, src_weight_vecs):
         """For each box in *target_or_target_parent_boxes*, form local
@@ -242,7 +243,7 @@ class ExpansionWranglerInterface(ABC):
 
     @abstractmethod
     def refine_locals(self,
-            actx: PyOpenCLArrayContext,
+            actx: ArrayContext,
             level_start_target_or_target_parent_box_nrs,
             target_or_target_parent_boxes, local_exps):
         """For each box in *child_boxes*,
@@ -254,7 +255,7 @@ class ExpansionWranglerInterface(ABC):
 
     @abstractmethod
     def eval_locals(self,
-            actx: PyOpenCLArrayContext,
+            actx: ArrayContext,
             level_start_target_box_nrs, target_boxes, local_exps):
         """For each box in *target_boxes*, evaluate the local expansion in
         *local_exps* and return a new potential array.
@@ -265,7 +266,7 @@ class ExpansionWranglerInterface(ABC):
     # }}}
 
     @abstractmethod
-    def finalize_potentials(self, actx: PyOpenCLArrayContext, potentials):
+    def finalize_potentials(self, actx: ArrayContext, potentials):
         """
         Postprocess the reordered potentials. This is where global scaling
         factors could be applied. This is distinct from :meth:`reorder_potentials`
@@ -280,7 +281,7 @@ class ExpansionWranglerInterface(ABC):
         """
 
     def distribute_source_weights(self,
-            actx: PyOpenCLArrayContext,
+            actx: ArrayContext,
             src_weight_vecs, src_idx_all_ranks):
         """Used by the distributed implementation for transferring needed source
         weights from root rank to each worker rank in the communicator.
@@ -302,7 +303,7 @@ class ExpansionWranglerInterface(ABC):
         return src_weight_vecs
 
     def gather_potential_results(self,
-            actx: PyOpenCLArrayContext,
+            actx: ArrayContext,
             potentials, tgt_idx_all_ranks):
         """Used by the distributed implementation for gathering calculated potentials
         from all worker ranks in the communicator to the root rank.
@@ -321,7 +322,7 @@ class ExpansionWranglerInterface(ABC):
         return potentials
 
     def communicate_mpoles(self,                # noqa: B027
-            actx: PyOpenCLArrayContext,
+            actx: ArrayContext,
             mpole_exps, return_stats=False):
         """Used by the distributed implementation for forming the complete multipole
         expansions from the partial multipole expansions.
@@ -341,7 +342,7 @@ class ExpansionWranglerInterface(ABC):
 # }}}
 
 
-def drive_fmm(actx: PyOpenCLArrayContext,
+def drive_fmm(actx: ArrayContext,
               wrangler: ExpansionWranglerInterface,
               src_weight_vecs, *,
               global_src_idx_all_ranks=None,

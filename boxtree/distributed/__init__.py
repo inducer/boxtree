@@ -107,16 +107,14 @@ in :func:`boxtree.fmm.drive_fmm`.
 
 import enum
 import warnings
-from typing import TYPE_CHECKING
 
 import numpy as np
 from mpi4py import MPI
 
+from arraycontext import ArrayContext, PyOpenCLArrayContext
+
 from boxtree.cost import FMMCostModel
 
-
-if TYPE_CHECKING:
-    from boxtree.array_context import PyOpenCLArrayContext
 
 __all__ = ["DistributedFMMRunner"]
 
@@ -156,7 +154,7 @@ def dtype_to_mpi(dtype):
 # {{{ DistributedFMMRunner
 
 def make_distributed_wrangler(
-        actx: PyOpenCLArrayContext, global_tree, traversal_builder, wrangler_factory,
+        actx: ArrayContext, global_tree, traversal_builder, wrangler_factory,
         calibration_params, comm):
     """Helper function for constructing the distributed wrangler on each rank.
 
@@ -168,6 +166,7 @@ def make_distributed_wrangler(
         where the wrangler is constructed according to *wrangler_factory* and
         the indices are passed to :func:`boxtree.fmm.drive_fmm`.
     """
+    assert isinstance(actx, PyOpenCLArrayContext)
     mpi_rank = comm.Get_rank()
 
     # `tree_in_device_memory` is True if the global tree is in the device memory
@@ -273,7 +272,7 @@ class DistributedFMMRunner:
     .. automethod:: __init__
     .. automethod:: drive_dfmm
     """
-    def __init__(self, array_context: PyOpenCLArrayContext, global_tree,
+    def __init__(self, array_context: ArrayContext, global_tree,
                  traversal_builder,
                  wrangler_factory,
                  calibration_params=None, comm=MPI.COMM_WORLD):
@@ -299,9 +298,11 @@ class DistributedFMMRunner:
                 array_context, global_tree, traversal_builder, wrangler_factory,
                 calibration_params, comm)
 
-    def drive_dfmm(self, actx: PyOpenCLArrayContext, source_weights):
+    def drive_dfmm(self, actx: ArrayContext, source_weights):
         """Calculate potentials at target points."""
         from boxtree.fmm import drive_fmm
+
+        assert isinstance(actx, PyOpenCLArrayContext)
         return drive_fmm(
             actx,
             self.wrangler, source_weights,

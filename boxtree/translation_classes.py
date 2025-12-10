@@ -37,16 +37,15 @@ THE SOFTWARE.
 import logging
 from dataclasses import dataclass
 from functools import partial
-from typing import TYPE_CHECKING
 
 import numpy as np
 from mako.template import Template
 
-from arraycontext import Array
+from arraycontext import Array, ArrayContext, PyOpenCLArrayContext
 from pyopencl.elementwise import ElementwiseKernel, ElementwiseTemplate
 from pytools import memoize_method
 
-from boxtree.array_context import PyOpenCLArrayContext, dataclass_array_container
+from boxtree.array_context import dataclass_array_container
 from boxtree.tools import (
     InlineBinarySearch,
     coord_vec_subscript_code,
@@ -54,9 +53,6 @@ from boxtree.tools import (
 )
 from boxtree.traversal import TRAVERSAL_PREAMBLE_MAKO_DEFS, FMMTraversalInfo
 
-
-if TYPE_CHECKING:
-    from arraycontext import Array
 
 logger = logging.getLogger(__name__)
 
@@ -250,7 +246,8 @@ class TranslationClassesBuilder:
     .. automethod:: __call__
     """
 
-    def __init__(self, array_context: PyOpenCLArrayContext) -> None:
+    def __init__(self, array_context: ArrayContext) -> None:
+        assert isinstance(array_context, PyOpenCLArrayContext)
         self._setup_actx = array_context
 
     @property
@@ -323,12 +320,13 @@ class TranslationClassesBuilder:
         return result
 
     def compute_translation_classes(self,
-            actx: PyOpenCLArrayContext, trav, tree, wait_for,
+            actx: ArrayContext, trav, tree, wait_for,
             is_translation_per_level):
         """
         :returns: a :class:`tuple` containing *evt*, *translation_class_is_used*
             and *translation_classes_lists*.
         """
+        assert isinstance(actx, PyOpenCLArrayContext)
 
         # {{{ compute translation classes for list 2
 
@@ -375,7 +373,7 @@ class TranslationClassesBuilder:
         # }}}
 
     @log_process(logger, "build m2l translation classes")
-    def __call__(self, actx: PyOpenCLArrayContext,
+    def __call__(self, actx: ArrayContext,
             trav, tree, wait_for=None, is_translation_per_level=True):
         """Returns a pair *info*, *evt* where info is a
         :class:`TranslationClassesInfo`.

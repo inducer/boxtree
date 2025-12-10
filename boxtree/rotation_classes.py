@@ -36,19 +36,15 @@ THE SOFTWARE.
 
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
 
 import numpy as np
 
-from arraycontext import Array
+from arraycontext import Array, ArrayContext, PyOpenCLArrayContext
 from pytools import log_process
 
-from boxtree.array_context import PyOpenCLArrayContext, dataclass_array_container
+from boxtree.array_context import dataclass_array_container
 from boxtree.translation_classes import TranslationClassesBuilder
 
-
-if TYPE_CHECKING:
-    from arraycontext import Array
 
 logger = logging.getLogger(__name__)
 
@@ -97,7 +93,8 @@ class RotationClassesBuilder:
     .. automethod:: __call__
     """
 
-    def __init__(self, array_context: PyOpenCLArrayContext):
+    def __init__(self, array_context: ArrayContext):
+        assert isinstance(array_context, PyOpenCLArrayContext)
         self._setup_actx: PyOpenCLArrayContext = array_context
         self.tcb = TranslationClassesBuilder(array_context)
 

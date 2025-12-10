@@ -27,22 +27,18 @@ THE SOFTWARE.
 import logging
 import time
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
 
 import numpy as np
 from mako.template import Template
 
-from arraycontext import Array, ArrayOrContainer
+from arraycontext import Array, ArrayContext, ArrayOrContainer, PyOpenCLArrayContext
 from pyopencl.elementwise import ElementwiseKernel
 from pyopencl.tools import dtype_to_ctype
 from pytools import memoize_method, obj_array
 
 from boxtree import Tree
-from boxtree.array_context import PyOpenCLArrayContext, dataclass_array_container
+from boxtree.array_context import dataclass_array_container
 
-
-if TYPE_CHECKING:
-    from arraycontext import Array, ArrayOrContainer
 
 logger = logging.getLogger(__name__)
 
@@ -57,8 +53,9 @@ class LocalTreeGeneratorCodeContainer:
     """Objects of this type serve as a place to keep the code needed for
     :func:`generate_local_tree`.
     """
-    def __init__(self, array_context: PyOpenCLArrayContext,
+    def __init__(self, array_context: ArrayContext,
                  dimensions, particle_id_dtype, coord_dtype):
+        assert isinstance(array_context, PyOpenCLArrayContext)
         self._setup_actx = array_context
         self.dimensions = dimensions
         self.particle_id_dtype = particle_id_dtype
@@ -198,7 +195,7 @@ class LocalParticlesAndLists:
 
 
 def construct_local_particles_and_lists(
-        actx: PyOpenCLArrayContext,
+        actx: ArrayContext,
         code, dimensions, num_boxes, num_global_particles,
         particle_id_dtype, coord_dtype, particles_have_extent,
         box_mask,
@@ -208,6 +205,8 @@ def construct_local_particles_and_lists(
     """This helper function generates particles (either sources or targets) of the
     local tree, and reconstructs list of lists indexing accordingly.
     """
+    assert isinstance(actx, PyOpenCLArrayContext)
+
     # {{{ calculate the particle mask
 
     particle_mask = actx.np.zeros(num_global_particles, dtype=particle_id_dtype)
@@ -313,7 +312,7 @@ class LocalTree(Tree):
 
 
 def generate_local_tree(
-        actx: PyOpenCLArrayContext,
+        actx: ArrayContext,
         global_traversal, responsible_boxes_list, comm):
     """Generate the local tree for the current rank.
 
@@ -331,6 +330,8 @@ def generate_local_tree(
         global tree. ``src_idx`` and ``tgt_idx`` are needed for distributing source
         weights from root rank and assembling calculated potentials on the root rank.
     """
+    assert isinstance(actx, PyOpenCLArrayContext)
+
     global_tree = actx.thaw(global_traversal.tree)
     code = LocalTreeGeneratorCodeContainer(
             actx, global_tree.dimensions,

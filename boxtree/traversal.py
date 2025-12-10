@@ -59,11 +59,11 @@ from typing import TYPE_CHECKING, Literal, TypeAlias
 import numpy as np
 from mako.template import Template
 
-from arraycontext import Array
+from arraycontext import Array, ArrayContext, PyOpenCLArrayContext
 from pyopencl.elementwise import ElementwiseKernel, ElementwiseTemplate
 from pytools import ProcessLogger, log_process, memoize_method, obj_array
 
-from boxtree.array_context import PyOpenCLArrayContext, dataclass_array_container
+from boxtree.array_context import dataclass_array_container
 from boxtree.tools import AXIS_NAMES, coord_vec_subscript_code, get_coord_vec_dtype
 
 # NOTE: Tree cannot go into the TYPE_CHECKING block because it is needed
@@ -73,7 +73,6 @@ from boxtree.tree import Tree  # noqa: TC001
 
 if TYPE_CHECKING:
     import pyopencl as cl
-    from arraycontext import Array
     from pyopencl.algorithm import ListOfListsBuilder
 
     from boxtree.tree_build import ExtentNorm
@@ -1213,7 +1212,7 @@ class _IndexStyle(enum.IntEnum):
 class _ListMerger:
     """Utility class for combining box lists optionally changing indexing style."""
 
-    def __init__(self, array_context: PyOpenCLArrayContext, box_id_dtype):
+    def __init__(self, array_context: ArrayContext, box_id_dtype):
         self._setup_actx = array_context
         self.box_id_dtype = box_id_dtype
 
@@ -1702,7 +1701,7 @@ class FMMTraversalBuilder:
     from_sep_smaller_crit: FromSepSmallerCrit | None
 
     def __init__(self,
-                 array_context: PyOpenCLArrayContext, *,
+                 array_context: ArrayContext, *,
                  well_sep_is_n_away: int = 1,
                  from_sep_smaller_crit: FromSepSmallerCrit | None = None):
         """
@@ -1712,6 +1711,7 @@ class FMMTraversalBuilder:
             :attr:`boxtree.traversal.FMMTraversalInfo.from_sep_siblings_starts`
             (List 2).
         """
+        assert isinstance(array_context, PyOpenCLArrayContext)
         self._setup_actx = array_context
         self.well_sep_is_n_away = well_sep_is_n_away
         self.from_sep_smaller_crit = from_sep_smaller_crit
@@ -1937,7 +1937,7 @@ class FMMTraversalBuilder:
     # {{{ driver
 
     def __call__(self,
-                actx: PyOpenCLArrayContext,
+                actx: ArrayContext,
                 tree: Tree,
                 wait_for: cl.WaitList = None,
                 debug: bool = False,
@@ -1958,6 +1958,8 @@ class FMMTraversalBuilder:
             :class:`FMMTraversalInfo` and *event* is a :class:`pyopencl.Event`
             for dependency management.
         """
+        assert isinstance(actx, PyOpenCLArrayContext)
+
         from_sep_smaller_min_nsources_cumul = _from_sep_smaller_min_nsources_cumul
 
         if from_sep_smaller_min_nsources_cumul is None:

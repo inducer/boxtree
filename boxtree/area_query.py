@@ -29,16 +29,15 @@ THE SOFTWARE.
 import logging
 from dataclasses import dataclass
 from functools import partial
-from typing import TYPE_CHECKING
 
 import numpy as np
 from mako.template import Template
 
-from arraycontext import Array
+from arraycontext import Array, ArrayContext, PyOpenCLArrayContext
 from pyopencl.elementwise import ElementwiseTemplate
 from pytools import ProcessLogger, memoize_method
 
-from boxtree.array_context import PyOpenCLArrayContext, dataclass_array_container
+from boxtree.array_context import dataclass_array_container
 from boxtree.tools import (
     InlineBinarySearch,
     coord_vec_subscript_code,
@@ -46,9 +45,6 @@ from boxtree.tools import (
 )
 from boxtree.tree import Tree  # noqa: TC001
 
-
-if TYPE_CHECKING:
-    from arraycontext import Array
 
 logger = logging.getLogger(__name__)
 
@@ -663,7 +659,7 @@ class AreaQueryBuilder:
     .. automethod:: __init__
     .. automethod:: __call__
     """
-    def __init__(self, array_context: PyOpenCLArrayContext):
+    def __init__(self, array_context: ArrayContext) -> None:
         self._setup_actx = array_context
         self.peer_list_finder = PeerListFinder(array_context)
 
@@ -741,7 +737,7 @@ class AreaQueryBuilder:
 
     # }}}
 
-    def __call__(self, actx: PyOpenCLArrayContext, tree: Tree,
+    def __call__(self, actx: ArrayContext, tree: Tree,
                  ball_centers, ball_radii, peer_lists=None,
                  wait_for=None):
         """
@@ -758,6 +754,7 @@ class AreaQueryBuilder:
             :class:`AreaQueryResult`, and *event* is a :class:`pyopencl.Event`
             for dependency management.
         """
+        assert isinstance(actx, PyOpenCLArrayContext)
 
         from pytools import single_valued
         if single_valued(bc.dtype for bc in ball_centers) != tree.coord_dtype:
@@ -818,8 +815,9 @@ class LeavesToBallsLookupBuilder:
     .. automethod:: __call__
 
     """
-    def __init__(self, array_context: PyOpenCLArrayContext):
+    def __init__(self, array_context: ArrayContext) -> None:
         from pyopencl.algorithm import KeyValueSorter
+        assert isinstance(array_context, PyOpenCLArrayContext)
 
         self._setup_actx = array_context
         self.key_value_sorter = KeyValueSorter(self.context)
@@ -842,7 +840,7 @@ class LeavesToBallsLookupBuilder:
                 self.context,
                 type_aliases=(("idx_t", idx_dtype),))
 
-    def __call__(self, actx: PyOpenCLArrayContext, tree: Tree,
+    def __call__(self, actx: ArrayContext, tree: Tree,
                  ball_centers, ball_radii, peer_lists=None,
                  wait_for=None):
         """
@@ -859,6 +857,7 @@ class LeavesToBallsLookupBuilder:
             :class:`LeavesToBallsLookup`, and *event* is a :class:`pyopencl.Event`
             for dependency management.
         """
+        assert isinstance(actx, PyOpenCLArrayContext)
 
         from pytools import single_valued
         if single_valued(bc.dtype for bc in ball_centers) != tree.coord_dtype:
@@ -939,9 +938,9 @@ class SpaceInvaderQueryBuilder:
 
     .. automethod:: __init__
     .. automethod:: __call__
-
     """
-    def __init__(self, array_context: PyOpenCLArrayContext) -> None:
+
+    def __init__(self, array_context: ArrayContext) -> None:
         self._setup_actx = array_context
         self.peer_list_finder = PeerListFinder(array_context)
 
@@ -964,7 +963,7 @@ class SpaceInvaderQueryBuilder:
 
     # }}}
 
-    def __call__(self, actx: PyOpenCLArrayContext, tree: Tree,
+    def __call__(self, actx: ArrayContext, tree: Tree,
                  ball_centers, ball_radii, peer_lists=None,
                  wait_for=None):
         """
@@ -988,6 +987,7 @@ class SpaceInvaderQueryBuilder:
             * if *i* is the index of a leaf box, *sqi[i]* is the
               outer space invader distance for *i*.
         """
+        assert isinstance(actx, PyOpenCLArrayContext)
 
         from pytools import single_valued
         if single_valued(bc.dtype for bc in ball_centers) != tree.coord_dtype:
@@ -1073,7 +1073,7 @@ class PeerListFinder:
     .. automethod:: __call__
     """
 
-    def __init__(self, array_context: PyOpenCLArrayContext):
+    def __init__(self, array_context: ArrayContext) -> None:
         self._setup_actx = array_context
 
     @property
@@ -1145,7 +1145,7 @@ class PeerListFinder:
 
     # }}}
 
-    def __call__(self, actx: PyOpenCLArrayContext, tree: Tree, wait_for=None):
+    def __call__(self, actx: ArrayContext, tree: Tree, wait_for=None):
         """
         :arg wait_for: may either be *None* or a list of :class:`pyopencl.Event`
             instances for whose completion this command waits before starting
@@ -1154,6 +1154,8 @@ class PeerListFinder:
             :class:`PeerListLookup`, and *event* is a :class:`pyopencl.Event`
             for dependency management.
         """
+        assert isinstance(actx, PyOpenCLArrayContext)
+
         from pytools import div_ceil
 
         # Round up level count--this gets included in the kernel as
