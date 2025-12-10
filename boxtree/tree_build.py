@@ -58,6 +58,7 @@ from typing import TYPE_CHECKING, Literal, TypeAlias
 
 import numpy as np
 
+from arraycontext import Array, ArrayContext, PyOpenCLArrayContext
 from pytools import DebugProcessLogger, ProcessLogger, memoize_method, obj_array
 
 
@@ -65,11 +66,9 @@ if TYPE_CHECKING:
     from numpy.typing import NDArray
 
     import pyopencl as cl
-    from arraycontext import Array
     from pyopencl.cl_array import Allocator
     from pyopencl.typing import WaitList
 
-    from boxtree.array_context import PyOpenCLArrayContext
 
 logger = logging.getLogger(__name__)
 
@@ -98,7 +97,8 @@ class TreeBuilder:
     box_level_dtype = np.dtype(np.uint8)
     ROOT_EXTENT_STRETCH_FACTOR = 1e-4
 
-    def __init__(self, array_context: PyOpenCLArrayContext) -> None:
+    def __init__(self, array_context: ArrayContext) -> None:
+        assert isinstance(array_context, PyOpenCLArrayContext)
         self._setup_actx: PyOpenCLArrayContext = array_context
 
         from boxtree.bounding_box import BoundingBoxFinder
@@ -131,7 +131,7 @@ class TreeBuilder:
     # {{{ run control
 
     def __call__(self,
-                 actx: PyOpenCLArrayContext,
+                 actx: ArrayContext,
                  particles: obj_array.ObjectArray1D[Array],
                  kind: TreeKind = "adaptive",
                  max_particles_in_box: int | None = None,
@@ -200,6 +200,7 @@ class TreeBuilder:
             :class:`Tree`, and *event* is a :class:`pyopencl.Event` for dependency
             management.
         """
+        assert isinstance(actx, PyOpenCLArrayContext)
 
         if allocator is not None:
             from warnings import warn

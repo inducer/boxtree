@@ -50,7 +50,7 @@ from boxtree.fmm import ExpansionWranglerInterface, TreeIndependentDataForWrangl
 
 
 if TYPE_CHECKING:
-    from boxtree.array_context import PyOpenCLArrayContext
+    from arraycontext import ArrayContext
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +85,7 @@ class FMMLibRotationData(FMMLibRotationDataInterface):
     .. automethod:: __init__
     """
 
-    def __init__(self, array_context: PyOpenCLArrayContext, trav):
+    def __init__(self, array_context: ArrayContext, trav):
         self._setup_actx = array_context
         self.trav = trav
         self.tree = trav.tree
@@ -675,7 +675,7 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
         return potentials[self.tree.sorted_target_ids]
 
     @log_process(logger)
-    def form_multipoles(self, actx: PyOpenCLArrayContext,
+    def form_multipoles(self, actx: ArrayContext,
             level_start_source_box_nrs,
             source_boxes,
             src_weight_vecs):
@@ -719,7 +719,7 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
         return mpoles
 
     @log_process(logger)
-    def coarsen_multipoles(self, actx: PyOpenCLArrayContext,
+    def coarsen_multipoles(self, actx: ArrayContext,
             level_start_source_parent_box_nrs,
             source_parent_boxes,
             mpoles):
@@ -776,7 +776,7 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
         return mpoles
 
     @log_process(logger)
-    def eval_direct(self, actx: PyOpenCLArrayContext,
+    def eval_direct(self, actx: ArrayContext,
             target_boxes,
             neighbor_sources_starts,
             neighbor_sources_lists,
@@ -822,7 +822,7 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
         return output
 
     @log_process(logger)
-    def multipole_to_local(self, actx: PyOpenCLArrayContext,
+    def multipole_to_local(self, actx: ArrayContext,
             level_start_target_or_target_parent_box_nrs,
             target_or_target_parent_boxes,
             starts, lists, mpole_exps):
@@ -936,7 +936,7 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
         return local_exps
 
     @log_process(logger)
-    def eval_multipoles(self, actx: PyOpenCLArrayContext,
+    def eval_multipoles(self, actx: ArrayContext,
             target_boxes_by_source_level,
             sep_smaller_nonsiblings_by_level,
             mpole_exps):
@@ -979,7 +979,7 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
         return output
 
     @log_process(logger)
-    def form_locals(self, actx: PyOpenCLArrayContext,
+    def form_locals(self, actx: ArrayContext,
             level_start_target_or_target_parent_box_nrs,
             target_or_target_parent_boxes,
             starts, lists, src_weight_vecs):
@@ -1059,7 +1059,7 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
         return local_exps
 
     @log_process(logger)
-    def refine_locals(self, actx: PyOpenCLArrayContext,
+    def refine_locals(self, actx: ArrayContext,
             level_start_target_or_target_parent_box_nrs,
             target_or_target_parent_boxes,
             local_exps):
@@ -1107,7 +1107,7 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
         return local_exps
 
     @log_process(logger)
-    def eval_locals(self, actx: PyOpenCLArrayContext,
+    def eval_locals(self, actx: ArrayContext,
             level_start_target_box_nrs,
             target_boxes,
             local_exps):
@@ -1145,7 +1145,7 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
         return output
 
     @log_process(logger)
-    def finalize_potentials(self, actx: PyOpenCLArrayContext, potential):
+    def finalize_potentials(self, actx: ArrayContext, potential):
         if self.tree_indep.eqn_letter == "l" and self.dim == 2:
             scale_factor = -1/(2*np.pi)
         elif self.tree_indep.eqn_letter == "h" and self.dim == 2:

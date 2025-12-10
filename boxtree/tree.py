@@ -80,24 +80,19 @@ THE SOFTWARE.
 import logging
 from dataclasses import dataclass, field
 from functools import cached_property
-from typing import TYPE_CHECKING
 
 import numpy as np
 from typing_extensions import override
 
-from arraycontext import Array
+from arraycontext import Array, ArrayContext, PyOpenCLArrayContext
 from cgen import Enum
 from pytools import memoize_method, obj_array
 
-from boxtree.array_context import PyOpenCLArrayContext, dataclass_array_container
+from boxtree.array_context import dataclass_array_container
 
 # NOTE: ExtentNorm cannot go into the TYPE_CHECKING block because it is needed
 # by `dataclass_array_container` (which evals the types)
 from boxtree.tree_build import ExtentNorm  # noqa: TC001
-
-
-if TYPE_CHECKING:
-    from arraycontext import Array
 
 
 logger = logging.getLogger(__name__)
@@ -758,7 +753,7 @@ class TreeWithLinkedPointSources(Tree):
 
 
 def link_point_sources(
-        actx: PyOpenCLArrayContext, tree: Tree,
+        actx: ArrayContext, tree: Tree,
         point_source_starts: Array, point_sources: Array, *,
         debug: bool = False):
     r"""
@@ -777,6 +772,7 @@ def link_point_sources(
 
     :arg point_sources: an object array of (XYZ) point coordinate arrays.
     """
+    assert isinstance(actx, PyOpenCLArrayContext)
 
     # The whole point of this routine is that all point sources within
     # a box are reordered to be contiguous.

@@ -35,7 +35,8 @@ from boxtree.fmm import ExpansionWranglerInterface, TreeIndependentDataForWrangl
 
 
 if TYPE_CHECKING:
-    from boxtree.array_context import PyOpenCLArrayContext
+    from arraycontext import ArrayContext
+
 
 # {{{ constant one wrangler
 
@@ -84,7 +85,7 @@ class ConstantOneExpansionWrangler(ExpansionWranglerInterface):
         # FIXME
         raise NotImplementedError
 
-    def form_multipoles(self, actx: PyOpenCLArrayContext,
+    def form_multipoles(self, actx: ArrayContext,
             level_start_source_box_nrs,
             source_boxes,
             src_weight_vecs):
@@ -97,7 +98,7 @@ class ConstantOneExpansionWrangler(ExpansionWranglerInterface):
 
         return mpoles
 
-    def coarsen_multipoles(self, actx: PyOpenCLArrayContext,
+    def coarsen_multipoles(self, actx: ArrayContext,
             level_start_source_parent_box_nrs,
             source_parent_boxes,
             mpoles):
@@ -120,7 +121,7 @@ class ConstantOneExpansionWrangler(ExpansionWranglerInterface):
 
         return mpoles
 
-    def eval_direct(self, actx: PyOpenCLArrayContext,
+    def eval_direct(self, actx: ArrayContext,
             target_boxes, neighbor_sources_starts,
             neighbor_sources_lists, src_weight_vecs):
         src_weights, = src_weight_vecs
@@ -144,7 +145,7 @@ class ConstantOneExpansionWrangler(ExpansionWranglerInterface):
         return pot
 
     def multipole_to_local(self,
-            actx: PyOpenCLArrayContext,
+            actx: ArrayContext,
             level_start_target_or_target_parent_box_nrs,
             target_or_target_parent_boxes,
             starts, lists, mpole_exps):
@@ -163,7 +164,7 @@ class ConstantOneExpansionWrangler(ExpansionWranglerInterface):
         return local_exps
 
     def eval_multipoles(self,
-            actx: PyOpenCLArrayContext,
+            actx: ArrayContext,
             target_boxes_by_source_level,
             from_sep_smaller_nonsiblings_by_level,
             mpole_exps):
@@ -185,7 +186,7 @@ class ConstantOneExpansionWrangler(ExpansionWranglerInterface):
         return pot
 
     def form_locals(self,
-            actx: PyOpenCLArrayContext,
+            actx: ArrayContext,
             level_start_target_or_target_parent_box_nrs,
             target_or_target_parent_boxes,
             starts, lists, src_weight_vecs):
@@ -209,7 +210,7 @@ class ConstantOneExpansionWrangler(ExpansionWranglerInterface):
         return local_exps
 
     def refine_locals(self,
-            actx: PyOpenCLArrayContext,
+            actx: ArrayContext,
             level_start_target_or_target_parent_box_nrs,
             target_or_target_parent_boxes, local_exps):
         for target_lev in range(1, self.tree.nlevels):
@@ -221,7 +222,7 @@ class ConstantOneExpansionWrangler(ExpansionWranglerInterface):
         return local_exps
 
     def eval_locals(self,
-            actx: PyOpenCLArrayContext,
+            actx: ArrayContext,
             level_start_target_box_nrs,
             target_boxes, local_exps):
         pot = self.output_zeros()
@@ -232,7 +233,7 @@ class ConstantOneExpansionWrangler(ExpansionWranglerInterface):
 
         return pot
 
-    def finalize_potentials(self, actx: PyOpenCLArrayContext, potentials):
+    def finalize_potentials(self, actx: ArrayContext, potentials):
         return potentials
 
 # }}}

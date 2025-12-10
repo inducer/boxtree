@@ -23,18 +23,13 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-from typing import TYPE_CHECKING
-
 import numpy as np
 
+from arraycontext import ArrayContext, PyOpenCLArrayContext
 from pyopencl.reduction import ReductionTemplate
 from pytools import memoize, memoize_method
 
 from boxtree.tools import get_type_moniker
-
-
-if TYPE_CHECKING:
-    from boxtree.array_context import PyOpenCLArrayContext
 
 
 @memoize
@@ -128,7 +123,8 @@ BBOX_REDUCTION_TPL = ReductionTemplate(
 
 
 class BoundingBoxFinder:
-    def __init__(self, array_context: PyOpenCLArrayContext):
+    def __init__(self, array_context: ArrayContext) -> None:
+        assert isinstance(array_context, PyOpenCLArrayContext)
         self._setup_actx = array_context
 
         for dev in self.context.devices:

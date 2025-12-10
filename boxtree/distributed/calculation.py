@@ -40,7 +40,8 @@ from boxtree.pyfmmlib_integration import FMMLibExpansionWrangler
 
 
 if TYPE_CHECKING:
-    from boxtree.array_context import PyOpenCLArrayContext
+    from arraycontext import ArrayContext
+
     from boxtree.traversal import FMMTraversalInfo
 
 
@@ -79,7 +80,7 @@ class DistributedExpansionWranglerMixin:
         return self.mpi_rank == 0
 
     def distribute_source_weights(self,
-            actx: PyOpenCLArrayContext, src_weight_vecs, src_idx_all_ranks):
+            actx: ArrayContext, src_weight_vecs, src_idx_all_ranks):
         if self.is_mpi_root:
             distribute_weight_req = []
             local_src_weight_vecs = np.empty((self.mpi_size,), dtype=object)
@@ -103,7 +104,7 @@ class DistributedExpansionWranglerMixin:
         return local_src_weight_vecs
 
     def gather_potential_results(self,
-            actx: PyOpenCLArrayContext, potentials, tgt_idx_all_ranks):
+            actx: ArrayContext, potentials, tgt_idx_all_ranks):
         from boxtree.distributed import dtype_to_mpi
         potentials_mpi_type = dtype_to_mpi(potentials.dtype)
         gathered_potentials = None
@@ -233,7 +234,7 @@ class DistributedExpansionWranglerMixin:
         return get_kernel()
 
     def find_boxes_used_by_subrange(
-            self, actx: PyOpenCLArrayContext,
+            self, actx: ArrayContext,
             subrange, box_to_user_rank_starts, box_to_user_rank_lists,
             contributing_boxes_list):
         """Test whether the multipole expansions of the contributing boxes are used
@@ -265,7 +266,7 @@ class DistributedExpansionWranglerMixin:
         return box_in_subrange
 
     def communicate_mpoles(self,
-            actx: PyOpenCLArrayContext, mpole_exps, return_stats=False):
+            actx: ArrayContext, mpole_exps, return_stats=False):
         """Based on Algorithm 3: Reduce and Scatter in Lashuk et al. [1]_.
 
         The main idea is to mimic an allreduce as done on a hypercube network, but to
@@ -442,7 +443,7 @@ class DistributedFMMLibExpansionWrangler(
         else:
             return None
 
-    def finalize_potentials(self, actx: PyOpenCLArrayContext, potentials):
+    def finalize_potentials(self, actx: ArrayContext, potentials):
         if self.is_mpi_root:
             return FMMLibExpansionWrangler.finalize_potentials(self, actx, potentials)
         else:
