@@ -62,11 +62,12 @@ def _boxtree_rec_map_container(actx, func, array, allowed_types=None, *,
         if isinstance(ary, allowed_types):
             return func(ary)
         elif not strict and isinstance(ary, actx.array_types):
-            from warnings import warn
-            warn(f"Invoking {type(actx).__name__}.{func.__name__[1:]} with "
-                f"{type(ary).__name__} will be unsupported in 2025. Use "
-                "'to_tagged_cl_array' to convert instances to TaggableCLArray.",
-                DeprecationWarning, stacklevel=2)
+            # from warnings import warn
+            # warn(f"Invoking {type(actx).__name__}.{func.__name__[1:]} with "
+            #     f"{type(ary).__name__} will be unsupported in 2025. Use "
+            #     "'to_tagged_cl_array' to convert instances to TaggableCLArray.",
+            #     DeprecationWarning, stacklevel=2)
+
             return func(tga.to_tagged_cl_array(ary))
         elif np.isscalar(ary):
             if default_scalar is None:
