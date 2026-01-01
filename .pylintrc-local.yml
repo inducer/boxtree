@@ -1,5 +1,0 @@
-- arg: py-version
-  val: '3.10'
-
-- arg: extension-pkg-whitelist
-  val: pyfmmlib
