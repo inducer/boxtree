@@ -67,19 +67,6 @@ Python 3 POCL Examples:
     except:
     - tags
 
-Pylint:
-    script: |
-      export EXTRA_INSTALL="pybind11 numpy mako matplotlib mpi4py"
-
-      curl -L -O https://tiker.net/ci-support-v0
-      . ci-support-v0
-      build_py_project_in_conda_env
-      run_pylint "$(get_proj_name)" examples/*.py test/*.py
-    tags:
-    - python3
-    except:
-    - tags
-
 Documentation:
     script: |
       EXTRA_INSTALL="pybind11 numpy mako mpi4py"

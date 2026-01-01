@@ -15,7 +15,7 @@ dependencies:
 - pyfmmlib
 - mpi4py
 
-# Only needed to make pylint succeed
+# needed to make type checking succeed
 - matplotlib-base
 
 # This is intended to prevent conda from selecting 'external' (i.e. empty) builds

@@ -51,7 +51,6 @@ meshmode = [
     "modepy>=2021.1",
 ]
 test = [
-    "pylint",
     "pytest",
     "ruff",
 ]
