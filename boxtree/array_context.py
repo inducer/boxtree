@@ -23,6 +23,8 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
+from typing import TypeVar
+
 import numpy as np
 
 from arraycontext import (  # noqa: F401
@@ -112,7 +114,10 @@ class PyOpenCLArrayContext(PyOpenCLArrayContextBase):
 
 # {{{ dataclass array container
 
-def dataclass_array_container(cls: type) -> type:
+T = TypeVar("T")
+
+
+def dataclass_array_container(cls: type[T]) -> type[T]:
     """A decorator based on :func:`arraycontext.dataclass_array_container`
     that allows :class:`typing.Optional` containers.
     """
