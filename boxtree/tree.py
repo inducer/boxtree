@@ -80,6 +80,7 @@ THE SOFTWARE.
 import logging
 from dataclasses import dataclass, field
 from functools import cached_property
+from typing import ClassVar
 
 import numpy as np
 from typing_extensions import override
@@ -120,23 +121,23 @@ class box_flags_enum(Enum):  # noqa
         :attr:`IS_LEAF_BOX` is only used for :class:`TreeOfBoxes` for the moment.
     """
 
-    c_name = "box_flags_t"
-    dtype = np.dtype(np.uint8)
-    c_value_prefix = "BOX_"
+    c_name: ClassVar[str] = "box_flags_t"
+    dtype: ClassVar[np.dtype[np.integer]] = np.dtype(np.uint8)
+    c_value_prefix: ClassVar[str] = "BOX_"
 
-    IS_SOURCE_BOX = 1 << 0
-    IS_TARGET_BOX = 1 << 1
-    IS_SOURCE_OR_TARGET_BOX = (IS_SOURCE_BOX | IS_TARGET_BOX)
-    HAS_SOURCE_CHILD_BOXES = 1 << 2
-    HAS_TARGET_CHILD_BOXES = 1 << 3
-    HAS_SOURCE_OR_TARGET_CHILD_BOXES = (
+    IS_SOURCE_BOX: ClassVar[int] = 1 << 0
+    IS_TARGET_BOX: ClassVar[int] = 1 << 1
+    IS_SOURCE_OR_TARGET_BOX: ClassVar[int] = (IS_SOURCE_BOX | IS_TARGET_BOX)
+    HAS_SOURCE_CHILD_BOXES: ClassVar[int] = 1 << 2
+    HAS_TARGET_CHILD_BOXES: ClassVar[int] = 1 << 3
+    HAS_SOURCE_OR_TARGET_CHILD_BOXES: ClassVar[int] = (
             HAS_SOURCE_CHILD_BOXES | HAS_TARGET_CHILD_BOXES)
 
     # FIXME: Only used for TreeOfBoxes for now
-    IS_LEAF_BOX = 1 << 4
+    IS_LEAF_BOX: ClassVar[int] = 1 << 4
 
     # Deprecated alias, do not use.
-    HAS_CHILDREN = HAS_SOURCE_OR_TARGET_CHILD_BOXES
+    HAS_CHILDREN: ClassVar[int] = HAS_SOURCE_OR_TARGET_CHILD_BOXES
 
 # }}}
 
