@@ -272,8 +272,7 @@ class TreeOfBoxes:
 
     def get_box_size(self, ibox):
         lev = self.box_levels[ibox]
-        box_size = self.root_extent * 0.5**lev
-        return box_size
+        return self.root_extent * 0.5**lev
 
     def get_box_extent(self, ibox):
         box_size = self.get_box_size(ibox)
@@ -1059,7 +1058,7 @@ class ParticleListFilter:
 
         from boxtree.tools import VectorArg
 
-        builder = ListOfListsBuilder(self.context,
+        return ListOfListsBuilder(self.context,
             [("filt_tgt_list", particle_id_dtype)], Template("""//CL//
             typedef ${dtype_to_ctype(particle_id_dtype)} particle_id_t;
 
@@ -1086,8 +1085,6 @@ class ParticleListFilter:
                     VectorArg(particle_id_dtype, "box_target_starts"),
                     VectorArg(particle_id_dtype, "box_target_counts_nonchild"),
                 ])
-
-        return builder
 
     def filter_target_lists_in_user_order(self, actx, tree, flags):
         """

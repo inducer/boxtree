@@ -583,11 +583,9 @@ def test_cost_model_op_counts_agree_with_constantone_wrangler(
     if not timing_data:
         return
 
-    mismatches = []
-    for stage in timing_data:
-        if timing_data[stage]["ops_elapsed"] != modeled_time[stage]:
-            mismatches.append(
-                    (stage, timing_data[stage]["ops_elapsed"], modeled_time[stage]))
+    mismatches = [(stage, timing_data[stage]["ops_elapsed"], modeled_time[stage])
+        for stage in timing_data
+        if timing_data[stage]["ops_elapsed"] != modeled_time[stage]]
 
     assert not mismatches, "\n".join(str(s) for s in mismatches)
 

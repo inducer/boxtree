@@ -43,8 +43,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-import pytools.obj_array as obj_array
-from pytools import log_process, memoize_method
+from pytools import log_process, memoize_method, obj_array
 
 from boxtree.fmm import ExpansionWranglerInterface, TreeIndependentDataForWrangler
 

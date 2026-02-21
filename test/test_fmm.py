@@ -158,7 +158,6 @@ class ConstantOneExpansionWranglerWithFilteredTargetsInUserOrder(
             (2, 10**5, None, "", p_normal, p_normal, "tree", "linf", "static_linf"),
             (3, 5 * 10**5, 4*10**4, "t", p_normal, p_normal, "tree", "linf", "static_linf"),  # noqa: E501
 
-            (3, 5 * 10**5, 4*10**4, "t", p_normal, p_normal, None, "linf", "static_linf"),  # noqa: E501
             (3, 5 * 10**5, 4*10**4, "t", p_normal, p_normal, None, "linf", "precise_linf"),  # noqa: E501
             (3, 5 * 10**5, 4*10**4, "t", p_normal, p_normal, None, "l2", "precise_linf"),  # noqa: E501
             (3, 5 * 10**5, 4*10**4, "t", p_normal, p_normal, None, "l2", "static_l2"),

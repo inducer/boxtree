@@ -337,7 +337,6 @@ class ExpansionWranglerInterface(ABC):
         :returns: Statistics of the communication if *return_stats* is True. *None*
             otherwise.
         """
-        pass
 
 # }}}
 
