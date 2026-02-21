@@ -226,9 +226,7 @@ def run_build_test(builder, actx, dims, dtype, nparticles, visualize,
 def particle_tree_test_decorator(f):
     f = pytest.mark.opencl(f)
     f = pytest.mark.parametrize("dtype", [np.float64, np.float32])(f)
-    f = pytest.mark.parametrize("dims", [2, 3])(f)
-
-    return f
+    return pytest.mark.parametrize("dims", [2, 3])(f)
 
 
 @particle_tree_test_decorator

@@ -116,6 +116,8 @@ required-imports = ["from __future__ import annotations"]
 [tool.ruff.lint.per-file-ignores]
 "doc/**/*.py" = ["I002"]
 "examples/**/*.py" = ["I002"]
+"test/test_*.py" = ["S102"]
+"doc/conf.py" = ["S102"]
 
 [tool.typos.default]
 extend-ignore-re = [

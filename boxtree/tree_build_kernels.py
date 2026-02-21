@@ -165,11 +165,11 @@ def make_morton_bin_count_type(device, dimensions, particle_id_dtype,
         fields.append(("nonchild_srcntgts", particle_id_dtype))
 
     from boxtree.tools import padded_bin
-    for mnr in range(2**dimensions):
-        fields.append((f"pcnt{padded_bin(mnr, dimensions)}", particle_id_dtype))
+    fields.extend((f"pcnt{padded_bin(mnr, dimensions)}", particle_id_dtype)
+        for mnr in range(2**dimensions))
     # Morton bin weight totals
-    for mnr in range(2**dimensions):
-        fields.append((f"pwt{padded_bin(mnr, dimensions)}", refine_weight_dtype))
+    fields.extend((f"pwt{padded_bin(mnr, dimensions)}", refine_weight_dtype)
+        for mnr in range(2**dimensions))
 
     dtype = np.dtype(fields)
 

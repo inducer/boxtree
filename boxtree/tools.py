@@ -893,7 +893,7 @@ def run_mpi(script: str, num_processes: int, env: dict[str, Any]) -> None:
 
 def get_coord_vec_dtype(
         coord_dtype: np.dtype, dimensions: int) -> np.dtype:
-    import pyopencl.cltypes as cltypes
+    from pyopencl import cltypes
     if dimensions == 1:
         return coord_dtype
     else:
