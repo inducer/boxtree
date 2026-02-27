@@ -56,12 +56,17 @@ from boxtree.tree import TreeOfBoxes, box_flags_enum
 
 
 if TYPE_CHECKING:
+    import optype.numpy as onp
+    from numpy.typing import DTypeLike
+
     from meshmode.mesh import Mesh
 
 
 # {{{ utils for tree of boxes
 
-def _compute_tob_box_flags(box_child_ids: np.ndarray) -> np.ndarray:
+def _compute_tob_box_flags(
+        box_child_ids: onp.Array2D[np.integer[Any]]
+    ) -> onp.Array1D[np.integer[Any]]:
     nboxes = box_child_ids.shape[1]
     # For the time being, we will work with the assumption that each box
     # in the tree is both a source and a target box.
@@ -80,10 +85,13 @@ def _compute_tob_box_flags(box_child_ids: np.ndarray) -> np.ndarray:
     return box_flags
 
 
-def _resized_array(arr: np.ndarray, new_size: int) -> np.ndarray:
-    """Return a resized copy of the array. The new_size is a scalar which is
-    applied to the last dimension.
+def _resized_array(arr: onp.ArrayND[Any, tuple[int, ...]],
+                   new_size: int) -> onp.ArrayND[Any, tuple[int, ...]]:
+    """Return a resized copy of the array.
+
+    :arg new_size: a scalar which is applied to the last dimension.
     """
+
     old_size = arr.shape[-1]
     prefix = (slice(None), ) * (arr.ndim - 1)
     if old_size >= new_size:
@@ -92,16 +100,15 @@ def _resized_array(arr: np.ndarray, new_size: int) -> np.ndarray:
     else:
         new_shape = list(arr.shape)
         new_shape[-1] = new_size
-        new_arr = np.zeros(new_shape, arr.dtype)
+        new_arr = np.zeros(new_shape, dtype=arr.dtype)
 
         key = (*prefix, slice(old_size))
         new_arr[key] = arr
         return new_arr
 
 
-def _vec_of_signs(dim: int, i: int) -> np.ndarray:
-    """The sign vector is obtained by converting i to a dim-bit binary.
-    """
+def _vec_of_signs(dim: int, i: int) -> onp.Array1D[np.integer[Any]]:
+    """The sign vector is obtained by converting i to a dim-bit binary."""
     # e.g. bin(10) = '0b1010'
     binary_digits = [int(bd) for bd in bin(i)[2:]]
     n = len(binary_digits)
@@ -113,7 +120,8 @@ def _vec_of_signs(dim: int, i: int) -> np.ndarray:
 
 # {{{ refine/coarsen a tree of boxes
 
-def refine_tree_of_boxes(tob: TreeOfBoxes, refine_flags: np.ndarray) -> TreeOfBoxes:
+def refine_tree_of_boxes(tob: TreeOfBoxes,
+                         refine_flags: onp.Array1D[np.bool_]) -> TreeOfBoxes:
     """Make a refined copy of `tob` where boxes flagged with `refine_flags` are
     refined.
     """
@@ -123,13 +131,17 @@ def refine_tree_of_boxes(tob: TreeOfBoxes, refine_flags: np.ndarray) -> TreeOfBo
 def uniformly_refine_tree_of_boxes(tob: TreeOfBoxes) -> TreeOfBoxes:
     """Make a uniformly refined copy of `tob`.
     """
-    refine_flags = np.zeros(tob.nboxes, bool)
+    assert tob.box_flags is not None
+
+    refine_flags = np.zeros(tob.nboxes, dtype=bool)
     refine_flags[tob.box_flags & box_flags_enum.IS_LEAF_BOX != 0] = 1
     return refine_tree_of_boxes(tob, refine_flags)
 
 
 def coarsen_tree_of_boxes(
-        tob: TreeOfBoxes, coarsen_flags: np.ndarray,
+        tob: TreeOfBoxes,
+        coarsen_flags: onp.Array1D[np.bool_],
+        *,
         error_on_ignored_flags: bool = True
         ) -> TreeOfBoxes:
     """Make a coarsened copy of `tob` where boxes flagged with `coarsen_flags`
@@ -140,10 +152,13 @@ def coarsen_tree_of_boxes(
         error_on_ignored_flags=error_on_ignored_flags)
 
 
-def _apply_refine_flags_without_sorting(refine_flags, tob):
+def _apply_refine_flags_without_sorting(
+        refine_flags: onp.Array1D[np.bool_],
+        tob: TreeOfBoxes
+    ) -> TreeOfBoxes:
     box_is_leaf = tob.box_flags & box_flags_enum.IS_LEAF_BOX != 0
 
-    if refine_flags[~box_is_leaf].any():
+    if np.any(refine_flags[~box_is_leaf]):
         raise ValueError("attempting to split non-leaf")
 
     refine_parents, = np.where(refine_flags)
@@ -151,7 +166,7 @@ def _apply_refine_flags_without_sorting(refine_flags, tob):
         return tob
 
     dim = tob.dimensions
-    nchildren = 2**dim
+    nchildren: int = 2**dim
     n_new_boxes = len(refine_parents) * nchildren
     nboxes_new = tob.nboxes + n_new_boxes
 
@@ -160,7 +175,7 @@ def _apply_refine_flags_without_sorting(refine_flags, tob):
             + nchildren * np.arange(len(refine_parents)))
 
     refine_parents_per_child = np.empty(
-            (nchildren, len(refine_parents)), np.intp)
+            (nchildren, len(refine_parents)), dtype=np.intp)
     refine_parents_per_child[:] = refine_parents.reshape(-1)
     refine_parents_per_child = refine_parents_per_child.reshape(-1)
 
@@ -176,7 +191,7 @@ def _apply_refine_flags_without_sorting(refine_flags, tob):
     box_children[:, refine_parents] = (
         child_box_starts + np.arange(nchildren).reshape(-1, 1))
 
-    for i in range(2**dim):
+    for i in range(nchildren):
         children_i = box_children[i, refine_parents]
         offsets = (
                 tob.root_extent * _vec_of_signs(dim, i).reshape(-1, 1)
@@ -204,10 +219,16 @@ def _apply_refine_flags_without_sorting(refine_flags, tob):
         )
 
 
-def _apply_coarsen_flags(coarsen_flags, tob, error_on_ignored_flags=True):
+def _apply_coarsen_flags(
+        coarsen_flags: onp.Array1D[np.bool_],
+        tob: TreeOfBoxes,
+        *,
+        error_on_ignored_flags: bool = True
+    ) -> TreeOfBoxes:
     box_is_leaf = tob.box_flags & box_flags_enum.IS_LEAF_BOX != 0
-    if coarsen_flags[~box_is_leaf].any():
+    if np.any(coarsen_flags[~box_is_leaf]):
         raise ValueError("attempting to coarsen non-leaf")
+
     coarsen_sources, = np.where(coarsen_flags)
     if coarsen_sources.size == 0:
         return tob
@@ -218,11 +239,10 @@ def _apply_coarsen_flags(coarsen_flags, tob, error_on_ignored_flags=True):
     coarsen_exec_flags = np.all(coarsen_peer_is_leaf, axis=0)
 
     # when a leaf box marked for coarsening has non-leaf peers
-    coarsen_flags_ignored = (coarsen_exec_flags != coarsen_flags)
-    if np.any(coarsen_flags_ignored):
-        msg = (f"{np.sum(coarsen_flags_ignored)} out of "
-               f"{np.sum(coarsen_flags)} coarsening flags ignored "
-               "to prevent removing non-leaf boxes")
+    coarsen_flags_ignored = np.sum(coarsen_exec_flags != coarsen_flags)
+    if coarsen_flags_ignored:
+        msg = (f"{coarsen_flags_ignored} out of {np.sum(coarsen_flags)} coarsening "
+               "flags ignored to prevent removing non-leaf boxes")
         if error_on_ignored_flags:
             raise RuntimeError(msg)
         else:
@@ -261,7 +281,7 @@ def _apply_coarsen_flags(coarsen_flags, tob, error_on_ignored_flags=True):
         )
 
 
-def _sort_boxes_by_level(tob, queue=None):
+def _sort_boxes_by_level(tob: TreeOfBoxes) -> TreeOfBoxes:
     if not np.any(np.diff(tob.box_levels) < 0):
         return tob
 
@@ -292,7 +312,7 @@ def _sort_boxes_by_level(tob, queue=None):
         )
 
 
-def _sort_and_prune_deleted_boxes(tob):
+def _sort_and_prune_deleted_boxes(tob: TreeOfBoxes) -> TreeOfBoxes:
     tob = _sort_boxes_by_level(tob)
     n_stale_boxes = np.sum(tob.box_levels == np.inf)
     newn = tob.nboxes - n_stale_boxes
@@ -319,8 +339,8 @@ def _sort_and_prune_deleted_boxes(tob):
 
 def refine_and_coarsen_tree_of_boxes(
         tob: TreeOfBoxes,
-        refine_flags: np.ndarray | None = None,
-        coarsen_flags: np.ndarray | None = None, *,
+        refine_flags: onp.Array1D[np.bool_] | None = None,
+        coarsen_flags: onp.Array1D[np.bool_] | None = None, *,
         error_on_ignored_flags: bool = True,
         ) -> TreeOfBoxes:
     """Make a refined/coarsened copy. When children of the same parent box
@@ -334,7 +354,7 @@ def refine_and_coarsen_tree_of_boxes(
 
     :arg refine_flags: a boolean array of size `nboxes`.
     :arg coarsen_flags: a boolean array of size `nboxes`.
-    :arg error_on_ignored_flags: if true, an exception is raised when enforcing
+    :arg error_on_ignored_flags: if *True*, an exception is raised when enforcing
         level restriction requires ignoring some coarsening flags.
     :returns: a processed copy of the tree.
     """
@@ -343,13 +363,14 @@ def refine_and_coarsen_tree_of_boxes(
     if coarsen_flags is None:
         coarsen_flags = np.zeros(tob.nboxes, dtype=bool)
 
-    if (refine_flags & coarsen_flags).any():
+    if np.any(refine_flags & coarsen_flags):
         raise ValueError("some boxes are simultaneously marked "
                          "to refine and coarsen")
 
     tob = _apply_refine_flags_without_sorting(refine_flags, tob)
     coarsen_flags = _resized_array(coarsen_flags, tob.nboxes)
-    tob = _apply_coarsen_flags(coarsen_flags, tob, error_on_ignored_flags)
+    tob = _apply_coarsen_flags(coarsen_flags, tob,
+                               error_on_ignored_flags=error_on_ignored_flags)
     return _sort_and_prune_deleted_boxes(tob)
 
 # }}}
@@ -358,18 +379,18 @@ def refine_and_coarsen_tree_of_boxes(
 # {{{ make_tree_of_boxes_root
 
 def make_tree_of_boxes_root(
-        bbox: tuple[np.ndarray, np.ndarray], *,
-        box_id_dtype: Any = None,
-        box_level_dtype: Any = None,
-        coord_dtype: Any = None,
+        bbox: tuple[onp.Array1D[np.floating[Any]],
+                    onp.Array1D[np.floating[Any]]], *,
+        box_id_dtype: DTypeLike | None = None,
+        box_level_dtype: DTypeLike | None = None,
+        coord_dtype: DTypeLike | None = None,
         ) -> TreeOfBoxes:
     """
-    Make the minimal tree of boxes, consisting of a single root box filling
-    *bbox*.
+    Make the minimal tree of boxes, consisting of a single root box filling *bbox*.
 
     .. note::
 
-        *bbox* is expected to be square (with tolerances as accepted by
+        *bbox* is expected to be square (with default tolerances as accepted by
         :func:`numpy.allclose`).
 
     :arg bbox: a :class:`tuple` of ``(lower_bounds, upper_bounds)`` for the
@@ -405,14 +426,14 @@ def make_tree_of_boxes_root(
     box_parent_ids = np.array([0], dtype=box_id_dtype)
     box_parent_ids[0] = -1  # root has no parent
 
-    box_child_ids = np.array([0] * 2**dim, box_id_dtype).reshape(2**dim, 1)
+    box_child_ids = np.array([0] * 2**dim, dtype=box_id_dtype).reshape(2**dim, 1)
 
     return TreeOfBoxes(
             box_centers=box_centers,
             root_extent=root_extent,
             box_parent_ids=box_parent_ids,
             box_child_ids=box_child_ids,
-            box_levels=np.array([0], box_level_dtype),
+            box_levels=np.array([0], dtype=box_level_dtype),
 
             box_flags=_compute_tob_box_flags(box_child_ids),
             level_start_box_nrs=np.array([0], dtype=box_level_dtype),
@@ -432,11 +453,13 @@ def make_tree_of_boxes_root(
 
 # {{{ make_meshmode_mesh_from_leaves
 
-def make_meshmode_mesh_from_leaves(tob: TreeOfBoxes) -> tuple[Mesh, np.ndarray]:
+def make_meshmode_mesh_from_leaves(
+        tob: TreeOfBoxes
+    ) -> tuple[Mesh, onp.Array1D[np.integer[Any]]]:
     """Make a :class:`~meshmode.mesh.Mesh` from the leaf boxes of the tree
     of boxes *tob*.
 
-    :returns: A tuple of the mesh and a vector of the element number -> box number
+    :returns: a tuple of the mesh and a vector of the element number -> box number
         mapping.
     """
     dim = tob.dimensions
@@ -447,10 +470,10 @@ def make_meshmode_mesh_from_leaves(tob: TreeOfBoxes) -> tuple[Mesh, np.ndarray]:
 
     # use tensor product nodes ordering
     import modepy as mp
-    cell_nodes_1d = np.array([-1, 1])
+    cell_nodes_1d = np.array([-1.0, 1.0])
     cell_nodes = mp.tensor_product_nodes(dim, cell_nodes_1d)
 
-    lfvertices = (
+    lfvertices: onp.Array2D[np.floating[Any]] = (
         np.repeat(lfcenters, 2**dim, axis=1)
         + np.repeat(lfradii, 2**dim) * np.tile(cell_nodes, (1, len(lfboxes)))
     )
@@ -460,7 +483,8 @@ def make_meshmode_mesh_from_leaves(tob: TreeOfBoxes) -> tuple[Mesh, np.ndarray]:
     from meshmode.mesh.generation import make_group_from_vertices
 
     vertex_indices = np.arange(
-        len(lfboxes) * 2**dim, dtype=np.int32).reshape([-1, 2**dim])
+        len(lfboxes) * 2**dim, dtype=tob.box_id_dtype
+    ).reshape([-1, 2**dim])
     group = make_group_from_vertices(
         lfvertices, vertex_indices, 1,
         group_cls=TensorProductElementGroup,
