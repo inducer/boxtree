@@ -223,6 +223,7 @@ class TreeOfBoxes:
 
     .. automethod:: __init__
     """
+    __array_ufunc__: ClassVar[None] = None
 
     root_extent: Array
     box_centers: Array
@@ -551,6 +552,7 @@ class Tree(TreeOfBoxes):
 
         ``coordt_t [dimensions, aligned_nboxes]``
     """
+    __array_ufunc__: ClassVar[None] = None
 
     # flags
     sources_are_targets: bool
@@ -755,6 +757,7 @@ class TreeWithLinkedPointSources(Tree):
         This constructor is not intended to be called by users directly.
         Call :func:`link_point_sources` instead.
     """
+    __array_ufunc__: ClassVar[None] = None
 
     npoint_sources: int
     point_source_starts: Array
@@ -987,6 +990,7 @@ class FilteredTargetListsInUserOrder:
 
         Target numbers are stored in user order, as the class name suggests.
     """
+    __array_ufunc__: ClassVar[None] = None
 
     nfiltered_targets: int
     target_starts: Array
@@ -1041,6 +1045,7 @@ class FilteredTargetListsInTreeOrder:
         from *filtered* tree target order into 'regular'
         :ref:`tree target order <particle-orderings>`.
     """
+    __array_ufunc__: ClassVar[None] = None
 
     nfiltered_targets: int
     box_target_starts: Array

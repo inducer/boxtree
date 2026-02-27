@@ -27,6 +27,7 @@ THE SOFTWARE.
 import logging
 import time
 from dataclasses import dataclass
+from typing import ClassVar
 
 import numpy as np
 from mako.template import Template
@@ -302,6 +303,7 @@ class LocalTree(Tree):
         multipole expansion at this box, via either List 3 or (possibly downward
         propagated from an ancestor) List 2.
     """
+    __array_ufunc__: ClassVar[None] = None
 
     box_to_user_rank_starts: Array
     box_to_user_rank_lists: Array
