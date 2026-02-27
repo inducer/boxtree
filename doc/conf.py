@@ -21,10 +21,15 @@ intersphinx_mapping = {
     "pytools": ("https://documen.tician.de/pytools", None),
 }
 
+nitpick_ignore_regex = [
+    ["py:class", r"onp.*"],
+]
 
 sphinxconfig_missing_reference_aliases = {
     # numpy
-    "NDArray": "obj:numpy.typing.NDArray",
+    "DTypeLike": "obj:numpy.typing.DTypeLike",
+    "np.bool_": "class:numpy.bool",
+    "np.integer": "class:numpy.integer",
     "np.floating": "class:numpy.floating",
     "np.dtype": "class:numpy.dtype",
     # pytools typing
