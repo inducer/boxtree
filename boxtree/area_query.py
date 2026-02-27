@@ -29,6 +29,7 @@ THE SOFTWARE.
 import logging
 from dataclasses import dataclass
 from functools import partial
+from typing import ClassVar
 
 import numpy as np
 from mako.template import Template
@@ -104,6 +105,7 @@ class PeerListLookup:
 
     .. versionadded:: 2016.1
     """
+    __array_ufunc__: ClassVar[None] = None
 
     tree: Tree
     peer_list_starts: Array
@@ -129,6 +131,7 @@ class AreaQueryResult:
 
     .. versionadded:: 2016.1
     """
+    __array_ufunc__: ClassVar[None] = None
 
     tree: Tree
     leaves_near_ball_starts: Array
@@ -155,6 +158,7 @@ class LeavesToBallsLookup:
 
     .. attribute:: balls_near_box_lists
     """
+    __array_ufunc__: ClassVar[None] = None
 
     tree: Tree
     balls_near_box_starts: Array

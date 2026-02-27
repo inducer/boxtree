@@ -54,7 +54,7 @@ import enum
 import logging
 from dataclasses import dataclass
 from functools import partial
-from typing import TYPE_CHECKING, Literal, TypeAlias
+from typing import TYPE_CHECKING, ClassVar, Literal, TypeAlias
 
 import numpy as np
 from mako.template import Template
@@ -1566,6 +1566,7 @@ class FMMTraversalInfo:
 
     .. automethod:: merge_close_lists
     """
+    __array_ufunc__: ClassVar[None] = None
 
     tree: Tree
     well_sep_is_n_away: int

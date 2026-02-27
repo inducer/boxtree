@@ -36,6 +36,7 @@ THE SOFTWARE.
 
 import logging
 from dataclasses import dataclass
+from typing import ClassVar
 
 import numpy as np
 
@@ -75,8 +76,8 @@ class RotationClassesInfo:
         Maps rotation classes in *from_sep_siblings_rotation_classes* to
         rotation angles. This represents the angle between box translation
         pairs and the *z*-axis.
-
     """
+    __array_ufunc__: ClassVar[None] = None
 
     from_sep_siblings_rotation_classes: Array
     from_sep_siblings_rotation_class_to_angle: Array

@@ -37,6 +37,7 @@ THE SOFTWARE.
 import logging
 from dataclasses import dataclass
 from functools import partial
+from typing import ClassVar
 
 import numpy as np
 from mako.template import Template
@@ -228,6 +229,7 @@ class TranslationClassesInfo:
         A :class:`boxtree.traversal.FMMTraversalInfo` object corresponding to the
         traversal that these translation classes refer to.
     """
+    __array_ufunc__: ClassVar[None] = None
 
     traversal: FMMTraversalInfo
     from_sep_siblings_translation_classes: Array
