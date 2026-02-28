@@ -80,7 +80,7 @@ THE SOFTWARE.
 import logging
 from dataclasses import dataclass, field
 from functools import cached_property
-from typing import ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import numpy as np
 from typing_extensions import override
@@ -96,12 +96,17 @@ from boxtree.array_context import dataclass_array_container
 from boxtree.tree_build import ExtentNorm  # noqa: TC001
 
 
+if TYPE_CHECKING:
+    import optype.numpy as onp
+
+    import pyopencl as cl
+
 logger = logging.getLogger(__name__)
 
 
 # {{{ box flags
 
-class box_flags_enum(Enum):  # noqa
+class box_flags_enum(Enum):  # noqa: N801
     """Constants for box flags bit field.
 
     .. rubric:: Flags for particle-based trees
@@ -122,7 +127,7 @@ class box_flags_enum(Enum):  # noqa
     """
 
     c_name: ClassVar[str] = "box_flags_t"
-    dtype: ClassVar[np.dtype[np.integer]] = np.dtype(np.uint8)
+    dtype: ClassVar[np.dtype[np.integer[Any]]] = np.dtype(np.uint8)
     c_value_prefix: ClassVar[str] = "BOX_"
 
     IS_SOURCE_BOX: ClassVar[int] = 1 << 0
@@ -230,9 +235,9 @@ class TreeOfBoxes:
     level_start_box_nrs: Array | None
 
     # FIXME: these should be properties and take values from box_parent_ids, etc
-    box_id_dtype: np.dtype
-    box_level_dtype: np.dtype
-    coord_dtype: np.dtype
+    box_id_dtype: np.dtype[np.integer[Any]]
+    box_level_dtype: np.dtype[np.integer[Any]]
+    coord_dtype: np.dtype[np.floating[Any]]
 
     sources_have_extent: bool
     targets_have_extent: bool
@@ -242,39 +247,39 @@ class TreeOfBoxes:
     _is_pruned: bool
 
     @property
-    def dimensions(self):
+    def dimensions(self) -> int:
         return self.box_centers.shape[0]
 
     @property
-    def nboxes(self):
+    def nboxes(self) -> int:
         return self.box_centers.shape[1]
 
     @property
-    def aligned_nboxes(self):
+    def aligned_nboxes(self) -> int:
         return self.box_child_ids.shape[-1]
 
     @property
-    def nlevels(self):
+    def nlevels(self) -> int:
         return max(self.box_levels) + 1
 
     @property
-    def leaf_boxes(self):
-        boxes = np.arange(self.nboxes)
+    def leaf_boxes(self) -> onp.Array1D[np.integer[Any]]:
+        boxes = np.arange(self.nboxes, dtype=self.box_id_dtype)
         return boxes[self.box_flags & box_flags_enum.IS_LEAF_BOX != 0]
 
     @cached_property
-    def bounding_box(self) -> tuple[np.ndarray, np.ndarray]:
+    def bounding_box(self) -> tuple[Array, Array]:
         lows = self.box_centers[:, 0] - 0.5 * self.root_extent
         highs = lows + self.root_extent
         return lows, highs
 
     # {{{ dummy interface for TreePlotter
 
-    def get_box_size(self, ibox):
+    def get_box_size(self, ibox: int) -> Array:
         lev = self.box_levels[ibox]
         return self.root_extent * 0.5**lev
 
-    def get_box_extent(self, ibox):
+    def get_box_extent(self, ibox: int) -> tuple[Array, Array]:
         box_size = self.get_box_size(ibox)
         extent_low = self.box_centers[:, ibox] - 0.5*box_size
         extent_high = extent_low + box_size
@@ -551,7 +556,7 @@ class Tree(TreeOfBoxes):
     sources_are_targets: bool
 
     # data types
-    particle_id_dtype: np.dtype
+    particle_id_dtype: np.dtype[np.integer[Any]]
 
     # per-particle arrays
     sources: Array
@@ -584,38 +589,39 @@ class Tree(TreeOfBoxes):
 
     @property
     @override
-    def dimensions(self):
+    def dimensions(self) -> int:
         return len(self.sources)
 
     @property
     @override
-    def nboxes(self):
+    def nboxes(self) -> int:
         # box_flags is created after the level loop and therefore
         # reflects the right number of boxes.
         return len(self.box_flags)
 
     @property
-    def nsources(self):
+    def nsources(self) -> int:
         return len(self.sources[0])
 
     @property
-    def ntargets(self):
+    def ntargets(self) -> int:
         return len(self.targets[0])
 
     @property
     @override
-    def nlevels(self):
+    def nlevels(self) -> int:
         return len(self.level_start_box_nrs) - 1
 
     # {{{ dummy interface for TreePlotter
 
-    def plot(self, **kwargs):
+    def plot(self, **kwargs: Any) -> None:
         from boxtree.visualization import TreePlotter
         plotter = TreePlotter(self)
         plotter.draw_tree(**kwargs)
         plotter.set_bounding_box()
 
-    def get_box_extent(self, ibox: int):
+    @override
+    def get_box_extent(self, ibox: int) -> tuple[Array, Array]:
         lev = int(self.box_levels[ibox])
         box_size = self.root_extent / (1 << lev)
         extent_low = self.box_centers[:, ibox] - 0.5*box_size
@@ -628,13 +634,17 @@ class Tree(TreeOfBoxes):
 
     # these assume numpy arrays for now
 
-    def _reverse_index_lookup(self, ary, new_key_size):
-        result = np.empty(new_key_size, ary.dtype)
+    def _reverse_index_lookup(
+            self, ary: onp.Array1D[np.integer[Any]], new_key_size: int
+        ) -> onp.Array1D[np.integer[Any]]:
+        result = np.empty(new_key_size, dtype=ary.dtype)
         result.fill(-1)
         result[ary] = np.arange(len(ary), dtype=ary.dtype)
         return result
 
-    def indices_to_tree_source_order(self, user_indices):
+    def indices_to_tree_source_order(
+            self, user_indices: onp.Array1D[np.integer[Any]]
+        ) -> onp.Array1D[np.integer[Any]]:
         # user_source_ids : tree order source indices -> user order source indices
         # tree_source_ids : user order source indices -> tree order source indices
 
@@ -642,30 +652,32 @@ class Tree(TreeOfBoxes):
                 self.user_source_ids, self.nsources)
         return tree_source_ids[user_indices]
 
-    def indices_to_tree_target_order(self, user_indices):
+    def indices_to_tree_target_order(
+            self, user_indices: onp.Array1D[np.integer[Any]]
+        ) -> onp.Array1D[np.integer[Any]]:
         # sorted_target_ids : user order target indices -> tree order target indices
 
         return self.sorted_target_ids[user_indices]
 
-    def find_box_nr_for_target(self, itarget):
+    def find_box_nr_for_target(self, itarget: int) -> int:
         """
-        :arg itarget: target number in tree order
+        :arg itarget: target number in tree order.
         """
         crit = (
-                (self.box_target_starts <= itarget)
-                & (itarget
-                    < self.box_target_starts + self.box_target_counts_nonchild))
+            (self.box_target_starts <= itarget)
+            & (itarget < self.box_target_starts + self.box_target_counts_nonchild)
+        )
 
         return int(np.where(crit)[0])
 
-    def find_box_nr_for_source(self, isource):
+    def find_box_nr_for_source(self, isource: int) -> int:
         """
-        :arg isource: source number in tree order
+        :arg isource: source number in tree order.
         """
         crit = (
-                (self.box_source_starts <= isource)
-                & (isource
-                    < self.box_source_starts + self.box_source_counts_nonchild))
+            (self.box_source_starts <= isource)
+            & (isource < self.box_source_starts + self.box_source_counts_nonchild)
+        )
 
         return int(np.where(crit)[0])
 
@@ -680,12 +692,14 @@ class Tree(TreeOfBoxes):
 @dataclass(frozen=True)
 class TreeWithLinkedPointSources(Tree):
     """In this :class:`boxtree.Tree` subclass, the sources of the original tree are
-    linked with extent are expanded into point sources which are linked to the
-    extent-having sources in the original tree. (In an FMM context, they may
-    stand in for the 'underlying' source for the purpose of the far-field
-    calculation.) Has all the same attributes as :class:`boxtree.Tree`.
-    :attr:`boxtree.Tree.sources_have_extent` is always *True* for instances of this
-    type. In addition, the following attributes are available.
+    expanded into point sources which are linked to the extent-having sources in
+    the original tree.
+
+    In an FMM context, they may stand in for the 'underlying' source for the purpose
+    of the far-field calculation. It has all the same attributes as
+    :class:`boxtree.Tree`. :attr:`boxtree.Tree.sources_have_extent` is always
+    *True* for instances of this type. In addition, the following attributes
+    are available.
 
     .. attribute:: npoint_sources
 
@@ -755,7 +769,7 @@ class TreeWithLinkedPointSources(Tree):
 def link_point_sources(
         actx: ArrayContext, tree: Tree,
         point_source_starts: Array, point_sources: Array, *,
-        debug: bool = False):
+        debug: bool = False) -> TreeWithLinkedPointSources:
     r"""
     *Construction:* Requires that :attr:`boxtree.Tree.sources_have_extent` is *True*
     on *tree*.
@@ -1041,16 +1055,20 @@ class ParticleListFilter:
     .. automethod:: filter_target_lists_in_user_order
     """
 
-    def __init__(self, array_context: PyOpenCLArrayContext):
-        self._setup_actx = array_context
+    def __init__(self, array_context: ArrayContext):
+        assert isinstance(array_context, PyOpenCLArrayContext)
+        self._setup_actx: PyOpenCLArrayContext = array_context
 
     @property
-    def context(self):
+    def context(self) -> cl.Context:
         return self._setup_actx.queue.context
 
     @memoize_method
-    def get_filter_target_lists_in_user_order_kernel(self, particle_id_dtype,
-            user_order_flags_dtype):
+    def get_filter_target_lists_in_user_order_kernel(
+            self,
+            particle_id_dtype: np.dtype[np.integer[Any]],
+            user_order_flags_dtype: np.dtype[np.integer[Any]]
+        ) -> Any:
         from mako.template import Template
 
         from pyopencl.algorithm import ListOfListsBuilder
@@ -1086,15 +1104,17 @@ class ParticleListFilter:
                     VectorArg(particle_id_dtype, "box_target_counts_nonchild"),
                 ])
 
-    def filter_target_lists_in_user_order(self, actx, tree, flags):
+    def filter_target_lists_in_user_order(
+            self, actx: ArrayContext, tree: Tree, flags: Array
+        ) -> FilteredTargetListsInUserOrder:
         """
         :arg flags: an array of length :attr:`boxtree.Tree.ntargets` of
             :class:`numpy.int8` objects, which indicate by being zero that the
             corresponding target (in user target order) is not part of the
             filtered list, or by being nonzero that it is.
-
-        :returns: A :class:`FilteredTargetListsInUserOrder`
         """
+        assert isinstance(actx, PyOpenCLArrayContext)
+
         user_order_flags = flags
         del flags
 
@@ -1121,7 +1141,9 @@ class ParticleListFilter:
         return actx.freeze(target_lists)
 
     @memoize_method
-    def get_filter_target_lists_in_tree_order_kernels(self, particle_id_dtype):
+    def get_filter_target_lists_in_tree_order_kernels(
+            self, particle_id_dtype: np.dtype[np.integer[Any]]
+        ) -> Any:
         from boxtree.tree_build_kernels import (
             TREE_ORDER_TARGET_FILTER_INDEX_TPL,
             TREE_ORDER_TARGET_FILTER_SCAN_TPL,
@@ -1144,13 +1166,14 @@ class ParticleListFilter:
 
         return scan_knl, index_knl
 
-    def filter_target_lists_in_tree_order(self, actx, tree, flags):
+    def filter_target_lists_in_tree_order(
+            self, actx: ArrayContext, tree: Tree, flags: Array
+        ) -> FilteredTargetListsInTreeOrder:
         """
         :arg flags: an array of length :attr:`boxtree.Tree.ntargets` of
             :class:`numpy.int8` objects, which indicate by being zero that the
             corresponding target (in user target order) is not part of the
             filtered list, or by being nonzero that it is.
-        :returns: A :class:`FilteredTargetListsInTreeOrder`
         """
 
         tree_order_flags = actx.np.zeros(tree.ntargets, np.int8)
