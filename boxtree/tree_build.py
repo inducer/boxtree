@@ -54,7 +54,7 @@ THE SOFTWARE.
 import logging
 from functools import partial
 from itertools import pairwise
-from typing import TYPE_CHECKING, Literal, TypeAlias
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, TypeAlias
 
 import numpy as np
 
@@ -63,12 +63,15 @@ from pytools import DebugProcessLogger, ProcessLogger, memoize_method, obj_array
 
 
 if TYPE_CHECKING:
-    from numpy.typing import NDArray
+    import optype.numpy as onp
 
     import pyopencl as cl
-    from pyopencl.cl_array import Allocator
-    from pyopencl.typing import WaitList
+    from pyopencl.typing import Allocator, WaitList
 
+    from boxtree.bounding_box import BoundingBoxFinder
+    from boxtree.tools import GappyCopyAndMapKernel, MapValuesKernel
+    from boxtree.tree import Tree
+    from boxtree.tree_build_kernels import _KernelInfo
 
 logger = logging.getLogger(__name__)
 
@@ -93,9 +96,13 @@ class TreeBuilder:
     .. automethod:: __call__
     """
 
-    morton_nr_dtype = np.dtype(np.int8)
-    box_level_dtype = np.dtype(np.uint8)
-    ROOT_EXTENT_STRETCH_FACTOR = 1e-4
+    morton_nr_dtype: ClassVar[np.dtype[np.integer[Any]]] = np.dtype(np.int8)
+    box_level_dtype: ClassVar[np.dtype[np.integer[Any]]] = np.dtype(np.uint8)
+    ROOT_EXTENT_STRETCH_FACTOR: ClassVar[float] = 1e-4
+
+    bbox_finder: BoundingBoxFinder
+    gappy_copy_and_map: GappyCopyAndMapKernel
+    map_values_kernel: MapValuesKernel
 
     def __init__(self, array_context: ArrayContext) -> None:
         assert isinstance(array_context, PyOpenCLArrayContext)
@@ -112,14 +119,19 @@ class TreeBuilder:
         self.map_values_kernel = MapValuesKernel(array_context)
 
     @property
-    def context(self):
+    def context(self) -> cl.Context:
         return self._setup_actx.queue.context
 
     @memoize_method
-    def get_kernel_info(self, dimensions, coord_dtype,
-            particle_id_dtype, box_id_dtype,
-            sources_are_targets, srcntgts_extent_norm,
-            kind):
+    def get_kernel_info(
+            self,
+            dimensions: int,
+            coord_dtype: np.dtype[np.floating[Any]],
+            particle_id_dtype: np.dtype[np.integer[Any]],
+            box_id_dtype: np.dtype[np.integer[Any]],
+            sources_are_targets: bool,
+            srcntgts_extent_norm: ExtentNorm,
+            kind: TreeKind) -> _KernelInfo:
 
         from boxtree.tree_build_kernels import get_tree_build_kernel_info
         return get_tree_build_kernel_info(self.context, dimensions, coord_dtype,
@@ -141,12 +153,12 @@ class TreeBuilder:
                  source_radii: Array | None = None,
                  target_radii: Array | None = None,
                  stick_out_factor: float | None = None,
-                 refine_weights=None,
-                 max_leaf_refine_weight=None,
-                 wait_for: WaitList = None,
+                 refine_weights: Array | None = None,
+                 max_leaf_refine_weight: float | None = None,
+                 wait_for: WaitList | None = None,
                  extent_norm: ExtentNorm | None = None,
-                 bbox: NDArray[np.floating] | None = None,
-                 **kwargs):
+                 bbox: onp.Array1D[np.floating] | None = None,
+                 **kwargs: Any) -> tuple[Tree, cl.Event]:
         """
         :arg particles: an object array of (XYZ) point coordinate arrays.
         :arg kind: One of the following strings:
@@ -211,7 +223,7 @@ class TreeBuilder:
         # {{{ input processing
 
         if kind not in ["adaptive", "adaptive-level-restricted", "non-adaptive"]:
-            raise ValueError(f"unknown tree kind '{kind}'")
+            raise ValueError(f"unknown tree kind: '{kind}'")
 
         # we'll modify this below, so copy it
         waitlist: list[cl.Event] = [] if wait_for is None else list(wait_for)
@@ -239,12 +251,13 @@ class TreeBuilder:
         del extent_norm
 
         if srcntgts_extent_norm and targets is None:
-            raise ValueError("must specify targets when specifying "
-                    "any kind of radii")
+            raise ValueError("must specify targets when specifying any kind of radii")
 
         from pytools import single_valued
-        particle_id_dtype = np.int32
-        box_id_dtype = np.int32
+
+        # FIXME: should let the user provide these
+        particle_id_dtype = np.dtype(np.int32)
+        box_id_dtype = np.dtype(np.int32)
         coord_dtype = single_valued(coord.dtype for coord in particles)
 
         if targets is None:
@@ -256,37 +269,41 @@ class TreeBuilder:
 
         if source_radii is not None:
             if source_radii.shape != (nsources,):
-                raise ValueError("source_radii has an invalid shape")
+                raise ValueError("'source_radii' has an invalid shape: "
+                                 f"{source_radii.shape} (expected ({nsources},))")
 
             if source_radii.dtype != coord_dtype:
-                raise TypeError("dtypes of coordinate arrays and "
-                        "source_radii must agree")
+                raise TypeError(
+                        "dtypes of coordinate array 'particles' and 'source_radii' "
+                        f"must agree: got {coord_dtype} and {source_radii.dtype}")
 
         if target_radii is not None:
             if target_radii.shape != (ntargets,):
-                raise ValueError("target_radii has an invalid shape")
+                raise ValueError("'target_radii' has an invalid shape: "
+                                 f"{target_radii.shape} (expected ({ntargets},))")
 
             if target_radii.dtype != coord_dtype:
-                raise TypeError("dtypes of coordinate arrays and "
-                        "target_radii must agree")
+                raise TypeError(
+                        "dtypes of coordinate array 'particles' and 'target_radii' "
+                        f"must agree: got {coord_dtype} and {target_radii.dtype}")
 
         if sources_have_extent or targets_have_extent:
             if stick_out_factor is None:
                 raise ValueError("if sources or targets have extent, "
-                        "stick_out_factor must be explicitly specified")
+                        "'stick_out_factor' must be explicitly specified")
         else:
             stick_out_factor = 0
 
         # }}}
 
-        def zeros(shape, dtype):
+        def zeros(shape: int | tuple[int, ...],
+                  dtype: np.dtype[Any]) -> tuple[Array, cl.Event]:
             result = actx.np.zeros(shape, dtype)
 
             if result.events:
                 event, = result.events
             else:
-                from numbers import Number
-                if isinstance(shape, Number):
+                if isinstance(shape, int):
                     shape = (shape,)
 
                 from pytools import product
@@ -306,7 +323,7 @@ class TreeBuilder:
 
         # {{{ combine sources and targets into one array, if necessary
 
-        prep_events = []
+        prep_events: list[cl.Event] = []
 
         if targets is None:
             # Targets weren't specified. Sources are also targets. Let's
@@ -334,14 +351,22 @@ class TreeBuilder:
             target_coord_dtype = single_valued(tgt_i.dtype for tgt_i in targets)
 
             if target_coord_dtype != coord_dtype:
-                raise TypeError("sources and targets must have same coordinate "
-                        "dtype")
+                raise TypeError(
+                        "sources and targets coordinates must have same dtype: "
+                        f"got {coord_dtype} and {target_coord_dtype}")
 
-            def combine_srcntgt_arrays(ary1, ary2=None):
-                dtype = ary1.dtype if ary2 is None else ary2.dtype
+            def combine_srcntgt_arrays(
+                    ary1: Array | None, ary2: Array | None = None
+                ) -> Array:
+                if ary1 is not None:
+                    dtype = ary1.dtype
+                elif ary2 is not None:
+                    dtype = ary2.dtype
+                else:
+                    raise ValueError("cannot set both 'ary1' and 'ary2' to None")
 
                 result = actx.np.zeros(nsrcntgts, dtype)
-                if (ary1 is None) or (ary2 is None):
+                if ary1 is None or ary2 is None:
                     result.fill(0)
 
                 if ary1 is not None and ary1.nbytes:
@@ -382,37 +407,41 @@ class TreeBuilder:
         from boxtree.tree_build_kernels import refine_weight_dtype
 
         specified_max_particles_in_box = max_particles_in_box is not None
-        specified_refine_weights = refine_weights is not None and \
-            max_leaf_refine_weight is not None
+        specified_refine_weights = (
+            refine_weights is not None
+            and max_leaf_refine_weight is not None)
 
         if specified_max_particles_in_box and specified_refine_weights:
-            raise ValueError("may only specify one of max_particles_in_box and "
-                    "refine_weights/max_leaf_refine_weight")
+            raise ValueError("may only specify one of 'max_particles_in_box' and "
+                             "'refine_weights'/'max_leaf_refine_weight")
         elif not specified_max_particles_in_box and not specified_refine_weights:
-            raise ValueError("must specify either max_particles_in_box or "
-                    "refine_weights/max_leaf_refine_weight")
+            raise ValueError("must specify either 'max_particles_in_box' or "
+                             "'refine_weights'/'max_leaf_refine_weight'")
         elif specified_max_particles_in_box:
             refine_weights = actx.np.zeros(nsrcntgts, refine_weight_dtype)
             refine_weights.fill(1)
 
             prep_events.extend(refine_weights.events)
             max_leaf_refine_weight = max_particles_in_box
-        elif specified_refine_weights:  # noqa: SIM102
+        elif specified_refine_weights:
+            assert refine_weights is not None
             if refine_weights.dtype != refine_weight_dtype:
                 raise TypeError(
-                        f"refine_weights must have dtype '{refine_weight_dtype}'")
+                        f"'refine_weights' must have dtype '{refine_weight_dtype}' "
+                        f"(got {refine_weights.dtype})")
 
         if max_leaf_refine_weight <= 0:
-            raise ValueError("max_leaf_refine_weight must be positive")
+            raise ValueError(
+                f"'max_leaf_refine_weight' must be positive: {max_leaf_refine_weight}")
 
         max_refine_weights = actx.to_numpy(actx.np.amax(refine_weights))
         if max_leaf_refine_weight < max_refine_weights:
             raise ValueError(
-                    "entries of refine_weights cannot exceed max_leaf_refine_weight")
+                "entries of 'refine_weights' cannot exceed 'max_leaf_refine_weight'")
 
         min_refine_weights = actx.to_numpy(actx.np.amin(refine_weights))
         if min_refine_weights < 0:
-            raise ValueError("all entries of refine_weights must be nonnegative")
+            raise ValueError("all entries of 'refine_weights' must be nonnegative")
 
         total_refine_weight = actx.to_numpy(
             actx.np.sum(refine_weights, dtype=np.dtype(np.int64))
@@ -433,18 +462,18 @@ class TreeBuilder:
         if bbox is None:
             bbox = bbox_auto
             root_extent = max(
-                bbox["max_"+ax] - bbox["min_"+ax]
+                bbox[f"max_{ax}"] - bbox[f"min_{ax}"]
                 for ax in axis_names) * (1+TreeBuilder.ROOT_EXTENT_STRETCH_FACTOR)
 
             # make bbox square and slightly larger at the top, to ensure scaled
             # coordinates are always < 1
             bbox_min = np.empty(dimensions, coord_dtype)
             for i, ax in enumerate(axis_names):
-                bbox_min[i] = bbox["min_"+ax]
+                bbox_min[i] = bbox[f"min_{ax}"]
 
             bbox_max = bbox_min + root_extent
             for i, ax in enumerate(axis_names):
-                bbox["max_"+ax] = bbox_max[i]
+                bbox[f"max_{ax}"] = bbox_max[i]
         else:
             # Convert unstructured numpy array to bbox_type
             if isinstance(bbox, np.ndarray):
@@ -452,24 +481,24 @@ class TreeBuilder:
                     bbox_bak = bbox.copy()
                     bbox = np.empty(1, bbox_auto.dtype)
                     for i, ax in enumerate(axis_names):
-                        bbox["min_"+ax] = bbox_bak[i][0]
-                        bbox["max_"+ax] = bbox_bak[i][1]
+                        bbox[f"min_{ax}"] = bbox_bak[i][0]
+                        bbox[f"max_{ax}"] = bbox_bak[i][1]
                 else:
                     assert len(bbox) == 1
             else:
-                raise NotImplementedError("Unsupported bounding box type: "
-                        + str(type(bbox)))
+                raise NotImplementedError(
+                    f"unsupported bounding box type: {type(bbox)}")
 
             # bbox must cover bbox_auto
             bbox_min = np.empty(dimensions, coord_dtype)
             bbox_max = np.empty(dimensions, coord_dtype)
 
             for i, ax in enumerate(axis_names):
-                bbox_min[i] = bbox["min_" + ax]
-                bbox_max[i] = bbox["max_" + ax]
+                bbox_min[i] = bbox[f"min_{ax}"]
+                bbox_max[i] = bbox[f"max_{ax}"]
                 assert bbox_min[i] < bbox_max[i]
-                assert bbox_min[i] <= bbox_auto["min_" + ax]
-                assert bbox_max[i] >= bbox_auto["max_" + ax]
+                assert bbox_min[i] <= bbox_auto[f"min_{ax}"]
+                assert bbox_max[i] >= bbox_auto[f"max_{ax}"]
 
             # bbox must be a square
             bbox_exts = bbox_max - bbox_min
@@ -497,20 +526,20 @@ class TreeBuilder:
         # invariant to sorting once set
         # (particles are only reordered within a box)
         # valid throughout computation
-        box_start_flags, evt = zeros(nsrcntgts, dtype=np.int8)
+        box_start_flags, evt = zeros(nsrcntgts, dtype=np.dtype(np.int8))
         prep_events.append(evt)
         srcntgt_box_ids, evt = zeros(nsrcntgts, dtype=box_id_dtype)
         prep_events.append(evt)
 
         # Outside nboxes_guess feeding is solely for debugging purposes,
         # to test the reallocation code.
-        nboxes_guess = kwargs.get("nboxes_guess")
+        nboxes_guess: int | None = kwargs.get("nboxes_guess")
         if nboxes_guess is None:
-            nboxes_guess = 2**dimensions * (
+            nboxes_guess = int(2**dimensions * (
                     (max_leaf_refine_weight + total_refine_weight - 1)
-                    // max_leaf_refine_weight)
+                    // max_leaf_refine_weight))
 
-        assert nboxes_guess > 0
+        assert nboxes_guess is not None and nboxes_guess > 0
 
         # /!\ IMPORTANT
         #
@@ -543,19 +572,19 @@ class TreeBuilder:
 
         # pointer to child box, by morton number
         box_child_ids, evts = zip(
-            *(zeros(nboxes_guess, dtype=box_id_dtype) for d in range(2**dimensions)),
+            *(zeros(nboxes_guess, dtype=box_id_dtype) for _ in range(2**dimensions)),
             strict=True)
         prep_events.extend(evts)
 
         # box centers, by dimension
         box_centers, evts = zip(
-            *(zeros(nboxes_guess, dtype=coord_dtype) for d in range(dimensions)),
+            *(zeros(nboxes_guess, dtype=coord_dtype) for _ in range(dimensions)),
             strict=True)
         prep_events.extend(evts)
 
         # Initialize box_centers[0] to contain the root box's center
         for d, (ax, evt) in enumerate(zip(axis_names, evts, strict=True)):
-            center_ax = bbox["min_"+ax] + (bbox["max_"+ax] - bbox["min_"+ax]) / 2
+            center_ax = bbox[f"min_{ax}"] + (bbox[f"max_{ax}"] - bbox[f"min_{ax}"]) / 2
             box_centers[d][0].fill(center_ax, wait_for=[evt])
 
         # box -> level map
@@ -603,18 +632,18 @@ class TreeBuilder:
 
         # }}}
 
-        def debug_with_finish(s):
+        def debug_with_finish(s: str) -> None:
             if debug:
                 actx.queue.finish()
 
             logger.debug(s)
 
-        have_oversize_split_box, evt = zeros((), np.int32)
+        have_oversize_split_box, evt = zeros((), np.dtype(np.int32))
         prep_events.append(evt)
 
         # True if and only if the level restrict kernel found a box to split in
         # order to enforce level restriction.
-        have_upper_level_split_box, evt = zeros((), np.int32)
+        have_upper_level_split_box, evt = zeros((), np.dtype(np.int32))
         prep_events.append(evt)
 
         waitlist = prep_events
@@ -786,7 +815,7 @@ class TreeBuilder:
             # level.
             if knl_info.level_restrict and actx.to_numpy(have_oversize_split_box):
                 # Currently undocumented.
-                lr_lookbehind_levels = kwargs.get("lr_lookbehind", 1)
+                lr_lookbehind_levels: int = kwargs.get("lr_lookbehind", 1)
                 minimal_new_level_length += sum(
                     2**(lev*dimensions) * new_level_leaf_counts[level - lev]
                     for lev in range(1, 1 + min(level, lr_lookbehind_levels)))
