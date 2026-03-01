@@ -33,7 +33,11 @@ from mako.template import Template
 import pyopencl as cl
 import pyopencl.array as cl_array
 from arraycontext import Array, ArrayContext, PyOpenCLArrayContext
-from pyopencl.tools import ScalarArg, VectorArg as _VectorArg, dtype_to_c_struct
+from pyopencl.tools import (
+    ScalarArg as ScalarArg,  # noqa: PLC0414
+    VectorArg as _VectorArg,
+    dtype_to_c_struct,
+)
 from pytools import Record, memoize_method, obj_array
 
 
@@ -74,7 +78,11 @@ def realloc_array(
     return new_ary, evt
 
 
-def reverse_index_array(actx, indices, target_size=None, result_fill_value=None):
+def reverse_index_array(
+        actx: ArrayContext,
+        indices: Array,
+        target_size: int | None = None,
+        result_fill_value: complex | None = None) -> Array:
     """For an array of *indices*, return a new array *result* that satisfies
     ``result[indices] == arange(len(indices))``
 
@@ -83,16 +91,16 @@ def reverse_index_array(actx, indices, target_size=None, result_fill_value=None)
     :arg result_fill_value: If not *None*, fill *result* with this value
         prior to storing reversed indices.
     """
+    assert isinstance(actx, PyOpenCLArrayContext)
 
     if target_size is None:
         target_size = len(indices)
 
     result = actx.np.zeros(target_size, indices.dtype)
-
     if result_fill_value is not None:
         result.fill(result_fill_value)
 
-    cl.array.multi_put(
+    cl_array.multi_put(
             [actx.from_numpy(np.arange(len(indices), dtype=indices.dtype))],
             indices,
             out=[result],
