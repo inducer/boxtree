@@ -25,6 +25,7 @@ Build Entrypoint
 .. autodata:: FromSepSmallerCrit
     :no-index:
 """
+
 from __future__ import annotations
 
 
@@ -54,12 +55,13 @@ import enum
 import logging
 from dataclasses import dataclass
 from functools import partial
-from typing import TYPE_CHECKING, ClassVar, Literal, TypeAlias
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, TypeAlias
 
 import numpy as np
 from mako.template import Template
 
 from arraycontext import Array, ArrayContext, PyOpenCLArrayContext
+from pyopencl.algorithm import BuiltList, ListOfListsBuilder  # noqa: TC001
 from pyopencl.elementwise import ElementwiseKernel, ElementwiseTemplate
 from pytools import ProcessLogger, log_process, memoize_method, obj_array
 
@@ -72,8 +74,10 @@ from boxtree.tree import Tree  # noqa: TC001
 
 
 if TYPE_CHECKING:
+    import optype.numpy as onp
+
     import pyopencl as cl
-    from pyopencl.algorithm import ListOfListsBuilder
+    from pyopencl.typing import WaitList
 
     from boxtree.tree_build import ExtentNorm
 
@@ -1212,16 +1216,23 @@ class _IndexStyle(enum.IntEnum):
 class _ListMerger:
     """Utility class for combining box lists optionally changing indexing style."""
 
-    def __init__(self, array_context: ArrayContext, box_id_dtype):
+    box_id_dtype: np.dtype[np.integer[Any]]
+    _setup_actx: PyOpenCLArrayContext
+
+    def __init__(self,
+                 array_context: ArrayContext,
+                 box_id_dtype: np.dtype[np.integer[Any]]) -> None:
+        assert isinstance(array_context, PyOpenCLArrayContext)
+
         self._setup_actx = array_context
         self.box_id_dtype = box_id_dtype
 
     @property
-    def context(self):
+    def context(self) -> cl.Context:
         return self._setup_actx.queue.context
 
     @memoize_method
-    def get_list_merger_kernel(self, nlists, write_counts):
+    def get_list_merger_kernel(self, nlists: int, write_counts: int) -> Any:
         """
         :arg nlists: Number of input lists
         :arg write_counts: A :class:`bool`, indicating whether to generate a
@@ -1239,17 +1250,23 @@ class _ListMerger:
                     ("write_counts", write_counts),
                 ))
 
-    def __call__(self, actx, input_starts, input_lists, input_index_style,
-            output_index_style, target_boxes, target_or_target_parent_boxes,
-            nboxes, debug=False, wait_for=None):
+    def __call__(self,
+                 actx: ArrayContext,
+                 input_starts: tuple[Array, ...],
+                 input_lists: tuple[Array, ...],
+                 input_index_style: _IndexStyle,
+                 output_index_style: _IndexStyle,
+                 target_boxes: Array,
+                 target_or_target_parent_boxes: Array,
+                 nboxes: int,
+                 debug: bool = False,
+                 wait_for: WaitList | None = None) -> tuple[dict[str, Array], cl.Event]:
         """
-        :arg input_starts: Starts arrays of input
-        :arg input_lists: Lists arrays of input
-        :arg input_index_style: A :class:`_IndexStyle`
-        :arg output_index_style: A :class:`_IndexStyle`
-        :returns: A pair *results_dict, event*, where *results_dict*
-            contains entries *starts* and *lists*
+        :returns: A pair ``(results_dict, event)``, where *results_dict*
+            contains entries *starts* and *lists*.
         """
+        assert isinstance(actx, PyOpenCLArrayContext)
+
         if wait_for is None:
             wait_for = []
 
@@ -1271,6 +1288,7 @@ class _ListMerger:
                 input_index_style == _IndexStyle.TARGET_OR_TARGET_PARENT_BOXES
                 and output_index_style == _IndexStyle.TARGET_BOXES):
             from boxtree.tools import reverse_index_array
+
             target_or_target_parent_boxes_from_all_boxes = reverse_index_array(
                     actx, target_or_target_parent_boxes, target_size=nboxes)
             target_or_target_parent_boxes_from_target_boxes = (
@@ -1574,12 +1592,12 @@ class FMMTraversalInfo:
     # basic box lists for iteration
     source_boxes: Array
     target_boxes: Array
-    level_start_source_box_nrs: Array
-    level_start_target_box_nrs: Array
+    level_start_source_box_nrs: Array | None
+    level_start_target_box_nrs: Array | None
     source_parent_boxes: Array
-    level_start_source_parent_box_nrs: Array
+    level_start_source_parent_box_nrs: Array | None
     target_or_target_parent_boxes: Array
-    level_start_target_or_target_parent_box_nrs: Array
+    level_start_target_or_target_parent_box_nrs: Array | None
 
     # same-level non-well-separated boxes
     same_level_non_well_sep_boxes_starts: Array
@@ -1594,16 +1612,16 @@ class FMMTraversalInfo:
     from_sep_siblings_lists: Array
 
     # separated smaller boxes ("List 3")
-    from_sep_smaller_by_level: Array
-    target_boxes_sep_smaller_by_source_level: Array
-    from_sep_close_smaller_starts: Array
-    from_sep_close_smaller_lists: Array
+    from_sep_smaller_by_level: obj_array.ObjectArray1D[BuiltList]
+    target_boxes_sep_smaller_by_source_level: obj_array.ObjectArray1D[Array]
+    from_sep_close_smaller_starts: Array | None
+    from_sep_close_smaller_lists: Array | None
 
     # separated bigger boxes ("List 4")
     from_sep_bigger_starts: Array
     from_sep_bigger_lists: Array
-    from_sep_close_bigger_starts: Array
-    from_sep_close_bigger_lists: Array
+    from_sep_close_bigger_starts: Array | None
+    from_sep_close_bigger_lists: Array | None
 
     @property
     def nboxes(self):
@@ -1623,7 +1641,9 @@ class FMMTraversalInfo:
 
     # {{{ "close" list merging -> "unified list 1"
 
-    def merge_close_lists(self, actx, debug=False):
+    def merge_close_lists(self,
+                          actx: ArrayContext,
+                          debug: bool = False) -> FMMTraversalInfo:
         """Return a new :class:`FMMTraversalInfo` instance with the contents of
         :attr:`from_sep_close_smaller_starts` and
         :attr:`from_sep_close_bigger_starts` merged into
@@ -1670,7 +1690,7 @@ class FMMTraversalInfo:
 
     # {{{ debugging aids
 
-    def get_box_list(self, what, index):
+    def get_box_list(self, what: str, index: int) -> Array:
         starts = getattr(self, f"{what}_starts")
         lists = getattr(self, f"{what}_lists")
         start, stop = starts[index:index+2]
@@ -1697,9 +1717,10 @@ class FMMTraversalBuilder:
     .. automethod:: __init__
     """
 
-    context: cl.Context
     well_sep_is_n_away: int
     from_sep_smaller_crit: FromSepSmallerCrit | None
+
+    _setup_actx: PyOpenCLArrayContext
 
     def __init__(self,
                  array_context: ArrayContext, *,
@@ -1718,7 +1739,7 @@ class FMMTraversalBuilder:
         self.from_sep_smaller_crit = from_sep_smaller_crit
 
     @property
-    def context(self):
+    def context(self) -> cl.Context:
         return self._setup_actx.queue.context
 
     # {{{ kernel builder
@@ -1726,20 +1747,22 @@ class FMMTraversalBuilder:
     @memoize_method
     @log_process(logger)
     def get_kernel_info(self, *,
-                    dimensions: int,
-                    particle_id_dtype: np.dtype[np.integer] | None,
-                    box_id_dtype: np.dtype[np.integer],
-                    coord_dtype: np.dtype[np.floating],
-                    box_level_dtype: np.dtype[np.integer],
-                    max_levels: int,
-                    sources_are_targets: bool,
-                    sources_have_extent: bool,
-                    targets_have_extent: bool,
-                    extent_norm: ExtentNorm | None,
-                    source_boxes_has_mask: bool,
-                    source_parent_boxes_has_mask: bool,
-                    debug: bool = False,
-                ) -> _KernelInfo:
+                        dimensions: int,
+                        particle_id_dtype: np.dtype[np.integer[Any]] | None,
+                        box_id_dtype: np.dtype[np.integer[Any]],
+                        coord_dtype: np.dtype[np.floating[Any]],
+                        box_level_dtype: np.dtype[np.integer[Any]],
+                        max_levels: int,
+                        sources_are_targets: bool,
+                        sources_have_extent: bool,
+                        targets_have_extent: bool,
+                        extent_norm: ExtentNorm | None,
+                        source_boxes_has_mask: bool,
+                        source_parent_boxes_has_mask: bool,
+                        debug: bool = False) -> _KernelInfo:
+        # FIXME: not clear this is the right default?
+        if particle_id_dtype is None:
+            particle_id_dtype = np.dtype(np.int32)
 
         # {{{ process from_sep_smaller_crit
 
@@ -1755,17 +1778,16 @@ class FMMTraversalBuilder:
         elif extent_norm == "l2":
             if from_sep_smaller_crit == "static_linf":
                 # Not technically necessary, but static linf will assume box
-                # bounds that are not guaranteed to contain all particle
-                # extents.
+                # bounds that are not guaranteed to contain all particle extents.
                 raise ValueError(
-                        "The static l^inf from-sep-smaller criterion "
+                        "the static l^inf from-sep-smaller criterion "
                         "cannot be used with the l^2 extent norm")
 
         elif extent_norm is None:
             assert not (sources_have_extent or targets_have_extent)
 
         else:
-            raise ValueError(f"unexpected value of 'extent_norm': {extent_norm}")  # pyright: ignore[reportUnreachable]
+            raise ValueError(f"unexpected value of 'extent_norm': {extent_norm}")
 
         if from_sep_smaller_crit not in [
                 "static_linf", "precise_linf",
@@ -1938,14 +1960,14 @@ class FMMTraversalBuilder:
     # {{{ driver
 
     def __call__(self,
-                actx: ArrayContext,
-                tree: Tree,
-                wait_for: cl.WaitList = None,
-                debug: bool = False,
-                _from_sep_smaller_min_nsources_cumul: int | None = None,
-                source_boxes_mask=None,
-                source_parent_boxes_mask=None
-            ):
+                 actx: ArrayContext,
+                 tree: Tree,
+                 wait_for: cl.WaitList = None,
+                 debug: bool = False,
+                 _from_sep_smaller_min_nsources_cumul: int | None = None,
+                 source_boxes_mask: Array | None = None,
+                 source_parent_boxes_mask: Array | None = None,
+            ) -> tuple[FMMTraversalInfo, cl.Event]:
         """
         :arg wait_for: may either be *None* or a list of :class:`pyopencl.Event`
             instances for whose completion this command waits before starting
@@ -2003,7 +2025,7 @@ class FMMTraversalBuilder:
                 source_boxes_has_mask=source_boxes_mask is not None,
                 source_parent_boxes_has_mask=source_parent_boxes_mask is not None)
 
-        def debug_with_finish(s):
+        def debug_with_finish(s: str) -> None:
             if debug:
                 actx.queue.finish()
 
@@ -2016,7 +2038,7 @@ class FMMTraversalBuilder:
         debug_with_finish(
             "building list of source boxes, their parents, and target boxes")
 
-        extra_args = []
+        extra_args: list[Array] = []
         if source_boxes_mask is not None:
             extra_args.append(source_boxes_mask)
         if source_parent_boxes_mask is not None:
@@ -2041,7 +2063,10 @@ class FMMTraversalBuilder:
 
         # {{{ figure out level starts in *_parent_boxes
 
-        def extract_level_start_box_nrs(box_list, wait_for):
+        def extract_level_start_box_nrs(
+                    box_list: Array,
+                    wait_for: WaitList | None = None
+            ) -> tuple[onp.Array1D[np.integer[Any]] | None, list[cl.Event]]:
             if level_start_box_nrs is None:
                 return None, []
 
@@ -2061,28 +2086,30 @@ class FMMTraversalBuilder:
             # Postprocess result for unoccupied levels
             prev_start = len(box_list)
             for ilev in range(nlevels - 1, -1, -1):
-                result[ilev] = prev_start = \
-                        min(result[ilev], prev_start)
+                result[ilev] = prev_start = min(result[ilev], prev_start)
 
             return result, [evt]
 
         debug_with_finish("finding level starts in source boxes array")
+        assert source_boxes is not None
         level_start_source_box_nrs, evt_s = \
                 extract_level_start_box_nrs(
                         source_boxes, wait_for=wait_for)
 
         debug_with_finish("finding level starts in source parent boxes array")
+        assert source_parent_boxes is not None
         level_start_source_parent_box_nrs, evt_sp = \
                 extract_level_start_box_nrs(
                         source_parent_boxes, wait_for=wait_for)
 
         debug_with_finish("finding level starts in target boxes array")
+        assert target_boxes is not None
         level_start_target_box_nrs, evt_t = \
                 extract_level_start_box_nrs(
                         target_boxes, wait_for=wait_for)
 
-        debug_with_finish(
-            "finding level starts in target or target parent boxes array")
+        debug_with_finish("finding level starts in target or target parent boxes array")
+        assert target_or_target_parent_boxes is not None
         level_start_target_or_target_parent_box_nrs, evt_tp = \
                 extract_level_start_box_nrs(
                         target_or_target_parent_boxes, wait_for=wait_for)
@@ -2162,9 +2189,9 @@ class FMMTraversalBuilder:
                 from_sep_smaller_min_nsources_cumul,
                 )
 
-        from_sep_smaller_wait_for = []
-        from_sep_smaller_by_level = []
-        target_boxes_sep_smaller_by_source_level = []
+        from_sep_smaller_wait_for: list[cl.Event] = []
+        from_sep_smaller_by_level: list[BuiltList] = []
+        target_boxes_sep_smaller_by_source_level: list[Array] = []
 
         for ilevel in range(nlevels):
             debug_with_finish(f"finding separated smaller ('list 3 level {ilevel}')")
@@ -2222,7 +2249,9 @@ class FMMTraversalBuilder:
             # These are indexed by target_or_target_parent boxes; we rewrite
             # them to be indexed by target_boxes.
             from_sep_close_bigger_starts_raw = result["from_sep_close_bigger"].starts
+            assert from_sep_close_bigger_starts_raw is not None
             from_sep_close_bigger_lists_raw = result["from_sep_close_bigger"].lists
+            assert from_sep_close_bigger_lists_raw is not None
 
             list_merger = _ListMerger(actx, tree.box_id_dtype)
             result, evt = list_merger(
