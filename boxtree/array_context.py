@@ -23,16 +23,21 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-from typing import TypeVar
+from typing import TYPE_CHECKING, ClassVar
 
 import numpy as np
+from typing_extensions import override
 
-from arraycontext import (  # noqa: F401
+from arraycontext import (
+    Array,
+    ArrayContext,
+    ArrayOrContainerOrScalarT,
     PyOpenCLArrayContext as PyOpenCLArrayContextBase,
+    ScalarLike,
+    SerializedContainer,
     deserialize_container,
     rec_map_array_container,
     serialize_container,
-    with_array_context,
 )
 from arraycontext.pytest import (
     _PytestPyOpenCLArrayContextFactoryWithClass,
@@ -41,21 +46,32 @@ from arraycontext.pytest import (
 from pyopencl.algorithm import BuiltList
 
 
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    import loopy as lp
+    import pytools
+
 __doc__ = """
 .. autoclass:: PyOpenCLArrayContext
+.. autofunction:: dataclass_array_container
 """
 
 
 # {{{ array context
 
-def _boxtree_rec_map_container(actx, func, array, allowed_types=None, *,
-                               default_scalar=None, strict=False):
+def _boxtree_rec_map_container(actx: ArrayContext,
+                               func: Callable[[Array], Array],
+                               array: ArrayOrContainerOrScalarT,
+                               allowed_types: tuple[type, ...] | None = None, *,
+                               default_scalar: ScalarLike | None = None,
+                               strict: bool = False) -> ArrayOrContainerOrScalarT:
     import arraycontext.impl.pyopencl.taggable_cl_array as tga
 
     if allowed_types is None:
         allowed_types = (tga.TaggableCLArray,)
 
-    def _wrapper(ary):
+    def _wrapper(ary: Array | None) -> Array | None:
         # NOTE: this is copied verbatim from arraycontext and this is the
         # only change to allow optional fields inside containers
         if ary is None:
@@ -82,11 +98,12 @@ def _boxtree_rec_map_container(actx, func, array, allowed_types=None, *,
                 f"an unsupported array type: got '{type(ary).__name__}', "
                 f"but expected one of {allowed_types}")
 
-    return rec_map_array_container(_wrapper, array)
+    return rec_map_array_container(_wrapper, array)  # pyright: ignore[reportArgumentType]
 
 
 class PyOpenCLArrayContext(PyOpenCLArrayContextBase):
-    def transform_loopy_program(self, t_unit):
+    @override
+    def transform_loopy_program(self, t_unit: lp.TranslationUnit) -> lp.TranslationUnit:
         default_ep = t_unit.default_entrypoint
         options = default_ep.options
 
@@ -101,8 +118,13 @@ class PyOpenCLArrayContext(PyOpenCLArrayContextBase):
     # NOTE: _rec_map_container is copied from arraycontext wholesale and should
     # be kept in sync as much as possible!
 
-    def _rec_map_container(self, func, array, allowed_types=None, *,
-            default_scalar=None, strict=False):
+    @override
+    def _rec_map_container(self,
+                           func: Callable[[Array], Array],
+                           array: ArrayOrContainerOrScalarT,
+                           allowed_types: tuple[type, ...] | None = None, *,
+                           default_scalar: ScalarLike | None = None,
+                           strict: bool = False) -> ArrayOrContainerOrScalarT:
         return _boxtree_rec_map_container(
             self, func, array,
             allowed_types=allowed_types,
@@ -114,17 +136,14 @@ class PyOpenCLArrayContext(PyOpenCLArrayContextBase):
 
 # {{{ dataclass array container
 
-T = TypeVar("T")
-
-
-def dataclass_array_container(cls: type[T]) -> type[T]:
+def dataclass_array_container(cls: type[pytools.T]) -> type[pytools.T]:
     """A decorator based on :func:`arraycontext.dataclass_array_container`
     that allows :class:`typing.Optional` containers.
     """
 
     from dataclasses import is_dataclass
     from types import UnionType
-    from typing import Union, get_args, get_origin
+    from typing import Union, get_args, get_origin  # pyright: ignore[reportDeprecated]
 
     from arraycontext.container import is_array_container_type
     from arraycontext.container.dataclass import (
@@ -139,10 +158,10 @@ def dataclass_array_container(cls: type[T]) -> type[T]:
         if tp is np.ndarray:
             from warnings import warn
             warn("Encountered 'numpy.ndarray' in a dataclass_array_container. "
-                "This is deprecated and will stop working in 2026. "
-                "If you meant an object array, use pytools.obj_array.ObjectArray. "
-                "For other uses, file an issue to discuss.",
-                DeprecationWarning, stacklevel=3)
+                 "This is deprecated and will stop working in 2026. "
+                 "If you meant an object array, use pytools.obj_array.ObjectArray. "
+                 "For other uses, file an issue to discuss.",
+                 DeprecationWarning, stacklevel=3)
             return True
 
         from arraycontext import Array
@@ -197,7 +216,7 @@ def dataclass_array_container(cls: type[T]) -> type[T]:
 # on arraycontext machinery.
 
 @serialize_container.register(BuiltList)
-def _serialize_built_list(obj: BuiltList):
+def serialize_built_list(obj: BuiltList) -> SerializedContainer:
     return (
         ("starts", obj.starts),
         ("lists", obj.lists),
@@ -207,7 +226,8 @@ def _serialize_built_list(obj: BuiltList):
 
 
 @deserialize_container.register(BuiltList)
-def _deserialize_built_list(template: BuiltList, iterable):
+def deserialize_built_list(template: BuiltList,
+                           iterable: SerializedContainer) -> BuiltList:
     return type(template)(
         count=template.count,
         num_nonempty_lists=template.num_nonempty_lists,
@@ -218,7 +238,7 @@ def _deserialize_built_list(template: BuiltList, iterable):
 
 # {{{ pytest
 
-def _acf():
+def _acf() -> PyOpenCLArrayContext:
     import pyopencl as cl
     ctx = cl.create_some_context()
     queue = cl.CommandQueue(ctx)
@@ -228,11 +248,12 @@ def _acf():
 
 class PytestPyOpenCLArrayContextFactory(
         _PytestPyOpenCLArrayContextFactoryWithClass):
-    actx_class = PyOpenCLArrayContext
+    actx_class: ClassVar[type[ArrayContext]] = PyOpenCLArrayContext
 
 
-register_pytest_array_context_factory("boxtree.pyopencl",
-        PytestPyOpenCLArrayContextFactory)
+register_pytest_array_context_factory(
+    "boxtree.pyopencl",
+    PytestPyOpenCLArrayContextFactory)
 
 # }}}
 
