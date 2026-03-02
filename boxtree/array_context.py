@@ -151,10 +151,11 @@ def dataclass_array_container(cls: type[pytools.T]) -> type[pytools.T]:
         _get_annotated_fields,
         _inject_dataclass_serialization,
     )
+    from arraycontext.typing import all_type_leaves_satisfy_predicate
 
     assert is_dataclass(cls)
 
-    def is_array_type(tp: type, /) -> bool:
+    def is_array_or_container_type(tp: type, /) -> bool:
         if tp is np.ndarray:
             from warnings import warn
             warn("Encountered 'numpy.ndarray' in a dataclass_array_container. "
@@ -172,29 +173,32 @@ def dataclass_array_container(cls: type[pytools.T]) -> type[pytools.T]:
         assert not isinstance(field_type, str)
 
         origin = get_origin(field_type)
-        if origin in (Union, UnionType):
+        if origin in (Union, UnionType):  # pyright: ignore[reportDeprecated]
             return all(
-                (is_array_type(arg) or arg is type(None))
+                (is_array_or_container_type(arg) or arg is type(None))
                 for arg in get_args(field_type))
 
         if not f.init:
             raise ValueError(
                     f"Field with 'init=False' not allowed: '{f.name}'")
 
-        # NOTE:
-        # * GenericAlias catches `list`, `tuple`, etc.
-        # * `_BaseGenericAlias` catches `List`, `Tuple`, `Callable`, etc.
-        # * `_SpecialForm` catches `Any`, `Literal`, `Optional`, etc.
-        from types import GenericAlias
-        from typing import (  # type: ignore[attr-defined]
-            _BaseGenericAlias,
-            _SpecialForm,
-        )
-        if isinstance(field_type, GenericAlias | _BaseGenericAlias | _SpecialForm):
-            # NOTE: anything except a Union is not an array
+        # FIXME: we exit early here if this is not an array or container because
+        # `all_type_leaves_satisfy_predicate` does not support
+        # * `tuple[...]` and `list[...]` and others like that
+        # * `Literal`, `Any`, etc
+
+        from typing import _SpecialForm
+        if isinstance(origin, _SpecialForm):
             return False
 
-        return is_array_type(field_type)
+        if not is_array_or_container_type(field_type):
+            return False
+
+        return all_type_leaves_satisfy_predicate(
+            is_array_or_container_type,
+            field_type,
+            require_homogeneity=True,
+        )
 
     from pytools import partition
 
