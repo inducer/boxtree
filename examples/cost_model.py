@@ -27,7 +27,7 @@ def demo_cost_model():
 
     ctx = cl.create_some_context()
     queue = cl.CommandQueue(ctx)
-    actx = PyOpenCLArrayContext(queue, force_device_scalars=True)
+    actx = PyOpenCLArrayContext(queue)
 
     traversals = []
     traversals_dev = []
