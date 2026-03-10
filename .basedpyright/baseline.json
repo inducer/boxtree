@@ -27541,7 +27541,23 @@
                 "code": "reportUnknownMemberType",
                 "range": {
                     "startColumn": 19,
+                    "endColumn": 51,
+                    "lineCount": 1
+                }
+            },
+            {
+                "code": "reportUnknownMemberType",
+                "range": {
+                    "startColumn": 19,
                     "endColumn": 56,
+                    "lineCount": 1
+                }
+            },
+            {
+                "code": "reportAttributeAccessIssue",
+                "range": {
+                    "startColumn": 24,
+                    "endColumn": 51,
                     "lineCount": 1
                 }
             },
@@ -27557,7 +27573,23 @@
                 "code": "reportUnknownMemberType",
                 "range": {
                     "startColumn": 19,
+                    "endColumn": 51,
+                    "lineCount": 1
+                }
+            },
+            {
+                "code": "reportUnknownMemberType",
+                "range": {
+                    "startColumn": 19,
                     "endColumn": 56,
+                    "lineCount": 1
+                }
+            },
+            {
+                "code": "reportAttributeAccessIssue",
+                "range": {
+                    "startColumn": 24,
+                    "endColumn": 51,
                     "lineCount": 1
                 }
             },
@@ -27566,6 +27598,22 @@
                 "range": {
                     "startColumn": 52,
                     "endColumn": 56,
+                    "lineCount": 1
+                }
+            },
+            {
+                "code": "reportUnknownMemberType",
+                "range": {
+                    "startColumn": 19,
+                    "endColumn": 47,
+                    "lineCount": 1
+                }
+            },
+            {
+                "code": "reportAttributeAccessIssue",
+                "range": {
+                    "startColumn": 24,
+                    "endColumn": 47,
                     "lineCount": 1
                 }
             },
@@ -27614,6 +27662,14 @@
                 "range": {
                     "startColumn": 36,
                     "endColumn": 40,
+                    "lineCount": 1
+                }
+            },
+            {
+                "code": "reportArgumentType",
+                "range": {
+                    "startColumn": 21,
+                    "endColumn": 25,
                     "lineCount": 1
                 }
             },
