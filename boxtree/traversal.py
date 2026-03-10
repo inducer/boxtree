@@ -70,7 +70,7 @@ from boxtree.tools import AXIS_NAMES, coord_vec_subscript_code, get_coord_vec_dt
 
 # NOTE: Tree cannot go into the TYPE_CHECKING block because it is needed
 # by `dataclass_array_container` (which evals the types)
-from boxtree.tree import Tree  # noqa: TC001
+from boxtree.tree import Tree, TreeOfBoxes  # noqa: TC001
 
 
 if TYPE_CHECKING:
@@ -1760,8 +1760,9 @@ class FMMTraversalBuilder:
                         source_boxes_has_mask: bool,
                         source_parent_boxes_has_mask: bool,
                         debug: bool = False) -> _KernelInfo:
-        # FIXME: not clear this is the right default?
         if particle_id_dtype is None:
+            # This only happens for TreeOfBoxes, where there is no particle info
+            assert not (sources_have_extent or targets_have_extent)
             particle_id_dtype = np.dtype(np.int32)
 
         # {{{ process from_sep_smaller_crit
@@ -1961,7 +1962,7 @@ class FMMTraversalBuilder:
 
     def __call__(self,
                  actx: ArrayContext,
-                 tree: Tree,
+                 tree: Tree | TreeOfBoxes,
                  wait_for: cl.WaitList = None,
                  debug: bool = False,
                  _from_sep_smaller_min_nsources_cumul: int | None = None,
