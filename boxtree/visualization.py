@@ -277,4 +277,4 @@ def draw_box_lists(tree_plotter, traversal, ibox):
 
 # }}}
 
-# vim: filetype=pyopencl:fdm=marker
+# vim: fdm=marker

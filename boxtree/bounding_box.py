@@ -175,4 +175,4 @@ class BoundingBoxFinder:
 
 # }}}
 
-# vim: foldmethod=marker:filetype=pyopencl
+# vim: foldmethod=marker

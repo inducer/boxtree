@@ -197,4 +197,4 @@ class RotationClassesBuilder:
 
 # }}}
 
-# vim: filetype=pyopencl:fdm=marker
+# vim: fdm=marker
