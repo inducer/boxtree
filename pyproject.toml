@@ -171,6 +171,7 @@ ignore = [
     "build",
     "doc",
     ".conda-root",
+    ".venv",
 ]
 
 [[tool.basedpyright.executionEnvironments]]
