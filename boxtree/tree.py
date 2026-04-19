@@ -1240,4 +1240,4 @@ class ParticleListFilter:
 
 # }}}
 
-# vim: filetype=pyopencl:fdm=marker
+# vim: fdm=marker

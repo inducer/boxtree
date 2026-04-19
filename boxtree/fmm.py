@@ -534,4 +534,4 @@ def drive_fmm(actx: ArrayContext,
     return result
 
 
-# vim: filetype=pyopencl:fdm=marker
+# vim: fdm=marker

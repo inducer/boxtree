@@ -238,4 +238,4 @@ class ConstantOneExpansionWrangler(ExpansionWranglerInterface):
 
 # }}}
 
-# vim: foldmethod=marker:filetype=pyopencl
+# vim: foldmethod=marker
