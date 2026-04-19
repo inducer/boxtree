@@ -14,4 +14,6 @@ distribute*tar.gz
 a.out
 
 .cache
+.venv
+
 doc/_build
