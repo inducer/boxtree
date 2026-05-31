@@ -35,15 +35,13 @@ from typing import TYPE_CHECKING
 
 from pytools import ProcessLogger
 
-from boxtree.traversal import FMMTraversalInfo
-from boxtree.tree import Tree
-
 
 if TYPE_CHECKING:
     from arraycontext import ArrayContext
 
     from boxtree.traversal import FMMTraversalInfo
     from boxtree.tree import Tree
+
 
 logger = logging.getLogger(__name__)
 

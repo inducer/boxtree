@@ -62,7 +62,6 @@ Cost Model Classes
 """
 
 from abc import ABC, abstractmethod
-from collections.abc import Mapping
 from functools import partial
 from typing import TYPE_CHECKING, ClassVar
 
@@ -78,6 +77,7 @@ from pytools import keyed_memoize_method
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
+
 
 Template = partial(Template, strict_undefined=True)
 
