@@ -174,10 +174,8 @@ def _apply_refine_flags_without_sorting(
             tob.nboxes
             + nchildren * np.arange(len(refine_parents)))
 
-    refine_parents_per_child = np.empty(
-            (nchildren, len(refine_parents)), dtype=np.intp)
-    refine_parents_per_child[:] = refine_parents.reshape(-1)
-    refine_parents_per_child = refine_parents_per_child.reshape(-1)
+    # Assign the parent box number for each new child box.
+    refine_parents_per_child = np.repeat(refine_parents, nchildren)
 
     box_parents = _resized_array(tob.box_parent_ids, nboxes_new)
     box_centers = _resized_array(tob.box_centers, nboxes_new)
@@ -230,19 +228,22 @@ def _apply_coarsen_flags(
         raise ValueError("attempting to coarsen non-leaf")
 
     coarsen_sources, = np.where(coarsen_flags)
+    if np.any(tob.box_parent_ids[coarsen_sources] < 0):
+        raise ValueError("cannot coarsen the root box")
     if coarsen_sources.size == 0:
         return tob
 
     coarsen_parents = tob.box_parent_ids[coarsen_sources]
-    coarsen_peers = tob.box_child_ids[:, coarsen_parents].reshape(-1)
+    coarsen_peers = tob.box_child_ids[:, coarsen_parents]
     coarsen_peer_is_leaf = box_is_leaf[coarsen_peers]
     coarsen_exec_flags = np.all(coarsen_peer_is_leaf, axis=0)
 
     # when a leaf box marked for coarsening has non-leaf peers
-    coarsen_flags_ignored = np.sum(coarsen_exec_flags != coarsen_flags)
-    if coarsen_flags_ignored:
-        msg = (f"{coarsen_flags_ignored} out of {np.sum(coarsen_flags)} coarsening "
-               "flags ignored to prevent removing non-leaf boxes")
+    coarsen_flags_ignored = ~coarsen_exec_flags
+    if np.any(coarsen_flags_ignored):
+        msg = (f"{np.sum(coarsen_flags_ignored)} out of "
+               f"{np.sum(coarsen_flags)} coarsening flags ignored "
+               "to prevent removing non-leaf boxes")
         if error_on_ignored_flags:
             raise RuntimeError(msg)
         else:
@@ -250,7 +251,7 @@ def _apply_coarsen_flags(
             warnings.warn(msg, stacklevel=3)
 
     # deleted boxes are marked as:
-    # level = inf
+    # level = sentinel (max int)
     # parent = -1
     coarsen_parents = coarsen_parents[coarsen_exec_flags]
     coarsen_peers = coarsen_peers[:, coarsen_exec_flags]
@@ -259,7 +260,7 @@ def _apply_coarsen_flags(
     box_children = tob.box_child_ids.copy()
     box_children[:, coarsen_parents] = 0
     box_levels = tob.box_levels.copy()
-    box_levels[coarsen_peers] = np.inf
+    box_levels[coarsen_peers] = np.iinfo(box_levels.dtype).max
 
     return TreeOfBoxes(
         box_centers=tob.box_centers,
@@ -285,12 +286,20 @@ def _sort_boxes_by_level(tob: TreeOfBoxes) -> TreeOfBoxes:
     if not np.any(np.diff(tob.box_levels) < 0):
         return tob
 
-    # reorder boxes to into non-decreasing levels
+    # reorder boxes into non-decreasing levels
     neworder = np.argsort(tob.box_levels)
+    old_to_new = np.empty_like(neworder)
+    old_to_new[neworder] = np.arange(len(neworder))
+
     box_centers = tob.box_centers[:, neworder]
+    box_levels = tob.box_levels[neworder]
     box_parent_ids = tob.box_parent_ids[neworder]
     box_child_ids = tob.box_child_ids[:, neworder]
-    box_levels = tob.box_levels[neworder]
+
+    parent_has_id = box_parent_ids >= 0
+    box_parent_ids[parent_has_id] = old_to_new[box_parent_ids[parent_has_id]]
+    child_has_id = box_child_ids != 0
+    box_child_ids[child_has_id] = old_to_new[box_child_ids[child_has_id]]
 
     return TreeOfBoxes(
         box_centers=box_centers,
@@ -314,7 +323,7 @@ def _sort_boxes_by_level(tob: TreeOfBoxes) -> TreeOfBoxes:
 
 def _sort_and_prune_deleted_boxes(tob: TreeOfBoxes) -> TreeOfBoxes:
     tob = _sort_boxes_by_level(tob)
-    n_stale_boxes = np.sum(tob.box_levels == np.inf)
+    n_stale_boxes = np.sum(tob.box_levels == np.iinfo(tob.box_levels.dtype).max)
     newn = tob.nboxes - n_stale_boxes
 
     return TreeOfBoxes(
