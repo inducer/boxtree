@@ -296,6 +296,8 @@ def _sort_boxes_by_level(tob: TreeOfBoxes) -> TreeOfBoxes:
     box_parent_ids = tob.box_parent_ids[neworder]
     box_child_ids = tob.box_child_ids[:, neworder]
 
+    # box_parent_ids and box_child_ids need to be updated to
+    # reflect the new box numbering
     parent_has_id = box_parent_ids >= 0
     box_parent_ids[parent_has_id] = old_to_new[box_parent_ids[parent_has_id]]
     child_has_id = box_child_ids != 0
