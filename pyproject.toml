@@ -53,6 +53,8 @@ meshmode = [
 test = [
     "pytest",
     "ruff",
+    # NOTE: 0.18 requires Python 3.12
+    "optype<0.18",
 ]
 
 [project.urls]
