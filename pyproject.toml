@@ -53,8 +53,7 @@ meshmode = [
 test = [
     "pytest",
     "ruff",
-    # NOTE: 0.18 requires Python 3.12
-    "optype<0.18",
+    "optype",
 ]
 
 [project.urls]
@@ -165,7 +164,7 @@ reportImportCycles = "none"
 reportPrivateUsage = "hint"
 reportMissingTypeStubs = "hint"
 
-pythonVersion = "3.10"
+pythonVersion = "3.12"
 pythonPlatform = "All"
 
 ignore = [
