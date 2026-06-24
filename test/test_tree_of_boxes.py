@@ -40,8 +40,10 @@ from meshmode.array_context import (
 from pytools import obj_array
 
 from boxtree import (
+    coarsen_tree_of_boxes,
     make_meshmode_mesh_from_leaves,
     make_tree_of_boxes_root,
+    refine_tree_of_boxes,
     uniformly_refine_tree_of_boxes,
 )
 
@@ -257,6 +259,78 @@ def test_traversal_from_tob(actx_factory):
     from boxtree.traversal import FMMTraversalBuilder
     tg = FMMTraversalBuilder(actx)
     _trav, _ = tg(actx, tob)
+
+# }}}
+
+
+# {{{ test_refine_parent_child_consistency
+
+@pytest.mark.parametrize("dim", [1, 2, 3])
+def test_refine_parent_child_consistency(dim):
+    tob = make_tree_of_boxes_root((np.zeros(dim), np.ones(dim)))
+
+    tob = uniformly_refine_tree_of_boxes(tob)
+    tob = uniformly_refine_tree_of_boxes(tob)
+
+    nboxes = tob.nboxes
+    for box_id in range(nboxes):
+        for child_id in tob.box_child_ids[:, box_id]:
+            if child_id == 0:
+                continue
+            assert 0 < child_id < nboxes
+            assert tob.box_parent_ids[child_id] == box_id
+            assert tob.box_levels[child_id] == tob.box_levels[box_id] + 1
+
+# }}}
+
+
+# {{{ test_coarsen_tree_of_boxes
+
+@pytest.mark.parametrize("dim", [1, 2, 3])
+def test_coarsen_tree_of_boxes(dim):
+    tob = make_tree_of_boxes_root((np.zeros(dim), np.ones(dim)))
+    tob = uniformly_refine_tree_of_boxes(tob)
+
+    coarsen_flags = np.zeros(tob.nboxes, dtype=bool)
+    coarsen_flags[1:] = True
+    tob = coarsen_tree_of_boxes(tob, coarsen_flags)
+
+    assert tob.nboxes == 1
+    assert tob.box_parent_ids[0] == -1
+    assert tob.box_levels[0] == 0
+    assert np.all(tob.box_child_ids[:, 0] == 0)
+
+# }}}
+
+
+# {{{ test_out_of_order_refine
+
+@pytest.mark.parametrize("dim", [1, 2, 3])
+def test_out_of_order_refine(dim):
+    tob = make_tree_of_boxes_root((np.zeros(dim), np.ones(dim)))
+    tob = uniformly_refine_tree_of_boxes(tob)
+
+    flags = np.zeros(tob.nboxes, dtype=bool)
+    flags[1] = True
+    tob = refine_tree_of_boxes(tob, flags)
+
+    deep = np.where(tob.box_levels == 2)[0][0]
+    flags = np.zeros(tob.nboxes, dtype=bool)
+    flags[deep] = True
+    tob = refine_tree_of_boxes(tob, flags)
+
+    flags = np.zeros(tob.nboxes, dtype=bool)
+    flags[2] = True
+    tob = refine_tree_of_boxes(tob, flags)
+
+    nboxes = tob.nboxes
+    for box_id in range(nboxes):
+        for child_id in tob.box_child_ids[:, box_id]:
+            if child_id == 0:
+                continue
+            assert 0 < child_id < nboxes
+            assert tob.box_parent_ids[child_id] == box_id
+            assert tob.box_levels[child_id] == tob.box_levels[box_id] + 1
 
 # }}}
 
