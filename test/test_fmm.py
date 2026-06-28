@@ -241,9 +241,6 @@ def test_fmm_completeness(actx_factory, dims, nsources_req, ntargets_req,
     host_trav = actx.to_numpy(trav)
     host_tree = host_trav.tree
 
-    if who_has_extent:
-        pre_merge_host_trav = actx.to_numpy(pre_merge_trav)
-
     from boxtree.tree import ParticleListFilter
     plfilt = ParticleListFilter(actx)
 
@@ -353,6 +350,9 @@ def test_fmm_completeness(actx_factory, dims, nsources_req, ntargets_req,
                         host_tree.sources[1][tree_order_incorrect_srcs],
                         "go")
             pt.gca().set_aspect("equal")
+
+            if who_has_extent:
+                pre_merge_host_trav = actx.to_numpy(pre_merge_trav)
 
             from boxtree.visualization import draw_box_lists
             draw_box_lists(
