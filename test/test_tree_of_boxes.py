@@ -29,7 +29,11 @@ import sys
 import numpy as np
 import pytest
 
-from arraycontext import pytest_generate_tests_for_array_contexts
+from arraycontext import (
+    ArrayContext,
+    ArrayContextFactory,
+    pytest_generate_tests_for_array_contexts,
+)
 
 # This means boxtree's tests have a hard dependency on meshmode. That's OK.
 from meshmode import _acf  # noqa: F401
@@ -40,6 +44,7 @@ from meshmode.array_context import (
 from pytools import obj_array
 
 from boxtree import (
+    TreeOfBoxes,
     coarsen_tree_of_boxes,
     make_meshmode_mesh_from_leaves,
     make_tree_of_boxes_root,
@@ -73,7 +78,7 @@ pytest_generate_tests = pytest_generate_tests_for_array_contexts([
 
 # {{{ make_global_leaf_quadrature
 
-def make_global_leaf_quadrature(actx, tob, order):
+def make_global_leaf_quadrature(actx: ArrayContext, tob: TreeOfBoxes, order: int):
     from meshmode.discretization.poly_element import (
         GaussLegendreTensorProductGroupFactory,
     )
@@ -145,7 +150,11 @@ def test_uniform_tree_of_boxes(actx_factory, dim, order, nlevels):
 
 @pytest.mark.parametrize("dim", [1, 2, 3])
 @pytest.mark.parametrize("order", [1, 2, 3])
-def test_uniform_tree_of_boxes_convergence(actx_factory, dim, order):
+def test_uniform_tree_of_boxes_convergence(
+            actx_factory: ArrayContextFactory,
+            dim: int,
+            order: int
+        ):
     actx = actx_factory()
 
     radius = np.pi
@@ -228,7 +237,7 @@ def test_tree_plot():
 # {{{ test_traversal_from_tob
 
 
-def test_traversal_from_tob(actx_factory):
+def test_traversal_from_tob(actx_factory: ArrayContextFactory):
     actx = actx_factory()
 
     radius = np.pi
