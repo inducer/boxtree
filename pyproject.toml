@@ -164,6 +164,9 @@ reportImportCycles = "none"
 reportPrivateUsage = "hint"
 reportMissingTypeStubs = "hint"
 
+# covered by ruff
+reportUnusedImport = "none"
+
 pythonVersion = "3.12"
 pythonPlatform = "All"
 
