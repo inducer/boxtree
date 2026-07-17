@@ -34,7 +34,7 @@ import pyopencl as cl
 import pyopencl.array as cl_array
 from arraycontext import Array, ArrayContext, PyOpenCLArrayContext
 from pyopencl.tools import (
-    ScalarArg as ScalarArg,  # noqa: PLC0414
+    ScalarArg as ScalarArg,  # ruff:ignore[useless-import-alias]
     VectorArg as _VectorArg,
     dtype_to_c_struct,
 )

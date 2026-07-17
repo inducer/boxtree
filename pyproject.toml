@@ -81,12 +81,12 @@ extend-select = [
     "W",   # pycodestyle
 ]
 extend-ignore = [
-    "C90",      # McCabe complexity
-    "E221",     # multiple spaces before operator
-    "E226",     # missing whitespace around arithmetic operator
-    "E402",     # module-level import not at top of file
-    "SIM223",   # simplify `False and ...` conditional
-    "RUF067",   # non-empty-init-module
+    "complex-structure",
+    "expr-and-false",
+    "missing-whitespace-around-arithmetic-operator",
+    "module-import-not-at-top-of-file",
+    "multiple-spaces-before-operator",
+    "non-empty-init-module",
 ]
 
 [tool.ruff.lint.flake8-quotes]
@@ -115,10 +115,10 @@ lines-after-imports = 2
 required-imports = ["from __future__ import annotations"]
 
 [tool.ruff.lint.per-file-ignores]
-"doc/**/*.py" = ["I002"]
-"examples/**/*.py" = ["I002"]
-"test/test_*.py" = ["S102"]
-"doc/conf.py" = ["S102"]
+"doc/**/*.py" = ["missing-required-import"]
+"examples/**/*.py" = ["missing-required-import"]
+"test/test_*.py" = ["exec-builtin"]
+"doc/conf.py" = ["exec-builtin"]
 
 [tool.typos.default]
 extend-ignore-re = [

@@ -93,7 +93,7 @@ from boxtree.array_context import dataclass_array_container
 
 # NOTE: ExtentNorm cannot go into the TYPE_CHECKING block because it is needed
 # by `dataclass_array_container` (which evals the types)
-from boxtree.tree_build import ExtentNorm  # noqa: TC001
+from boxtree.tree_build import ExtentNorm  # ruff:ignore[typing-only-first-party-import]
 
 
 if TYPE_CHECKING:
@@ -106,7 +106,7 @@ logger = logging.getLogger(__name__)
 
 # {{{ box flags
 
-class box_flags_enum(Enum):  # noqa: N801
+class box_flags_enum(Enum):  # ruff:ignore[invalid-class-name]
     """Constants for box flags bit field.
 
     .. rubric:: Flags for particle-based trees
@@ -929,7 +929,7 @@ def link_point_sources(
     from dataclasses import fields
     tree_attrs = {}
     for f in fields(tree):
-        try:  # noqa: SIM105
+        try:  # ruff:ignore[suppressible-exception]
             tree_attrs[f.name] = getattr(tree, f.name)
         except AttributeError:
             pass

@@ -32,7 +32,10 @@ import pytest
 from arraycontext import pytest_generate_tests_for_array_contexts
 from pytools import obj_array
 
-from boxtree.array_context import PytestPyOpenCLArrayContextFactory, _acf  # noqa: F401
+from boxtree.array_context import (  # ruff:ignore[unused-import]
+    PytestPyOpenCLArrayContextFactory,
+    _acf,
+)
 from boxtree.tools import AXIS_NAMES, make_normal_particle_array
 
 

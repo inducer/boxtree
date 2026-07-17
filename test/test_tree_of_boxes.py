@@ -36,7 +36,7 @@ from arraycontext import (
 )
 
 # This means boxtree's tests have a hard dependency on meshmode. That's OK.
-from meshmode import _acf  # noqa: F401
+from meshmode import _acf  # ruff:ignore[unused-import]
 from meshmode.array_context import (
     PyOpenCLArrayContext,
     PytestPyOpenCLArrayContextFactory,

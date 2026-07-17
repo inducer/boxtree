@@ -319,7 +319,7 @@ class ExpansionWranglerInterface(ABC):
         """
         return potentials
 
-    def communicate_mpoles(self,                # noqa: B027
+    def communicate_mpoles(self,                # ruff:ignore[empty-method-without-abstract-decorator]
             actx: ArrayContext,
             mpole_exps, return_stats=False):
         """Used by the distributed implementation for forming the complete multipole

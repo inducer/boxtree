@@ -133,8 +133,8 @@ class TreePlotter:
 
         lines = []
 
-        lines.append(r"\def\nboxes{%d}" % self.tree.nboxes)  # noqa: UP031
-        lines.append(r"\def\lastboxnr{%d}" % (self.tree.nboxes-1))  # noqa: UP031
+        lines.append(r"\def\nboxes{%d}" % self.tree.nboxes)  # ruff:ignore[printf-string-formatting]
+        lines.append(r"\def\lastboxnr{%d}" % (self.tree.nboxes-1))  # ruff:ignore[printf-string-formatting]
         for ibox in range(self.tree.nboxes):
             el, eh = self.tree.get_box_extent(ibox)
             el_0, el_1 = float(el[0]), float(el[1])
@@ -150,10 +150,10 @@ class TreePlotter:
             lines.append(
                 fr"\coordinate (boxc{ibox}) at ({c_0!r}, {c_1!r});")
             lines.append(
-                r"\def\boxsize%s{%r}" % (int_to_roman(ibox), eh_0 - el_0)   # noqa: UP031
+                r"\def\boxsize%s{%r}" % (int_to_roman(ibox), eh_0 - el_0)   # ruff:ignore[printf-string-formatting]
                 )
             lines.append(
-                r"\def\boxlevel%s{%r}" % (int_to_roman(ibox),               # noqa: UP031
+                r"\def\boxlevel%s{%r}" % (int_to_roman(ibox),               # ruff:ignore[printf-string-formatting]
                                           int(self.tree.box_levels[ibox])))
 
         lines.append(
