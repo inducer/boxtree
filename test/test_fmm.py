@@ -33,13 +33,13 @@ from arraycontext import pytest_generate_tests_for_array_contexts
 
 from boxtree.array_context import (
     PytestPyOpenCLArrayContextFactory,
-    _acf,  # noqa: F401
+    _acf,  # ruff:ignore[unused-import]
 )
 from boxtree.constant_one import (
     ConstantOneExpansionWrangler,
     ConstantOneTreeIndependentDataForWrangler,
 )
-from boxtree.tools import (  # noqa: F401
+from boxtree.tools import (  # ruff:ignore[unused-import]
     make_normal_particle_array as p_normal,
     make_surface_particle_array as p_surface,
     make_uniform_particle_array as p_uniform,
@@ -146,20 +146,20 @@ class ConstantOneExpansionWranglerWithFilteredTargetsInUserOrder(
             (1, 10**5, None, "", p_normal, p_normal, None, "linf", "static_linf"),
 
             (2, 10**5, None, "", p_normal, p_normal, None, "linf", "static_linf"),
-            (2, 5 * 10**4, 4*10**4, "", p_normal, p_normal, None, "linf", "static_linf"),  # noqa: E501
-            (2, 5 * 10**5, 4*10**4, "t", p_normal, p_normal, None, "linf", "static_linf"),  # noqa: E501
+            (2, 5 * 10**4, 4*10**4, "", p_normal, p_normal, None, "linf", "static_linf"),  # ruff:ignore[line-too-long]
+            (2, 5 * 10**5, 4*10**4, "t", p_normal, p_normal, None, "linf", "static_linf"),  # ruff:ignore[line-too-long]
 
             (3, 10**5, None, "", p_normal, p_normal, None, "linf", "static_linf"),
-            (3, 5 * 10**5, 4*10**4, "", p_normal, p_normal, None, "linf", "static_linf"),  # noqa: E501
-            (3, 5 * 10**5, 4*10**4, "t", p_normal, p_normal, None, "linf", "static_linf"),  # noqa: E501
+            (3, 5 * 10**5, 4*10**4, "", p_normal, p_normal, None, "linf", "static_linf"),  # ruff:ignore[line-too-long]
+            (3, 5 * 10**5, 4*10**4, "t", p_normal, p_normal, None, "linf", "static_linf"),  # ruff:ignore[line-too-long]
 
             (2, 10**5, None, "", p_normal, p_normal, "user", "linf", "static_linf"),
-            (3, 5 * 10**5, 4*10**4, "t", p_normal, p_normal, "user", "linf", "static_linf"),  # noqa: E501
+            (3, 5 * 10**5, 4*10**4, "t", p_normal, p_normal, "user", "linf", "static_linf"),  # ruff:ignore[line-too-long]
             (2, 10**5, None, "", p_normal, p_normal, "tree", "linf", "static_linf"),
-            (3, 5 * 10**5, 4*10**4, "t", p_normal, p_normal, "tree", "linf", "static_linf"),  # noqa: E501
+            (3, 5 * 10**5, 4*10**4, "t", p_normal, p_normal, "tree", "linf", "static_linf"),  # ruff:ignore[line-too-long]
 
-            (3, 5 * 10**5, 4*10**4, "t", p_normal, p_normal, None, "linf", "precise_linf"),  # noqa: E501
-            (3, 5 * 10**5, 4*10**4, "t", p_normal, p_normal, None, "l2", "precise_linf"),  # noqa: E501
+            (3, 5 * 10**5, 4*10**4, "t", p_normal, p_normal, None, "linf", "precise_linf"),  # ruff:ignore[line-too-long]
+            (3, 5 * 10**5, 4*10**4, "t", p_normal, p_normal, None, "l2", "precise_linf"),  # ruff:ignore[line-too-long]
             (3, 5 * 10**5, 4*10**4, "t", p_normal, p_normal, None, "l2", "static_l2"),
 
             ])
@@ -480,7 +480,7 @@ def test_pyfmmlib_fmm(actx_factory, dims, use_dipoles, helmholtz_k):
     # {{{ check against sumpy
 
     try:
-        import sumpy  # noqa
+        import sumpy  # ruff:ignore[unused-import]
     except ImportError:
         have_sumpy = False
         from warnings import warn

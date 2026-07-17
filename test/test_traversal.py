@@ -34,7 +34,7 @@ from pytools import obj_array
 
 from boxtree.array_context import (
     PytestPyOpenCLArrayContextFactory,
-    _acf,  # noqa: F401
+    _acf,  # ruff:ignore[unused-import]
 )
 from boxtree.tools import make_normal_particle_array
 

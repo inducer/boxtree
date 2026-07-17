@@ -76,7 +76,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class MaxLevelsExceeded(RuntimeError):  # noqa: N818
+class MaxLevelsExceeded(RuntimeError):  # ruff:ignore[error-suffix-on-exception-name]
     pass
 
 
@@ -1144,7 +1144,7 @@ class TreeBuilder:
 
             if knl_info.level_restrict:
                 # Avoid generating too many kernels.
-                LEVEL_STEP = 10  # noqa
+                LEVEL_STEP = 10  # ruff:ignore[non-lowercase-variable-in-function]
                 if level % LEVEL_STEP == 1:
                     level_restrict_kernel = knl_info.level_restrict_kernel_builder(
                             LEVEL_STEP * div_ceil(level, LEVEL_STEP))
@@ -1535,7 +1535,7 @@ class TreeBuilder:
                 wait_for=waitlist)
             waitlist = [evt]
 
-            if srcntgts_have_extent:  # noqa: SIM102
+            if srcntgts_have_extent:  # ruff:ignore[collapsible-if]
                 if debug:
                     assert np.all(actx.to_numpy(
                         box_srcntgt_counts_nonchild
@@ -1679,14 +1679,14 @@ class TreeBuilder:
             # (before we overwrite them)
 
             try:
-                box_source_counts_nonchild  # noqa: B018
+                box_source_counts_nonchild  # ruff:ignore[useless-expression]
             except NameError:
                 pass
             else:
                 raise AssertionError
 
             try:
-                box_target_counts_nonchild  # noqa: B018
+                box_target_counts_nonchild  # ruff:ignore[useless-expression]
             except NameError:
                 pass
             else:

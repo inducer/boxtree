@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-import numpy as np  # noqa: TC002
+import numpy as np  # ruff:ignore[typing-only-third-party-import]
 
-from arraycontext import Array  # noqa: TC001
+from arraycontext import Array  # ruff:ignore[typing-only-first-party-import]
 
 from boxtree.array_context import dataclass_array_container
 

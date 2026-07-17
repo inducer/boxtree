@@ -44,7 +44,7 @@ from boxtree.tools import (
     coord_vec_subscript_code,
     get_coord_vec_dtype,
 )
-from boxtree.tree import Tree  # noqa: TC001
+from boxtree.tree import Tree  # ruff:ignore[typing-only-first-party-import]
 
 
 logger = logging.getLogger(__name__)

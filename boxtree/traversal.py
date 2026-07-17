@@ -61,7 +61,10 @@ import numpy as np
 from mako.template import Template
 
 from arraycontext import Array, ArrayContext, PyOpenCLArrayContext
-from pyopencl.algorithm import BuiltList, ListOfListsBuilder  # noqa: TC001
+from pyopencl.algorithm import (  # ruff:ignore[typing-only-first-party-import]
+    BuiltList,
+    ListOfListsBuilder,
+)
 from pyopencl.elementwise import ElementwiseKernel, ElementwiseTemplate
 from pytools import ProcessLogger, log_process, memoize_method, obj_array
 
@@ -70,7 +73,10 @@ from boxtree.tools import AXIS_NAMES, coord_vec_subscript_code, get_coord_vec_dt
 
 # NOTE: Tree cannot go into the TYPE_CHECKING block because it is needed
 # by `dataclass_array_container` (which evals the types)
-from boxtree.tree import Tree, TreeOfBoxes  # noqa: TC001
+from boxtree.tree import (  # ruff:ignore[typing-only-first-party-import]
+    Tree,
+    TreeOfBoxes,
+)
 
 
 if TYPE_CHECKING:
