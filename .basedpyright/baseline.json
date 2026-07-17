@@ -34702,16 +34702,6 @@
                 }
             }
         ],
-        "./test/test_cost_model.py": [
-            {
-                "code": "reportUnusedImport",
-                "range": {
-                    "startColumn": 69,
-                    "endColumn": 73,
-                    "lineCount": 1
-                }
-            }
-        ],
         "./test/test_distributed.py": [
             {
                 "code": "reportIncompatibleMethodOverride",
@@ -34723,38 +34713,6 @@
             }
         ],
         "./test/test_fmm.py": [
-            {
-                "code": "reportUnusedImport",
-                "range": {
-                    "startColumn": 4,
-                    "endColumn": 8,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportUnusedImport",
-                "range": {
-                    "startColumn": 35,
-                    "endColumn": 44,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportUnusedImport",
-                "range": {
-                    "startColumn": 35,
-                    "endColumn": 44,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportUnusedImport",
-                "range": {
-                    "startColumn": 4,
-                    "endColumn": 26,
-                    "lineCount": 1
-                }
-            },
             {
                 "code": "reportIncompatibleMethodOverride",
                 "range": {
@@ -34770,25 +34728,9 @@
                     "endColumn": 26,
                     "lineCount": 1
                 }
-            },
-            {
-                "code": "reportUnusedImport",
-                "range": {
-                    "startColumn": 15,
-                    "endColumn": 20,
-                    "lineCount": 1
-                }
             }
         ],
         "./test/test_tools.py": [
-            {
-                "code": "reportUnusedImport",
-                "range": {
-                    "startColumn": 4,
-                    "endColumn": 8,
-                    "lineCount": 1
-                }
-            },
             {
                 "code": "reportAssignmentType",
                 "range": {
@@ -34808,14 +34750,6 @@
         ],
         "./test/test_traversal.py": [
             {
-                "code": "reportUnusedImport",
-                "range": {
-                    "startColumn": 4,
-                    "endColumn": 8,
-                    "lineCount": 1
-                }
-            },
-            {
                 "code": "reportUnusedVariable",
                 "range": {
                     "startColumn": 16,
@@ -34834,14 +34768,6 @@
         ],
         "./test/test_tree.py": [
             {
-                "code": "reportUnusedImport",
-                "range": {
-                    "startColumn": 69,
-                    "endColumn": 73,
-                    "lineCount": 1
-                }
-            },
-            {
                 "code": "reportUnusedVariable",
                 "range": {
                     "startColumn": 12,
@@ -34859,14 +34785,6 @@
             }
         ],
         "./test/test_tree_of_boxes.py": [
-            {
-                "code": "reportUnusedImport",
-                "range": {
-                    "startColumn": 21,
-                    "endColumn": 25,
-                    "lineCount": 1
-                }
-            },
             {
                 "code": "reportUnnecessaryComparison",
                 "range": {
