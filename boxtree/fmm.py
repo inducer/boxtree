@@ -31,14 +31,19 @@ THE SOFTWARE.
 
 import logging
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast, overload
 
 from pytools import ProcessLogger
 
 
 if TYPE_CHECKING:
-    from arraycontext import ArrayContext
+    from collections.abc import Sequence
 
+    from arraycontext import Array, ArrayContext
+    from pyopencl.algorithm import BuiltList
+    from pytools.obj_array import ObjectArray1D
+
+    from boxtree.distributed.calculation import DistributedExpansionWranglerMixin
     from boxtree.traversal import FMMTraversalInfo
     from boxtree.tree import Tree
 
@@ -76,9 +81,8 @@ class ExpansionWranglerInterface(ABC):
     .. note::
 
         Wranglers may hold a reference (and thereby be specific to) a
-        :class:`boxtree.Tree` instance.
-        :class:`TreeIndependentDataForWrangler` exists to hold data that
-        is more broadly reusable.
+        :class:`boxtree.Tree` instance. :class:`TreeIndependentDataForWrangler`
+        exists to hold data that is more broadly reusable.
 
     .. versionchanged:: 2018.1
 
@@ -89,16 +93,9 @@ class ExpansionWranglerInterface(ABC):
         Removed timing data that should be handled by the
         :class:`~arraycontext.ArrayContext`.
 
-    .. attribute:: tree_indep
-
-        An instance of (a typically wrangler-dependent subclass of)
-        :class:`TreeIndependentDataForWrangler`.
-
-    .. attribute:: traversal
-
-        An instance of :class:`~boxtree.traversal.FMMTraversalInfo`.
-
-    .. autoattribute:: tree
+    .. autoattribute:: tree_indep
+    .. autoattribute:: traversal
+    .. autoproperty:: tree
 
     .. rubric:: Particle ordering
 
@@ -123,7 +120,15 @@ class ExpansionWranglerInterface(ABC):
     .. automethod:: finalize_potentials
     """
 
-    def __init__(self,
+    tree_indep: TreeIndependentDataForWrangler
+    """An instance of (a typically wrangler-dependent subclass of)
+    :class:`TreeIndependentDataForWrangler`.
+    """
+    traversal: FMMTraversalInfo
+    """An instance of :class:`~boxtree.traversal.FMMTraversalInfo`."""
+
+    def __init__(
+            self,
             tree_indep: TreeIndependentDataForWrangler,
             traversal: FMMTraversalInfo) -> None:
         self.tree_indep = tree_indep
@@ -134,17 +139,17 @@ class ExpansionWranglerInterface(ABC):
         return self.traversal.tree
 
     @abstractmethod
-    def reorder_sources(self, source_array):
-        """Return a copy of *source_array* in
-        :ref:`tree source order <particle-orderings>`.
-        *source_array* is in user source order.
+    def reorder_sources(self, source_array: Array) -> Array:
+        """
+        :returns: a copy of *source_array* in :ref:`tree source order
+            <particle-orderings>`. *source_array* is in user source order.
         """
 
     @abstractmethod
-    def reorder_potentials(self, potentials):
-        """Return a copy of *potentials* in
-        :ref:`user target order <particle-orderings>`.
-        *source_weights* is in tree target order.
+    def reorder_potentials(self, potentials: Array) -> Array:
+        """
+        :returns: a copy of *potentials* in :ref:`user target order
+            <particle-orderings>`. *source_weights* is in tree target order.
         """
 
     # {{{ views into arrays of expansions
@@ -152,11 +157,15 @@ class ExpansionWranglerInterface(ABC):
     # Included here for the benefit of the distributed-memory FMM
 
     @abstractmethod
-    def multipole_expansions_view(self, mpole_exps, level):
+    def multipole_expansions_view(
+            self, mpole_exps: Array, level: int,
+        ) -> tuple[int, Array]:
         pass
 
     @abstractmethod
-    def local_expansions_view(self, local_exps, level):
+    def local_expansions_view(
+            self, local_exps: Array, level: int,
+        ) -> Array:
         pass
 
     # }}}
@@ -164,10 +173,13 @@ class ExpansionWranglerInterface(ABC):
     # {{{ translations
 
     @abstractmethod
-    def form_multipoles(self,
+    def form_multipoles(
+            self,
             actx: ArrayContext,
-            level_start_source_box_nrs, source_boxes,
-            src_weight_vecs):
+            level_start_source_box_nrs: Array,
+            source_boxes: Array,
+            src_weight_vecs: Sequence[Array],
+        ) -> Array:
         """
         :returns: an expansions array containing multipole expansions in
             *source_boxes* due to sources with *src_weight_vecs*.
@@ -175,10 +187,12 @@ class ExpansionWranglerInterface(ABC):
         """
 
     @abstractmethod
-    def coarsen_multipoles(self,
+    def coarsen_multipoles(
+            self,
             actx: ArrayContext,
-            level_start_source_parent_box_nrs,
-            source_parent_boxes, mpoles):
+            level_start_source_parent_box_nrs: Array,
+            source_parent_boxes: Array,
+            mpoles: Array) -> Array:
         """For each box in *source_parent_boxes*, gather (and translate) the
         box's children's multipole expansions in *mpoles* and add the
         resulting expansion into the box's multipole expansion in *mpoles*.
@@ -187,10 +201,13 @@ class ExpansionWranglerInterface(ABC):
         """
 
     @abstractmethod
-    def eval_direct(self,
+    def eval_direct(
+            self,
             actx: ArrayContext,
-            target_boxes, neighbor_sources_starts,
-            neighbor_sources_lists, src_weight_vecs):
+            target_boxes: Array,
+            neighbor_sources_starts: Array,
+            neighbor_sources_lists: Array,
+            src_weight_vecs: Sequence[Array]) -> Array:
         """For each box in *target_boxes*, evaluate the influence of the
         neighbor sources due to *src_weight_vecs*, which use :ref:`csr` and are
         indexed like *target_boxes*.
@@ -199,11 +216,14 @@ class ExpansionWranglerInterface(ABC):
         """
 
     @abstractmethod
-    def multipole_to_local(self,
+    def multipole_to_local(
+            self,
             actx: ArrayContext,
-            level_start_target_or_target_parent_box_nrs,
-            target_or_target_parent_boxes,
-            starts, lists, mpole_exps):
+            level_start_target_or_target_parent_box_nrs: Array,
+            target_or_target_parent_boxes: Array,
+            starts: Array,
+            lists: Array,
+            mpole_exps: Array) -> Array:
         """For each box in *target_or_target_parent_boxes*, translate and add
         the influence of the multipole expansion in *mpole_exps* into a new
         array of local expansions.  *starts* and *lists* use :ref:`csr`, and
@@ -213,9 +233,12 @@ class ExpansionWranglerInterface(ABC):
         """
 
     @abstractmethod
-    def eval_multipoles(self,
+    def eval_multipoles(
+            self,
             actx: ArrayContext,
-            target_boxes_by_source_level, from_sep_smaller_by_level, mpole_exps):
+            target_boxes_by_source_level: ObjectArray1D[Array],
+            from_sep_smaller_by_level: ObjectArray1D[BuiltList],
+            mpole_exps: Array) -> Array:
         """For a level *i*, each box in *target_boxes_by_source_level[i]*, evaluate
         the multipole expansion in *mpole_exps* in the nearby boxes given in
         *from_sep_smaller_by_level*, and return a new potential array.
@@ -226,10 +249,14 @@ class ExpansionWranglerInterface(ABC):
         """
 
     @abstractmethod
-    def form_locals(self,
+    def form_locals(
+            self,
             actx: ArrayContext,
-            level_start_target_or_target_parent_box_nrs,
-            target_or_target_parent_boxes, starts, lists, src_weight_vecs):
+            level_start_target_or_target_parent_box_nrs: Array,
+            target_or_target_parent_boxes: Array,
+            starts: Array,
+            lists: Array,
+            src_weight_vecs: Sequence[Array]) -> Array:
         """For each box in *target_or_target_parent_boxes*, form local
         expansions due to the sources in the nearby boxes given in *starts* and
         *lists*, and return a new local expansion array.  *starts* and *lists*
@@ -240,10 +267,12 @@ class ExpansionWranglerInterface(ABC):
         """
 
     @abstractmethod
-    def refine_locals(self,
+    def refine_locals(
+            self,
             actx: ArrayContext,
-            level_start_target_or_target_parent_box_nrs,
-            target_or_target_parent_boxes, local_exps):
+            level_start_target_or_target_parent_box_nrs: Array,
+            target_or_target_parent_boxes: Array,
+            local_exps: Array) -> Array:
         """For each box in *child_boxes*,
         translate the box's parent's local expansion in *local_exps* and add
         the resulting expansion into the box's local expansion in *local_exps*.
@@ -252,9 +281,12 @@ class ExpansionWranglerInterface(ABC):
         """
 
     @abstractmethod
-    def eval_locals(self,
+    def eval_locals(
+            self,
             actx: ArrayContext,
-            level_start_target_box_nrs, target_boxes, local_exps):
+            level_start_target_box_nrs: Array,
+            target_boxes: Array,
+            local_exps: Array) -> Array:
         """For each box in *target_boxes*, evaluate the local expansion in
         *local_exps* and return a new potential array.
 
@@ -264,23 +296,20 @@ class ExpansionWranglerInterface(ABC):
     # }}}
 
     @abstractmethod
-    def finalize_potentials(self, actx: ArrayContext, potentials):
+    def finalize_potentials(
+            self, actx: ArrayContext, potentials: Array
+        ) -> Array:
         """
         Postprocess the reordered potentials. This is where global scaling
         factors could be applied. This is distinct from :meth:`reorder_potentials`
         because some derived FMMs (notably the QBX FMM) do their own reordering.
-
-        :arg template_ary: If the array type used inside of the FMM
-            is different from the array type used by the user (e.g.
-            :class:`boxtree.pyfmmlib_integration.FMMLibExpansionWrangler`
-            uses :class:`numpy.ndarray` internally, this array can be used
-            to help convert the output back to the user's array
-            type.
         """
 
-    def distribute_source_weights(self,
+    def distribute_source_weights(
+            self,
             actx: ArrayContext,
-            src_weight_vecs, src_idx_all_ranks):
+            src_weight_vecs: Sequence[Array] | None,
+            src_idx_all_ranks: Sequence[Array] | None) -> Sequence[Array]:
         """Used by the distributed implementation for transferring needed source
         weights from root rank to each worker rank in the communicator.
 
@@ -292,17 +321,19 @@ class ExpansionWranglerInterface(ABC):
         :arg src_idx_all_ranks: a :class:`list` of length ``nranks``, including the
             root rank, where the i-th entry is a :class:`numpy.ndarray` of indices,
             of which *src_weight_vecs* to be sent from the root rank to rank *i*.
-            Each entry can be generated by :func:`.generate_local_tree`. *None* on
+            Each entry can be generated by
+            :func:`~boxtree.distributed.local_tree.generate_local_tree`. *None* on
             worker ranks.
 
-        :return: Received source weights of the current rank, including the root
-            rank.
+        :return: Received source weights of the current rank, including the root rank.
         """
         return src_weight_vecs
 
-    def gather_potential_results(self,
+    def gather_potential_results(
+            self,
             actx: ArrayContext,
-            potentials, tgt_idx_all_ranks):
+            potentials: Array,
+            tgt_idx_all_ranks: Sequence[Array] | None) -> Array | None:
         """Used by the distributed implementation for gathering calculated potentials
         from all worker ranks in the communicator to the root rank.
 
@@ -319,9 +350,11 @@ class ExpansionWranglerInterface(ABC):
         """
         return potentials
 
-    def communicate_mpoles(self,                # ruff:ignore[empty-method-without-abstract-decorator]
+    def communicate_mpoles(
+            self,
             actx: ArrayContext,
-            mpole_exps, return_stats=False):
+            mpole_exps: Array,
+            return_stats: bool = False) -> dict[str, Any] | None:
         """Used by the distributed implementation for forming the complete multipole
         expansions from the partial multipole expansions.
 
@@ -335,15 +368,32 @@ class ExpansionWranglerInterface(ABC):
         :returns: Statistics of the communication if *return_stats* is True. *None*
             otherwise.
         """
+        return {} if return_stats else None
 
 # }}}
 
 
+@overload
+def drive_fmm(actx: ArrayContext,
+              wrangler: DistributedExpansionWranglerMixin,
+              src_weight_vecs: Sequence[Array], *,
+              global_src_idx_all_ranks: None = None,
+              global_tgt_idx_all_ranks: None = None) -> None: ...
+
+
+@overload
 def drive_fmm(actx: ArrayContext,
               wrangler: ExpansionWranglerInterface,
-              src_weight_vecs, *,
-              global_src_idx_all_ranks=None,
-              global_tgt_idx_all_ranks=None):
+              src_weight_vecs: Sequence[Array], *,
+              global_src_idx_all_ranks: Sequence[Array] | None = None,
+              global_tgt_idx_all_ranks: Sequence[Array] | None = None) -> Array: ...
+
+
+def drive_fmm(actx: ArrayContext,
+              wrangler: ExpansionWranglerInterface | DistributedExpansionWranglerMixin,
+              src_weight_vecs: Sequence[Array], *,
+              global_src_idx_all_ranks: Sequence[Array] | None = None,
+              global_tgt_idx_all_ranks: Sequence[Array] | None = None) -> Array | None:
     """Top-level driver routine for a fast multipole calculation.
 
     In part, this is intended as a template for custom FMMs, in the sense that
@@ -354,29 +404,32 @@ def drive_fmm(actx: ArrayContext,
     Nonetheless, many common applications (such as point-to-point FMMs) can be
     covered by supplying the right *expansion_wrangler* to this routine.
 
-    :arg expansion_wrangler: An object exhibiting the
-        :class:`ExpansionWranglerInterface`. For distributed implementation, this
-        wrangler should be a subclass of
+    :arg wrangler: An object exhibiting the :class:`ExpansionWranglerInterface`.
+        For distributed implementation, this wrangler should be a subclass of
         :class:`boxtree.distributed.calculation.DistributedExpansionWranglerMixin`.
-    :arg src_weight_vecs: A sequence of source 'density/weights/charges'.
-        Passed unmodified to *expansion_wrangler*. For distributed
-        implementation, this argument is only significant on the root rank, but
-        worker ranks still need to supply a dummy vector.
-    :arg global_src_idx_all_ranks: Only used in the distributed implementation. A
-        :class:`list` of length ``nranks``, where the i-th entry is a
-        :class:`numpy.ndarray` representing the global indices of sources in the
-        local tree on rank *i*. Each entry can be returned from
-        *generate_local_tree*. This argument is only significant on the root rank.
-    :arg global_tgt_idx_all_ranks: Only used in the distributed implementation. A
-        :class:`list` of length ``nranks``, where the i-th entry is a
-        :class:`numpy.ndarray` representing the global indices of targets in the
-        local tree on rank *i*. Each entry can be returned from
-        *generate_local_tree*. This argument is only significant on the root rank.
+    :arg src_weight_vecs: A sequence of source 'density/weights/charges'. Passed
+        unmodified to the *wrangler*. For a distributed implementation, this
+        argument is only significant on the root rank, and worker ranks still
+        need to supply a dummy vector.
+    :arg global_src_idx_all_ranks: (only used in the distributed implementation)
+        A sequence of length ``nranks``, where the i-th entry is an array
+        representing the global indices of sources in the local tree on rank *i*.
+        Each entry can be returned from
+        :func:`~boxtree.distributed.local_tree.generate_local_tree`. This argument
+        is only significant on the root rank.
+    :arg global_tgt_idx_all_ranks: (only used in the distributed implementation)
+        A sequence of length ``nranks``, where the i-th entry is an array
+        representing the global indices of targets in the local tree on rank *i*.
+        Each entry can be returned from
+        :func:`~boxtree.distributed.local_tree.generate_local_tree`. This argument
+        is only significant on the root rank.
 
-    :return: the potentials computed by *expansion_wrangler*. For the distributed
-        implementation, the potentials are gathered and returned on the root rank;
-        this function returns *None* on the worker ranks.
+    :return: the potentials computed by *wrangler*. For the distributed
+        implementation, the potentials are gathered and returned on the root rank.
+        This function returns *None* on the worker ranks.
     """
+    # NOTE: this is just here for the distributed case to help the type system out
+    wrangler = cast("ExpansionWranglerInterface", wrangler)
 
     traversal = wrangler.traversal
 
@@ -394,6 +447,7 @@ def drive_fmm(actx: ArrayContext,
 
     # {{{ "Step 2.1:" Construct local multipoles
 
+    assert traversal.level_start_source_box_nrs is not None
     mpole_exps = wrangler.form_multipoles(
             actx,
             traversal.level_start_source_box_nrs,
@@ -404,6 +458,7 @@ def drive_fmm(actx: ArrayContext,
 
     # {{{ "Step 2.2:" Propagate multipoles upward
 
+    assert traversal.level_start_source_parent_box_nrs is not None
     mpole_exps = wrangler.coarsen_multipoles(
             actx,
             traversal.level_start_source_parent_box_nrs,
@@ -431,6 +486,7 @@ def drive_fmm(actx: ArrayContext,
 
     # {{{ "Stage 4:" translate separated siblings' ("list 2") mpoles to local
 
+    assert traversal.level_start_target_or_target_parent_box_nrs is not None
     local_exps = wrangler.multipole_to_local(
             actx,
             traversal.level_start_target_or_target_parent_box_nrs,
@@ -459,6 +515,8 @@ def drive_fmm(actx: ArrayContext,
     # these potentials are called beta in [1]
 
     if traversal.from_sep_close_smaller_starts is not None:
+        assert traversal.from_sep_close_smaller_lists is not None
+
         logger.debug("evaluate separated close smaller interactions directly "
                 "('list 3 close')")
 
@@ -486,6 +544,7 @@ def drive_fmm(actx: ArrayContext,
     local_exps = local_exps + local_result
 
     if traversal.from_sep_close_bigger_starts is not None:
+        assert traversal.from_sep_close_bigger_lists is not None
         direct_result = wrangler.eval_direct(
                 actx,
                 traversal.target_boxes,
@@ -509,6 +568,7 @@ def drive_fmm(actx: ArrayContext,
 
     # {{{ "Stage 8:" evaluate locals
 
+    assert traversal.level_start_target_box_nrs is not None
     local_result = wrangler.eval_locals(
             actx,
             traversal.level_start_target_box_nrs,
