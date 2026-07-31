@@ -782,7 +782,7 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
 
         sources = self._get_single_sources_array()
         centers = self._get_single_box_centers_array()
-        nsources = self.tree.box_source_counts_nonchild
+        nsources = np.asarray(self.tree.box_source_counts_nonchild)
 
         source_kwargs = self.get_source_kwargs(src_weights, slice(None))
 
