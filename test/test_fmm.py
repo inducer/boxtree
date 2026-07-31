@@ -527,6 +527,74 @@ def test_pyfmmlib_fmm(actx_factory, dims, use_dipoles, helmholtz_k):
 
     # }}}
 
+
+@pytest.mark.parametrize("dims", [2, 3])
+@pytest.mark.parametrize("use_dipoles", [True, False])
+@pytest.mark.parametrize("helmholtz_k", [0, 2])
+def test_pyfmmlib_batched_form_multipoles(
+        actx_factory, dims, use_dipoles, helmholtz_k):
+    """Check that the batched (indirect-many) P2M path reproduces the
+    one-box-at-a-time path exactly."""
+    pyfmmlib = pytest.importorskip("pyfmmlib")
+    if not hasattr(pyfmmlib, "l2dformmp_imany"):
+        pytest.skip("pyfmmlib lacks the batched formmp wrappers")
+
+    actx = actx_factory()
+
+    nsources = 800
+    ntargets = 400
+    dtype = np.float64
+
+    sources = p_normal(actx, nsources, dims, dtype, seed=15)
+    targets = (
+            p_normal(actx, ntargets, dims, dtype, seed=18)
+            + np.array([2, 0, 0])[:dims])
+
+    from boxtree import TreeBuilder
+    tb = TreeBuilder(actx)
+
+    tree, _ = tb(actx, sources, targets=targets,
+            max_particles_in_box=30, debug=True)
+
+    from boxtree.traversal import FMMTraversalBuilder
+    tbuild = FMMTraversalBuilder(actx)
+    trav, _ = tbuild(actx, tree, debug=True)
+
+    trav = actx.to_numpy(trav)
+
+    rng = np.random.default_rng(20)
+    weights = rng.uniform(0.0, 1.0, (nsources,))
+    dipole_vec = rng.normal(size=(dims, nsources)) if use_dipoles else None
+
+    from boxtree.pyfmmlib_integration import (
+        FMMLibExpansionWrangler,
+        FMMLibTreeIndependentDataForWrangler,
+        Kernel,
+    )
+    tree_indep = FMMLibTreeIndependentDataForWrangler(
+            trav.tree.dimensions,
+            Kernel.HELMHOLTZ if helmholtz_k else Kernel.LAPLACE)
+    wrangler = FMMLibExpansionWrangler(
+            tree_indep, trav,
+            helmholtz_k=helmholtz_k,
+            fmm_level_to_order=lambda tree, lev: 10,
+            dipole_vec=dipole_vec)
+
+    src_weights = wrangler.reorder_sources(weights)
+
+    mpoles_batched = wrangler.form_multipoles(
+            actx,
+            trav.level_start_source_box_nrs,
+            trav.source_boxes,
+            (src_weights,))
+
+    mpoles_one_at_a_time = wrangler._form_multipoles_one_box_at_a_time(
+            trav.level_start_source_box_nrs,
+            trav.source_boxes,
+            src_weights)
+
+    assert np.array_equal(mpoles_batched, mpoles_one_at_a_time)
+
 # }}}
 
 

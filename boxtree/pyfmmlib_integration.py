@@ -768,6 +768,82 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
             src_weight_vecs: Sequence[Array]
         ) -> Array:
         src_weights, = src_weight_vecs
+
+        try:
+            formmp = self.tree_indep.get_routine(
+                    "%ddformmp" + ("_dp" if self.use_dipoles else ""),
+                    suffix="_imany")
+        except AttributeError:
+            # pyfmmlib predates the batched (indirect-many) P2M wrappers
+            return self._form_multipoles_one_box_at_a_time(
+                    level_start_source_box_nrs, source_boxes, src_weights)
+
+        mpoles = self.multipole_expansion_zeros()
+
+        sources = self._get_single_sources_array()
+        centers = self._get_single_box_centers_array()
+        nsources = self.tree.box_source_counts_nonchild
+
+        source_kwargs = self.get_source_kwargs(src_weights, slice(None))
+
+        for lev in range(self.tree.nlevels):
+            start, stop = level_start_source_box_nrs[lev:lev+2]
+            if start == stop:
+                continue
+
+            boxes = source_boxes[start:stop]
+
+            # Boxes without sources are excluded from the batched call so
+            # that, exactly as in the one-box-at-a-time version, their
+            # expansion entries stay zero.
+            boxes = boxes[nsources[boxes] > 0]
+            if len(boxes) == 0:
+                continue
+
+            level_start_ibox, mpoles_view = self.multipole_expansions_view(
+                    mpoles, lev)
+
+            rscale = self.level_to_rscale(lev)
+
+            # Each expansion center draws on a single source segment: its
+            # own box's sources. All offset/start values below are 0-based
+            # (the Fortran arrays are declared "(0:*)").
+            segment_starts = np.arange(len(boxes) + 1, dtype=np.int32)
+            box_source_offsets = self.tree.box_source_starts[boxes]
+
+            kwargs = {}
+            kwargs.update(self.kernel_kwargs)
+            for key, val in source_kwargs.items():
+                kwargs[key] = val
+                # The source strengths share the ordering of the sources
+                # array, so the segment addressing is the same for both.
+                kwargs[key + "_starts"] = segment_starts
+                kwargs[key + "_offsets"] = box_source_offsets
+
+            ier, expn = formmp(
+                    rscale=rscale,
+                    sources=sources,
+                    sources_offsets=box_source_offsets,
+                    sources_starts=segment_starts,
+                    nsources=nsources,
+                    nsources_starts=segment_starts,
+                    nsources_offsets=boxes,
+                    centers=centers,
+                    centers_offsets=boxes,
+                    nterms=self.level_orders[lev],
+                    **kwargs)
+
+            if ier.any():
+                raise RuntimeError("formmp failed")
+
+            mpoles_view[boxes - level_start_ibox] = expn.T
+
+        return mpoles
+
+    def _form_multipoles_one_box_at_a_time(self,
+            level_start_source_box_nrs,
+            source_boxes,
+            src_weights):
         formmp = self.tree_indep.get_routine(
                 "%ddformmp" + ("_dp" if self.use_dipoles else ""))
 
