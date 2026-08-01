@@ -68,18 +68,18 @@ class RotationClassesInfo:
     r"""Interaction lists to help with matrix precomputations for rotation-based
     translations ("point and shoot").
 
-    .. attribute:: nfrom_sep_siblings_rotation_classes
+    .. autoproperty:: nfrom_sep_siblings_rotation_classes
 
        The number of distinct rotation classes.
 
-    .. attribute:: from_sep_siblings_rotation_classes
+    .. autoattribute:: from_sep_siblings_rotation_classes
 
         ``int32 [*]``
 
         A list, corresponding to *from_sep_siblings_lists* of *trav*, of
         the rotation class of each box pair.
 
-    .. attribute:: from_sep_siblings_rotation_class_to_angle
+    .. autoattribute:: from_sep_siblings_rotation_class_to_angle
 
         ``coord_t [nfrom_sep_siblings_rotation_classes]``
 

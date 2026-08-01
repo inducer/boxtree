@@ -3,8 +3,12 @@ Integrates :mod:`boxtree` with
 `pyfmmlib <https://pypi.org/project/pyfmmlib>`__.
 
 .. autoclass:: Kernel
+    :show-inheritance:
+    :members:
 .. autoclass:: FMMLibTreeIndependentDataForWrangler
+    :show-inheritance:
 .. autoclass:: FMMLibExpansionWrangler
+    :show-inheritance:
 
 Internal bits
 ^^^^^^^^^^^^^

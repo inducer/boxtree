@@ -201,18 +201,18 @@ class TranslationClassesInfo:
     r"""Interaction lists to help with for translations that benefit from
     precomputing distance related values
 
-    .. attribute:: nfrom_sep_siblings_translation_classes
+    .. autoproperty:: nfrom_sep_siblings_translation_classes
 
        The number of distinct translation classes.
 
-    .. attribute:: from_sep_siblings_translation_classes
+    .. autoattribute:: from_sep_siblings_translation_classes
 
         ``int32 [*]``
 
         A list, corresponding to *from_sep_siblings_lists* of :attr:`traversal`, of
         the translation classes of each box pair.
 
-    .. attribute:: from_sep_siblings_translation_class_to_distance_vector
+    .. autoattribute:: from_sep_siblings_translation_class_to_distance_vector
 
         ``coord_vec_t [nfrom_sep_siblings_translation_classes]``
 
@@ -220,7 +220,7 @@ class TranslationClassesInfo:
         to distance (translation) vectors from source box center to
         target box center.
 
-    .. attribute:: from_sep_siblings_translation_classes_level_starts
+    .. autoattribute:: from_sep_siblings_translation_classes_level_starts
 
         ``int32 [nlevels + 1]``
 
@@ -228,7 +228,7 @@ class TranslationClassesInfo:
         class id for that level. Translation classes are numbered contiguously
         by level.
 
-    .. attribute:: traversal
+    .. autoattribute:: traversal
 
         A :class:`boxtree.traversal.FMMTraversalInfo` object corresponding to the
         traversal that these translation classes refer to.

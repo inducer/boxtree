@@ -29,14 +29,17 @@ sphinxconfig_missing_reference_aliases = {
     # numpy
     "DTypeLike": "obj:numpy.typing.DTypeLike",
     "np.bool_": "class:numpy.bool",
-    "np.integer": "class:numpy.integer",
-    "np.floating": "class:numpy.floating",
     "np.dtype": "class:numpy.dtype",
+    "np.floating": "class:numpy.floating",
+    "np.inexact": "class:numpy.inexact",
+    "np.integer": "class:numpy.integer",
     # pytools typing
     "ObjectArray1D": "obj:pytools.obj_array.ObjectArray1D",
     "obj_array.ObjectArray1D": "obj:pytools.obj_array.ObjectArray1D",
     # pyopencl typing
     "Allocator": "class:pyopencl.array.Allocator",
+    "BuiltList": "class:pyopencl.algorithm.BuiltList",
+    "Event": "class:pyopencl.Event",
     "WaitList": "class:pyopencl.WaitList",
     "cl_array.Array": "class:pyopencl.array.Array",
     # arraycontext
