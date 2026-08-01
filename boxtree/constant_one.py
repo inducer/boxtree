@@ -27,16 +27,22 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 """
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
+from typing_extensions import override
 
 from boxtree.fmm import ExpansionWranglerInterface, TreeIndependentDataForWrangler
 
 
 if TYPE_CHECKING:
-    from arraycontext import ArrayContext
+    from collections.abc import Sequence
 
+    import optype.numpy as onp
+
+    from arraycontext import Array, ArrayContext
+    from pyopencl.algorithm import BuiltList
+    from pytools.obj_array import ObjectArray1D
 
 # {{{ constant one wrangler
 
@@ -53,42 +59,53 @@ class ConstantOneExpansionWrangler(ExpansionWranglerInterface):
     a copy of the particle count.
     """
 
-    def _get_source_slice(self, ibox):
+    def _get_source_slice(self, ibox: int) -> slice:
         pstart = self.tree.box_source_starts[ibox]
-        return slice(
-                pstart, pstart + self.tree.box_source_counts_nonchild[ibox])
+        return slice(pstart, pstart + self.tree.box_source_counts_nonchild[ibox])
 
-    def _get_target_slice(self, ibox):
+    def _get_target_slice(self, ibox: int) -> slice:
         pstart = self.tree.box_target_starts[ibox]
-        return slice(
-                pstart, pstart + self.tree.box_target_counts_nonchild[ibox])
+        return slice(pstart, pstart + self.tree.box_target_counts_nonchild[ibox])
 
-    def multipole_expansion_zeros(self):
+    def multipole_expansion_zeros(self) -> onp.Array1D[np.floating[Any]]:
         return np.zeros(self.tree.nboxes, dtype=np.float64)
 
-    local_expansion_zeros = multipole_expansion_zeros
+    def local_expansion_zeros(self) -> onp.Array1D[np.floating[Any]]:
+        return np.zeros(self.tree.nboxes, dtype=np.float64)
 
     def output_zeros(self):
         return np.zeros(self.tree.ntargets, dtype=np.float64)
 
-    def reorder_sources(self, source_array):
+    @override
+    def reorder_sources(self, source_array: Array) -> Array:
         return source_array[self.tree.user_source_ids]
 
-    def reorder_potentials(self, potentials):
+    @override
+    def reorder_potentials(self, potentials: Array) -> Array:
         return potentials[self.tree.sorted_target_ids]
 
-    def multipole_expansions_view(self, mpole_exps, level):
+    @override
+    def multipole_expansions_view(
+            self, mpole_exps: Array, level: int
+        ) -> tuple[int, Array]:
         # FIXME
         raise NotImplementedError
 
-    def local_expansions_view(self, local_exps, level):
+    @override
+    def local_expansions_view(
+            self, local_exps: Array, level: int
+        ) -> tuple[int, Array]:
         # FIXME
         raise NotImplementedError
 
-    def form_multipoles(self, actx: ArrayContext,
-            level_start_source_box_nrs,
-            source_boxes,
-            src_weight_vecs):
+    @override
+    def form_multipoles(
+            self,
+            actx: ArrayContext,
+            level_start_source_box_nrs: Array,
+            source_boxes: Array,
+            src_weight_vecs: Sequence[Array],
+        ) -> Array:
         src_weights, = src_weight_vecs
         mpoles = self.multipole_expansion_zeros()
 
@@ -98,10 +115,13 @@ class ConstantOneExpansionWrangler(ExpansionWranglerInterface):
 
         return mpoles
 
-    def coarsen_multipoles(self, actx: ArrayContext,
-            level_start_source_parent_box_nrs,
-            source_parent_boxes,
-            mpoles):
+    @override
+    def coarsen_multipoles(
+            self,
+            actx: ArrayContext,
+            level_start_source_parent_box_nrs: Array,
+            source_parent_boxes: Array,
+            mpoles: Array) -> Array:
         tree = self.tree
 
         # nlevels-1 is the last valid level index
@@ -121,9 +141,14 @@ class ConstantOneExpansionWrangler(ExpansionWranglerInterface):
 
         return mpoles
 
-    def eval_direct(self, actx: ArrayContext,
-            target_boxes, neighbor_sources_starts,
-            neighbor_sources_lists, src_weight_vecs):
+    @override
+    def eval_direct(
+            self,
+            actx: ArrayContext,
+            target_boxes: Array,
+            neighbor_sources_starts: Array,
+            neighbor_sources_lists: Array,
+            src_weight_vecs: Sequence[Array]) -> Array:
         src_weights, = src_weight_vecs
         pot = self.output_zeros()
 
@@ -144,11 +169,15 @@ class ConstantOneExpansionWrangler(ExpansionWranglerInterface):
 
         return pot
 
-    def multipole_to_local(self,
+    @override
+    def multipole_to_local(
+            self,
             actx: ArrayContext,
-            level_start_target_or_target_parent_box_nrs,
-            target_or_target_parent_boxes,
-            starts, lists, mpole_exps):
+            level_start_target_or_target_parent_box_nrs: Array,
+            target_or_target_parent_boxes: Array,
+            starts: Array,
+            lists: Array,
+            mpole_exps: Array) -> Array:
         local_exps = self.local_expansion_zeros()
 
         for itgt_box, tgt_ibox in enumerate(target_or_target_parent_boxes):
@@ -163,20 +192,20 @@ class ConstantOneExpansionWrangler(ExpansionWranglerInterface):
 
         return local_exps
 
-    def eval_multipoles(self,
+    @override
+    def eval_multipoles(
+            self,
             actx: ArrayContext,
-            target_boxes_by_source_level,
-            from_sep_smaller_nonsiblings_by_level,
-            mpole_exps):
+            target_boxes_by_source_level: ObjectArray1D[Array],
+            from_sep_smaller_by_level: ObjectArray1D[BuiltList],
+            mpole_exps: Array) -> Array:
         pot = self.output_zeros()
 
-        for level, ssn in enumerate(from_sep_smaller_nonsiblings_by_level):
-            for itgt_box, tgt_ibox in \
-                    enumerate(target_boxes_by_source_level[level]):
+        for level, ssn in enumerate(from_sep_smaller_by_level):
+            for itgt_box, tgt_ibox in enumerate(target_boxes_by_source_level[level]):
                 tgt_pslice = self._get_target_slice(tgt_ibox)
 
                 contrib = 0
-
                 start, end = ssn.starts[itgt_box:itgt_box+2]
                 for src_ibox in ssn.lists[start:end]:
                     contrib += mpole_exps[src_ibox]
@@ -185,11 +214,15 @@ class ConstantOneExpansionWrangler(ExpansionWranglerInterface):
 
         return pot
 
-    def form_locals(self,
+    @override
+    def form_locals(
+            self,
             actx: ArrayContext,
-            level_start_target_or_target_parent_box_nrs,
-            target_or_target_parent_boxes,
-            starts, lists, src_weight_vecs):
+            level_start_target_or_target_parent_box_nrs: Array,
+            target_or_target_parent_boxes: Array,
+            starts: Array,
+            lists: Array,
+            src_weight_vecs: Sequence[Array]) -> Array:
         src_weights, = src_weight_vecs
         local_exps = self.local_expansion_zeros()
 
@@ -209,10 +242,13 @@ class ConstantOneExpansionWrangler(ExpansionWranglerInterface):
 
         return local_exps
 
-    def refine_locals(self,
+    @override
+    def refine_locals(
+            self,
             actx: ArrayContext,
-            level_start_target_or_target_parent_box_nrs,
-            target_or_target_parent_boxes, local_exps):
+            level_start_target_or_target_parent_box_nrs: Array,
+            target_or_target_parent_boxes: Array,
+            local_exps: Array) -> Array:
         for target_lev in range(1, self.tree.nlevels):
             start, stop = level_start_target_or_target_parent_box_nrs[
                     target_lev:target_lev+2]
@@ -221,10 +257,13 @@ class ConstantOneExpansionWrangler(ExpansionWranglerInterface):
 
         return local_exps
 
-    def eval_locals(self,
+    @override
+    def eval_locals(
+            self,
             actx: ArrayContext,
-            level_start_target_box_nrs,
-            target_boxes, local_exps):
+            level_start_target_box_nrs: Array,
+            target_boxes: Array,
+            local_exps: Array) -> Array:
         pot = self.output_zeros()
 
         for ibox in target_boxes:
@@ -233,7 +272,8 @@ class ConstantOneExpansionWrangler(ExpansionWranglerInterface):
 
         return pot
 
-    def finalize_potentials(self, actx: ArrayContext, potentials):
+    @override
+    def finalize_potentials(self, actx: ArrayContext, potentials: Array) -> Array:
         return potentials
 
 # }}}
