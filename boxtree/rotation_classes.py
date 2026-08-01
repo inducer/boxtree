@@ -36,7 +36,7 @@ THE SOFTWARE.
 
 import logging
 from dataclasses import dataclass
-from typing import ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import numpy as np
 
@@ -46,6 +46,16 @@ from pytools import log_process
 from boxtree.array_context import dataclass_array_container
 from boxtree.translation_classes import TranslationClassesBuilder
 
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable, Sequence
+
+    import optype.numpy as onp
+
+    from pyopencl import Event, WaitList
+
+    from boxtree.traversal import FMMTraversalInfo
+    from boxtree.tree import Tree
 
 logger = logging.getLogger(__name__)
 
@@ -83,7 +93,7 @@ class RotationClassesInfo:
     from_sep_siblings_rotation_class_to_angle: Array
 
     @property
-    def nfrom_sep_siblings_rotation_classes(self):
+    def nfrom_sep_siblings_rotation_classes(self) -> int:
         return len(self.from_sep_siblings_rotation_class_to_angle)
 
 
@@ -94,37 +104,36 @@ class RotationClassesBuilder:
     .. automethod:: __call__
     """
 
-    def __init__(self, array_context: ArrayContext):
+    tcb: TranslationClassesBuilder
+
+    _setup_actx: PyOpenCLArrayContext
+
+    def __init__(self, array_context: ArrayContext) -> None:
         assert isinstance(array_context, PyOpenCLArrayContext)
-        self._setup_actx: PyOpenCLArrayContext = array_context
+        self._setup_actx = array_context
         self.tcb = TranslationClassesBuilder(array_context)
 
     @staticmethod
-    def vec_gcd(vec) -> int:
+    def vec_gcd(vec: Iterable[int]) -> int:
         """Return the GCD of a list of integers."""
         import math
+        return math.gcd(*vec)
 
-        # TODO: math.gcd supports a list of integers from >= 3.9
-        result = abs(vec[0])
-        for elem in vec[1:]:
-            result = math.gcd(result, abs(elem))
-
-        return result
-
-    def compute_rotation_classes(self,
-            well_sep_is_n_away: int, dimensions: int, used_translation_classes):
+    def compute_rotation_classes(
+            self,
+            well_sep_is_n_away: int,
+            dimensions: int,
+            used_translation_classes: Iterable[int]
+        ) -> tuple[onp.Array1D[np.integer[Any]], Sequence[np.floating[Any]]]:
         """Convert translation classes to a list of rotation classes and angles."""
-        angle_to_rot_class = {}
-        angles = []
+        angle_to_rot_class: dict[np.floating[Any], int] = {}
+        angles: list[np.floating[Any]] = []
 
         ntranslation_classes_per_level = (
-                self.tcb.ntranslation_classes_per_level(well_sep_is_n_away,
-                    dimensions))
-
+            self.tcb.ntranslation_classes_per_level(well_sep_is_n_away, dimensions)
+        )
         translation_class_to_rot_class = (
-                np.empty(ntranslation_classes_per_level, dtype=np.int32))
-
-        translation_class_to_rot_class[:] = -1
+            np.full(ntranslation_classes_per_level, -1, dtype=np.int32))
 
         for cls in used_translation_classes:
             vec = self.tcb.translation_class_to_normalized_vector(
@@ -146,7 +155,7 @@ class RotationClassesBuilder:
             # Compute the rotation angle for the vector.
             norm = np.linalg.norm(vec)
             assert norm != 0
-            angle = np.arccos(vec[-1] / norm)
+            angle: np.floating[Any] = np.arccos(vec[-1] / norm)
 
             # Find the rotation class.
             if angle in angle_to_rot_class:
@@ -161,7 +170,13 @@ class RotationClassesBuilder:
         return translation_class_to_rot_class, angles
 
     @log_process(logger, "build m2l rotation classes")
-    def __call__(self, actx, trav, tree, wait_for=None):
+    def __call__(
+            self,
+            actx: ArrayContext,
+            trav: FMMTraversalInfo,
+            tree: Tree,
+            wait_for: WaitList | None = None
+        ) -> tuple[RotationClassesInfo, Event]:
         """Returns a pair *info*, *evt* where info is a :class:`RotationClassesInfo`.
         """
         evt, translation_class_is_used, translation_classes_lists = \
