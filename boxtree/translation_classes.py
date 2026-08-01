@@ -37,14 +37,14 @@ THE SOFTWARE.
 import logging
 from dataclasses import dataclass
 from functools import partial
-from typing import ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import numpy as np
 from mako.template import Template
 
 from arraycontext import Array, ArrayContext, PyOpenCLArrayContext
 from pyopencl.elementwise import ElementwiseKernel, ElementwiseTemplate
-from pytools import memoize_method
+from pytools import log_process, memoize_method
 
 from boxtree.array_context import dataclass_array_container
 from boxtree.tools import (
@@ -55,10 +55,14 @@ from boxtree.tools import (
 from boxtree.traversal import TRAVERSAL_PREAMBLE_MAKO_DEFS, FMMTraversalInfo
 
 
+if TYPE_CHECKING:
+    import optype.numpy as onp
+
+    from pyopencl import Context, Event, WaitList
+
+    from boxtree.tree import Tree
+
 logger = logging.getLogger(__name__)
-
-from pytools import log_process
-
 
 # {{{ translation classes builder
 
@@ -237,7 +241,7 @@ class TranslationClassesInfo:
     from_sep_siblings_translation_classes_level_starts: Array
 
     @property
-    def nfrom_sep_siblings_translation_classes(self):
+    def nfrom_sep_siblings_translation_classes(self) -> int:
         return len(self.from_sep_siblings_translation_class_to_distance_vector)
 
 
@@ -248,22 +252,25 @@ class TranslationClassesBuilder:
     .. automethod:: __call__
     """
 
+    _setup_actx: PyOpenCLArrayContext
+
     def __init__(self, array_context: ArrayContext) -> None:
         assert isinstance(array_context, PyOpenCLArrayContext)
         self._setup_actx = array_context
 
     @property
-    def context(self):
+    def context(self) -> Context:
         return self._setup_actx.queue.context
 
     @memoize_method
-    def get_kernel_info(self,
+    def get_kernel_info(
+            self,
             dimensions: int,
             well_sep_is_n_away: int,
             box_id_dtype: np.dtype,
             box_level_dtype: np.dtype,
             coord_dtype: np.dtype,
-            translation_class_per_level) -> None:
+            translation_class_per_level: bool) -> None:
         coord_vec_dtype = get_coord_vec_dtype(coord_dtype, dimensions)
         int_coord_vec_dtype = get_coord_vec_dtype(np.dtype(np.int32), dimensions)
 
@@ -301,12 +308,13 @@ class TranslationClassesBuilder:
 
     @staticmethod
     def ntranslation_classes_per_level(
-            well_sep_is_n_away: int, dimensions: int) -> int:
+            well_sep_is_n_away: int, dimensions: int
+        ) -> int:
         return (4 * well_sep_is_n_away + 3) ** dimensions
 
     def translation_class_to_normalized_vector(
-            self, well_sep_is_n_away: int, dimensions: int, cls: type
-            ) -> np.ndarray:
+            self, well_sep_is_n_away: int, dimensions: int, cls: int
+        ) -> onp.Array1D[np.integer[Any]]:
         # This computes the vector for the translation class, using the inverse
         # of the formula found in get_translation_class() defined in
         # TRANSLATION_CLASS_FINDER_PREAMBLE_TEMPLATE.
@@ -321,9 +329,14 @@ class TranslationClassesBuilder:
 
         return result
 
-    def compute_translation_classes(self,
-            actx: ArrayContext, trav, tree, wait_for,
-            is_translation_per_level):
+    def compute_translation_classes(
+            self,
+            actx: ArrayContext,
+            trav: FMMTraversalInfo,
+            tree: Tree,
+            wait_for: WaitList | None = None,
+            is_translation_per_level: bool = True
+        ) -> tuple[Event, Array, Array]:
         """
         :returns: a :class:`tuple` containing *evt*, *translation_class_is_used*
             and *translation_classes_lists*.
@@ -370,13 +383,19 @@ class TranslationClassesBuilder:
         if actx.to_numpy(error_flag)[0]:
             raise ValueError("could not compute translation classes")
 
-        return (evt, translation_class_is_used, translation_classes_lists)
+        return evt, translation_class_is_used, translation_classes_lists
 
         # }}}
 
     @log_process(logger, "build m2l translation classes")
-    def __call__(self, actx: ArrayContext,
-            trav, tree, wait_for=None, is_translation_per_level=True):
+    def __call__(
+            self,
+            actx: ArrayContext,
+            trav: FMMTraversalInfo,
+            tree: Tree,
+            wait_for: WaitList | None = None,
+            is_translation_per_level: bool = True,
+        ) -> tuple[TranslationClassesInfo, Event]:
         """Returns a pair *info*, *evt* where info is a
         :class:`TranslationClassesInfo`.
         """
@@ -387,10 +406,8 @@ class TranslationClassesBuilder:
         well_sep_is_n_away = trav.well_sep_is_n_away
         dimensions = tree.dimensions
 
-        used_translation_classes_map = np.empty(len(translation_class_is_used),
-                                                dtype=np.int32)
-        used_translation_classes_map.fill(-1)
-
+        used_translation_classes_map = np.full(
+            len(translation_class_is_used), -1, dtype=np.int32)
         distances = np.empty((dimensions, len(translation_class_is_used)),
                              dtype=tree.coord_dtype)
         num_translation_classes = \
