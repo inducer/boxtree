@@ -2,6 +2,7 @@
 Integrates :mod:`boxtree` with
 `pyfmmlib <https://pypi.org/project/pyfmmlib>`__.
 
+.. autoclass:: Kernel
 .. autoclass:: FMMLibTreeIndependentDataForWrangler
 .. autoclass:: FMMLibExpansionWrangler
 
@@ -39,9 +40,11 @@ THE SOFTWARE.
 
 import enum
 import logging
-from typing import TYPE_CHECKING
+from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
+from typing_extensions import override
 
 from pytools import log_process, memoize_method, obj_array
 
@@ -49,31 +52,42 @@ from boxtree.fmm import ExpansionWranglerInterface, TreeIndependentDataForWrangl
 
 
 if TYPE_CHECKING:
-    from arraycontext import ArrayContext
+    from collections.abc import Callable, Sequence
+
+    import optype.numpy as onp
+
+    from arraycontext import Array, ArrayContext
+    from pyopencl.algorithm import BuiltList
+
+    from boxtree.rotation_classes import RotationClassesBuilder, RotationClassesInfo
+    from boxtree.traversal import FMMTraversalInfo
+    from boxtree.tree import Tree
 
 logger = logging.getLogger(__name__)
 
 
 # {{{ rotation data interface
 
-class FMMLibRotationDataInterface:
+class FMMLibRotationDataInterface(ABC):
     """Abstract interface for additional, optional data for precomputation of
     rotation matrices passed to the expansion wrangler.
 
     .. automethod:: m2l_rotation_lists
-
     .. automethod:: m2l_rotation_angles
-
     """
 
-    def m2l_rotation_lists(self):
-        """Return a :mod:`numpy` array mapping entries of List 2 to rotation classes.
+    @abstractmethod
+    def m2l_rotation_lists(self) -> onp.Array1D[np.integer[Any]]:
+        """
+        :returns: a :mod:`numpy` array mapping entries of List 2 to rotation classes.
         """
         raise NotImplementedError
 
-    def m2l_rotation_angles(self):
-        """Return a :mod:`numpy` array mapping List 2 rotation classes to
-        rotation angles.
+    @abstractmethod
+    def m2l_rotation_angles(self) -> onp.Array1D[np.floating[Any]]:
+        """
+        :returns: a :mod:`numpy` array mapping List 2 rotation classes to
+            rotation angles.
         """
         raise NotImplementedError
 
@@ -81,35 +95,45 @@ class FMMLibRotationDataInterface:
 class FMMLibRotationData(FMMLibRotationDataInterface):
     """An implementation of the :class:`FMMLibRotationDataInterface`.
 
+    .. autoattribute:: trav
+    .. autoattribute:: tree
+
     .. automethod:: __init__
     """
 
-    def __init__(self, array_context: ArrayContext, trav):
+    trav: FMMTraversalInfo
+    tree: Tree
+
+    _setup_actx: ArrayContext
+
+    def __init__(self, array_context: ArrayContext, trav: FMMTraversalInfo) -> None:
         self._setup_actx = array_context
         self.trav = trav
         self.tree = trav.tree
 
     @property
     @memoize_method
-    def rotation_classes_builder(self):
+    def rotation_classes_builder(self) -> RotationClassesBuilder:
         from boxtree.rotation_classes import RotationClassesBuilder
         return RotationClassesBuilder(self._setup_actx)
 
     @memoize_method
-    def build_rotation_classes_lists(self):
+    def build_rotation_classes_lists(self) -> RotationClassesInfo:
         trav = self._setup_actx.from_numpy(self.trav)
         tree = self._setup_actx.from_numpy(self.tree)
         return self.rotation_classes_builder(self._setup_actx, trav, tree)[0]
 
     @memoize_method
-    def m2l_rotation_lists(self):
+    @override
+    def m2l_rotation_lists(self) -> onp.Array1D[np.integer[Any]]:
         return self._setup_actx.to_numpy(
             self.build_rotation_classes_lists()
                 .from_sep_siblings_rotation_classes,
             )
 
     @memoize_method
-    def m2l_rotation_angles(self):
+    @override
+    def m2l_rotation_angles(self) -> onp.Array1D[np.floating[Any]]:
         return self._setup_actx.to_numpy(
             self.build_rotation_classes_lists()
                 .from_sep_siblings_rotation_class_to_angle,
@@ -125,7 +149,9 @@ class FMMLibRotationDataNotSuppliedWarning(UserWarning):
 @enum.unique
 class Kernel(enum.Enum):
     LAPLACE = enum.auto()
+    """Laplace equation kernel."""
     HELMHOLTZ = enum.auto()
+    """Helmholtz equation kernel."""
 
 
 # {{{ tree-independent data for wrangler
@@ -135,7 +161,14 @@ class FMMLibTreeIndependentDataForWrangler(TreeIndependentDataForWrangler):
     .. automethod:: __init__
     """
 
-    def __init__(self, dim, kernel, ifgrad=False):
+    dim: int
+    ifgrad: bool
+    kernel: Kernel
+
+    eqn_letter: Literal["l", "h"]
+    dtype: np.dtype[Any]
+
+    def __init__(self, dim: int, kernel: Kernel, *, ifgrad: bool = False) -> None:
         self.dim = dim
         self.ifgrad = ifgrad
         self.kernel = kernel
@@ -145,20 +178,24 @@ class FMMLibTreeIndependentDataForWrangler(TreeIndependentDataForWrangler):
         elif kernel == Kernel.HELMHOLTZ:
             self.eqn_letter = "h"
         else:
-            raise ValueError(kernel)
+            raise ValueError(f"unknown kernel for pyfmmlib: {kernel}")
 
-        self.dtype = np.complex128
+        self.dtype = np.dtype(np.complex128)
 
     # {{{ routine getters
 
-    def get_routine(self, name, suffix=""):
+    def get_routine(
+            self, name: str, suffix: str = ""
+        ) -> Callable[..., Any]:
         import pyfmmlib
         return getattr(pyfmmlib, f"{self.eqn_letter}{name % self.dim}{suffix}")
 
-    def get_vec_routine(self, name):
+    def get_vec_routine(self, name: str) -> Callable[..., Any]:
         return self.get_routine(name, "_vec")
 
-    def get_translation_routine(self, wrangler, name, vec_suffix="_vec"):
+    def get_translation_routine(
+            self, wrangler: FMMLibExpansionWrangler, name: str, vec_suffix: str = "_vec"
+        ) -> Callable[..., Any]:
         suffix = ""
         if self.dim == 3:
             suffix = "quadu"
@@ -167,35 +204,36 @@ class FMMLibTreeIndependentDataForWrangler(TreeIndependentDataForWrangler):
         rout = self.get_routine(name, suffix)
 
         if self.dim == 2:
-            def wrapper(*args, **kwargs):
+            def wrapper(*args: Any, **kwargs: Any) -> Any:
                 # not used
                 kwargs.pop("level_for_projection", None)
 
                 return rout(*args, **kwargs)
         else:
-
-            def wrapper(*args, **kwargs):
+            def wrapper(*args: Any, **kwargs: Any) -> Any:
                 kwargs.pop("level_for_projection", None)
                 nterms2 = kwargs["nterms2"]
                 kwargs.update(wrangler.projection_quad_extra_kwargs(order=nterms2))
 
                 val, ier = rout(*args, **kwargs)
-                if (ier != 0).any():
+                if np.any(ier != 0):
                     raise RuntimeError(f"{name} failed with nonzero ier")
 
                 return val
 
-        # Doesn't work in in Py2
-        # from functools import update_wrapper
-        # update_wrapper(wrapper, rout)
+        from functools import update_wrapper
+        update_wrapper(wrapper, rout)
+
         return wrapper
 
-    def get_direct_eval_routine(self, use_dipoles):
+    def get_direct_eval_routine(
+            self, use_dipoles: bool
+        ) -> Callable[..., tuple[Any, Any]]:
         if self.dim == 2:
             rout = self.get_vec_routine(
                     "potgrad%ddall" + ("_dp" if use_dipoles else ""))
 
-            def wrapper(*args, **kwargs):
+            def wrapper(*args: Any, **kwargs: Any) -> tuple[Any, Any]:
                 kwargs["ifgrad"] = self.ifgrad
                 kwargs["ifhess"] = False
                 pot, grad, _hess = rout(*args, **kwargs)
@@ -204,36 +242,30 @@ class FMMLibTreeIndependentDataForWrangler(TreeIndependentDataForWrangler):
                     grad = 0
 
                 return pot, grad
-
-            # Doesn't work in in Py2
-            # from functools import update_wrapper
-            # update_wrapper(wrapper, rout)
-            return wrapper
-
         elif self.dim == 3:
             rout = self.get_vec_routine(
                     "potfld%ddall" + ("_dp" if use_dipoles else ""))
 
-            def wrapper(*args, **kwargs):
+            def wrapper(*args: Any, **kwargs: Any) -> tuple[Any, Any]:
                 kwargs["iffld"] = self.ifgrad
                 pot, fld = rout(*args, **kwargs)
                 grad = -fld if self.ifgrad else 0
 
                 return pot, grad
-
-            # Doesn't work in in Py2
-            # from functools import update_wrapper
-            # update_wrapper(wrapper, rout)
-            return wrapper
         else:
-            raise ValueError("unsupported dimensionality")
+            raise ValueError(f"unsupported dimensionality: {self.dim}")
 
-    def get_expn_eval_routine(self, expn_kind):
+        from functools import update_wrapper
+        update_wrapper(wrapper, rout)
+
+        return wrapper
+
+    def get_expn_eval_routine(self, expn_kind: str) -> Callable[..., tuple[Any, Any]]:
         name = f"%dd{expn_kind}eval"
         rout = self.get_routine(name, "_vec")
 
         if self.dim == 2:
-            def wrapper(*args, **kwargs):
+            def wrapper(*args: Any, **kwargs: Any) -> tuple[Any, Any]:
                 kwargs["ifgrad"] = self.ifgrad
                 kwargs["ifhess"] = False
 
@@ -242,29 +274,23 @@ class FMMLibTreeIndependentDataForWrangler(TreeIndependentDataForWrangler):
                     grad = 0
 
                 return pot, grad
-
-            # Doesn't work in in Py2
-            # from functools import update_wrapper
-            # update_wrapper(wrapper, rout)
-            return wrapper
-
         elif self.dim == 3:
-            def wrapper(*args, **kwargs):
+            def wrapper(*args: Any, **kwargs: Any) -> tuple[Any, Any]:
                 kwargs["iffld"] = self.ifgrad
                 pot, fld, ier = rout(*args, **kwargs)
 
-                if (ier != 0).any():
+                if np.any(ier != 0):
                     raise RuntimeError(f"{name} failed with nonzero ier")
 
                 grad = -fld if self.ifgrad else 0
                 return pot, grad
-
-            # Doesn't work in in Py2
-            # from functools import update_wrapper
-            # update_wrapper(wrapper, rout)
-            return wrapper
         else:
-            raise ValueError("unsupported dimensionality")
+            raise ValueError(f"unsupported dimensionality: {self.dim}")
+
+        from functools import update_wrapper
+        update_wrapper(wrapper, rout)
+
+        return wrapper
 
     # }}}
 
@@ -278,13 +304,35 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
     by using ``pyfmmlib``.
     """
 
+    tree_indep: FMMLibTreeIndependentDataForWrangler
+    traversal: FMMTraversalInfo
+
+    kernel_kwargs: dict[str, Any]
+    rscale_factor: float
+    helmholtz_k: float
+
+    level_orders: onp.Array1D[np.integer[Any]]
+
+    rotation_data: FMMLibRotationDataInterface | None
+    rotmat_cutoff_bytes: int
+
+    supports_optimized_m2l: bool
+    use_dipoles: bool
+    dipole_vec: onp.Array2D[np.inexact[Any]] | None
+
     # {{{ constructor
 
-    def __init__(self, tree_indep, traversal, *,
-            helmholtz_k=None, fmm_level_to_order=None,
-            dipole_vec=None, dipoles_already_reordered=False, order=None,
-            optimized_m2l_precomputation_memory_cutoff_bytes=10**8,
-            rotation_data=None):
+    def __init__(
+            self,
+            tree_indep: FMMLibTreeIndependentDataForWrangler,
+            traversal: FMMTraversalInfo, *,
+            helmholtz_k: float | None = None,
+            fmm_level_to_order: Callable[[Tree, int], int] | None = None,
+            dipole_vec: onp.Array2D[np.inexact[Any]] | None = None,
+            dipoles_already_reordered: bool = False,
+            order: int | None = None,
+            optimized_m2l_precomputation_memory_cutoff_bytes: int = 10**8,
+            rotation_data: FMMLibRotationDataInterface | None = None) -> None:
         """
         :arg fmm_level_to_order: A callable that, upon being passed the tree
             and the tree level as an integer, returns the order for the multipole and
@@ -299,16 +347,19 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
         """
 
         if order is not None and fmm_level_to_order is not None:
-            raise TypeError("may specify either fmm_level_to_order or order, "
-                    "but not both")
+            raise TypeError(
+                "may specify either 'fmm_level_to_order' or 'order', but not both"
+            )
 
         if order is not None:
             from warnings import warn
-            warn("Passing order is deprecated. Pass fmm_level_to_order instead.",
+            warn("Passing 'order' is deprecated. Pass 'fmm_level_to_order' instead.",
                     DeprecationWarning, stacklevel=2)
 
-            def fmm_level_to_order(tree, level):  # pylint:disable=function-redefined
+            def fmm_level_to_order_default(_tree: Tree, _level: int) -> int:
                 return order
+
+            fmm_level_to_order = fmm_level_to_order_default
 
         super().__init__(tree_indep, traversal)
 
@@ -318,7 +369,8 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
 
             if helmholtz_k:
                 raise ValueError(
-                        "helmholtz_k must be zero or unspecified for Laplace")
+                    f"'helmholtz_k' must be zero or None for Laplace: {helmholtz_k!r}"
+                )
 
             helmholtz_k = 0
 
@@ -327,28 +379,32 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
 
             if not helmholtz_k:
                 raise ValueError(
-                        "helmholtz_k must be specified and nonzero")
+                    f"'helmholtz_k' must be specified and nonzero: {helmholtz_k!r}"
+                )
 
             self.rscale_factor = abs(helmholtz_k)
 
         else:
-            raise ValueError(tree_indep.kernel)
+            raise ValueError(f"unknown kernel for pyfmmlib: {tree_indep.kernel}")
 
         self.helmholtz_k = helmholtz_k
 
         tree = traversal.tree
 
         if tree_indep.dim != tree.dimensions:
-            raise ValueError(f"Kernel dim ({tree_indep.dim}) "
-                    f"does not match tree dim ({tree.dimensions})")
+            raise ValueError(
+                f"kernel dimension ({tree_indep.dim}) does not match tree "
+                f"dimension ({tree.dimensions})"
+            )
 
+        assert fmm_level_to_order is not None
         self.level_orders = np.array([
             fmm_level_to_order(tree, lev) for lev in range(tree.nlevels)
             ], dtype=np.int32)
 
         if tree_indep.kernel == Kernel.HELMHOLTZ:
             logger.info("expansion orders by level used in Helmholtz FMM: %s",
-                    self.level_orders)
+                        self.level_orders)
 
         self.rotation_data = rotation_data
         self.rotmat_cutoff_bytes = optimized_m2l_precomputation_memory_cutoff_bytes
@@ -368,13 +424,14 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
             self.supports_optimized_m2l = False
 
         # FIXME: dipole_vec shouldn't be stored here! Otherwise, we'll recompute
-        # bunches of tree-dependent stuff for every new dipole vector.
+        # a bunch of tree-dependent stuff for every new dipole vector.
 
         # It's not super bad because the dipole vectors are typically geometry
         # normals and thus change about at the same time as the tree... but there's
         # still no reason for them to be here.
         self.use_dipoles = dipole_vec is not None
         if self.use_dipoles:
+            assert dipole_vec is not None
             assert dipole_vec.shape == (self.dim, self.tree.nsources)
 
             if not dipoles_already_reordered:
@@ -387,78 +444,80 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
     # }}}
 
     @property
-    def dim(self):
+    def dim(self) -> int:
         return self.tree.dimensions
 
-    def level_to_rscale(self, level):
+    def level_to_rscale(self, level: int) -> float:
         result = self.tree.root_extent * 2 ** -level * self.rscale_factor
         if abs(result) > 1:
             result = 1
+
         if self.dim == 3 and self.tree_indep.eqn_letter == "l":
-            # Laplace 3D uses the opposite convention compared to
-            # all other cases.
+            # Laplace 3D uses the opposite convention compared to all other cases.
             # https://gitlab.tiker.net/inducer/boxtree/merge_requests/81
             result = 1 / result
         return result
 
     @memoize_method
-    def projection_quad_extra_kwargs(self, level=None, order=None):
+    def projection_quad_extra_kwargs(
+            self, level: int | None = None, order: int | None = None
+        ) -> dict[str, onp.Array1D[np.floating[Any]]]:
         if level is None and order is None:
-            raise TypeError("must pass exactly one of level or order")
+            raise TypeError("must pass exactly one of 'level' or 'order'")
+
         if level is not None and order is not None:
-            raise TypeError("must pass exactly one of level or order")
+            raise TypeError("must pass exactly one of 'level' or 'order'")
+
         if level is not None:
-            order = self.level_orders[level]
+            order = int(self.level_orders[level])
+        assert order is not None
 
         common_extra_kwargs = {}
-
         if self.dim == 3 and self.tree_indep.eqn_letter == "h":
-            nquad = max(6, int(2.5*order))
             from pyfmmlib import legewhts
-            xnodes, weights = legewhts(nquad, ifwhts=1)
 
-            common_extra_kwargs = {
-                    "xnodes": xnodes,
-                    "wts": weights,
-                    }
+            nquad = max(6, int(2.5 * order))
+            xnodes, weights = legewhts(nquad, ifwhts=1)
+            common_extra_kwargs = {"xnodes": xnodes, "wts": weights}
 
         return common_extra_kwargs
 
     # {{{ overridable target lists for the benefit of the QBX FMM
 
-    def box_target_starts(self):
+    def box_target_starts(self) -> Array:
         return self.tree.box_target_starts
 
-    def box_target_counts_nonchild(self):
+    def box_target_counts_nonchild(self) -> Array:
         return self.tree.box_target_counts_nonchild
 
-    def targets(self):
+    def targets(self) -> Array:
         return self.tree.targets
 
     # }}}
 
     # {{{ level starts
 
-    def _expansions_level_starts(self, order_to_size):
+    def _expansions_level_starts(
+            self, order_to_size: Callable[[int], int]
+        ) -> Sequence[int]:
+        level_start_box_nrs = self.tree.level_start_box_nrs
+        assert level_start_box_nrs is not None
+
         result = [0]
         for lev in range(self.tree.nlevels):
-            lev_nboxes = (
-                    self.tree.level_start_box_nrs[lev+1]
-                    - self.tree.level_start_box_nrs[lev])
+            lev_nboxes = level_start_box_nrs[lev+1] - level_start_box_nrs[lev]
 
             expn_size = order_to_size(self.level_orders[lev])
-            result.append(
-                    result[-1]
-                    + expn_size * lev_nboxes)
+            result.append(result[-1] + expn_size * lev_nboxes)
 
         return result
 
     @memoize_method
-    def multipole_expansions_level_starts(self):
+    def multipole_expansions_level_starts(self) -> Sequence[int]:
         from pytools import product
         return self._expansions_level_starts(
-                lambda order: product(
-                    self.expansion_shape(order)))
+            lambda order: product(self.expansion_shape(order))
+        )
 
     @memoize_method
     def local_expansions_level_starts(self):
@@ -471,80 +530,86 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
 
     # {{{ views into arrays of expansions
 
-    def multipole_expansions_view(self, mpole_exps, level):
+    @override
+    def multipole_expansions_view(
+            self, mpole_exps: Array, level: int
+        ) -> tuple[int, Array]:
+        assert self.tree.level_start_box_nrs is not None
         box_start, box_stop = self.tree.level_start_box_nrs[level:level+2]
 
-        expn_start, expn_stop = \
-                self.multipole_expansions_level_starts()[level:level+2]
-        return (box_start,
-                mpole_exps[expn_start:expn_stop].reshape(
-                    box_stop-box_start,
-                    *self.expansion_shape(self.level_orders[level])))
+        expn_start, expn_stop = self.multipole_expansions_level_starts()[level:level+2]
+        shape = (box_stop - box_start, *self.expansion_shape(self.level_orders[level]))
 
-    def local_expansions_view(self, local_exps, level):
+        return box_start, mpole_exps[expn_start:expn_stop].reshape(shape)
+
+    @override
+    def local_expansions_view(
+            self, local_exps: Array, level: int
+        ) -> tuple[int, Array]:
+        assert self.tree.level_start_box_nrs is not None
         box_start, box_stop = self.tree.level_start_box_nrs[level:level+2]
 
-        expn_start, expn_stop = \
-                self.local_expansions_level_starts()[level:level+2]
-        return (box_start,
-                local_exps[expn_start:expn_stop].reshape(
-                    box_stop-box_start,
-                    *self.expansion_shape(self.level_orders[level])))
+        expn_start, expn_stop = self.local_expansions_level_starts()[level:level+2]
+        shape = (box_stop - box_start, *self.expansion_shape(self.level_orders[level]))
+
+        return box_start, local_exps[expn_start:expn_stop].reshape(shape)
 
     # }}}
 
-    def get_source_kwargs(self, src_weights, pslice):
+    def get_source_kwargs(
+            self, src_weights: Array, pslice: slice
+        ) -> dict[str, Array]:
         if self.dipole_vec is None:
             return {
-                    "charge": src_weights[pslice],
-                    }
+                "charge": src_weights[pslice],
+            }
         else:
             if self.tree_indep.eqn_letter == "l" and self.dim == 2:
                 return {
-                        "dipstr": -src_weights[pslice] * (
+                    "dipstr": -src_weights[pslice] * (
                             self.dipole_vec[0, pslice]
                             + 1j * self.dipole_vec[1, pslice])
-                        }
+                }
             else:
                 return {
-                        "dipstr": src_weights[pslice],
-                        "dipvec": self.dipole_vec[:, pslice],
-                        }
+                    "dipstr": src_weights[pslice],
+                    "dipvec": self.dipole_vec[:, pslice],
+                }
 
     # {{{ source/target particle wrangling
 
-    def _get_source_slice(self, ibox):
+    def _get_source_slice(self, ibox: int) -> slice:
         pstart = self.tree.box_source_starts[ibox]
         return slice(
                 pstart, pstart + self.tree.box_source_counts_nonchild[ibox])
 
-    def _get_target_slice(self, ibox):
+    def _get_target_slice(self, ibox: int) -> slice:
         pstart = self.box_target_starts()[ibox]
         return slice(
                 pstart, pstart + self.box_target_counts_nonchild()[ibox])
 
     @memoize_method
-    def _get_single_sources_array(self):
+    def _get_single_sources_array(self) -> onp.Array2D[np.floating[Any]]:
         return np.array([
             self.tree.sources[idim]
             for idim in range(self.dim)
             ], order="F")
 
-    def _get_sources(self, pslice):
+    def _get_sources(self, pslice: slice) -> onp.Array2D[np.floating[Any]]:
         return self._get_single_sources_array()[:, pslice]
 
     @memoize_method
-    def _get_single_targets_array(self):
+    def _get_single_targets_array(self) -> onp.Array2D[np.floating[Any]]:
         return np.array([
             self.targets()[idim]
             for idim in range(self.dim)
             ], order="F")
 
-    def _get_targets(self, pslice):
+    def _get_targets(self, pslice: slice) -> onp.Array2D[np.floating[Any]]:
         return self._get_single_targets_array()[:, pslice]
 
     @memoize_method
-    def _get_single_box_centers_array(self):
+    def _get_single_box_centers_array(self) -> onp.Array2D[np.floating[Any]]:
         return np.array([
             self.tree.box_centers[idim]
             for idim in range(self.dim)
@@ -555,7 +620,11 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
     # {{{ precompute rotation matrices for optimized m2l
 
     @memoize_method
-    def m2l_rotation_matrices(self):
+    def m2l_rotation_matrices(
+            self
+        ) -> tuple[onp.Array2D[np.floating[Any]] | None,
+                   onp.Array2D[np.floating[Any]] | None,
+                   int | np.integer[Any]]:
         # Returns a tuple (rotmatf, rotmatb, rotmat_order), consisting of the
         # forward rotation matrices, backward rotation matrices, and the
         # translation order of the matrices. rotmat_order is -1 if not
@@ -568,6 +637,7 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
         if not self.supports_optimized_m2l:
             return (rotmatf, rotmatb, rotmat_order)
 
+        assert self.rotation_data is not None
         m2l_rotation_angles = self.rotation_data.m2l_rotation_angles()
 
         if len(m2l_rotation_angles) == 0:
@@ -575,7 +645,7 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
             # zero-length array.
             return (rotmatf, rotmatb, rotmat_order)
 
-        def mem_estimate(order):
+        def mem_estimate(order: int) -> int:
             # Rotation matrix memory cost estimate.
             return (8
                     * (order + 1)**2
@@ -596,21 +666,19 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
         # Compute the rotation matrices.
         from pyfmmlib import rotviarecur3p_init_vec as rotmat_builder
 
-        ier, rotmatf = (
-                rotmat_builder(rotmat_order, m2l_rotation_angles))
-        assert (ier == 0).all()
+        ier, rotmatf = rotmat_builder(rotmat_order, m2l_rotation_angles)
+        assert np.all(ier == 0)
 
-        ier, rotmatb = (
-                rotmat_builder(rotmat_order, -m2l_rotation_angles))
-        assert (ier == 0).all()
+        ier, rotmatb = rotmat_builder(rotmat_order, -m2l_rotation_angles)
+        assert np.all(ier == 0)
 
-        return (rotmatf, rotmatb, rotmat_order)
+        return rotmatf, rotmatb, rotmat_order
 
     # }}}
 
     # {{{ data vector utilities
 
-    def expansion_shape(self, order):
+    def expansion_shape(self, order: int) -> tuple[int, ...]:
         if self.dim == 2 and self.tree_indep.eqn_letter == "l":
             return (order+1,)
         elif self.dim == 2 and self.tree_indep.eqn_letter == "h":
@@ -622,41 +690,52 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
         else:
             raise ValueError("unsupported dimensionality")
 
-    def multipole_expansion_zeros(self):
-        """Return an expansions array (which must support addition)
-        capable of holding one multipole or local expansion for every
-        box in the tree.
+    def multipole_expansion_zeros(self) -> onp.Array1D[np.inexact[Any]]:
+        """
+        :returns: an expansions array (which must support addition)
+            capable of holding one multipole or local expansion for every
+            box in the tree.
         """
 
         return np.zeros(
                 self.multipole_expansions_level_starts()[-1],
                 dtype=self.tree_indep.dtype)
 
-    def local_expansion_zeros(self):
-        """Return an expansions array (which must support addition)
-        capable of holding one multipole or local expansion for every
-        box in the tree.
+    def local_expansion_zeros(self) -> onp.Array1D[np.inexact[Any]]:
+        """
+        :returns: an expansions array (which must support addition)
+            capable of holding one multipole or local expansion for every
+            box in the tree.
         """
         return np.zeros(
                 self.local_expansions_level_starts()[-1],
                 dtype=self.tree_indep.dtype)
 
-    def output_zeros(self):
-        """Return a potentials array (which must support addition) capable of
-        holding a potential value for each target in the tree. Note that
-        :func:`drive_fmm` makes no assumptions about *potential* other than
-        that it supports addition--it may consist of potentials, gradients of
-        the potential, or arbitrary other per-target output data.
+    def output_zeros(
+            self
+        ) -> (onp.Array1D[np.inexact[Any]]
+              | obj_array.ObjectArray1D[onp.Array1D[np.inexact[Any]]]):
+        """
+        :returns: a potentials array (which must support addition) capable of
+            holding a potential value for each target in the tree. Note that
+            :func:`drive_fmm` makes no assumptions about *potential* other than
+            that it supports addition -- it may consist of potentials, gradients of
+            the potential, or arbitrary other per-target output data.
         """
 
         if self.tree_indep.ifgrad:
             return obj_array.new_1d([
                     np.zeros(self.tree.ntargets, self.tree_indep.dtype)
-                    for i in range(1 + self.dim)])
+                    for _ in range(1 + self.dim)])
         else:
             return np.zeros(self.tree.ntargets, self.tree_indep.dtype)
 
-    def add_potgrad_onto_output(self, output, output_slice, pot, grad):
+    def add_potgrad_onto_output(
+            self, output: onp.Array1D[np.inexact[Any]] | onp.Array2D[np.inexact[Any]],
+            output_slice: slice,
+            pot: onp.Array1D[np.inexact[Any]],
+            grad: onp.Array2D[np.inexact[Any]]
+        ) -> None:
         if self.tree_indep.ifgrad:
             output[0, output_slice] += pot
             output[1:, output_slice] += grad
@@ -666,18 +745,24 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
     # }}}
 
     @log_process(logger)
-    def reorder_sources(self, source_array):
+    @override
+    def reorder_sources(self, source_array: Array) -> Array:
         return source_array[..., self.tree.user_source_ids]
 
     @log_process(logger)
-    def reorder_potentials(self, potentials):
+    @override
+    def reorder_potentials(self, potentials: Array) -> Array:
         return potentials[self.tree.sorted_target_ids]
 
     @log_process(logger)
-    def form_multipoles(self, actx: ArrayContext,
-            level_start_source_box_nrs,
-            source_boxes,
-            src_weight_vecs):
+    @override
+    def form_multipoles(
+            self,
+            actx: ArrayContext,
+            level_start_source_box_nrs: Array,
+            source_boxes: Array,
+            src_weight_vecs: Sequence[Array]
+        ) -> Array:
         src_weights, = src_weight_vecs
         formmp = self.tree_indep.get_routine(
                 "%ddformmp" + ("_dp" if self.use_dipoles else ""))
@@ -688,14 +773,11 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
             if start == stop:
                 continue
 
-            level_start_ibox, mpoles_view = self.multipole_expansions_view(
-                    mpoles, lev)
-
+            level_start_ibox, mpoles_view = self.multipole_expansions_view(mpoles, lev)
             rscale = self.level_to_rscale(lev)
 
             for src_ibox in source_boxes[start:stop]:
                 pslice = self._get_source_slice(src_ibox)
-
                 if pslice.stop - pslice.start == 0:
                     continue
 
@@ -718,10 +800,13 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
         return mpoles
 
     @log_process(logger)
-    def coarsen_multipoles(self, actx: ArrayContext,
-            level_start_source_parent_box_nrs,
-            source_parent_boxes,
-            mpoles):
+    @override
+    def coarsen_multipoles(
+            self,
+            actx: ArrayContext,
+            level_start_source_parent_box_nrs: Array,
+            source_parent_boxes: Array,
+            mpoles: Array) -> Array:
         tree = self.tree
 
         mpmp = self.tree_indep.get_translation_routine(self, "%ddmpmp")
@@ -775,11 +860,14 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
         return mpoles
 
     @log_process(logger)
-    def eval_direct(self, actx: ArrayContext,
-            target_boxes,
-            neighbor_sources_starts,
-            neighbor_sources_lists,
-            src_weight_vecs):
+    @override
+    def eval_direct(
+            self,
+            actx: ArrayContext,
+            target_boxes: Array,
+            neighbor_sources_starts: Array,
+            neighbor_sources_lists: Array,
+            src_weight_vecs: Sequence[Array]) -> Array:
         src_weights, = src_weight_vecs
         output = self.output_zeros()
 
@@ -787,7 +875,6 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
 
         for itgt_box, tgt_ibox in enumerate(target_boxes):
             tgt_pslice = self._get_target_slice(tgt_ibox)
-
             if tgt_pslice.stop - tgt_pslice.start == 0:
                 continue
 
@@ -821,10 +908,15 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
         return output
 
     @log_process(logger)
-    def multipole_to_local(self, actx: ArrayContext,
-            level_start_target_or_target_parent_box_nrs,
-            target_or_target_parent_boxes,
-            starts, lists, mpole_exps):
+    @override
+    def multipole_to_local(
+            self,
+            actx: ArrayContext,
+            level_start_target_or_target_parent_box_nrs: Array,
+            target_or_target_parent_boxes: Array,
+            starts: Array,
+            lists: Array,
+            mpole_exps: Array) -> Array:
         tree = self.tree
         local_exps = self.local_expansion_zeros()
 
@@ -847,6 +939,8 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
             # {{{ set up optimized m2l, if applicable
 
             if self.level_orders[lev] <= rotmat_order:
+                assert self.rotation_data is not None
+
                 m2l_rotation_lists = self.rotation_data.m2l_rotation_lists()
                 assert len(m2l_rotation_lists) == len(lists)
 
@@ -935,24 +1029,28 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
         return local_exps
 
     @log_process(logger)
-    def eval_multipoles(self, actx: ArrayContext,
-            target_boxes_by_source_level,
-            sep_smaller_nonsiblings_by_level,
-            mpole_exps):
+    @override
+    def eval_multipoles(
+            self,
+            actx: ArrayContext,
+            target_boxes_by_source_level: obj_array.ObjectArray1D[Array],
+            from_sep_smaller_by_level: obj_array.ObjectArray1D[BuiltList],
+            mpole_exps: Array) -> Array:
         output = self.output_zeros()
 
         mpeval = self.tree_indep.get_expn_eval_routine("mp")
 
-        for isrc_level, ssn in enumerate(sep_smaller_nonsiblings_by_level):
+        for isrc_level, ssn in enumerate(from_sep_smaller_by_level):
+            assert ssn.starts is not None
+            assert ssn.lists is not None
+
             source_level_start_ibox, source_mpoles_view = \
                     self.multipole_expansions_view(mpole_exps, isrc_level)
-
             rscale = self.level_to_rscale(isrc_level)
 
-            for itgt_box, tgt_ibox in \
-                    enumerate(target_boxes_by_source_level[isrc_level]):
+            for itgt_box, tgt_ibox in enumerate(
+                    target_boxes_by_source_level[isrc_level]):
                 tgt_pslice = self._get_target_slice(tgt_ibox)
-
                 if tgt_pslice.stop - tgt_pslice.start == 0:
                     continue
 
@@ -960,7 +1058,6 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
                 tgt_grad = 0
                 start, end = ssn.starts[itgt_box:itgt_box+2]
                 for src_ibox in ssn.lists[start:end]:
-
                     tmp_pot, tmp_grad = mpeval(
                             rscale=rscale,
                             center=self.tree.box_centers[:, src_ibox],
@@ -972,16 +1069,21 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
                     tgt_pot = tgt_pot + tmp_pot
                     tgt_grad = tgt_grad + tmp_grad
 
-                self.add_potgrad_onto_output(
-                        output, tgt_pslice, tgt_pot, tgt_grad)
+                self.add_potgrad_onto_output(output, tgt_pslice, tgt_pot, tgt_grad)
 
         return output
 
     @log_process(logger)
-    def form_locals(self, actx: ArrayContext,
-            level_start_target_or_target_parent_box_nrs,
-            target_or_target_parent_boxes,
-            starts, lists, src_weight_vecs):
+    @override
+    def form_locals(
+            self,
+            actx: ArrayContext,
+            level_start_target_or_target_parent_box_nrs: Array,
+            target_or_target_parent_boxes: Array,
+            starts: Array,
+            lists: Array,
+            src_weight_vecs: Sequence[Array],
+        ) -> Array:
         src_weights, = src_weight_vecs
         local_exps = self.local_expansion_zeros()
 
@@ -1058,11 +1160,14 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
         return local_exps
 
     @log_process(logger)
-    def refine_locals(self, actx: ArrayContext,
-            level_start_target_or_target_parent_box_nrs,
-            target_or_target_parent_boxes,
-            local_exps):
-
+    @override
+    def refine_locals(
+            self,
+            actx: ArrayContext,
+            level_start_target_or_target_parent_box_nrs: Array,
+            target_or_target_parent_boxes: Array,
+            local_exps: Array
+        ) -> Array:
         locloc = self.tree_indep.get_translation_routine(self, "%ddlocloc")
 
         for target_lev in range(1, self.tree.nlevels):
@@ -1106,10 +1211,13 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
         return local_exps
 
     @log_process(logger)
-    def eval_locals(self, actx: ArrayContext,
-            level_start_target_box_nrs,
-            target_boxes,
-            local_exps):
+    @override
+    def eval_locals(
+            self,
+            actx: ArrayContext,
+            level_start_target_box_nrs: Array,
+            target_boxes: Array,
+            local_exps: Array) -> Array:
         output = self.output_zeros()
         taeval = self.tree_indep.get_expn_eval_routine("ta")
 
@@ -1120,31 +1228,27 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
 
             source_level_start_ibox, source_local_exps_view = \
                     self.local_expansions_view(local_exps, lev)
-
             rscale = self.level_to_rscale(lev)
 
             for tgt_ibox in target_boxes[start:stop]:
                 tgt_pslice = self._get_target_slice(tgt_ibox)
-
                 if tgt_pslice.stop - tgt_pslice.start == 0:
                     continue
 
                 tmp_pot, tmp_grad = taeval(
                         rscale=rscale,
                         center=self.tree.box_centers[:, tgt_ibox],
-                        expn=source_local_exps_view[
-                            tgt_ibox - source_level_start_ibox].T,
+                        expn=source_local_exps_view[tgt_ibox-source_level_start_ibox].T,
                         ztarg=self._get_targets(tgt_pslice),
-
                         **self.kernel_kwargs)
 
-                self.add_potgrad_onto_output(
-                        output, tgt_pslice, tmp_pot, tmp_grad)
+                self.add_potgrad_onto_output(output, tgt_pslice, tmp_pot, tmp_grad)
 
         return output
 
     @log_process(logger)
-    def finalize_potentials(self, actx: ArrayContext, potential):
+    @override
+    def finalize_potentials(self, actx: ArrayContext, potentials: Array) -> Array:
         if self.tree_indep.eqn_letter == "l" and self.dim == 2:
             scale_factor = -1/(2*np.pi)
         elif self.tree_indep.eqn_letter == "h" and self.dim == 2:
@@ -1157,9 +1261,9 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
                     f"for {self.dim} dimensions")
 
         if self.tree_indep.eqn_letter == "l" and self.dim == 2:
-            potential = potential.real
+            potentials = potentials.real
 
-        return potential * scale_factor
+        return potentials * scale_factor
 
 # }}}
 
