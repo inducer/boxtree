@@ -52,7 +52,11 @@ from typing_extensions import override
 
 from pytools import log_process, memoize_method, obj_array
 
-from boxtree.fmm import ExpansionWranglerInterface, TreeIndependentDataForWrangler
+from boxtree.fmm import (
+    ExpansionWranglerInterface,
+    PotentialArray,
+    TreeIndependentDataForWrangler,
+)
 
 
 if TYPE_CHECKING:
@@ -308,7 +312,7 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
     by using ``pyfmmlib``.
     """
 
-    tree_indep: FMMLibTreeIndependentDataForWrangler
+    tree_indep: FMMLibTreeIndependentDataForWrangler  # pyright: ignore[reportIncompatibleVariableOverride]
     traversal: FMMTraversalInfo
 
     kernel_kwargs: dict[str, Any]
@@ -649,9 +653,9 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
             # zero-length array.
             return (rotmatf, rotmatb, rotmat_order)
 
-        def mem_estimate(order: int) -> int:
+        def mem_estimate(order: int | np.integer[Any]) -> int:
             # Rotation matrix memory cost estimate.
-            return (8
+            return int(8
                     * (order + 1)**2
                     * (2*order + 1)
                     * len(m2l_rotation_angles))
@@ -715,10 +719,7 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
                 self.local_expansions_level_starts()[-1],
                 dtype=self.tree_indep.dtype)
 
-    def output_zeros(
-            self
-        ) -> (onp.Array1D[np.inexact[Any]]
-              | obj_array.ObjectArray1D[onp.Array1D[np.inexact[Any]]]):
+    def output_zeros(self) -> PotentialArray:
         """
         :returns: a potentials array (which must support addition) capable of
             holding a potential value for each target in the tree. Note that
@@ -755,8 +756,11 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
 
     @log_process(logger)
     @override
-    def reorder_potentials(self, potentials: Array) -> Array:
-        return potentials[self.tree.sorted_target_ids]
+    def reorder_potentials(self, potentials: PotentialArray) -> PotentialArray:
+        def reorder(x: Array) -> Array:
+            return x[self.tree.sorted_target_ids]
+
+        return obj_array.vectorize(reorder, potentials)
 
     @log_process(logger)
     @override
@@ -800,8 +804,7 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
             if len(boxes) == 0:
                 continue
 
-            level_start_ibox, mpoles_view = self.multipole_expansions_view(
-                    mpoles, lev)
+            level_start_ibox, mpoles_view = self.multipole_expansions_view(mpoles, lev)
 
             rscale = self.level_to_rscale(lev)
 
@@ -840,10 +843,11 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
 
         return mpoles
 
-    def _form_multipoles_one_box_at_a_time(self,
-            level_start_source_box_nrs,
-            source_boxes,
-            src_weights):
+    def _form_multipoles_one_box_at_a_time(
+            self,
+            level_start_source_box_nrs: Array,
+            source_boxes: Array,
+            src_weights: Array) -> Array:
         formmp = self.tree_indep.get_routine(
                 "%ddformmp" + ("_dp" if self.use_dipoles else ""))
 
@@ -947,7 +951,7 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
             target_boxes: Array,
             neighbor_sources_starts: Array,
             neighbor_sources_lists: Array,
-            src_weight_vecs: Sequence[Array]) -> Array:
+            src_weight_vecs: Sequence[Array]) -> PotentialArray:
         src_weights, = src_weight_vecs
         output = self.output_zeros()
 
@@ -1115,7 +1119,7 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
             actx: ArrayContext,
             target_boxes_by_source_level: obj_array.ObjectArray1D[Array],
             from_sep_smaller_by_level: obj_array.ObjectArray1D[BuiltList],
-            mpole_exps: Array) -> Array:
+            mpole_exps: Array) -> PotentialArray:
         output = self.output_zeros()
 
         mpeval = self.tree_indep.get_expn_eval_routine("mp")
@@ -1297,7 +1301,7 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
             actx: ArrayContext,
             level_start_target_box_nrs: Array,
             target_boxes: Array,
-            local_exps: Array) -> Array:
+            local_exps: Array) -> PotentialArray:
         output = self.output_zeros()
         taeval = self.tree_indep.get_expn_eval_routine("ta")
 
@@ -1328,7 +1332,9 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
 
     @log_process(logger)
     @override
-    def finalize_potentials(self, actx: ArrayContext, potentials: Array) -> Array:
+    def finalize_potentials(
+            self, actx: ArrayContext, potentials: PotentialArray
+        ) -> PotentialArray:
         if self.tree_indep.eqn_letter == "l" and self.dim == 2:
             scale_factor = -1/(2*np.pi)
         elif self.tree_indep.eqn_letter == "h" and self.dim == 2:
@@ -1341,7 +1347,10 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
                     f"for {self.dim} dimensions")
 
         if self.tree_indep.eqn_letter == "l" and self.dim == 2:
-            potentials = potentials.real
+            def real(x: Array) -> Array:
+                return x.real
+
+            potentials = obj_array.vectorize(real, potentials)
 
         return potentials * scale_factor
 
