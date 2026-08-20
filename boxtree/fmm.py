@@ -1,4 +1,5 @@
 """
+.. autodata:: PotentialArray
 .. autofunction:: drive_fmm
 
 .. autoclass:: TreeIndependentDataForWrangler
@@ -31,17 +32,17 @@ THE SOFTWARE.
 
 import logging
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, cast, overload
+from typing import TYPE_CHECKING, Any, TypeAlias, cast, overload
 
+from arraycontext import Array, ArrayContext
 from pytools import ProcessLogger
+from pytools.obj_array import ObjectArray1D
 
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from arraycontext import Array, ArrayContext
     from pyopencl.algorithm import BuiltList
-    from pytools.obj_array import ObjectArray1D
 
     from boxtree.distributed.calculation import DistributedExpansionWranglerMixin
     from boxtree.traversal import FMMTraversalInfo
@@ -49,6 +50,8 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger(__name__)
+
+PotentialArray: TypeAlias = Array | ObjectArray1D[Array]
 
 
 # {{{ expansion wrangler interface
@@ -155,7 +158,7 @@ class ExpansionWranglerInterface(ABC):
         """
 
     @abstractmethod
-    def reorder_potentials(self, potentials: Array) -> Array:
+    def reorder_potentials(self, potentials: PotentialArray) -> PotentialArray:
         """
         :arg potentials: an array of potentials in tree target order.
         :returns: a copy of *potentials* in :ref:`user target order
@@ -227,7 +230,7 @@ class ExpansionWranglerInterface(ABC):
             target_boxes: Array,
             neighbor_sources_starts: Array,
             neighbor_sources_lists: Array,
-            src_weight_vecs: Sequence[Array]) -> Array:
+            src_weight_vecs: Sequence[Array]) -> PotentialArray:
         """For each box in *target_boxes*, evaluate the influence of the
         neighbor sources due to *src_weight_vecs*, which use :ref:`csr` and are
         indexed like *target_boxes*.
@@ -258,7 +261,7 @@ class ExpansionWranglerInterface(ABC):
             actx: ArrayContext,
             target_boxes_by_source_level: ObjectArray1D[Array],
             from_sep_smaller_by_level: ObjectArray1D[BuiltList],
-            mpole_exps: Array) -> Array:
+            mpole_exps: Array) -> PotentialArray:
         """For a level *i*, for each box in *target_boxes_by_source_level[i]*, evaluate
         the multipole expansion in *mpole_exps* in the nearby boxes given in
         *from_sep_smaller_by_level*, and return a new potential array.
@@ -306,7 +309,7 @@ class ExpansionWranglerInterface(ABC):
             actx: ArrayContext,
             level_start_target_box_nrs: Array,
             target_boxes: Array,
-            local_exps: Array) -> Array:
+            local_exps: Array) -> PotentialArray:
         """For each box in *target_boxes*, evaluate the local expansion in
         *local_exps* and return a new potential array.
 
@@ -317,8 +320,8 @@ class ExpansionWranglerInterface(ABC):
 
     @abstractmethod
     def finalize_potentials(
-            self, actx: ArrayContext, potentials: Array
-        ) -> Array:
+            self, actx: ArrayContext, potentials: PotentialArray
+        ) -> PotentialArray:
         """
         Postprocess the reordered potentials. This is where global scaling
         factors could be applied. This is distinct from :meth:`reorder_potentials`
@@ -348,13 +351,14 @@ class ExpansionWranglerInterface(ABC):
 
         :return: received source weights of the current rank (including the root rank).
         """
+        assert src_weight_vecs is not None
         return src_weight_vecs
 
     def gather_potential_results(
             self,
             actx: ArrayContext,
-            potentials: Array,
-            tgt_idx_all_ranks: Sequence[Array] | None) -> Array | None:
+            potentials: PotentialArray,
+            tgt_idx_all_ranks: Sequence[Array] | None) -> PotentialArray | None:
         """Used by the distributed implementation for gathering calculated potentials
         from all worker ranks in the communicator to the root rank.
 
@@ -394,26 +398,32 @@ class ExpansionWranglerInterface(ABC):
 
 
 @overload
-def drive_fmm(actx: ArrayContext,
-              wrangler: DistributedExpansionWranglerMixin,
-              src_weight_vecs: Sequence[Array], *,
-              global_src_idx_all_ranks: None = None,
-              global_tgt_idx_all_ranks: None = None) -> None: ...
+def drive_fmm(
+        actx: ArrayContext,
+        wrangler: DistributedExpansionWranglerMixin,
+        src_weight_vecs: Sequence[Array], *,
+        global_src_idx_all_ranks: None = None,
+        global_tgt_idx_all_ranks: None = None
+    ) -> None: ...
 
 
 @overload
-def drive_fmm(actx: ArrayContext,
-              wrangler: ExpansionWranglerInterface,
-              src_weight_vecs: Sequence[Array], *,
-              global_src_idx_all_ranks: Sequence[Array] | None = None,
-              global_tgt_idx_all_ranks: Sequence[Array] | None = None) -> Array: ...
+def drive_fmm(
+        actx: ArrayContext,
+        wrangler: ExpansionWranglerInterface,
+        src_weight_vecs: Sequence[Array], *,
+        global_src_idx_all_ranks: Sequence[Array] | None = None,
+        global_tgt_idx_all_ranks: Sequence[Array] | None = None
+    ) -> PotentialArray: ...
 
 
-def drive_fmm(actx: ArrayContext,
-              wrangler: ExpansionWranglerInterface | DistributedExpansionWranglerMixin,
-              src_weight_vecs: Sequence[Array], *,
-              global_src_idx_all_ranks: Sequence[Array] | None = None,
-              global_tgt_idx_all_ranks: Sequence[Array] | None = None) -> Array | None:
+def drive_fmm(
+        actx: ArrayContext,
+        wrangler: ExpansionWranglerInterface | DistributedExpansionWranglerMixin,
+        src_weight_vecs: Sequence[Array], *,
+        global_src_idx_all_ranks: Sequence[Array] | None = None,
+        global_tgt_idx_all_ranks: Sequence[Array] | None = None
+    ) -> PotentialArray | None:
     """Top-level driver routine for a fast multipole calculation.
 
     In part, this is intended as a template for custom FMMs, in the sense that
@@ -603,9 +613,11 @@ def drive_fmm(actx: ArrayContext,
             actx,
             potentials, global_tgt_idx_all_ranks)
 
-    result = wrangler.reorder_potentials(potentials)
-
-    result = wrangler.finalize_potentials(actx, result)
+    if potentials is not None:
+        result = wrangler.reorder_potentials(potentials)
+        result = wrangler.finalize_potentials(actx, result)
+    else:
+        result = potentials
 
     fmm_proc.done()
 

@@ -50,6 +50,7 @@ sphinxconfig_missing_reference_aliases = {
     # boxtree typing
     "TreeKind": "obj:boxtree.tree_build.TreeKind",
     "ExtentNorm": "obj:boxtree.tree_build.ExtentNorm",
+    "PotentialArray": "obj:boxtree.fmm.PotentialArray",
 }
 
 

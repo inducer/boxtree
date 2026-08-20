@@ -32,7 +32,11 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 from typing_extensions import override
 
-from boxtree.fmm import ExpansionWranglerInterface, TreeIndependentDataForWrangler
+from boxtree.fmm import (
+    ExpansionWranglerInterface,
+    PotentialArray,
+    TreeIndependentDataForWrangler,
+)
 
 
 if TYPE_CHECKING:
@@ -81,7 +85,10 @@ class ConstantOneExpansionWrangler(ExpansionWranglerInterface):
         return source_array[self.tree.user_source_ids]
 
     @override
-    def reorder_potentials(self, potentials: Array) -> Array:
+    def reorder_potentials(self, potentials: PotentialArray) -> PotentialArray:
+        from pytools.obj_array import ObjectArray
+        assert not isinstance(potentials, ObjectArray)
+
         return potentials[self.tree.sorted_target_ids]
 
     @override
@@ -148,7 +155,7 @@ class ConstantOneExpansionWrangler(ExpansionWranglerInterface):
             target_boxes: Array,
             neighbor_sources_starts: Array,
             neighbor_sources_lists: Array,
-            src_weight_vecs: Sequence[Array]) -> Array:
+            src_weight_vecs: Sequence[Array]) -> PotentialArray:
         src_weights, = src_weight_vecs
         pot = self.output_zeros()
 
@@ -198,7 +205,7 @@ class ConstantOneExpansionWrangler(ExpansionWranglerInterface):
             actx: ArrayContext,
             target_boxes_by_source_level: ObjectArray1D[Array],
             from_sep_smaller_by_level: ObjectArray1D[BuiltList],
-            mpole_exps: Array) -> Array:
+            mpole_exps: Array) -> PotentialArray:
         pot = self.output_zeros()
 
         for level, ssn in enumerate(from_sep_smaller_by_level):
@@ -263,7 +270,7 @@ class ConstantOneExpansionWrangler(ExpansionWranglerInterface):
             actx: ArrayContext,
             level_start_target_box_nrs: Array,
             target_boxes: Array,
-            local_exps: Array) -> Array:
+            local_exps: Array) -> PotentialArray:
         pot = self.output_zeros()
 
         for ibox in target_boxes:
@@ -273,7 +280,9 @@ class ConstantOneExpansionWrangler(ExpansionWranglerInterface):
         return pot
 
     @override
-    def finalize_potentials(self, actx: ArrayContext, potentials: Array) -> Array:
+    def finalize_potentials(
+            self, actx: ArrayContext, potentials: PotentialArray
+        ) -> PotentialArray:
         return potentials
 
 # }}}
