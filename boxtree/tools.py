@@ -25,7 +25,7 @@ THE SOFTWARE.
 
 import sys
 from functools import partial
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 from mako.template import Template
@@ -41,13 +41,16 @@ from pyopencl.tools import (
 from pytools import Record, memoize_method, obj_array
 
 
+if TYPE_CHECKING:
+    from numpy.typing import DTypeLike
+
 # Use offsets in VectorArg by default.
 VectorArg = partial(_VectorArg, with_offset=True)
 
 AXIS_NAMES = ("x", "y", "z", "w")
 
 
-def padded_bin(i: int, nbits: int):
+def padded_bin(i: int, nbits: int) -> str:
     """Format *i* as binary number, pad it to length *nbits*."""
     return bin(i)[2:].rjust(nbits, "0")
 
@@ -111,19 +114,39 @@ def reverse_index_array(
 
 # {{{ particle distribution generators
 
-def make_normal_particle_array(actx, nparticles, dims, dtype, seed=15):
-    rng = np.random.default_rng(seed)
+def make_normal_particle_array(
+        actx: ArrayContext,
+        nparticles: int,
+        dims: int,
+        dtype: DTypeLike | None = None,
+        rng: np.random.Generator | None = None,
+        seed: int | None = 15) -> obj_array.ObjectArray1D[Array]:
+    if rng is None:
+        rng = np.random.default_rng(seed)
+
     return obj_array.new_1d([
         actx.from_numpy(rng.standard_normal(nparticles, dtype=dtype))
         for i in range(dims)
         ])
 
 
-def make_surface_particle_array(actx, nparticles, dims, dtype, seed=15):
+def make_surface_particle_array(
+        actx: ArrayContext,
+        nparticles: int,
+        dims: int,
+        dtype: DTypeLike | None = None,
+        # NOTE: these are only here to match the signature of make_normal_particle_array
+        rng: np.random.Generator | None = None,
+        seed: int | None = 15) -> obj_array.ObjectArray1D[Array]:
     import loopy as lp
 
+    assert isinstance(actx, PyOpenCLArrayContext)
+    if rng is None:
+        rng = np.random.default_rng(seed)
+    dtype = np.dtype(dtype)
+
     if dims == 2:
-        def get_2d_knl(dtype):
+        def get_2d_knl(dtype: np.dtype[Any]) -> lp.ExecutorBase:
             knl = lp.make_kernel(
                 "{[i]: 0<=i<n}",
                 """
@@ -146,14 +169,11 @@ def make_surface_particle_array(actx, nparticles, dims, dtype, seed=15):
             return knl.executor(actx.context)
 
         _evt, result = get_2d_knl(dtype)(actx.queue, n=nparticles)
-
-        result = [x.ravel() for x in result]
-
-        return obj_array.new_1d(result)
+        return obj_array.new_1d([x.ravel() for x in result])
     elif dims == 3:
         n = int(nparticles**0.5)
 
-        def get_3d_knl(dtype):
+        def get_3d_knl(dtype: np.dtype[Any]) -> lp.ExecutorBase:
             knl = lp.make_kernel(
                 "{[i,j]: 0<=i,j<n}",
                 """
@@ -180,21 +200,30 @@ def make_surface_particle_array(actx, nparticles, dims, dtype, seed=15):
             return knl.executor(actx.context)
 
         _evt, result = get_3d_knl(dtype)(actx.queue, n=n)
-
-        result = [x.ravel() for x in result]
-
-        return obj_array.new_1d(result)
+        return obj_array.new_1d([x.ravel() for x in result])
     else:
-        raise NotImplementedError
+        raise NotImplementedError(f"'make_surface_particle_array' for dim {dims}")
 
 
-def make_uniform_particle_array(actx, nparticles, dims, dtype, seed=15):
+def make_uniform_particle_array(
+        actx: ArrayContext,
+        nparticles: int,
+        dims: int,
+        dtype: DTypeLike | None = None,
+        # NOTE: these are only here to match the signature of make_normal_particle_array
+        rng: np.random.Generator | None = None,
+        seed: int | None = 15) -> obj_array.ObjectArray1D[Array]:
     import loopy as lp
+
+    assert isinstance(actx, PyOpenCLArrayContext)
+    if rng is None:
+        rng = np.random.default_rng(seed)
+    dtype = np.dtype(dtype)
 
     if dims == 2:
         n = int(nparticles**0.5)
 
-        def get_2d_knl(dtype):
+        def get_2d_knl(dtype: np.dtype[Any]) -> lp.ExecutorBase:
             knl = lp.make_kernel(
                 "{[i,j]: 0<=i,j<n}",
                 """
@@ -223,14 +252,11 @@ def make_uniform_particle_array(actx, nparticles, dims, dtype, seed=15):
             return knl.executor(actx.context)
 
         _evt, result = get_2d_knl(dtype)(actx.queue, n=n)
-
-        result = [x.ravel() for x in result]
-
-        return obj_array.new_1d(result)
+        return obj_array.new_1d([x.ravel() for x in result])
     elif dims == 3:
         n = int(nparticles**(1/3))
 
-        def get_3d_knl(dtype):
+        def get_3d_knl(dtype: np.dtype[Any]) -> lp.ExecutorBase:
             knl = lp.make_kernel(
                 "{[i,j,k]: 0<=i,j,k<n}",
                 """
@@ -271,21 +297,26 @@ def make_uniform_particle_array(actx, nparticles, dims, dtype, seed=15):
             return knl.executor(actx.context)
 
         _evt, result = get_3d_knl(dtype)(actx.queue, n=n)
-
-        result = [x.ravel() for x in result]
-
-        return obj_array.new_1d(result)
+        return obj_array.new_1d([x.ravel() for x in result])
     else:
         raise NotImplementedError
 
 
-def make_rotated_uniform_particle_array(actx, nparticles, dims, dtype, seed=15):
+def make_rotated_uniform_particle_array(
+        actx: ArrayContext,
+        nparticles: int,
+        dims: int,
+        dtype: DTypeLike | None = None,
+        rng: np.random.Generator | None = None,
+        seed: int | None = 15) -> obj_array.ObjectArray1D[Array]:
     raise NotImplementedError
 
 # }}}
 
 
-def particle_array_to_host(actx, particles):
+def particle_array_to_host(
+        actx: ArrayContext, particles: obj_array.ObjectArrayND[Array]
+    ) -> np.ndarray[tuple[int, ...], np.dtype[Any]]:
     return np.array([actx.to_numpy(x) for x in particles], order="F").T
 
 
@@ -406,7 +437,7 @@ class DeviceDataRecord(Record):
 
 # {{{ type mangling
 
-def get_type_moniker(dtype: np.dtype[Any]):
+def get_type_moniker(dtype: np.dtype[Any]) -> str:
     return f"{dtype.kind}{dtype.itemsize}"
 
 # }}}
@@ -439,11 +470,11 @@ GAPPY_COPY_TPL = Template(r"""//CL//
 
 
 class GappyCopyAndMapKernel:
-    def __init__(self, array_context: PyOpenCLArrayContext):
+    def __init__(self, array_context: PyOpenCLArrayContext) -> None:
         self._setup_actx: ArrayContext = array_context
 
     @property
-    def context(self):
+    def context(self) -> cl.Context:
         assert isinstance(self._setup_actx, PyOpenCLArrayContext)
         return self._setup_actx.queue.context
 
@@ -900,7 +931,7 @@ def run_mpi(script: str, num_processes: int, env: dict[str, Any]) -> None:
 # {{{ coord_vec tools
 
 def get_coord_vec_dtype(
-        coord_dtype: np.dtype, dimensions: int) -> np.dtype:
+        coord_dtype: np.dtype[Any], dimensions: int) -> np.dtype[Any]:
     from pyopencl import cltypes
     if dimensions == 1:
         return coord_dtype
