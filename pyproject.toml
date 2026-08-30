@@ -87,6 +87,7 @@ extend-ignore = [
     "module-import-not-at-top-of-file",
     "multiple-spaces-before-operator",
     "non-empty-init-module",
+    "pytest-parameter-with-default-argument",
 ]
 
 [tool.ruff.lint.flake8-quotes]
