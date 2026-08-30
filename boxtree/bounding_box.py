@@ -37,8 +37,10 @@ def make_bounding_box_dtype(device, dimensions, coord_dtype):
     from boxtree.tools import AXIS_NAMES
     fields = []
     for i in range(dimensions):
-        fields.append((f"min_{AXIS_NAMES[i]}", coord_dtype))
-        fields.append((f"max_{AXIS_NAMES[i]}", coord_dtype))
+        fields.extend((
+            (f"min_{AXIS_NAMES[i]}", coord_dtype),
+            (f"max_{AXIS_NAMES[i]}", coord_dtype))
+        )
 
     dtype = np.dtype(fields)
     type_moniker = get_type_moniker(coord_dtype)

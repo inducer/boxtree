@@ -133,8 +133,10 @@ class TreePlotter:
 
         lines = []
 
-        lines.append(r"\def\nboxes{%d}" % self.tree.nboxes)  # ruff:ignore[printf-string-formatting]
-        lines.append(r"\def\lastboxnr{%d}" % (self.tree.nboxes-1))  # ruff:ignore[printf-string-formatting]
+        lines.extend((
+            r"\def\nboxes{%d}" % self.tree.nboxes,  # ruff: ignore[printf-string-formatting]
+            r"\def\lastboxnr{%d}" % (self.tree.nboxes-1),  # ruff: ignore[printf-string-formatting]
+        ))
         for ibox in range(self.tree.nboxes):
             el, eh = self.tree.get_box_extent(ibox)
             el_0, el_1 = float(el[0]), float(el[1])
@@ -143,31 +145,24 @@ class TreePlotter:
             c = self.tree.box_centers[:, ibox]
             c_0, c_1 = float(c[0]), float(c[1])
 
-            lines.append(
-                fr"\coordinate (boxl{ibox}) at ({el_0!r}, {el_1!r});")
-            lines.append(
-                fr"\coordinate (boxh{ibox}) at ({eh_0!r}, {eh_1!r});")
-            lines.append(
-                fr"\coordinate (boxc{ibox}) at ({c_0!r}, {c_1!r});")
-            lines.append(
-                r"\def\boxsize%s{%r}" % (int_to_roman(ibox), eh_0 - el_0)   # ruff:ignore[printf-string-formatting]
-                )
-            lines.append(
-                r"\def\boxlevel%s{%r}" % (int_to_roman(ibox),               # ruff:ignore[printf-string-formatting]
-                                          int(self.tree.box_levels[ibox])))
+            lines.extend((
+                fr"\coordinate (boxl{ibox}) at ({el_0!r}, {el_1!r});",
+                fr"\coordinate (boxh{ibox}) at ({eh_0!r}, {eh_1!r});",
+                fr"\coordinate (boxc{ibox}) at ({c_0!r}, {c_1!r});",
+                rf"\def\boxsize{int_to_roman(ibox)}{{{eh_0 - el_0!r}}}",
+                rf"\def\boxlevel{int_to_roman(ibox)}{{{int(self.tree.box_levels[ibox])!r}}}"
+                ))
 
-        lines.append(
-                r"\def\boxpath#1{(boxl#1) rectangle (boxh#1)}")
-        lines.append(
-                r"\def\drawboxes{"
+        lines.extend((
+            r"\def\boxpath#1{(boxl#1) rectangle (boxh#1)}",
+            (r"\def\drawboxes{"
                 r"\foreach \ibox in {0,...,\lastboxnr}{"
                 r"\draw \boxpath{\ibox};"
-                r"}}")
-        lines.append(
-                r"\def\drawboxnrs{"
+                r"}}"),
+            (r"\def\drawboxnrs{"
                 r"\foreach \ibox in {0,...,\lastboxnr}{"
                 r"\node [font=\tiny] at (boxc\ibox) {\ibox};"
-                r"}}")
+                r"}}")))
         return "\n".join(lines)
 
 # }}}
