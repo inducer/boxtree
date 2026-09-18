@@ -777,10 +777,8 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
             formmp = self.tree_indep.get_routine(
                     "%ddformmp" + ("_dp" if self.use_dipoles else ""),
                     suffix="_imany")
-        except AttributeError:
-            # pyfmmlib predates the batched (indirect-many) P2M wrappers
-            return self._form_multipoles_one_box_at_a_time(
-                    level_start_source_box_nrs, source_boxes, src_weights)
+        except AttributeError as err:
+            raise RuntimeError("pyfmmlib >= 2026.1 is required") from err
 
         mpoles = self.multipole_expansion_zeros()
 
@@ -840,46 +838,6 @@ class FMMLibExpansionWrangler(ExpansionWranglerInterface):
                 raise RuntimeError("formmp failed")
 
             mpoles_view[boxes - level_start_ibox] = expn.T
-
-        return mpoles
-
-    def _form_multipoles_one_box_at_a_time(
-            self,
-            level_start_source_box_nrs: Array,
-            source_boxes: Array,
-            src_weights: Array) -> Array:
-        formmp = self.tree_indep.get_routine(
-                "%ddformmp" + ("_dp" if self.use_dipoles else ""))
-
-        mpoles = self.multipole_expansion_zeros()
-        for lev in range(self.tree.nlevels):
-            start, stop = level_start_source_box_nrs[lev:lev+2]
-            if start == stop:
-                continue
-
-            level_start_ibox, mpoles_view = self.multipole_expansions_view(mpoles, lev)
-            rscale = self.level_to_rscale(lev)
-
-            for src_ibox in source_boxes[start:stop]:
-                pslice = self._get_source_slice(src_ibox)
-                if pslice.stop - pslice.start == 0:
-                    continue
-
-                kwargs = {}
-                kwargs.update(self.kernel_kwargs)
-                kwargs.update(self.get_source_kwargs(src_weights, pslice))
-
-                ier, mpole = formmp(
-                        rscale=rscale,
-                        source=self._get_sources(pslice),
-                        center=self.tree.box_centers[:, src_ibox],
-                        nterms=self.level_orders[lev],
-                        **kwargs)
-
-                if ier:
-                    raise RuntimeError("formmp failed")
-
-                mpoles_view[src_ibox-level_start_ibox] = mpole.T
 
         return mpoles
 
