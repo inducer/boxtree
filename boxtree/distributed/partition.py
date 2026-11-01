@@ -183,7 +183,7 @@ def get_ancestor_boxes_mask(actx, code, traversal, responsible_boxes_mask):
     ancestor_boxes = actx.np.zeros((traversal.tree.nboxes,), dtype=np.int8)
     ancestor_boxes_last = responsible_boxes_mask.copy()
 
-    while ancestor_boxes_last.any():
+    while ancestor_boxes_last.any().get():
         ancestor_boxes_new = actx.np.zeros((traversal.tree.nboxes,), dtype=np.int8)
         code.add_parent_boxes_kernel()(
             ancestor_boxes_last, ancestor_boxes_new, traversal.tree.box_parent_ids)

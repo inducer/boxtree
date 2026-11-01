@@ -261,7 +261,11 @@ class TreeOfBoxes:
 
     @property
     def nlevels(self) -> int:
-        return max(self.box_levels) + 1
+        # FIXME: this is quite hacky, but we need actx to do this properly..
+        if isinstance(self.box_levels, np.ndarray):
+            return int(self.box_levels[-1]) + 1
+        else:
+            return int(self.box_levels[-1].get()) + 1
 
     @property
     def leaf_boxes(self) -> onp.Array1D[np.integer[Any]]:
