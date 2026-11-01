@@ -890,7 +890,14 @@ class AllReduceCommPattern:
 
 # {{{ MPI launcher
 
-def run_mpi(script: str, num_processes: int, env: dict[str, Any]) -> None:
+def run_mpi(
+        script: str,
+        num_processes: int,
+        *,
+        timeout: int | None = None,
+        env: dict[str, Any] | None = None,
+        debug: bool = False,
+    ) -> None:
     """Launch MPI processes.
 
     This function forks another process and uses ``mpiexec`` to launch
@@ -899,23 +906,42 @@ def run_mpi(script: str, num_processes: int, env: dict[str, Any]) -> None:
     :arg script: the Python script to run.
     :arg num_processes: the number of MPI process to launch.
     :arg env: a :class:`dict` of environment variables.
+    :arg debug: if *True*, pass flags to ``mpiexec`` that enable stack traces,
+        rank attribution, timestamps, etc.
     """
     import os
-    env = {key: str(value) for key, value in env.items()}
+    env = {key: str(value) for key, value in (env or {}).items()}
     env = {**os.environ, **env}
 
-    import subprocess
+    if debug:
+        # NOTE: force python output to not be buffered, so it prints in order
+        env.setdefault("PYTHONUNBUFFERED", "1")
+        env.setdefault("PYTHONFAULTHANDLER", "1")
 
     from mpi4py import MPI
 
-    # Using "-m mpi4py" is necessary for avoiding deadlocks on exception cleanup
+    # NOTE: Using "-m mpi4py" is necessary for avoiding deadlocks on exception cleanup
     # See https://mpi4py.readthedocs.io/en/stable/mpi4py.run.html for details.
 
     mpi_library_name = MPI.Get_library_version()
     if mpi_library_name.startswith("Open MPI"):
         command = ["mpiexec", "-np", str(num_processes), "--oversubscribe"]
+        if debug:
+            command.extend([
+                # prefix every line of output with its rank and a timestamp.
+                "--tag-output",
+                "--timestamp-output",
+                # show where the ranks were placed (CPU, etc)
+                "--display-map",
+                "--display-allocation",
+                "--report-bindings",
+                # print a C-level stack trace when a rank calls MPI_Abort
+                "--mca", "mpi_abort_print_stack", "1",
+            ])
+
         for env_variable_name in env:
             command.extend(["-x", env_variable_name])
+
         command.extend([sys.executable, "-m", "mpi4py", script])
     else:
         command = [
@@ -923,7 +949,16 @@ def run_mpi(script: str, num_processes: int, env: dict[str, Any]) -> None:
             "-m", "mpi4py", script
             ]
 
-    subprocess.run(command, env=env, check=True)
+    import subprocess
+
+    try:
+        subprocess.run(
+            command, env=env, stdin=subprocess.DEVNULL,
+            timeout=timeout, check=True)
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(
+            f"mpiexec did not finish within {timeout} s. "
+            f"Command was: {' '.join(command)}") from None
 
 # }}}
 
