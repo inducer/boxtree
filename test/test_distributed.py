@@ -164,7 +164,7 @@ def test_against_shared(
     pytest.importorskip("mpi4py")
 
     from boxtree.tools import run_mpi
-    run_mpi(__file__, num_processes, {
+    run_mpi(__file__, num_processes, env={
         "OMP_NUM_THREADS": 1,
         "_BOXTREE_TEST_NAME": "shared",
         "_BOXTREE_TEST_DIMS": dims,
@@ -172,7 +172,7 @@ def test_against_shared(
         "_BOXTREE_TEST_NTARGETS": ntargets,
         "_BOXTREE_TEST_TMP_CACHE_BASEDIR": tmp_path / "boxtree_distributed_test",
         "_BOXTREE_TEST_MPOLES_ALLREDUCE": communicate_mpoles_via_allreduce
-        })
+        }, timeout=600, debug=True)
 
 # }}}
 
@@ -277,7 +277,7 @@ def test_constantone(tmp_path, num_processes, dims, nsources, ntargets):
     pytest.importorskip("mpi4py")
 
     from boxtree.tools import run_mpi
-    run_mpi(__file__, num_processes, {
+    run_mpi(__file__, num_processes, env={
         "OMP_NUM_THREADS": 1,
         "_BOXTREE_TEST_NAME": "constantone",
         "_BOXTREE_TEST_DIMS": dims,
@@ -285,7 +285,7 @@ def test_constantone(tmp_path, num_processes, dims, nsources, ntargets):
         "_BOXTREE_TEST_NTARGETS": ntargets,
         "_BOXTREE_TEST_TMP_CACHE_BASEDIR": tmp_path / "boxtree_distributed_test",
         "_BOXTREE_TEST_MPOLES_ALLREDUCE": False
-        })
+        }, timeout=600, debug=True)
 
 # }}}
 
