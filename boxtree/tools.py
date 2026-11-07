@@ -910,8 +910,9 @@ def run_mpi(
         rank attribution, timestamps, etc.
     """
     import os
-    env = {key: str(value) for key, value in (env or {}).items()}
-    env = {**os.environ, **env}
+
+    user_env = {key: str(value) for key, value in (env or {}).items()}
+    env = {**os.environ, **user_env}
 
     if debug:
         # NOTE: force python output to not be buffered, so it prints in order
@@ -937,9 +938,12 @@ def run_mpi(
                 "--report-bindings",
                 # print a C-level stack trace when a rank calls MPI_Abort
                 "--mca", "mpi_abort_print_stack", "1",
+                # give the other ranks a chance to flush their output before
+                # MPI_Abort kills them (delay is in seconds)
+                "--mca", "mpi_abort_delay", "2",
             ])
 
-        for env_variable_name in env:
+        for env_variable_name in user_env:
             command.extend(["-x", env_variable_name])
 
         command.extend([sys.executable, "-m", "mpi4py", script])
@@ -949,7 +953,13 @@ def run_mpi(
             "-m", "mpi4py", script
             ]
 
+    import shlex
     import subprocess
+
+    if debug:
+        mpi_version = mpi_library_name.rstrip("\x00")
+        print(f"run_mpi: MPI library: {mpi_version}", file=sys.stderr)
+        print(f"run_mpi: command: {shlex.join(command)}", file=sys.stderr)
 
     try:
         subprocess.run(
