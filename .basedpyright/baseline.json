@@ -19420,18 +19420,50 @@
                 }
             },
             {
-                "code": "reportAny",
+                "code": "reportUnknownVariableType",
                 "range": {
-                    "startColumn": 20,
+                    "startColumn": 8,
                     "endColumn": 25,
+                    "lineCount": 1
+                }
+            },
+            {
+                "code": "reportUnknownMemberType",
+                "range": {
+                    "startColumn": 16,
+                    "endColumn": 37,
+                    "lineCount": 1
+                }
+            },
+            {
+                "code": "reportUnknownArgumentType",
+                "range": {
+                    "startColumn": 50,
+                    "endColumn": 67,
                     "lineCount": 1
                 }
             },
             {
                 "code": "reportAny",
                 "range": {
-                    "startColumn": 36,
-                    "endColumn": 41,
+                    "startColumn": 35,
+                    "endColumn": 40,
+                    "lineCount": 1
+                }
+            },
+            {
+                "code": "reportAny",
+                "range": {
+                    "startColumn": 25,
+                    "endColumn": 30,
+                    "lineCount": 1
+                }
+            },
+            {
+                "code": "reportAny",
+                "range": {
+                    "startColumn": 41,
+                    "endColumn": 46,
                     "lineCount": 1
                 }
             }
@@ -25666,6 +25698,14 @@
                 }
             },
             {
+                "code": "reportUnknownMemberType",
+                "range": {
+                    "startColumn": 8,
+                    "endColumn": 15,
+                    "lineCount": 1
+                }
+            },
+            {
                 "code": "reportUnknownArgumentType",
                 "range": {
                     "startColumn": 16,
@@ -25678,6 +25718,14 @@
                 "range": {
                     "startColumn": 29,
                     "endColumn": 40,
+                    "lineCount": 1
+                }
+            },
+            {
+                "code": "reportUnknownMemberType",
+                "range": {
+                    "startColumn": 8,
+                    "endColumn": 15,
                     "lineCount": 1
                 }
             },
