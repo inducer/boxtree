@@ -890,6 +890,135 @@ class AllReduceCommPattern:
 
 # {{{ MPI launcher
 
+def dump_mpi_debug_info(env: dict[str, Any] | None = None) -> None:
+    """Print information about the MPI installation."""
+    import shutil
+
+    import mpi4py
+    from mpi4py import MPI
+
+    if env is None:
+        env = {}
+
+    def run(command: list[str]) -> str:
+        import subprocess
+
+        try:
+            result = subprocess.run(
+                command, capture_output=True, text=True,
+                check=False, timeout=10, env=env or None)
+        except (OSError, subprocess.SubprocessError):
+            return ""
+
+        return result.stdout or result.stderr
+
+    print("MPI debug info:", file=sys.stderr)
+
+    # {{{ mpi
+
+    mpi_library_name = MPI.Get_library_version().rstrip("\x00")
+    print(f"  MPI library: {mpi_library_name}", file=sys.stderr)
+
+    mpiexec = shutil.which("mpiexec")
+    if mpiexec is None:
+        print("  mpiexec: not found", file=sys.stderr)
+    else:
+        version_lines = run([mpiexec, "--version"]).strip().splitlines()
+        version = version_lines[0] if version_lines else "(unknown version)"
+        print(f"  mpiexec: {mpiexec} ({version})", file=sys.stderr)
+
+    mpi_api_version = ".".join(str(i) for i in MPI.Get_version())
+    print(
+        f"  mpi4py: {mpi4py.__version__}, MPI API {mpi_api_version}",
+        file=sys.stderr)
+
+    # }}}
+
+    # {{{ ucx
+
+    ucx_info = shutil.which("ucx_info")
+    if ucx_info is not None:
+        ucx_version = None
+        ucx_library = None
+        for line in run([ucx_info, "-v"]).splitlines():
+            key, _, value = line.strip().lstrip("#").strip().partition(":")
+            if key == "Library version":
+                ucx_version = value.strip()
+            elif key == "Library path":
+                ucx_library = value.strip()
+
+        ucx_device_info = run([ucx_info, "-d"])
+        transports = sorted({
+            line.split("Transport:", 1)[1].strip()
+            for line in ucx_device_info.splitlines()
+            if line.lstrip().startswith("#") and "Transport:" in line
+        })
+
+        transport_devices = set()
+        current_transport = None
+        for line in ucx_device_info.splitlines():
+            stripped = line.strip()
+            if not stripped.startswith("#"):
+                continue
+            if "Transport:" in stripped:
+                current_transport = stripped.split("Transport:", 1)[1].strip()
+            elif "Device:" in stripped and current_transport is not None:
+                device = stripped.split("Device:", 1)[1].strip()
+                transport_devices.add(f"{current_transport}/{device}")
+
+        ucx_desc = ucx_version or "(unknown version)"
+        if ucx_library:
+            ucx_desc += f" ({ucx_library})"
+        if transports:
+            ucx_desc += f", transports: {' '.join(transports)}"
+        print(f"  UCX: {ucx_desc}", file=sys.stderr)
+
+        if transport_devices:
+            print(
+                f"  UCX devices: {' '.join(sorted(transport_devices))}",
+                file=sys.stderr)
+
+        tls = [
+            line.strip()
+            for line in run([ucx_info, "-c", "-F", "TLS"]).splitlines()
+            if line.strip().startswith("UCX_TLS=")
+        ]
+        if tls:
+            print(f"  UCX default: {' '.join(tls)}", file=sys.stderr)
+
+    # }}}
+
+    # {{{ network
+
+    ip = shutil.which("ip")
+    if ip is not None:
+        network_lines = [
+            line.strip()
+            for line in run([ip, "-4", "-brief", "addr", "show"]).splitlines()
+            if line.strip()
+        ]
+        if network_lines:
+            print("  Network:", file=sys.stderr)
+            for line in network_lines:
+                print(f"    {line}", file=sys.stderr)
+
+    # }}}
+
+    # {{{ env
+
+    prefixes = ("OMPI_MCA_", "PRTE_MCA_", "PMIX_MCA_", "UCX_", "MPI4PY_")
+    mpi_env = {key: value for key, value in env.items() if key.startswith(prefixes)}
+
+    if mpi_env:
+        print("  MPI env:", file=sys.stderr)
+        for key in sorted(mpi_env):
+            print(f"    {key}={mpi_env[key]}", file=sys.stderr)
+    else:
+        print("  MPI env: (none)", file=sys.stderr)
+
+    # }}}
+
+
 def run_mpi(
         script: str,
         num_processes: int,
@@ -953,13 +1082,10 @@ def run_mpi(
             "-m", "mpi4py", script
             ]
 
-    import shlex
-    import subprocess
-
     if debug:
-        mpi_version = mpi_library_name.rstrip("\x00")
-        print(f"run_mpi: MPI library: {mpi_version}", file=sys.stderr)
-        print(f"run_mpi: command: {shlex.join(command)}", file=sys.stderr)
+        dump_mpi_debug_info(env)
+
+    import subprocess
 
     try:
         subprocess.run(
